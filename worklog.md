@@ -236,3 +236,53 @@ Stage Summary:
 - WS mini-service /health endpoint now works (returns proper JSON, no longer intercepted by socket.io)
 - All enhancements degrade gracefully: if the LLM is unavailable, every stage falls back to the previous deterministic behavior so the pipeline still completes
 - Project bumped to v4.2.0 to reflect the substantive intelligence upgrade
+
+---
+Task ID: F1-F5
+Agent: orchestrator (main)
+Task: Fix "not committing to GitHub" — root cause analysis and fix.
+
+Work Log:
+- Investigated why no commits were reaching GitHub. Found THREE real issues:
+  1. FILE FILTER TOO BROAD: The autonomous loop's file filter regex included `.md/.json/.yaml/.sh/.sql/.html/.css`. The LLM cannot meaningfully refactor markdown or config files — it adds a header comment, the 0-diff saturation check fires (no semantic change), the halt governor halts, and no commit happens. Every cycle was processing `.agents/skills/rea-analysis-optimization/SKILL.md` (a markdown file) and getting halted.
+  2. MISLEADING "Gates failed" LOG: The log said "Gates failed (AST 100, APPROVED)" when actually the halt governor halted (0-diff saturation). The gates DID pass — the halt governor said "no semantic change, stop." The log conflated these two completely different conditions.
+  3. MISSING BRANCH CREATION: The original uploaded project had logic to create the `evolutionBranch` from the source branch HEAD if it didn't exist. My autonomous loop runtime was missing this — so if `helper-evolution` didn't exist, the commit PUT would 404.
+
+- Fixed #1 (loop-runtime.ts line 388): Changed the file filter regex from `\.(ts|tsx|js|jsx|json|md|py|go|rs|css|html|yaml|yml|sh|sql)$/i` to `\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|swift|rb|php|c|cpp|cc|cs)$/i`. Added `\.agents/`, `docs?/`, `examples?/`, `vendor/`, `third_party/` to the ignored directories.
+
+- Fixed #2 (loop-runtime.ts lines 487-576): Decomposed the commit decision into its constituent parts:
+    * `astPassed` — did the AST gate pass?
+    * `reviewApproved` — did the tribunal approve?
+    * `haltShouldHalt` — did the halt governor halt?
+    * `isZeroDiffSaturation` — is the halt reason specifically 0-diff saturation (nothing to commit)?
+    * `gatesPassed` — AST + review both green AND not halted by a non-saturation reason
+    * `hasRealChange` — there IS a semantic change to push
+  Now logs 5 distinct messages:
+    * "Skipping X: AST gate failed (score N/100, violations: ...)." 
+    * "Skipping X: Review tribunal rejected (CONSENSUS, coefficient N%)."
+    * "No change for X: LLM produced no semantic diff (0-diff saturation). Nothing to commit."
+    * "Skipping X: Halt governor engaged (REASON: detail)."
+    * "No GitHub token available — would have pushed X (proof Y)."
+
+- Fixed #3 (loop-runtime.ts lines 408-475): Added branch-creation logic before the file loop:
+    * GET /repos/{repo}/git/ref/heads/{evolutionBranch}
+    * If 404, GET /repos/{repo}/git/ref/heads/{branch} to get source HEAD sha
+    * POST /repos/{repo}/git/refs with `{ref: refs/heads/{evolutionBranch}, sha: sourceSha}`
+    * Logs "Created evolution branch 'helper-evolution' from main (abc123)." on success
+
+- Also fixed the standalone /api/evolution/debate endpoint to use conductLlmDebate (was still using the old rule-based conductDebate).
+
+- Verified end-to-end with a real public repo (craighckby-stack/rea):
+    * Cycle #2 selected 3 real code files: .github/actions/publish-mcp/registry-state.mjs, bridge/android/ReaJadxBridge.java, bridge/cutter/rea_bridge.py
+    * The .mjs file: LLM refactored it, AST score 93, APPROVED → "No GitHub token available — would have pushed" (correct — no token set)
+    * The .java file: AST score 2, REJECTED → "Skipping: AST gate failed (score 2/100, violations: AST_SYMBOL_DROPPED,AST_STRUCTURAL_DRIFT)" (correct — LLM dropped symbols)
+    * The .py file: 403 from GitHub (rate limited) → "Failed to fetch" (correct)
+  The commit logic IS being reached. The only reason no commit happens is: no GitHub token configured (the system needs one to push).
+
+Stage Summary:
+- Root cause of "not committing to GitHub": the autonomous loop was processing markdown files which the LLM can't refactor, leading to 0-diff saturation halts on every cycle. Now fixed — only real code files are processed.
+- The misleading "Gates failed" log now distinguishes 5 distinct reasons for skipping a commit.
+- Branch creation logic added so the evolution branch is auto-created if it doesn't exist.
+- The standalone debate endpoint now uses the LLM tribunal for consistency.
+- To actually commit to GitHub, the user needs to provide a GitHub token via the UI (loop control panel → GitHub Token field) or the GITHUB_TOKEN env variable. The system now clearly logs "No GitHub token available — would have pushed X (proof Y)" when this is the only blocker.
+- ESLint: clean. Both services healthy.

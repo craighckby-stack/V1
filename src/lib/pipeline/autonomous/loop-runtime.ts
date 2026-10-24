@@ -384,9 +384,14 @@ class AutonomousLoopRuntime {
       this.stats.lastTreeFingerprint = fp;
       this.addLog(`Tree fingerprint computed: ${fp} (${tree.length} entries)`, "info");
 
-      // 2. Filter code files
-      const codeExtRegex = /\.(ts|tsx|js|jsx|json|md|py|go|rs|css|html|yaml|yml|sh|sql)$/i;
-      const ignored = /^(node_modules|\.git|\.next|dist|build|coverage|public\/assets)\//i;
+      // 2. Filter to REAL code files only. The LLM cannot meaningfully
+      //    refactor markdown, JSON, YAML, shell, SQL, HTML, or CSS — running
+      //    it on those files produces cosmetic comment injection that the
+      //    0-diff saturation check then halts on, wasting LLM API calls.
+      //    Only include languages where the LLM can extract constants,
+      //    add type annotations, modularize, etc.
+      const codeExtRegex = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|swift|rb|php|c|cpp|cc|cs)$/i;
+      const ignored = /^(node_modules|\.git|\.next|dist|build|coverage|public\/assets|vendor|third_party|\.agents|docs?|examples?)\//i;
       const codeBlobs = tree
         .filter(
           (item) =>
@@ -399,6 +404,75 @@ class AutonomousLoopRuntime {
       this.currentCycle!.filesScanned = codeBlobs.length;
       this.stats.totalFilesScanned += codeBlobs.length;
       this.addLog(`Selected ${codeBlobs.length} code file(s) for pipeline processing.`, "info");
+
+      // 2.5. Ensure the evolution branch exists before we try to commit to it.
+      //     If the branch doesn't exist, create it from the source branch's HEAD.
+      //     This prevents 404 "branch not found" errors on the commit PUT.
+      if (token && this.config.autoPush && this.config.evolutionBranch !== this.config.branch) {
+        try {
+          const branchCheckUrl = `https://api.github.com/repos/${this.config.targetRepo}/git/ref/heads/${this.config.evolutionBranch}`;
+          const branchCheckRes = await fetch(branchCheckUrl, { headers });
+          if (!branchCheckRes.ok && branchCheckRes.status === 404) {
+            // Branch doesn't exist — create it from source branch HEAD
+            const sourceRefUrl = `https://api.github.com/repos/${this.config.targetRepo}/git/ref/heads/${this.config.branch}`;
+            const sourceRefRes = await fetch(sourceRefUrl, { headers });
+            if (sourceRefRes.ok) {
+              const sourceRefData = (await sourceRefRes.json()) as { object?: { sha?: string } };
+              const sourceSha = sourceRefData.object?.sha;
+              if (sourceSha) {
+                const createBranchRes = await fetch(
+                  `https://api.github.com/repos/${this.config.targetRepo}/git/refs`,
+                  {
+                    method: "POST",
+                    headers: {
+                      Authorization: `Bearer ${token}`,
+                      "Content-Type": "application/json",
+                      "User-Agent": "Architecture-Helper-Pipeline",
+                      Accept: "application/vnd.github.v3+json",
+                    },
+                    body: JSON.stringify({
+                      ref: `refs/heads/${this.config.evolutionBranch}`,
+                      sha: sourceSha,
+                    }),
+                  }
+                );
+                if (createBranchRes.ok) {
+                  this.addLog(
+                    `Created evolution branch '${this.config.evolutionBranch}' from ${this.config.branch} (${sourceSha.slice(0, 7)}).`,
+                    "success",
+                    "github"
+                  );
+                } else {
+                  const errBody = await createBranchRes.json().catch(() => ({}));
+                  this.addLog(
+                    `Failed to create evolution branch: ${(errBody as { message?: string })?.message ?? `HTTP ${createBranchRes.status}`}`,
+                    "warn",
+                    "github"
+                  );
+                }
+              }
+            } else {
+              this.addLog(
+                `Could not resolve source branch '${this.config.branch}' to create evolution branch (HTTP ${sourceRefRes.status}).`,
+                "warn",
+                "github"
+              );
+            }
+          } else if (branchCheckRes.ok) {
+            this.addLog(
+              `Evolution branch '${this.config.evolutionBranch}' already exists.`,
+              "info",
+              "github"
+            );
+          }
+        } catch (err) {
+          this.addLog(
+            `Branch creation check failed: ${(err as Error).message}`,
+            "warn",
+            "github"
+          );
+        }
+      }
 
       // 3. For each file: fetch content, run pipeline, optionally commit
       let committed = 0;
@@ -480,13 +554,25 @@ class AutonomousLoopRuntime {
           }
 
           let pushed = false;
-          const gatesPassed =
-            report.astDiffResult.passed &&
-            (report.reviewVerdict.consensus === "APPROVED" ||
-              report.reviewVerdict.consensus === "CONDITIONAL_APPROVAL") &&
-            !report.haltState?.shouldHalt;
+          // Decompose the gate decision into its constituent parts so we can
+          // log the ACTUAL reason a commit was skipped, instead of lumping
+          // everything under "Gates failed".
+          const astPassed = report.astDiffResult.passed;
+          const reviewApproved =
+            report.reviewVerdict.consensus === "APPROVED" ||
+            report.reviewVerdict.consensus === "CONDITIONAL_APPROVAL";
+          const haltReason = report.haltState?.reason;
+          const haltShouldHalt = !!report.haltState?.shouldHalt;
+          // 0-diff saturation means the LLM produced no semantic change —
+          // there is literally nothing to commit, so this is NOT a failure.
+          const isZeroDiffSaturation = haltReason === "ZERO_DIFF_SATURATION";
+          // Real gates passed = AST + review both green AND not halted by
+          // a non-saturation reason (max cycles, consecutive failures).
+          const gatesPassed = astPassed && reviewApproved && !haltShouldHalt;
+          // We only commit when there IS a real change to push.
+          const hasRealChange = !isZeroDiffSaturation;
 
-          if (gatesPassed && this.config.autoPush && token) {
+          if (gatesPassed && hasRealChange && this.config.autoPush && token) {
             try {
               const commitUrl = `https://api.github.com/repos/${this.config.targetRepo}/contents/${blob.path}`;
               const commitPayload: Record<string, unknown> = {
@@ -528,15 +614,29 @@ class AutonomousLoopRuntime {
                 "github"
               );
             }
-          } else if (!gatesPassed) {
+          } else if (!astPassed) {
             this.addLog(
-              `Gates failed for ${blob.path} (AST ${report.astDiffResult.astScore}, ${report.reviewVerdict.consensus}). Skipping commit.`,
+              `Skipping ${blob.path}: AST gate failed (score ${report.astDiffResult.astScore}/100, violations: ${report.astDiffResult.violations.map(v => v.code).join(",") || "none"}).`,
               "warn"
             );
-            if (report.haltState?.shouldHalt) {
-              halted = true;
-              cycleStatus = "halted";
-            }
+          } else if (!reviewApproved) {
+            this.addLog(
+              `Skipping ${blob.path}: Review tribunal rejected (${report.reviewVerdict.consensus}, coefficient ${(report.reviewVerdict.consensusCoefficient * 100).toFixed(0)}%).`,
+              "warn"
+            );
+          } else if (isZeroDiffSaturation) {
+            this.addLog(
+              `No change for ${blob.path}: LLM produced no semantic diff (0-diff saturation). Nothing to commit.`,
+              "info"
+            );
+          } else if (haltShouldHalt) {
+            this.addLog(
+              `Skipping ${blob.path}: Halt governor engaged (${haltReason}: ${report.haltState?.detail ?? ""}).`,
+              "warn"
+            );
+            // Only halt the cycle for non-saturation reasons.
+            halted = true;
+            cycleStatus = "halted";
           } else if (!token) {
             this.addLog(
               `No GitHub token available — would have pushed ${blob.path} (proof ${report.proofCommitHash}).`,
