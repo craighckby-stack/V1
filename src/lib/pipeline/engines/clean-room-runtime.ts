@@ -1,11 +1,22 @@
 /**
- * 5-Pillar Modular Agent Runtime Helper (server-safe)
+ * 5-Pillar Modular Agent Runtime Helper (server-safe, LLM-driven)
+ *
  *   1. Lifecycle Kernel
- *   2. ReAct Loop Engine
+ *   2. ReAct Loop Engine — calls the real LLM at each step (z-ai-web-dev-sdk)
  *   3. Unified Model Stream Adapter
  *   4. Tool Sandbox VFS Engine
  *   5. Non-Linear Session Tree & Token Budget Engine
+ *
+ * The ReAct loop now asks the LLM to (a) inspect the target file in the VFS
+ * sandbox, (b) propose a refactoring plan, (c) produce the refactored code.
+ * The final answer is the LLM-proposed evolved code, which is then verified
+ * by the AST diff gate.
+ *
+ * If the LLM is unavailable, the loop degrades to a deterministic stub so
+ * the pipeline still completes (and downstream gates will catch any drift).
  */
+
+import { llmComplete, extractCodeBlock } from "../llm/agent-llm";
 
 export type LifecycleState =
   | "uninitialized"
@@ -68,6 +79,8 @@ export interface ReactStep {
   actionPayload?: unknown;
   observation?: string;
   isTerminal: boolean;
+  llmUsed?: boolean;
+  llmLatencyMs?: number;
 }
 
 export class ReactLoopEngine {
@@ -245,11 +258,32 @@ export interface EngineExecutionResult {
   vfsFiles: string[];
   steps: ReactStep[];
   finalAnswer: string;
+  /** LLM-proposed evolved code, or empty string when LLM was unavailable. */
+  proposedEvolvedCode: string;
+  /** Whether the LLM was actually called and returned a usable answer. */
+  llmUsed: boolean;
+  /** Aggregate LLM latency in ms. */
+  llmTotalLatencyMs: number;
+  /** Error message when the LLM was unavailable. */
+  llmError?: string;
 }
 
+const PLAN_SYSTEM = `You are the planning step inside a bounded ReAct agent loop. Given a code refactor goal and the current file contents, output a concise refactor plan in 3-5 bullet points. Do NOT output the refactored code — only the plan. Keep it under 200 words.`;
+
+const REFACTOR_SYSTEM = `You are the execution step inside a bounded ReAct agent loop. You receive a refactor plan and the original code. Output ONLY the refactored code in a single fenced code block. Preserve every public symbol name exactly. Apply the plan faithfully without changing public API.`;
+
+/**
+ * Real LLM-driven clean-room engine. Step 1 plans, step 2 produces the
+ * refactored code, step 3 is terminal. The refactored code is returned as
+ * `proposedEvolvedCode` so the AST gate can verify it.
+ *
+ * On LLM failure, `proposedEvolvedCode` is empty and `llmUsed=false`. The
+ * unified pipeline falls back to a deterministic transformation in that case.
+ */
 export async function executeCleanRoomEngine(
   engineId: string,
-  goal: string
+  goal: string,
+  options?: { originalCode?: string; filePath?: string }
 ): Promise<EngineExecutionResult> {
   const lifecycle = new LifecycleKernel();
   lifecycle.boot();
@@ -259,42 +293,128 @@ export async function executeCleanRoomEngine(
   const session = new SessionTreeTokenBudgetEngine();
   const reactLoop = new ReactLoopEngine(5);
 
-  vfs.writeFile(
-    "workspace/target.ts",
-    `// Target code for engine ${engineId}\nexport function execute() {\n  return "clean-room";\n}`
-  );
+  const originalCode = options?.originalCode ?? "";
+  const filePath = options?.filePath ?? "workspace/target.ts";
+  vfs.writeFile(filePath, originalCode || `// Target code for engine ${engineId}`);
   session.addMessage("user", goal);
+
+  let proposedEvolvedCode = "";
+  let llmUsed = false;
+  let llmTotalLatencyMs = 0;
+  let llmError: string | undefined;
 
   const steps = await reactLoop.runLoop(goal, async (stepNumber) => {
     if (stepNumber === 1) {
+      // Plan step — call LLM with a planning prompt
+      const planUser = `Goal: ${goal}
+
+File contents:
+\`\`\`
+${originalCode.slice(0, 6000)}${originalCode.length > 6000 ? "\n// ... (truncated)" : ""}
+\`\`\`
+
+Output a 3-5 bullet refactor plan only.`;
+      const planRes = await llmComplete({
+        systemPrompt: PLAN_SYSTEM,
+        userPrompt: planUser,
+        temperature: 0.2,
+      });
+      llmTotalLatencyMs += planRes.latencyMs;
+      if (planRes.ok) {
+        llmUsed = true;
+        session.addMessage("assistant", planRes.content);
+        return {
+          stepNumber,
+          thought: `[Pillar 1/2] Inspected ${filePath} in VFS sandbox (${originalCode.length} bytes). Asked LLM for a refactor plan.`,
+          actionName: "plan",
+          actionPayload: { filePath },
+          observation: planRes.content.slice(0, 240),
+          isTerminal: false,
+          llmUsed: true,
+          llmLatencyMs: planRes.latencyMs,
+        };
+      }
+      llmError = planRes.error;
+      // Deterministic fallback plan
+      const fallbackPlan = `1. Add explicit type annotations to inferred parameters.\n2. Extract magic numbers into named constants.\n3. Add JSDoc to undocumented public functions.\n4. Preserve every public symbol exactly.`;
+      session.addMessage("assistant", fallbackPlan);
       return {
         stepNumber,
-        thought: `[Pillar 1/2] Initializing clean-room context for engine '${engineId}'. Inspecting target file in VFS sandbox.`,
-        actionName: "vfs_read",
-        actionPayload: { path: "workspace/target.ts" },
-        observation: `File contents loaded from isolated VFS (${vfs.readFile("workspace/target.ts").length} bytes).`,
+        thought: `[Pillar 1/2] LLM unavailable (${planRes.error}). Using deterministic fallback plan.`,
+        actionName: "plan_fallback",
+        actionPayload: { filePath },
+        observation: fallbackPlan,
         isTerminal: false,
+        llmUsed: false,
+        llmLatencyMs: planRes.latencyMs,
       };
     }
+
     if (stepNumber === 2) {
+      // Execute step — produce refactored code
+      const lang = filePath.toLowerCase().split(".").pop() || "ts";
+      const refactorUser = `Refactor plan:
+${session.getActivePath().slice(-2).map((n) => n.content).join("\n\n")}
+
+Original code (\`${lang}\`):
+\`\`\`${lang}
+${originalCode.slice(0, 6000)}${originalCode.length > 6000 ? "\n// ... (truncated)" : ""}
+\`\`\`
+
+Output ONLY the refactored code in a single \`\`\`${lang} fenced block. Preserve every public symbol name exactly.`;
+      const refactorRes = await llmComplete({
+        systemPrompt: REFACTOR_SYSTEM,
+        userPrompt: refactorUser,
+        temperature: 0.2,
+      });
+      llmTotalLatencyMs += refactorRes.latencyMs;
+      if (refactorRes.ok) {
+        const code = extractCodeBlock(refactorRes.content);
+        if (code) {
+          proposedEvolvedCode = code;
+          llmUsed = true;
+          session.addMessage("assistant", code);
+          return {
+            stepNumber,
+            thought: `[Pillar 4/5] LLM produced refactored code (${code.length} bytes). VFS sandbox remains isolated.`,
+            actionName: "refactor",
+            actionPayload: { engine: engineId, bytes: code.length },
+            observation: `Refactored code emitted (${code.length} bytes).`,
+            isTerminal: false,
+            llmUsed: true,
+            llmLatencyMs: refactorRes.latencyMs,
+          };
+        }
+      }
+      // Fallback — no LLM
+      llmError = llmError ?? refactorRes.error;
       return {
         stepNumber,
-        thought: `[Pillar 4/5] Executing bounded reasoning under token budget. Enforcing AST validation without vendor leak.`,
-        actionName: "ast_verify",
+        thought: `[Pillar 4/5] LLM unavailable for refactor step (${refactorRes.error}). Falling back to downstream deterministic transform.`,
+        actionName: "refactor_fallback",
         actionPayload: { engine: engineId },
-        observation: `AST invariance verified. Zero prototype pollution detected.`,
+        observation: "No LLM code produced; pipeline will apply deterministic transform.",
         isTerminal: false,
+        llmUsed: false,
+        llmLatencyMs: refactorRes.latencyMs,
       };
     }
+
+    // Terminal step
     return {
       stepNumber,
-      thought: `[Pillar 3] Engine '${engineId}' successfully synthesized clean-room solution for goal.`,
+      thought: `[Pillar 3] Engine '${engineId}' synthesized clean-room solution${
+        llmUsed ? " via LLM" : " via deterministic fallback"
+      }.`,
       isTerminal: true,
-      observation: "Execution concluded within step budget.",
+      observation: `Execution concluded within step budget. LLM used: ${llmUsed}.`,
     };
   });
 
-  const finalAnswer = `Clean-Room Engine [${engineId}] processed request '${goal}'. VFS sandbox remained isolated, token budget maintained at ${session.getTotalBudget().percentage}%, and 5-pillar invariants verified.`;
+  const status: EngineExecutionResult["status"] = llmUsed ? "COMPLETED" : "DEGRADED";
+  const finalAnswer = llmUsed
+    ? `Clean-Room Engine [${engineId}] produced ${proposedEvolvedCode.length} bytes of refactored code via LLM. Token budget at ${session.getTotalBudget().percentage}%.`
+    : `Clean-Room Engine [${engineId}] degraded: LLM unavailable (${llmError}). No refactored code produced; downstream pipeline will apply deterministic transform.`;
 
   session.addMessage("assistant", finalAnswer);
   lifecycle.transition("ready");
@@ -302,11 +422,15 @@ export async function executeCleanRoomEngine(
   return {
     engineId,
     goal,
-    status: "COMPLETED",
+    status,
     lifecycleState: lifecycle.getState(),
     tokenBudget: session.getTotalBudget(),
     vfsFiles: vfs.listFiles(),
     steps,
     finalAnswer,
+    proposedEvolvedCode,
+    llmUsed,
+    llmTotalLatencyMs,
+    llmError,
   };
 }

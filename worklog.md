@@ -162,3 +162,77 @@ Stage Summary:
 - Code Review Tribunal shows dual-perspective consensus with security + architecture findings.
 - Memory Bank (RAG) shows pattern provenance (clean/failure) with clean snippets.
 - All 19 API routes + 9 UI components + 1 mini-service + 1 hero image produced.
+
+---
+Task ID: E1-E8
+Agent: orchestrator (main)
+Task: Enhance the system to address every gap from the honest factual assessment — replace stubs with real intelligence.
+
+Work Log:
+- Learned the z-ai-web-dev-sdk LLM API via the LLM skill (chat.completions.create with messages + thinking: {type: "disabled"}).
+- Verified the SDK works at runtime via `bun -e "..."` smoke test ("Hello, how are you?").
+- Created /home/z/my-project/src/lib/pipeline/llm/agent-llm.ts:
+    * `llmComplete({systemPrompt, userPrompt})` — retry + graceful degradation wrapper around z-ai-web-dev-sdk
+    * `extractCodeBlock(raw)` — strips markdown fences from LLM responses
+    * `llmRefactorCode({filePath, code, userPrompt, patternLabel})` — calls the LLM with strict rules (preserve every public symbol, no persona/branding terms, no credentials, no eval) and returns real refactored code
+- Created /home/z/my-project/src/lib/pipeline/llm/debate-llm.ts:
+    * `conductLlmDebate(topic, candidateCode, filePath)` — runs Security + Architecture reviewers in parallel via the LLM with role-specific system prompts, then the Lead synthesizes their findings into a final verdict
+    * JSON-only output enforced; tolerant parser extracts JSON from fenced/raw responses
+    * Falls back to rule-based conductDebate() when LLM is unavailable (so pipeline still runs end-to-end)
+- Replaced /home/z/my-project/src/lib/pipeline/engines/clean-room-runtime.ts:
+    * `executeCleanRoomEngine` now passes the original code + filePath into the engine
+    * Step 1 (Plan) calls the LLM with a planning prompt; falls back to a deterministic 4-bullet plan on LLM failure
+    * Step 2 (Execute) calls the LLM with a refactor prompt; emits the LLM-produced code as `proposedEvolvedCode`; falls back to "no LLM" signal on failure
+    * Step 3 terminal
+    * New result fields: `proposedEvolvedCode`, `llmUsed`, `llmTotalLatencyMs`, `llmError`
+    * Status: COMPLETED (LLM used) or DEGRADED (LLM unavailable)
+- Updated /home/z/my-project/src/lib/pipeline/core/unified-pipeline.ts Stage 2:
+    * Passes `{ originalCode: sanitizedBaseCode, filePath: config.filePath }` to `executeCleanRoomEngine`
+    * When `agentEngineResult.llmUsed === true`, uses the LLM-produced refactored code (re-sanitized via sanitizeAndGovern for defense in depth) and prepends only a small clean header
+    * When LLM unavailable, falls back to the previous deterministic comment-injection transform
+    * Logs explicitly note "Engine: LLM" or "Engine: deterministic" in the header comment
+- Updated Stage 4 to use `conductLlmDebate` instead of `conductDebate`:
+    * The verdict's `usedLlm` flag and `llmError` are surfaced into the stage details
+    * Stage summary now ends with "[LLM]" or "[rule-based fallback]"
+- Replaced /home/z/my-project/src/lib/pipeline/core/ast-diff-gate.ts with a TypeScript Compiler API implementation:
+    * `extractSymbols` now uses `ts.createSourceFile` and walks the AST properly
+    * Catches: top-level functions, classes, interfaces, types, enums, namespaces, exported const declarations, arrow functions assigned to const, class methods, get/set accessors, export specifiers, export assignments
+    * Falls back to a regex extractor (with Python/Go support) for non-TS/JS files
+    * `evaluateAstDiff` now reports `parserUsed: "typescript" | "regex-fallback"` so callers/UI know which parser ran
+- Updated /home/z/my-project/src/lib/pipeline/emg/emg-rag.ts with real TF-IDF:
+    * Tokenizes with stop-word filtering (60+ English stop words)
+    * Computes IDF across all memory entries: idf(t) = log((N+1) / (1+df(t))) + 1
+    * Builds unit-normalized TF-IDF vectors per entry
+    * Query similarity = cosine(queryVec, entryVec)
+    * Friction score derived from max failure score vs max fix score
+    * Epistemic rulings now distinguish EPISTEMIC_HARMONY / COGNITIVE_FRICTION_ELEVATED / CONTRADICTION_UNRESOLVED / NOVEL_INPUT / EMPTY_MEMORY
+- Added new API endpoint /api/memory/query?q=<text> that returns the TF-IDF ranked top fixes + top failures with the friction score and ruling
+- Fixed the WS mini-service /health endpoint at /home/z/my-project/mini-services/loop-ws-service/index.ts:
+    * Used `httpServer.prependListener('request', handler)` to register a /health handler BEFORE socket.io's listener (socket.io with path:"/" intercepts everything by default)
+    * /health now returns proper JSON: `{status, port, clients, lastPollAt, nextJsReachable, cachedStateReady, socketIoPath}`
+    * Confirmed /health responds with 200 + JSON; engine.io handshake still returns 200 (both endpoints work)
+- Enhanced the UI:
+    * Header bar now shows v4.2 LLM-enhanced badge + new "LLM" (Brain icon) and "TS AST" (FileSearch icon) badges
+    * Pipeline stage cards surface new badges per stage: LLM (Stage 2), TS Compiler API / Regex fallback (Stage 3), LLM Tribunal / Rule-based (Stage 4)
+    * Hero section description updated to mention real LLM + TS Compiler API + TF-IDF RAG
+    * /api/health updated to v4.2.0 with `enhancements` map and richer subsystems status
+    * layout.tsx metadata updated with LLM/TF-IDF/TypeScript Compiler API keywords
+
+Verification:
+- ESLint: clean (no errors, no warnings)
+- Pipeline test on calculator.ts: status REJECTED (LLM produced 1268 bytes of real refactoring with CartItem interface + DISCOUNT_CODES + TAX_RATE; TS Compiler API correctly caught AST drift at score 75 and blocked the gate)
+- Pipeline test on simple add/multiply: status HALTED (LLM produced JSDoc-only refactor; AST gate passed at 100; halt governor correctly flagged 0-diff saturation)
+- LLM Stage 2 latency: 4-5 seconds per pipeline run (real LLM calls, not stubs)
+- Memory query: TF-IDF returns proper ranked results with friction score + epistemic ruling
+- Agent Browser verification: page loads via gateway, v4.2 badges visible, LLM + TS AST badges in header, Stage 2 shows "LLM refactor produced 1007 bytes (4365ms)" with LLM badge, Stage 3 shows "TS Compiler API" badge, Code Review Tribunal APPROVED 90% consensus with Security/Architecture/Lead reviewer arguments
+- VLM screenshot verification: all 6 enhancement indicators confirmed visible
+
+Stage Summary:
+- Stage 2 now uses real LLM reasoning (z-ai-web-dev-sdk) instead of hardcoded observations
+- The "evolved code" is now the LLM's actual refactored output (with sanitization + header), not a cosmetic comment injection
+- AST diff uses the TypeScript Compiler API for real symbol extraction (catches nested scopes, arrow functions, re-exports, methods, enums, namespaces); falls back to regex for non-TS files
+- The debate tribunal runs 3 real LLM calls (Security + Architecture in parallel, then Lead synthesis); falls back to rule-based if LLM unavailable
+- RAG memory uses real TF-IDF + cosine similarity instead of token-overlap counting
+- WS mini-service /health endpoint now works (returns proper JSON, no longer intercepted by socket.io)
+- All enhancements degrade gracefully: if the LLM is unavailable, every stage falls back to the previous deterministic behavior so the pipeline still completes
+- Project bumped to v4.2.0 to reflect the substantive intelligence upgrade

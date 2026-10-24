@@ -14,14 +14,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Architecture Helper Pipeline · Autonomous Self-Enhancement",
+  title: "Architecture Helper Pipeline · LLM-Enhanced Autonomous Refactoring",
   description:
-    "Autonomous 6-stage code refactoring pipeline with Shannon entropy sanitization, AST symbol retention, dual-perspective review tribunal, and a halt governor. Runs in scheduled, watch, or continuous mode.",
+    "Autonomous 6-stage code refactoring pipeline with real LLM reasoning, TypeScript Compiler API AST verification, TF-IDF RAG memory, and an LLM-driven dual-perspective review tribunal. Runs in scheduled, watch, or continuous mode.",
   keywords: [
     "autonomous pipeline",
     "self-enhancement",
+    "LLM refactoring",
+    "z-ai-web-dev-sdk",
+    "TypeScript Compiler API",
     "AST diff",
     "Shannon entropy",
+    "TF-IDF RAG",
     "GitHub refactoring",
     "clean-room runtime",
     "code review tribunal",

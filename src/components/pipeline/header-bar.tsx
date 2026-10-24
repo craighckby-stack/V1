@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Wifi, WifiOff, Cpu, ShieldCheck } from "lucide-react";
+import { Activity, Wifi, WifiOff, Cpu, ShieldCheck, Brain, FileSearch } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { cn } from "@/lib/utils";
@@ -34,11 +34,11 @@ export function HeaderBar() {
             <h1 className="text-sm font-semibold text-slate-100 truncate">
               Architecture Helper Pipeline
               <span className="ml-2 text-[10px] text-amber-300 font-mono uppercase tracking-widest">
-                v4.1
+                v4.2 · LLM-enhanced
               </span>
             </h1>
             <p className="text-[11px] text-slate-500 truncate">
-              Autonomous self-enhancement · 6-stage refactoring · AST-gated GitHub dispatch
+              Autonomous self-enhancement · 6-stage refactoring · real LLM + TS Compiler API AST + TF-IDF RAG
             </p>
           </div>
         </div>
@@ -51,6 +51,22 @@ export function HeaderBar() {
           >
             <Cpu className="h-3 w-3 mr-1 text-cyan-400" />
             6-Stage
+          </Badge>
+          <Badge
+            variant="outline"
+            className="text-[10px] uppercase tracking-widest bg-emerald-900/40 text-emerald-300 border-emerald-700/40"
+            title="Real LLM via z-ai-web-dev-sdk"
+          >
+            <Brain className="h-3 w-3 mr-1 text-emerald-400" />
+            LLM
+          </Badge>
+          <Badge
+            variant="outline"
+            className="text-[10px] uppercase tracking-widest bg-cyan-900/40 text-cyan-300 border-cyan-700/40"
+            title="TypeScript Compiler API AST parser"
+          >
+            <FileSearch className="h-3 w-3 mr-1 text-cyan-400" />
+            TS AST
           </Badge>
           <Badge
             variant="outline"

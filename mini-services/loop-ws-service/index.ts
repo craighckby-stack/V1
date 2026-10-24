@@ -9,6 +9,12 @@
  * The Next.js frontend connects via the gateway using:
  *     io("/?XTransformPort=3003")
  * (the path MUST remain `/` so Caddy can route correctly).
+ *
+ * IMPLEMENTATION NOTE: With socket.io `path: "/"`, engine.io would
+ * normally intercept every HTTP request including `/health`. We use
+ * `httpServer.prependListener('request', ...)` to register a handler
+ * that runs BEFORE socket.io's listener, so `/health` returns a real
+ * JSON response and only non-/health requests fall through to engine.io.
  */
 
 import express from "express";
@@ -34,7 +40,34 @@ let cachedStateJson = "";
 let lastPollAt: string | null = null;
 let nextJsReachable = false;
 
+// IMPORTANT: socket.io (engine.io) attaches its own 'request' listener
+// when `new Server(httpServer, ...)` is called. With path: "/", that
+// listener intercepts EVERY request — including /health. We use
+// prependListener here to insert our handler BEFORE socket.io's, so
+// /health short-circuits with a real JSON response.
+httpServer.prependListener("request", (req, res) => {
+  const url = (req.url ?? "").split("?")[0];
+  if (url === "/health" || url === "/health/") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        status: "ok",
+        port: PORT,
+        clients: clientCount,
+        lastPollAt,
+        nextJsReachable,
+        cachedStateReady: cachedState !== null,
+        socketIoPath: "/",
+      })
+    );
+    return; // do not fall through to socket.io
+  }
+  // For all other URLs, do nothing — let the next listener (socket.io) handle it.
+});
+
 app.get("/health", (_req, res) => {
+  // Kept for express-route discovery tools, but the prependListener above
+  // is what actually serves this request before socket.io intercepts.
   res.json({
     status: "ok",
     port: PORT,
@@ -49,20 +82,23 @@ io.on("connection", (socket) => {
   clientCount++;
   console.log(`[LOOP-WS] client connected: ${socket.id} (total=${clientCount})`);
 
-  // Push the current cached state immediately so the new client doesn't wait for the next poll.
   if (cachedState) {
     socket.emit("state", cachedState);
   }
 
   socket.on("disconnect", (reason) => {
     clientCount = Math.max(0, clientCount - 1);
-    console.log(`[LOOP-WS] client disconnected: ${socket.id} reason=${reason} (total=${clientCount})`);
+    console.log(
+      `[LOOP-WS] client disconnected: ${socket.id} reason=${reason} (total=${clientCount})`
+    );
   });
 
   socket.on("error", (err) => {
     console.error(`[LOOP-WS] socket error (${socket.id}):`, err);
   });
 });
+
+let pollFailureCount = 0;
 
 async function pollNextJsState() {
   try {
@@ -88,7 +124,6 @@ async function pollNextJsState() {
     }
   } catch (err: any) {
     nextJsReachable = false;
-    // Only log every 10th failure to avoid spam when Next.js hasn't started yet.
     if (pollFailureCount % 10 === 0) {
       console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}): ${err?.message ?? err}`);
     }
@@ -96,12 +131,10 @@ async function pollNextJsState() {
   }
 }
 
-let pollFailureCount = 0;
-
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`[LOOP-WS] WebSocket service listening on 0.0.0.0:${PORT}`);
+  console.log(`[LOOP-WS] /health available at http://localhost:${PORT}/health`);
   console.log(`[LOOP-WS] Polling ${NEXTJS_STATUS_URL} every ${POLL_INTERVAL_MS}ms`);
-  // Kick off polling immediately so we have state ready for the first client.
   pollNextJsState().catch(() => {});
   setInterval(() => {
     pollNextJsState().catch(() => {});

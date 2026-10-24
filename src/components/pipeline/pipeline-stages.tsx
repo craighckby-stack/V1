@@ -122,11 +122,44 @@ function StageCard({ stage }: { stage: PipelineStageState }) {
             />
           </div>
           <p className="text-xs text-slate-400 mt-1 leading-snug line-clamp-2">{stage.summary}</p>
-          {stage.durationMs !== undefined && (
-            <div className="text-[10px] mt-2 text-slate-500 font-mono">
-              {stage.durationMs}ms
-            </div>
-          )}
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            {stage.durationMs !== undefined && (
+              <div className="text-[10px] text-slate-500 font-mono">{stage.durationMs}ms</div>
+            )}
+            {stage.id === "stage2_reasoning" &&
+              (stage.details as { llmUsed?: boolean } | undefined)?.llmUsed && (
+                <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-emerald-500/15 text-emerald-300 border-emerald-500/40">
+                  LLM
+                </span>
+              )}
+            {stage.id === "stage3_ast_gate" &&
+              (stage.details as { parserUsed?: string } | undefined)?.parserUsed && (
+                <span
+                  className={cn(
+                    "text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border",
+                    (stage.details as { parserUsed?: string }).parserUsed === "typescript"
+                      ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/40"
+                      : "bg-slate-500/15 text-slate-300 border-slate-500/40"
+                  )}
+                >
+                  {(stage.details as { parserUsed?: string }).parserUsed === "typescript"
+                    ? "TS Compiler API"
+                    : "Regex fallback"}
+                </span>
+              )}
+            {stage.id === "stage4_review" &&
+              (stage.details as { usedLlm?: boolean } | undefined)?.usedLlm && (
+                <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-emerald-500/15 text-emerald-300 border-emerald-500/40">
+                  LLM Tribunal
+                </span>
+              )}
+            {stage.id === "stage4_review" &&
+              (stage.details as { usedLlm?: boolean } | undefined)?.usedLlm === false && (
+                <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-amber-500/15 text-amber-300 border-amber-500/40">
+                  Rule-based
+                </span>
+              )}
+          </div>
         </div>
       </div>
     </motion.div>

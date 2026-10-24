@@ -95,12 +95,14 @@ export default function HomePage() {
               without you asking.
             </h2>
             <p className="mt-3 text-sm lg:text-base text-slate-300 max-w-2xl leading-relaxed">
-              Six-stage refactoring flow with Shannon entropy sanitization, AST symbol retention,
-              dual-perspective review tribunal, and a halt governor — all driven by an
-              autonomous loop engine in <span className="font-mono text-amber-300">scheduled</span>,{" "}
+              Six-stage refactoring flow with real LLM reasoning (z-ai-web-dev-sdk),
+              TypeScript Compiler API for AST symbol retention, TF-IDF RAG memory,
+              an LLM-driven dual-perspective review tribunal, and a halt governor —
+              all driven by an autonomous loop engine in{" "}
+              <span className="font-mono text-amber-300">scheduled</span>,{" "}
               <span className="font-mono text-cyan-300">watch</span>, or{" "}
-              <span className="font-mono text-rose-300">continuous</span> mode. Pushes only when
-              every gate passes.
+              <span className="font-mono text-rose-300">continuous</span> mode. Pushes only
+              when every gate passes.
             </p>
             <div className="mt-5 flex flex-wrap items-center gap-3 text-xs text-slate-400">
               <span className="inline-flex items-center gap-1.5">

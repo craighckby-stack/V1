@@ -15,6 +15,7 @@ import { sanitizeAndGovern, SecuritySanitizerResult } from "../emg/sanitizer";
 import { executeCleanRoomEngine, EngineExecutionResult } from "../engines/clean-room-runtime";
 import { evaluateAstDiff, AstDiffResult } from "./ast-diff-gate";
 import { conductDebate, DebateVerdict } from "../emg/debate";
+import { conductLlmDebate } from "../llm/debate-llm";
 import { SelfStoppingGovernor, HaltEvaluationState } from "../emg/halt";
 import { emgRagInstance } from "../emg/emg-rag";
 import { binaryShieldInstance } from "./binaryShield";
@@ -235,23 +236,37 @@ export class UnifiedPipelineRunner {
     });
 
     const agentGoal = `${config.userPrompt} (Template: ${selectedSource.label})`;
-    const agentEngineResult = await executeCleanRoomEngine("inference-reasoning-loop", agentGoal);
+    const agentEngineResult = await executeCleanRoomEngine("inference-reasoning-loop", agentGoal, {
+      originalCode: sanitizedBaseCode,
+      filePath: config.filePath,
+    });
     const dur2 = Math.round(performance.now() - t2);
+
+    const llmStatus = agentEngineResult.llmUsed
+      ? `LLM refactor produced ${agentEngineResult.proposedEvolvedCode.length} bytes (${agentEngineResult.llmTotalLatencyMs}ms).`
+      : `LLM unavailable (${agentEngineResult.llmError ?? "unknown"}). Deterministic fallback engaged.`;
 
     updateStage(
       "stage2_reasoning",
       "succeeded",
-      `Completed in ${agentEngineResult.steps.length} bounded steps within token budget.`,
-      { steps: agentEngineResult.steps.length, tokenBudget: agentEngineResult.tokenBudget },
+      `Completed in ${agentEngineResult.steps.length} bounded steps. ${llmStatus}`,
+      {
+        steps: agentEngineResult.steps.length,
+        tokenBudget: agentEngineResult.tokenBudget,
+        llmUsed: agentEngineResult.llmUsed,
+        llmLatencyMs: agentEngineResult.llmTotalLatencyMs,
+      },
       dur2
     );
     log({
       timestamp: new Date().toLocaleTimeString(),
-      message: `[STAGE 2] Agent loop completed (${agentEngineResult.steps.length} steps, VFS sandbox quarantined).`,
-      type: "success",
+      message: `[STAGE 2] Agent loop completed (${agentEngineResult.steps.length} steps). ${llmStatus}`,
+      type: agentEngineResult.llmUsed ? "success" : "warn",
     });
 
-    // Synthesize proposed evolved code with language-aware comment formatting
+    // Synthesize proposed evolved code with language-aware comment formatting.
+    // When the LLM produced refactored code, use it as the base (after sanitization).
+    // Otherwise fall back to the sanitized original + a header (deterministic).
     const timestampTag = new Date().toISOString();
     const ext = config.filePath.toLowerCase().split(".").pop() || "";
     const isShellOrPython = ["py", "sh", "bash", "yaml", "yml", "toml"].includes(ext);
@@ -260,18 +275,32 @@ export class UnifiedPipelineRunner {
 
     let cleanHeader = "";
     if (isShellOrPython) {
-      cleanHeader = `# Enhanced by Architecture Helper Pipeline\n# Template Origin: ${selectedSource.label}\n# Verified: ${timestampTag}\n\n`;
+      cleanHeader = `# Enhanced by Architecture Helper Pipeline\n# Template Origin: ${selectedSource.label}\n# Verified: ${timestampTag}\n# Engine: ${agentEngineResult.llmUsed ? "LLM" : "deterministic"}\n\n`;
     } else if (isHtml) {
-      cleanHeader = `<!-- Enhanced by Architecture Helper Pipeline\n  Template Origin: ${selectedSource.label}\n  Verified: ${timestampTag} -->\n\n`;
+      cleanHeader = `<!-- Enhanced by Architecture Helper Pipeline\n  Template Origin: ${selectedSource.label}\n  Verified: ${timestampTag}\n  Engine: ${agentEngineResult.llmUsed ? "LLM" : "deterministic"} -->\n\n`;
     } else {
-      cleanHeader = `/**\n * Enhanced by Architecture Helper Pipeline\n * Template Origin: ${selectedSource.label}\n * Verified: ${timestampTag}\n */\n`;
+      cleanHeader = `/**\n * Enhanced by Architecture Helper Pipeline\n * Template Origin: ${selectedSource.label}\n * Verified: ${timestampTag}\n * Engine: ${agentEngineResult.llmUsed ? "LLM" : "deterministic"}\n */\n`;
     }
 
-    let evolvedCode = sanitizedBaseCode;
-    if (isTsOrJs && !evolvedCode.includes("export interface") && !evolvedCode.includes("export type")) {
-      evolvedCode = `${cleanHeader}// Type-safe execution interface\nexport interface ExecutionContract {\n  readonly status: 'active' | 'completed';\n  readonly timestamp: number;\n}\n\n${evolvedCode}`;
+    let evolvedCode: string;
+    if (agentEngineResult.llmUsed && agentEngineResult.proposedEvolvedCode.trim()) {
+      // Real LLM-produced code — sanitize it again (defense in depth) and prepend header.
+      const llmCode = agentEngineResult.proposedEvolvedCode;
+      const reSanitized = sanitizeAndGovern(llmCode);
+      evolvedCode = `${cleanHeader}${reSanitized.sanitizedCode}`;
+      log({
+        timestamp: new Date().toLocaleTimeString(),
+        message: `[STAGE 2] Using LLM-refactored code (${llmCode.length} bytes, re-sanitized: ${reSanitized.violations.length} violations).`,
+        type: reSanitized.clean ? "success" : "warn",
+      });
     } else {
-      evolvedCode = `${cleanHeader}${evolvedCode}`;
+      // Deterministic fallback — header injection (preserves previous behavior).
+      evolvedCode = sanitizedBaseCode;
+      if (isTsOrJs && !evolvedCode.includes("export interface") && !evolvedCode.includes("export type")) {
+        evolvedCode = `${cleanHeader}// Type-safe execution interface\nexport interface ExecutionContract {\n  readonly status: 'active' | 'completed';\n  readonly timestamp: number;\n}\n\n${evolvedCode}`;
+      } else {
+        evolvedCode = `${cleanHeader}${evolvedCode}`;
+      }
     }
 
     // STAGE 3
@@ -283,15 +312,21 @@ export class UnifiedPipelineRunner {
       type: "info",
     });
 
-    const astDiffResult = evaluateAstDiff(config.code, evolvedCode);
+    const astDiffResult = evaluateAstDiff(config.code, evolvedCode, config.filePath);
     const dur3 = Math.round(performance.now() - t3);
 
     if (astDiffResult.passed) {
       updateStage(
         "stage3_ast_gate",
         "succeeded",
-        `Passed: AST Score ${astDiffResult.astScore}/100, Retained ${astDiffResult.symbolMap.retainedCount}/${astDiffResult.symbolMap.originalCount} symbols.`,
-        { astScore: astDiffResult.astScore, violations: astDiffResult.violations },
+        `Passed: AST Score ${astDiffResult.astScore}/100, Retained ${astDiffResult.symbolMap.retainedCount}/${astDiffResult.symbolMap.originalCount} symbols (${astDiffResult.parserUsed}).`,
+        {
+          astScore: astDiffResult.astScore,
+          violations: astDiffResult.violations,
+          parserUsed: astDiffResult.parserUsed,
+          symbolMap: astDiffResult.symbolMap,
+          drift: astDiffResult.structuralDriftRatio,
+        },
         dur3
       );
       log({
@@ -303,8 +338,13 @@ export class UnifiedPipelineRunner {
       updateStage(
         "stage3_ast_gate",
         "blocked",
-        `AST integrity check flagged violations (Score: ${astDiffResult.astScore}/100).`,
-        { violations: astDiffResult.violations },
+        `AST integrity check flagged violations (Score: ${astDiffResult.astScore}/100, ${astDiffResult.parserUsed}).`,
+        {
+          violations: astDiffResult.violations,
+          parserUsed: astDiffResult.parserUsed,
+          symbolMap: astDiffResult.symbolMap,
+          drift: astDiffResult.structuralDriftRatio,
+        },
         dur3
       );
       log({
@@ -319,15 +359,16 @@ export class UnifiedPipelineRunner {
     updateStage("stage4_review", "running", "Conducting dual-perspective review (Security vs Architecture)...");
     log({
       timestamp: new Date().toLocaleTimeString(),
-      message: "[STAGE 4] Convening review: Security Reviewer vs Architecture Reviewer...",
+      message: "[STAGE 4] Convening LLM review tribunal: Security Reviewer vs Architecture Reviewer...",
       type: "info",
     });
 
-    const reviewVerdict = conductDebate(
+    const debateResult = await conductLlmDebate(
       `Code Review for ${config.filePath}`,
       evolvedCode,
       config.filePath
     );
+    const reviewVerdict = debateResult.verdict;
     const dur4 = Math.round(performance.now() - t4);
     const isReviewApproved =
       reviewVerdict.consensus === "APPROVED" ||
@@ -336,13 +377,22 @@ export class UnifiedPipelineRunner {
     updateStage(
       "stage4_review",
       isReviewApproved ? "succeeded" : "blocked",
-      `Verdict: ${reviewVerdict.consensus} (Consensus: ${(reviewVerdict.consensusCoefficient * 100).toFixed(0)}%)`,
-      { consensus: reviewVerdict.consensus, coefficient: reviewVerdict.consensusCoefficient },
+      `Verdict: ${reviewVerdict.consensus} (Consensus: ${(reviewVerdict.consensusCoefficient * 100).toFixed(0)}%) ${
+        debateResult.usedLlm ? "[LLM]" : "[rule-based fallback]"
+      }`,
+      {
+        consensus: reviewVerdict.consensus,
+        coefficient: reviewVerdict.consensusCoefficient,
+        usedLlm: debateResult.usedLlm,
+        llmError: debateResult.llmError,
+      },
       dur4
     );
     log({
       timestamp: new Date().toLocaleTimeString(),
-      message: `[STAGE 4] Review outcome: ${reviewVerdict.consensus} (${reviewVerdict.leadSummary})`,
+      message: `[STAGE 4] Review outcome: ${reviewVerdict.consensus} (${reviewVerdict.leadSummary}) ${
+        debateResult.usedLlm ? "[LLM]" : "[fallback]"
+      }`,
       type: isReviewApproved ? "success" : "warn",
     });
 
