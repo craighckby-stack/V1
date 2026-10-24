@@ -1,0 +1,90 @@
+// Architecture Helper Pipeline — Prisma schema
+// SQLite-backed persistence for pipeline runs, autonomous cycles, and RAG memory.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  title     String
+  content   String?
+  published Boolean  @default(false)
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// A single execution of the 6-stage refactoring pipeline on one file.
+model PipelineRun {
+  id             String   @id @default(cuid())
+  pipelineId     String   @unique
+  targetRepo     String
+  targetBranch   String
+  evolutionBranch String
+  filePath       String
+  userPrompt     String
+  siphonSourceId String
+  status         String   // COMPLETED | REJECTED | HALTED | SANITIZED_APPLIED
+  astScore       Int
+  consensus      String
+  proofHash      String
+  originalCode   String
+  evolvedCode    String
+  sanitizerClean Boolean
+  violations     String   // JSON array
+  triggeredBy    String   // manual | autonomous | watch | continuous
+  createdAt      DateTime @default(now())
+}
+
+/// One cycle of the autonomous self-enhancement loop.
+model AutonomousCycle {
+  id              String   @id @default(cuid())
+  cycleNumber     Int
+  mode            String   // scheduled | watch | continuous | manual
+  targetRepo     String
+  branch         String
+  filesScanned   Int
+  filesCommitted Int
+  status         String   // running | completed | error | halted
+  proofHash      String?
+  error          String?
+  startedAt      DateTime @default(now())
+  finishedAt     DateTime?
+}
+
+/// Long-term memory entries (RAG-style).
+model MemoryEntry {
+  id          String   @id @default(cuid())
+  provenance  String   // clean | failure | synthesis | contradicted
+  trust       String   // high | medium | low | revoked
+  filePath    String?
+  ruleToAvoid String?
+  diagnosis   String?
+  cleanSnippet String?
+  content     String
+  createdAt   DateTime @default(now())
+}
+
+/// Logged events emitted by the autonomous loop engine.
+model LoopLog {
+  id        String   @id @default(cuid())
+  cycleId   String?
+  timestamp DateTime @default(now())
+  type      String   // info | warn | success | error
+  message   String
+  source    String   // autonomous | pipeline | github | websocket
+}
