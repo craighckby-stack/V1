@@ -280,43 +280,37 @@ export class UnifiedPipelineRunner {
       type: agentEngineResult.llmUsed ? "success" : "warn",
     });
 
-    // Synthesize proposed evolved code with language-aware comment formatting.
-    // When the LLM produced refactored code, use it as the base (after sanitization).
-    // Otherwise fall back to the sanitized original + a header (deterministic).
-    const timestampTag = new Date().toISOString();
-    const ext = config.filePath.toLowerCase().split(".").pop() || "";
-    const isShellOrPython = ["py", "sh", "bash", "yaml", "yml", "toml"].includes(ext);
-    const isHtml = ["html", "htm"].includes(ext);
-    const isTsOrJs = ["ts", "tsx", "js", "jsx"].includes(ext) || !ext;
-
-    let cleanHeader = "";
-    if (isShellOrPython) {
-      cleanHeader = `# Enhanced by Architecture Helper Pipeline\n# Template Origin: ${selectedSource.label}\n# Verified: ${timestampTag}\n# Engine: ${agentEngineResult.llmUsed ? "LLM" : "deterministic"}\n\n`;
-    } else if (isHtml) {
-      cleanHeader = `<!-- Enhanced by Architecture Helper Pipeline\n  Template Origin: ${selectedSource.label}\n  Verified: ${timestampTag}\n  Engine: ${agentEngineResult.llmUsed ? "LLM" : "deterministic"} -->\n\n`;
-    } else {
-      cleanHeader = `/**\n * Enhanced by Architecture Helper Pipeline\n * Template Origin: ${selectedSource.label}\n * Verified: ${timestampTag}\n * Engine: ${agentEngineResult.llmUsed ? "LLM" : "deterministic"}\n */\n`;
-    }
+    // Synthesize proposed evolved code.
+    // The LLM's refactored output IS the enhancement — we do NOT prepend a
+    // "Enhanced by Architecture Helper Pipeline" header. That header was
+    // cosmetic noise that polluted every committed file without adding
+    // value. If the LLM produced no semantic change, we return the
+    // original code unchanged and let the 0-diff saturation check halt
+    // the cycle (no commit = no noise).
 
     let evolvedCode: string;
     if (agentEngineResult.llmUsed && agentEngineResult.proposedEvolvedCode.trim()) {
-      // Real LLM-produced code — sanitize it again (defense in depth) and prepend header.
+      // Real LLM-produced code — sanitize it again (defense in depth)
+      // and use it AS-IS. No header prepended.
       const llmCode = agentEngineResult.proposedEvolvedCode;
       const reSanitized = sanitizeAndGovern(llmCode, config.filePath);
-      evolvedCode = `${cleanHeader}${reSanitized.sanitizedCode}`;
+      evolvedCode = reSanitized.sanitizedCode;
       log({
         timestamp: new Date().toLocaleTimeString(),
         message: `[STAGE 2] Using LLM-refactored code (${llmCode.length} bytes, re-sanitized: ${reSanitized.violations.length} violations).`,
         type: reSanitized.clean ? "success" : "warn",
       });
     } else {
-      // Deterministic fallback — header injection (preserves previous behavior).
+      // LLM unavailable or produced no code — return the original
+      // unchanged. The 0-diff saturation check will halt this cycle
+      // (no semantic change = nothing to commit). We do NOT inject a
+      // cosmetic header or unused ExecutionContract interface.
       evolvedCode = sanitizedBaseCode;
-      if (isTsOrJs && !evolvedCode.includes("export interface") && !evolvedCode.includes("export type")) {
-        evolvedCode = `${cleanHeader}// Type-safe execution interface\nexport interface ExecutionContract {\n  readonly status: 'active' | 'completed';\n  readonly timestamp: number;\n}\n\n${evolvedCode}`;
-      } else {
-        evolvedCode = `${cleanHeader}${evolvedCode}`;
-      }
+      log({
+        timestamp: new Date().toLocaleTimeString(),
+        message: `[STAGE 2] No LLM refactor produced. Returning original code unchanged (no cosmetic header injected).`,
+        type: "warn",
+      });
     }
 
     // STAGE 3
