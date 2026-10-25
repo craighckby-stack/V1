@@ -283,7 +283,7 @@ const REFACTOR_SYSTEM = `You are the execution step inside a bounded ReAct agent
 export async function executeCleanRoomEngine(
   engineId: string,
   goal: string,
-  options?: { originalCode?: string; filePath?: string }
+  options?: { originalCode?: string; filePath?: string; postmortemConstraints?: string }
 ): Promise<EngineExecutionResult> {
   const lifecycle = new LifecycleKernel();
   lifecycle.boot();
@@ -295,6 +295,7 @@ export async function executeCleanRoomEngine(
 
   const originalCode = options?.originalCode ?? "";
   const filePath = options?.filePath ?? "workspace/target.ts";
+  const postmortemConstraints = options?.postmortemConstraints ?? "";
   vfs.writeFile(filePath, originalCode || `// Target code for engine ${engineId}`);
   session.addMessage("user", goal);
 
@@ -353,8 +354,13 @@ Output a 3-5 bullet refactor plan only.`;
     if (stepNumber === 2) {
       // Execute step — produce refactored code
       const lang = filePath.toLowerCase().split(".").pop() || "ts";
+      const planContext = session.getActivePath().slice(-2).map((n) => n.content).join("\n\n");
+      const postmortemBlock = postmortemConstraints
+        ? `${postmortemConstraints}\n\nThe constraints above are from previous failed attempts on this file. You MUST follow them.`
+        : "";
       const refactorUser = `Refactor plan:
-${session.getActivePath().slice(-2).map((n) => n.content).join("\n\n")}
+${planContext}
+${postmortemBlock}
 
 Original code (\`${lang}\`):
 \`\`\`${lang}

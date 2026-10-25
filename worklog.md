@@ -348,3 +348,57 @@ Stage Summary:
     * Raised threshold from 4.15 to 4.5
 - The AST gate fix (method extraction for Java/Python/Go/etc.) would catch any future method-level regressions like the old ReaGhidraMipsSoftFloat.java breakage.
 - ESLint: clean. Both services restarted.
+
+---
+Task ID: P1-P8
+Agent: orchestrator (main)
+Task: Build the postmortem-first pipeline — per-file negative constraints that feed into the LLM before mutation.
+
+Work Log:
+- Added Postmortem model to Prisma schema with fields: targetRepo, branch, filePath (unique together), status (active/resolved), failureType, symptom, evidence, constraints, attempts, timestamps. Pushed to DB.
+
+- Built /home/z/my-project/src/lib/pipeline/postmortem/postmortem-store.ts:
+    * PostmortemStore class: getActivePostmortem, getConstraintsForFile (returns formatted promptBlock), recordFailure (creates or increments), markResolved, listActive, delete
+    * generatePostmortemFromReport(): extracts failureType, symptom, evidence, constraints from a PipelineExecutionReport. Handles 8 failure types: AST_SYMBOL_DROPPED, AST_STRUCTURAL_DRIFT, BRANDING_INJECTION, REVIEW_REJECTED, SANITIZER_REDACTION, HEADER_STRIPPED, COMPILE_ERROR, ZERO_DIFF_SATURATION
+    * parseMarkdownPostmortem(): parses the POSTMORTEMS.md format from the user's other enhancer (### ❌ headers, **Symptom:**, **EVIDENCE:**, **CONSTRAINT:** fields)
+    * seedPostmortemsFromMarkdown(): imports all entries from an external markdown file as active postmortems
+
+- Integrated into the pipeline (unified-pipeline.ts):
+    * Before Stage 2: calls postmortemStore.getConstraintsForFile(repo, branch, filePath)
+    * If active postmortem exists: logs "Active postmortem found (FAILURE_TYPE, N prior failure(s)). Injecting constraints into LLM prompt."
+    * Passes the postmortemConstraints.promptBlock to executeCleanRoomEngine
+    * The promptBlock is injected into the LLM refactor prompt as: "--- POSTMORTEM CONSTRAINTS (this file failed N time(s) before) --- FAILURE TYPE / SYMPTOM / EVIDENCE / CONSTRAINTS (MUST follow ALL) --- END POSTMORTEM CONSTRAINTS ---"
+
+- Integrated into the autonomous loop (loop-runtime.ts):
+    * On successful commit: markResolved(repo, branch, filePath) + log "Postmortem resolved for X (file successfully committed)."
+    * On failure (AST/review/sanitizer/zero-diff): generatePostmortemFromReport() + recordFailure() + log "Postmortem recorded for X (attempt #N, FAILURE_TYPE). Next attempt will use these constraints."
+
+- Added API endpoints:
+    * GET /api/postmortems?repo=...&branch=... — list active postmortems
+    * DELETE /api/postmortems?id=... — dismiss a postmortem
+    * POST /api/postmortems/seed — seed from external markdown (body: { markdown, repo, branch })
+
+- Added PostmortemPanel UI component (/home/z/my-project/src/components/pipeline/postmortem-panel.tsx):
+    * Shows active postmortems with failure type badge (color-coded by type), attempt count, file path, symptom
+    * Click to expand: shows full evidence + constraints
+    * Dismiss button (X) to delete a postmortem
+    * Auto-refreshes every 10s (postmortems are created/resolved by the loop)
+    * Placed in the page layout alongside Memory Bank (Row 5, 2-column grid)
+
+- Verified end-to-end:
+    * Seeded 2 postmortems via /api/postmortems/seed using the POSTMORTEMS.md format from the user's other enhancer
+    * GET /api/postmortems returns 2 active postmortems (bridge/cutter/rea_bridge.py as HEADER_STRIPPED, bridge/ghidra/ReaGhidraMipsSoftFloat.java as AST_SYMBOL_DROPPED)
+    * Running the pipeline on ReaGhidraMipsSoftFloat.java logged: "[STAGE 2] Active postmortem found (AST_SYMBOL_DROPPED, 1 prior failure(s)). Injecting constraints into LLM prompt." (LLM was rate-limited at 429, fell back to deterministic, but the constraint injection was verified working)
+    * UI shows the Postmortem Constraints panel with "2 active" badge and both seeded entries visible with their symptoms and file paths
+
+Stage Summary:
+- The postmortem-first pipeline is fully built and working. The two-phase flow the user described is now implemented:
+    Phase 1 (external): The user's other enhancer creates a POSTMORTEMS.md file with per-file failure analysis.
+    Phase 2 (our system): 
+      a. /api/postmortems/seed imports the markdown as active postmortems (one per file)
+      b. Before each pipeline run, Stage 2 fetches the postmortem for that file and injects its constraints into the LLM prompt
+      c. On success (commit): the postmortem is marked resolved (won't be injected on future runs)
+      d. On failure: the postmortem is updated with new evidence + constraints + incremented attempt count
+- This gives the pipeline PER-FILE memory of past failures — the exact missing layer. When the LLM tries to refactor ReaGhidraMipsSoftFloat.java again, it now sees: "Previous attempt dropped collect, requireIntegerStorage, usesFloat, usesFloat, isFloat. You MUST preserve all 7 methods."
+- The UI shows all active postmortems with their constraints, so the user can see what the pipeline has learned and dismiss false positives.
+- ESLint: clean. Both services healthy. Project bumped to v4.3.

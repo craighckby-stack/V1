@@ -19,6 +19,7 @@ import { conductLlmDebate } from "../llm/debate-llm";
 import { SelfStoppingGovernor, HaltEvaluationState } from "../emg/halt";
 import { emgRagInstance } from "../emg/emg-rag";
 import { binaryShieldInstance } from "./binaryShield";
+import { postmortemStore, generatePostmortemFromReport } from "../postmortem/postmortem-store";
 
 export type PipelineStageId =
   | "stage0_ingestion"
@@ -235,10 +236,25 @@ export class UnifiedPipelineRunner {
       type: "info",
     });
 
+    // Fetch per-file postmortem constraints (if any prior failures recorded)
+    const postmortemConstraints = await postmortemStore.getConstraintsForFile(
+      config.targetRepo,
+      config.targetBranch,
+      config.filePath
+    );
+    if (postmortemConstraints.hasActivePostmortem) {
+      log({
+        timestamp: new Date().toLocaleTimeString(),
+        message: `[STAGE 2] Active postmortem found (${postmortemConstraints.failureType}, ${postmortemConstraints.attempts} prior failure(s)). Injecting constraints into LLM prompt.`,
+        type: "warn",
+      });
+    }
+
     const agentGoal = `${config.userPrompt} (Template: ${selectedSource.label})`;
     const agentEngineResult = await executeCleanRoomEngine("inference-reasoning-loop", agentGoal, {
       originalCode: sanitizedBaseCode,
       filePath: config.filePath,
+      postmortemConstraints: postmortemConstraints.promptBlock,
     });
     const dur2 = Math.round(performance.now() - t2);
 

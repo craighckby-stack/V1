@@ -88,3 +88,26 @@ model LoopLog {
   message   String
   source    String   // autonomous | pipeline | github | websocket
 }
+
+/// Per-file postmortem — negative constraints learned from past failures.
+/// One record per (repo, branch, filePath). Active postmortems feed constraints
+/// into the LLM refactorer before mutation. Resolved postmortems are kept for
+/// history but skipped during constraint injection.
+model Postmortem {
+  id           String   @id @default(cuid())
+  targetRepo   String
+  branch       String
+  filePath     String
+  status       String   // active | resolved
+  failureType  String   // AST_SYMBOL_DROPPED | AST_STRUCTURAL_DRIFT | REVIEW_REJECTED | SANITIZER_REDCTION | HEADER_STRIPPED | COMPILE_ERROR | OTHER
+  symptom      String   // human-readable one-line summary
+  evidence     String   // machine-copied facts (AST violations, dropped symbols, etc.)
+  constraints  String   // imperative instructions the LLM must follow
+  attempts     Int      @default(1)  // how many times this file has failed
+  lastAttemptAt DateTime @default(now())
+  resolvedAt   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([targetRepo, branch, filePath])
+}

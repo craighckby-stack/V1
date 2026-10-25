@@ -12,6 +12,7 @@ import { LogStream } from "@/components/pipeline/log-stream";
 import { CurrentCycle } from "@/components/pipeline/current-cycle";
 import { RecentCycles } from "@/components/pipeline/recent-cycles";
 import { MemoryBank } from "@/components/pipeline/memory-bank";
+import { PostmortemPanel } from "@/components/pipeline/postmortem-panel";
 import { ManualPipelineRunner } from "@/components/pipeline/manual-runner";
 import { DebateChamber } from "@/components/pipeline/debate-chamber";
 import { AstInspectorModal } from "@/components/pipeline/ast-inspector-modal";
@@ -157,14 +158,17 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Row 5: Memory bank */}
-        <MemoryBank />
+        {/* Row 5: Postmortem constraints + Memory bank */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <PostmortemPanel />
+          <MemoryBank />
+        </div>
 
         {/* Footer */}
         <footer className="mt-auto pt-6 pb-8 border-t border-slate-800/60">
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
             <div className="flex items-center gap-3">
-              <span className="font-mono">Architecture Helper Pipeline · v4.1</span>
+              <span className="font-mono">Architecture Helper Pipeline · v4.3</span>
               <span className="text-slate-700">·</span>
               <span>Next.js 16 + App Router</span>
               <span className="text-slate-700">·</span>

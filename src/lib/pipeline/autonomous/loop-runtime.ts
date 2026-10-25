@@ -20,6 +20,7 @@
 import { unifiedPipelineRunnerInstance } from "../core/unified-pipeline";
 import { db } from "@/lib/db";
 import { loopEventBus, LoopEvent } from "./loop-event-bus";
+import { postmortemStore, generatePostmortemFromReport } from "../postmortem/postmortem-store";
 
 export type LoopMode = "scheduled" | "watch" | "continuous" | "manual";
 export type LoopStatus = "idle" | "running" | "paused" | "error";
@@ -642,6 +643,53 @@ class AutonomousLoopRuntime {
               `No GitHub token available — would have pushed ${blob.path} (proof ${report.proofCommitHash}).`,
               "warn"
             );
+          }
+
+          // Postmortem integration: record failures, resolve on success.
+          const repo = this.config.targetRepo;
+          const branch = this.config.branch;
+          if (pushed) {
+            // Commit succeeded — resolve any active postmortem for this file.
+            postmortemStore
+              .markResolved(repo, branch, blob.path)
+              .then(() => {
+                this.addLog(
+                  `Postmortem resolved for ${blob.path} (file successfully committed).`,
+                  "info"
+                );
+              })
+              .catch(() => {
+                /* ignore */
+              });
+          } else if (!astPassed || !reviewApproved || isZeroDiffSaturation) {
+            // A real failure — record/update the postmortem so the next
+            // attempt gets the constraints.
+            const pm = generatePostmortemFromReport({
+              filePath: blob.path,
+              astDiffResult: report.astDiffResult,
+              sanitizerResult: report.sanitizerResult,
+              reviewVerdict: report.reviewVerdict,
+              haltReason: report.haltState?.reason,
+            });
+            postmortemStore
+              .recordFailure({
+                repo,
+                branch,
+                filePath: blob.path,
+                failureType: pm.failureType,
+                symptom: pm.symptom,
+                evidence: pm.evidence,
+                constraints: pm.constraints,
+              })
+              .then((record) => {
+                this.addLog(
+                  `Postmortem recorded for ${blob.path} (attempt #${record.attempts}, ${pm.failureType}). Next attempt will use these constraints.`,
+                  "warn"
+                );
+              })
+              .catch(() => {
+                /* ignore */
+              });
           }
 
           this.currentCycle!.fileResults.push({
