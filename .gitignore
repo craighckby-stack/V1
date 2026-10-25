@@ -1,15 +1,2 @@
+skills/
 node_modules/
-.next/
-db/
-dev.log
-server.log
-*.log
-tool-results/
-upload/
-download/
-screenshots/
-mini-services/loop-ws-service/node_modules/
-mini-services/loop-ws-service/service.log
-mini-services/loop-ws-service/bun.lock
-.env
-*.tsbuildinfo
