@@ -12,10 +12,9 @@
  * When you see a commit on GitHub, that's exactly what the server is running.
  */
 
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, readdirSync, unlinkSync, existsSync } from "fs";
 import { execSync } from "child_process";
 import { join, relative } from "path";
-import { glob } from "fs";
 import { llmComplete, extractCodeBlock } from "../llm/agent-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
 
@@ -80,7 +79,7 @@ class SelfEnhanceLoop {
   private scanFiles(): string[] {
     const files: string[] = [];
     const scan = (dir: string) => {
-      const entries = require("fs").readdirSync(dir, { withFileTypes: true });
+      const entries = readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
         const fullPath = join(dir, entry.name);
         if (entry.isDirectory()) {
@@ -275,8 +274,8 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
 
       // 8. Clean up temp/backup
       try {
-        require("fs").unlinkSync(tempFile);
-        require("fs").unlinkSync(backupFile);
+        unlinkSync(tempFile);
+        unlinkSync(backupFile);
       } catch {
         /* ignore */
       }
