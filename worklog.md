@@ -286,3 +286,65 @@ Stage Summary:
 - The standalone debate endpoint now uses the LLM tribunal for consistency.
 - To actually commit to GitHub, the user needs to provide a GitHub token via the UI (loop control panel → GitHub Token field) or the GITHUB_TOKEN env variable. The system now clearly logs "No GitHub token available — would have pushed X (proof Y)" when this is the only blocker.
 - ESLint: clean. Both services healthy.
+
+---
+Task ID: M1-M2
+Agent: orchestrator (main)
+Task: Analyze rea-helper-evolution (1).zip — the new enhanced version — and verify fixes would prevent its damage.
+
+Work Log:
+- Extracted rea-helper-evolution (1).zip to /tmp/cmp/rea-new.
+- Compared main vs new: 1461 files differ (vs 108 in the old enhanced). The new run processed ~13x more files.
+- Found a NEW file: docs/POSTMORTEMS.md (1283 lines, 39 post-mortem entries). The pipeline is now documenting its own failures with "Header Stripped: Original file contained N import statements, but candidate contains zero imports" as the most common symptom. This is a new feature in the user's pipeline version — it records negative constraints.
+
+- GOOD NEWS: The new run did NOT break ReaGhidraMipsSoftFloat.java (it's unchanged). The post-mortem system appears to have learned from the old run's failures and skipped the files that would have been broken. None of the 7 "substantial rewrites" from the old run are broken in the new run.
+
+- BAD NEWS: The new run redacted 60 environment-variable strings across 19 files:
+    * DYLD_FRAMEWORK_PATH=/override
+    * DYLD_FALLBACK_LIBRARY_PATH=/fallback
+    * DYLD_LIBRARY_PATH=/override
+    * DYLD_OVERLAY_PATH=/overlay
+    * "abcdefghijklmnopqrstuvwxyz" (the lowercase alphabet!)
+  These are standard macOS dyld env var names and utility strings, NOT secrets. They got redacted because:
+    1. The entropy threshold was 4.15 (too low — DYLD_FRAMEWORK_PATH=/override has entropy 4.44)
+    2. The fixture-file heuristic wasn't catching non-test files like environmentStateWriteValues.ts
+    3. The alphabet string "abcdefghijklmnopqrstuvwxyz" has entropy 4.70 — above even the raised 4.5 threshold
+
+- Categorization of the 1461 diffs:
+    * 1431 banner-only (≤12 lines): just the header + unused ExecutionContract interface
+    * 27 light edits (13-30 lines): header + small changes
+    * 3 moderate (31-100 lines): header + redactions (the 3 biggest are all redaction files)
+    * 0 substantial (>100 lines): NO big rewrites this time
+
+- RE-APPLIED FIXES (hot-reload had reverted them earlier):
+    1. AST gate: extractSymbolsRegex now language-aware for Java/Python/Go/Rust/Ruby/PHP/C/C++/Kotlin/C# — extracts class methods, not just top-level declarations. Verified: ReaGhidraMipsSoftFloat.java now correctly FAILS the gate (8 orig vs 4 evolved symbols, score 38, AST_SYMBOL_DROPPED high).
+    2. Sanitizer: added isLikelyEnvVarOrPath() heuristic that skips redaction for:
+        - ENV_VAR=value patterns (DYLD_FRAMEWORK_PATH=/override)
+        - Known env var prefixes (DYLD_, LD_, PATH=, HOME=, etc.)
+        - File paths (start with / or have file extensions)
+        - URLs (http://, https://)
+        - Utility strings (all-unique chars: alphabets, digit sequences)
+    3. Raised entropy threshold from 4.15 to 4.5
+    4. Added isLikelyFixtureFile() heuristic for test/fixture/experiment files
+    5. All sanitizer call sites now pass filePath (unified-pipeline.ts, /api/emg/sanitize)
+
+- Verified all 19 redacted files from the new version would now be PRESERVED:
+    * dylibResolution.test.ts: ✅ 0 redactions (was ~15)
+    * electronFuses.test.ts: ✅ 0 redactions
+    * environmentStateWriteValues.ts: ✅ 0 redactions (the alphabet string)
+    * Real AIzaSy API key: ✅ still redacted
+
+- Killed the dev server before re-applying fixes to prevent hot-reload from reverting them again. Then restarted.
+
+Stage Summary:
+- The new enhanced version (rea-helper-evolution (1).zip) is LESS broken than the old one:
+    * 0 broken Java files (was 1)
+    * 0 substantial rewrites (was 7)
+    * 19 files with redactions (was 5) — but redactions are env vars/alphabets, not test oracles
+- The post-mortem system in the user's pipeline version appears to have learned from prior failures and avoided re-breaking the files it broke before.
+- The remaining damage (60 env-var redactions across 19 files) would be COMPLETELY PREVENTED by the sanitizer fixes I just re-applied:
+    * isLikelyEnvVarOrPath() catches DYLD_*, PATH=, file paths, URLs
+    * Utility-string detection catches "abcdefghijklmnopqrstuvwxyz"
+    * Raised threshold from 4.15 to 4.5
+- The AST gate fix (method extraction for Java/Python/Go/etc.) would catch any future method-level regressions like the old ReaGhidraMipsSoftFloat.java breakage.
+- ESLint: clean. Both services restarted.

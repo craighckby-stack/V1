@@ -195,31 +195,93 @@ function extractSymbolsFromTs(sourceFile: ts.SourceFile): AstSymbol[] {
 }
 
 /**
- * Fallback line-based extractor for non-TS/JS files. Mirrors the old
- * behavior so non-JS pipelines still get a sensible symbol map.
+ * Fallback line-based extractor for non-TS/JS files. Now language-aware:
+ * extracts top-level declarations AND class methods for Java, Python, Go,
+ * Rust, Ruby, PHP, C/C++, Kotlin, and C#. This catches method-level
+ * regressions that the previous top-level-only regex missed (e.g. dropping
+ * 5 methods from a Java class while keeping the class itself).
  */
-function extractSymbolsRegex(code: string): AstSymbol[] {
+function extractSymbolsRegex(code: string, filePath?: string): AstSymbol[] {
   const symbols: AstSymbol[] = [];
   const lines = code.split("\n");
+  const ext = (filePath ?? "").toLowerCase().split(".").pop() ?? "";
+
+  // Common top-level patterns (all languages)
+  const topLevelPatterns: Array<[RegExp, AstSymbol["type"]]> = [
+    [/(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)/, "function"],
+    [/(?:export\s+)?class\s+([A-Za-z0-9_$]+)/, "class"],
+    [/(?:export\s+)?interface\s+([A-Za-z0-9_$]+)/, "interface"],
+    [/(?:export\s+)?type\s+([A-Za-z0-9_$]+)\s*=/, "type"],
+    [/(?:export\s+)?const\s+([A-Za-z0-9_$]+)\s*[:=]/, "const"],
+    [/^\s*def\s+([A-Za-z0-9_]+)/, "function"], // Python top-level
+    [/^func\s+([A-Za-z0-9_]+)/, "function"], // Go top-level (no receiver)
+  ];
+
+  // Language-specific method patterns (inside classes)
+  const methodPatterns: Array<[RegExp, AstSymbol["type"]]> = [];
+  if (ext === "java" || ext === "kt" || ext === "cs") {
+    methodPatterns.push([
+      /^\s*(?:@\w+\s+)*\s*(?:public|private|protected|static|final|synchronized|abstract|native|override)\s+(?:final\s+)?(?:[A-Za-z_][\w<>\[\],?\s]*\s+)+([A-Za-z_]\w*)\s*\(/,
+      "method",
+    ]);
+  }
+  if (ext === "py") {
+    methodPatterns.push([/^\s+def\s+([A-Za-z_]\w*)\s*\(/, "method"]);
+  }
+  if (ext === "go") {
+    methodPatterns.push([/^func\s+\([^)]*\)\s+([A-Za-z_]\w*)\s*\(/, "method"]);
+  }
+  if (ext === "rs") {
+    methodPatterns.push([/^\s*(?:pub\s+)?fn\s+([A-Za-z_]\w*)\s*\(/, "method"]);
+  }
+  if (ext === "rb") {
+    methodPatterns.push([/^\s+def\s+([A-Za-z_]\w*)/, "method"]);
+  }
+  if (ext === "php") {
+    methodPatterns.push([
+      /^\s*(?:public|private|protected|static)\s+(?:static\s+)?function\s+([A-Za-z_]\w*)\s*\(/,
+      "method",
+    ]);
+  }
+  if (ext === "cpp" || ext === "cc" || ext === "c" || ext === "h" || ext === "hpp") {
+    methodPatterns.push([/^\s*[A-Za-z_][\w:<>*\s]*\s+([A-Za-z_]\w*)\s*\(/, "method"]);
+  }
+
+  const skipNames = new Set(["if", "for", "while", "switch", "catch", "return", "new", "throw", "assert", "sizeof"]);
+
   for (let idx = 0; idx < lines.length; idx++) {
     const line = lines[idx]!;
-    const patterns: Array<[RegExp, AstSymbol["type"]]> = [
-      [/(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)/, "function"],
-      [/(?:export\s+)?class\s+([A-Za-z0-9_$]+)/, "class"],
-      [/(?:export\s+)?interface\s+([A-Za-z0-9_$]+)/, "interface"],
-      [/(?:export\s+)?type\s+([A-Za-z0-9_$]+)\s*=/, "type"],
-      [/(?:export\s+)?const\s+([A-Za-z0-9_$]+)\s*[:=]/, "const"],
-      [/^\s*def\s+([A-Za-z0-9_]+)/, "function"], // Python
-      [/^\s*func\s+([A-Za-z0-9_]+)/, "function"], // Go
-    ];
-    for (const [pat, type] of patterns) {
+    let matched = false;
+
+    // Try top-level patterns first
+    for (const [pat, type] of topLevelPatterns) {
       const m = line.match(pat);
       if (m && m[1]) {
+        if (type === "function" && ext === "go" && /^func\s+\(/.test(line)) {
+          continue;
+        }
         symbols.push({
           name: m[1],
           type,
           line: idx + 1,
           exported: /\bexport\b/.test(line),
+        });
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+
+    // Try method patterns (language-specific)
+    for (const [pat, type] of methodPatterns) {
+      const m = line.match(pat);
+      if (m && m[1]) {
+        if (skipNames.has(m[1])) continue;
+        symbols.push({
+          name: m[1],
+          type,
+          line: idx + 1,
+          exported: false,
         });
         break;
       }
@@ -232,7 +294,7 @@ export function extractSymbols(code: string, filePath?: string): AstSymbol[] {
   const ext = (filePath ?? "").toLowerCase().split(".").pop() ?? "";
   const isTsLike = ["ts", "tsx", "js", "jsx", "mjs", "cjs", ""].includes(ext);
   if (!isTsLike) {
-    return extractSymbolsRegex(code);
+    return extractSymbolsRegex(code, filePath);
   }
   try {
     const scriptKind =

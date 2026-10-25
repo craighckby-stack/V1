@@ -193,7 +193,7 @@ export class UnifiedPipelineRunner {
       type: "info",
     });
 
-    const sanitizerResult = sanitizeAndGovern(config.code);
+    const sanitizerResult = sanitizeAndGovern(config.code, config.filePath);
     const dur1 = Math.round(performance.now() - t1);
 
     if (sanitizerResult.clean) {
@@ -286,7 +286,7 @@ export class UnifiedPipelineRunner {
     if (agentEngineResult.llmUsed && agentEngineResult.proposedEvolvedCode.trim()) {
       // Real LLM-produced code — sanitize it again (defense in depth) and prepend header.
       const llmCode = agentEngineResult.proposedEvolvedCode;
-      const reSanitized = sanitizeAndGovern(llmCode);
+      const reSanitized = sanitizeAndGovern(llmCode, config.filePath);
       evolvedCode = `${cleanHeader}${reSanitized.sanitizedCode}`;
       log({
         timestamp: new Date().toLocaleTimeString(),
