@@ -180,6 +180,7 @@ class EmgRagMemory {
   private vectors: Map<string, Map<string, number>> = new Map();
   private seeded = false;
   private readonly TIMESTAMP_INTERVAL_MINUTES = 60000;
+  private readonly RANDOM_ID_SUFFIX_MAX = 1000;
 
   public async ensureSeeded(): Promise<void> {
     if (this.seeded) return;
@@ -243,7 +244,7 @@ class EmgRagMemory {
   public addEntry(entry: Omit<VectorEntry, "id" | "timestamp">): VectorEntry {
     const newEntry: VectorEntry = {
       ...entry,
-      id: `vec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: `vec-${Date.now()}-${Math.floor(Math.random() * this.RANDOM_ID_SUFFIX_MAX)}`,
       timestamp: Date.now(),
     };
     this.entries.push(newEntry);
