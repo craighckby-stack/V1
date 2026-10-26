@@ -21,6 +21,16 @@ interface SelfEnhanceStatus {
   currentFile: string | null;
 }
 
+interface PushTargetInfo {
+  configured: boolean;
+  repo?: string;
+  branch?: string;
+  createdRepo?: boolean;
+  lastPushAt?: string | null;
+  lastPushSha?: string | null;
+  lastPushError?: string | null;
+}
+
 const COLOR_MAP: Record<LogEntry["type"], string> = {
   info: "#00ff00",
   success: "#00ff00",
@@ -31,9 +41,33 @@ const COLOR_MAP: Record<LogEntry["type"], string> = {
 const PROMPT_COLOR = "#00ff00";
 const DIM_COLOR = "#008800";
 const USER_INPUT_COLOR = "#ffffff";
+const ERROR_COLOR = "#ff4444";
+
+// Shared styles for the config panel (kept DOS-themed to match the terminal)
+const cfgInputStyle = {
+  flex: 1,
+  background: "#000",
+  border: `1px solid ${DIM_COLOR}`,
+  color: USER_INPUT_COLOR,
+  fontFamily: "inherit",
+  fontSize: "inherit",
+  padding: "4px 6px",
+  outline: "none",
+  caretColor: PROMPT_COLOR,
+};
+const cfgBtnStyle = {
+  background: "#000",
+  border: `1px solid ${DIM_COLOR}`,
+  color: PROMPT_COLOR,
+  fontFamily: "inherit",
+  fontSize: "inherit",
+  padding: "4px 10px",
+  cursor: "pointer",
+};
 
 export default function Home() {
   const [status, setStatus] = useState<SelfEnhanceStatus | null>(null);
+  const [pushTarget, setPushTarget] = useState<PushTargetInfo | null>(null);
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
@@ -48,23 +82,37 @@ export default function Home() {
     { type: "system", text: "Verification: tsc --noEmit before every write" },
     { type: "system", text: "Proof: git push of current live state on each enhancement" },
     { type: "system", text: "" },
-    { type: "system", text: "Type 'help' for commands, 'start' to begin enhancing." },
+    { type: "system", text: "Type 'help' for commands, or click [CONFIG] to set up GitHub push." },
     { type: "system", text: "" },
   ]);
+
+  // Config panel state
+  const [configOpen, setConfigOpen] = useState(false);
+  const [cfgToken, setCfgToken] = useState("");
+  const [cfgRepo, setCfgRepo] = useState("");
+  const [cfgPublic, setCfgPublic] = useState(false);
+  const [cfgShowToken, setCfgShowToken] = useState(false);
+  const [cfgLoading, setCfgLoading] = useState(false);
+  const [cfgError, setCfgError] = useState<string | null>(null);
+  const [cfgStatusMsg, setCfgStatusMsg] = useState<string | null>(null);
+  const [cfgTarget, setCfgTarget] = useState<PushTargetInfo | null>(null);
+
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cfgTokenRef = useRef<HTMLInputElement>(null);
 
-  // Poll for status every 2 seconds
+  // Poll for status + push target every 2 seconds
   useEffect(() => {
     let mounted = true;
 
     async function poll() {
       try {
-        const res = await fetch("/api/self-enhance/status");
-        if (res.ok) {
-          const data = await res.json();
-          if (mounted) setStatus(data);
-        }
+        const [statusRes, targetRes] = await Promise.all([
+          fetch("/api/self-enhance/status"),
+          fetch("/api/self-enhance/push-target"),
+        ]);
+        if (mounted && statusRes.ok) setStatus(await statusRes.json());
+        if (mounted && targetRes.ok) setPushTarget(await targetRes.json());
       } catch {
         // ignore
       }
@@ -86,12 +134,151 @@ export default function Home() {
     }
   }, [status?.logs]);
 
-  // Focus input on click anywhere
+  // Focus input on click anywhere — but NOT while the config modal is open
   useEffect(() => {
-    const handler = () => inputRef.current?.focus();
+    const handler = () => {
+      if (!configOpen) inputRef.current?.focus();
+    };
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
-  }, []);
+  }, [configOpen]);
+
+  // Escape closes the config modal
+  useEffect(() => {
+    if (!configOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeConfig();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [configOpen]);
+
+  /** Append output lines to the terminal (used by the config flow). */
+  function emitOutput(lines: string[]) {
+    setTerminalLines((prev) => [
+      ...prev,
+      ...lines.map((l) => ({ type: "output" as const, text: l })),
+    ]);
+  }
+
+  async function openConfig() {
+    setConfigOpen(true);
+    setCfgError(null);
+    setCfgStatusMsg(null);
+    setCfgLoading(false);
+    // Fetch the current target state for the panel
+    try {
+      const res = await fetch("/api/self-enhance/push-target");
+      if (res.ok) {
+        const t = (await res.json()) as PushTargetInfo;
+        setCfgTarget(t);
+        if (t.configured && t.repo) setCfgRepo(t.repo);
+      }
+    } catch {
+      /* best-effort */
+    }
+    // Focus the token input after the modal renders (or the repo if already connected)
+    setTimeout(() => {
+      if (cfgTarget?.configured) {
+        // already connected — focus the repo field for reconfiguration
+      } else {
+        cfgTokenRef.current?.focus();
+      }
+    }, 50);
+  }
+
+  function closeConfig() {
+    setConfigOpen(false);
+    setCfgError(null);
+    setCfgStatusMsg(null);
+    // Clear the sensitive token from component state on close
+    setCfgToken("");
+    setCfgShowToken(false);
+    // Return focus to the terminal
+    inputRef.current?.focus();
+  }
+
+  async function submitConfig() {
+    setCfgLoading(true);
+    setCfgError(null);
+    setCfgStatusMsg(null);
+    const token = cfgToken.trim();
+    const repo = cfgRepo.trim();
+    if (!token || !repo) {
+      setCfgLoading(false);
+      setCfgError("Both token and repo are required.");
+      return;
+    }
+    try {
+      const res = await fetch("/api/self-enhance/push-target", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo, token, isPublic: cfgPublic }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setCfgLoading(false);
+        setCfgError(data.error ?? "Configuration failed");
+        return;
+      }
+      setCfgStatusMsg(
+        data.created
+          ? `Created github.com/${data.repo} (private). Pushing first proof...`
+          : `Connected as ${data.login}. Pushing first proof...`
+      );
+      // Immediately push the current state as the first proof
+      try {
+        const pushRes = await fetch("/api/self-enhance/push", { method: "POST" });
+        const pushData = await pushRes.json();
+        if (pushData.pushed) {
+          emitOutput([
+            `[CONFIG] Connected to github.com/${data.repo} as ${data.login}`,
+            `[CONFIG] First proof push: commit ${pushData.commitSha} → github.com/${pushData.repo}`,
+            `[CONFIG] Every successful self-enhancement will now push automatically.`,
+          ]);
+          // Refresh the panel's target view
+          const fresh = await fetch("/api/self-enhance/push-target");
+          if (fresh.ok) setCfgTarget(await fresh.json());
+          setCfgToken("");
+          setCfgShowToken(false);
+          setCfgStatusMsg(`Pushed commit ${pushData.commitSha}. Connected ✓`);
+        } else {
+          setCfgError(`Connected, but initial push failed: ${pushData.error ?? "unknown"}`);
+        }
+      } catch {
+        setCfgError("Connected, but initial push failed (network error). Try 'push force' from the terminal.");
+      }
+    } catch (e) {
+      setCfgError((e as Error).message);
+    } finally {
+      setCfgLoading(false);
+    }
+  }
+
+  async function disconnectTarget() {
+    setCfgLoading(true);
+    setCfgError(null);
+    setCfgStatusMsg(null);
+    try {
+      const res = await fetch("/api/self-enhance/push-target", { method: "DELETE" });
+      const data = await res.json();
+      if (data.ok) {
+        setCfgTarget({ configured: false });
+        setCfgRepo("");
+        setCfgStatusMsg("Disconnected. The loop will commit locally only.");
+        emitOutput(["[CONFIG] Push target disconnected. The loop will commit locally only."]);
+      } else {
+        setCfgError(data.error ?? "Disconnect failed");
+      }
+    } catch (e) {
+      setCfgError((e as Error).message);
+    } finally {
+      setCfgLoading(false);
+    }
+  }
 
   async function executeCommand(cmd: string) {
     const trimmed = cmd.trim();
@@ -118,6 +305,7 @@ export default function Home() {
           "                (auto-creates the repo if missing; private by default)",
           "  push force  — Force-push (overwrite a diverged remote)",
           "  push clear  — Disconnect the push target",
+          "  config      — Open the Git config panel (or click [CONFIG] in header)",
           "  logs        — Show recent logs",
           "  files       — List files being enhanced",
           "  clear       — Clear the terminal",
@@ -169,20 +357,15 @@ export default function Home() {
           `Last enhanced:  ${s.stats.lastEnhancementAt ?? "never"}`,
           `Current file:   ${s.currentFile ?? "idle"}`,
         ];
-        try {
-          const res = await fetch("/api/self-enhance/push-target");
-          const t = await res.json();
-          if (t.configured) {
-            lines.push(
-              `Push target:    github.com/${t.repo} (branch ${t.branch}${t.createdRepo ? ", auto-created" : ""})`,
-              `Last push:      ${t.lastPushSha ? `commit ${t.lastPushSha}` : "never"}${t.lastPushAt ? ` at ${t.lastPushAt}` : ""}`
-            );
-            if (t.lastPushError) lines.push(`Last error:     ${t.lastPushError}`);
-          } else {
-            lines.push("Push target:    NOT CONFIGURED (run: push <token> <owner/repo>)");
-          }
-        } catch {
-          /* status is best-effort */
+        const t = pushTarget;
+        if (t?.configured) {
+          lines.push(
+            `Push target:    github.com/${t.repo} (branch ${t.branch}${t.createdRepo ? ", auto-created" : ""})`,
+            `Last push:      ${t.lastPushSha ? `commit ${t.lastPushSha}` : "never"}${t.lastPushAt ? ` at ${t.lastPushAt}` : ""}`
+          );
+          if (t.lastPushError) lines.push(`Last error:     ${t.lastPushError}`);
+        } else {
+          lines.push("Push target:    NOT CONFIGURED (click [CONFIG] or run 'config')");
         }
         return lines;
       }
@@ -257,12 +440,11 @@ export default function Home() {
 
         // plain push — push to the configured target
         try {
-          const cfgRes = await fetch("/api/self-enhance/push-target");
-          const cfg = await cfgRes.json();
-          if (!cfg.configured) {
+          const cfg = pushTarget;
+          if (!cfg?.configured) {
             return [
               "No push target configured.",
-              "Usage:  push <github_token> <owner/repo> [public]",
+              "Click [CONFIG] in the header, or run: push <github_token> <owner/repo> [public]",
               "Example: push ghp_xxxxxxxxxxxx yourname/self-enhance",
               "",
               "The repo is auto-created if it doesn't exist (private by default;",
@@ -277,6 +459,12 @@ export default function Home() {
         } catch (e) {
           return [`Error: ${(e as Error).message}`];
         }
+      }
+
+      case "config":
+      case "cfg": {
+        openConfig();
+        return ["Opening Git config panel... (or click [CONFIG] in the header)"];
       }
 
       case "logs": {
@@ -295,7 +483,7 @@ export default function Home() {
           "  postmortem/ — postmortem-store",
           "",
           "Protected (not modified):",
-          "  autonomous/ — loop-runtime, self-enhance-loop, loop-event-bus",
+          "  autonomous/ — loop-runtime, self-enhance-loop, loop-event-bus, push-target",
           "  llm/         — agent-llm, debate-llm",
         ];
       }
@@ -317,7 +505,7 @@ export default function Home() {
           "verifies with tsc --noEmit, and pushes to GitHub as proof.",
           "What you see on GitHub IS the current live state of the server.",
           "",
-          "Push target: configure with 'push <token> <owner/repo> [public]'.",
+          "Click [CONFIG] in the header to connect a GitHub push target.",
         ];
 
       default:
@@ -384,6 +572,7 @@ export default function Home() {
   const logs = status?.logs ?? [];
   const s = status?.stats;
   const running = status?.running ?? false;
+  const connected = pushTarget?.configured ?? false;
 
   return (
     <div
@@ -402,22 +591,53 @@ export default function Home() {
       }}
     >
       {/* Header bar */}
-      <div style={{ borderBottom: `1px solid ${DIM_COLOR}`, paddingBottom: "4px", marginBottom: "8px", flexShrink: 0 }}>
-        <span style={{ color: DIM_COLOR }}>┌─ </span>
-        <span style={{ color: PROMPT_COLOR, fontWeight: "bold" }}>
-          ARCHITECTURE HELPER PIPELINE v4.3 — SELF-ENHANCE MODE
-        </span>
-        <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>─┐</span>
-        <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>│</span>
-        <span style={{ marginLeft: "8px", color: running ? "#00ff00" : "#ff4444" }}>
-          [{running ? "ENHANCING" : "IDLE"}]
-        </span>
-        {s && (
-          <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>
-            scanned={s.totalScanned} enhanced={s.totalEnhanced} reverted={s.totalReverted} pushed={s.totalPushed}
+      <div
+        style={{
+          borderBottom: `1px solid ${DIM_COLOR}`,
+          paddingBottom: "4px",
+          marginBottom: "8px",
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "8px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
+          <span style={{ color: DIM_COLOR }}>┌─ </span>
+          <span style={{ color: PROMPT_COLOR, fontWeight: "bold" }}>
+            ARCHITECTURE HELPER PIPELINE v4.3 — SELF-ENHANCE MODE
           </span>
-        )}
-        <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>│</span>
+          <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>─┐</span>
+          <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>│</span>
+          <span style={{ marginLeft: "8px", color: running ? "#00ff00" : "#ff4444" }}>
+            [{running ? "ENHANCING" : "IDLE"}]
+          </span>
+          {s && (
+            <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>
+              scanned={s.totalScanned} enhanced={s.totalEnhanced} reverted={s.totalReverted} pushed={s.totalPushed}
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+          <span
+            style={{ color: connected ? PROMPT_COLOR : DIM_COLOR }}
+            aria-label={connected ? "Git push target connected" : "Git push target not configured"}
+          >
+            [GIT: {connected ? "ON" : "OFF"}]
+          </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              openConfig();
+            }}
+            aria-label="Open Git push configuration"
+            style={cfgBtnStyle}
+          >
+            [CONFIG]
+          </button>
+        </div>
       </div>
 
       {/* Log area */}
@@ -491,6 +711,197 @@ export default function Home() {
           />
         </form>
       </div>
+
+      {/* Git config modal — DOS-styled, click-outside + Escape to close */}
+      {configOpen && (
+        <div
+          onClick={closeConfig}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.75)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+            padding: "16px",
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cfg-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#000",
+              border: `1px solid ${PROMPT_COLOR}`,
+              color: PROMPT_COLOR,
+              fontFamily: "inherit",
+              fontSize: "14px",
+              padding: "16px",
+              width: "min(560px, 92vw)",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              boxShadow: "0 0 24px rgba(0, 255, 0, 0.15)",
+            }}
+          >
+            <div
+              id="cfg-title"
+              style={{
+                fontWeight: "bold",
+                borderBottom: `1px solid ${DIM_COLOR}`,
+                paddingBottom: "8px",
+                marginBottom: "12px",
+                whiteSpace: "pre",
+                overflow: "hidden",
+              }}
+            >
+              ┌─ GIT CONFIG ──────────────────────────────┐
+            </div>
+
+            {/* Token */}
+            <div style={{ marginBottom: "12px" }}>
+              <div style={{ color: DIM_COLOR, marginBottom: "4px" }}>GitHub Token</div>
+              <div style={{ display: "flex", gap: "4px" }}>
+                <input
+                  ref={cfgTokenRef}
+                  type={cfgShowToken ? "text" : "password"}
+                  value={cfgToken}
+                  onChange={(e) => setCfgToken(e.target.value)}
+                  placeholder="ghp_... (paste your GitHub PAT)"
+                  autoComplete="off"
+                  spellCheck={false}
+                  style={cfgInputStyle}
+                />
+                <button
+                  type="button"
+                  onClick={() => setCfgShowToken((v) => !v)}
+                  style={cfgBtnStyle}
+                >
+                  {cfgShowToken ? "[HIDE]" : "[SHOW]"}
+                </button>
+              </div>
+            </div>
+
+            {/* Repo */}
+            <div style={{ marginBottom: "12px" }}>
+              <div style={{ color: DIM_COLOR, marginBottom: "4px" }}>
+                Repository (owner/name)
+              </div>
+              <input
+                type="text"
+                value={cfgRepo}
+                onChange={(e) => setCfgRepo(e.target.value)}
+                placeholder="yourname/self-enhance"
+                autoComplete="off"
+                spellCheck={false}
+                style={cfgInputStyle}
+              />
+            </div>
+
+            {/* Public toggle */}
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                cursor: "pointer",
+                marginBottom: "12px",
+                color: PROMPT_COLOR,
+                userSelect: "none",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={cfgPublic}
+                onChange={(e) => setCfgPublic(e.target.checked)}
+                style={{ accentColor: PROMPT_COLOR }}
+              />
+              <span>Public repo (unchecked = private)</span>
+            </label>
+
+            {/* Current target status */}
+            {cfgTarget?.configured && (
+              <div
+                style={{
+                  borderTop: `1px solid ${DIM_COLOR}`,
+                  marginTop: "12px",
+                  paddingTop: "8px",
+                  marginBottom: "12px",
+                }}
+              >
+                <div style={{ color: DIM_COLOR, marginBottom: "4px" }}>CURRENT TARGET</div>
+                <div style={{ wordBreak: "break-all" }}>
+                  github.com/{cfgTarget.repo} (branch {cfgTarget.branch}
+                  {cfgTarget.createdRepo ? ", auto-created" : ""})
+                </div>
+                <div style={{ color: DIM_COLOR }}>
+                  Last push:{" "}
+                  {cfgTarget.lastPushSha ? `commit ${cfgTarget.lastPushSha}` : "never"}
+                  {cfgTarget.lastPushAt ? ` at ${cfgTarget.lastPushAt}` : ""}
+                </div>
+                {cfgTarget.lastPushError && (
+                  <div style={{ color: ERROR_COLOR, marginTop: "4px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                    Last error: {cfgTarget.lastPushError}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={submitConfig}
+                disabled={cfgLoading}
+                style={{
+                  ...cfgBtnStyle,
+                  opacity: cfgLoading ? 0.5 : 1,
+                  cursor: cfgLoading ? "wait" : "pointer",
+                }}
+              >
+                [ CONNECT &amp; PUSH ]
+              </button>
+              {cfgTarget?.configured && (
+                <button
+                  type="button"
+                  onClick={disconnectTarget}
+                  disabled={cfgLoading}
+                  style={{
+                    ...cfgBtnStyle,
+                    opacity: cfgLoading ? 0.5 : 1,
+                    cursor: cfgLoading ? "wait" : "pointer",
+                  }}
+                >
+                  [ DISCONNECT ]
+                </button>
+              )}
+              <button type="button" onClick={closeConfig} style={cfgBtnStyle}>
+                [ CLOSE ]
+              </button>
+            </div>
+
+            {/* Status / error */}
+            {cfgStatusMsg && (
+              <div style={{ color: PROMPT_COLOR, marginTop: "10px", whiteSpace: "pre-wrap" }}>
+                {cfgStatusMsg}
+              </div>
+            )}
+            {cfgError && (
+              <div style={{ color: ERROR_COLOR, marginTop: "10px", whiteSpace: "pre-wrap" }}>
+                {cfgError}
+              </div>
+            )}
+
+            {/* Footer hint */}
+            <div style={{ color: DIM_COLOR, marginTop: "12px", fontSize: "12px", lineHeight: 1.3 }}>
+              Token verified with GitHub. Repo auto-created if missing (private unless
+              Public checked). Token stored locally only — never in git config, URLs, or
+              the pushed repo. Need a token? github.com/settings/tokens (repo scope).
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
