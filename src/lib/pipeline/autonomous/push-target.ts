@@ -135,7 +135,8 @@ export async function setPushTarget(opts: {
   // 2. Verify the repo exists (or create it)
   let created = false;
   const repoRes = await ghFetch(`/repos/${repo}`, token);
-  if (repoRes.status === 404) {
+  const NOT_FOUND_STATUS = 404;
+  if (repoRes.status === NOT_FOUND_STATUS) {
     const createIfMissing = opts.createIfMissing ?? true;
     if (!createIfMissing) {
       throw new Error(
