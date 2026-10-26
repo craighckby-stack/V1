@@ -1,0 +1,862 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useRef, useState } from "react";
+     4→
+     5→interface LogEntry {
+     6→  timestamp: string;
+     7→  message: string;
+     8→  type: "info" | "success" | "warn" | "error";
+     9→}
+    10→
+    11→interface QueueStats {
+    12→  pending: number;
+    13→  in_progress: number;
+    14→  done: number;
+    15→  failed: number;
+    16→  skipped: number;
+    17→  lastScanAt: string | null;
+    18→}
+    19→
+    20→interface SelfTask {
+    21→  id: string;
+    22→  kind: string;
+    23→  filePath: string;
+    24→  line: number;
+    25→  evidence: string;
+    26→  status: string;
+    27→  attempts: number;
+    28→  deferred: number;
+    29→  fixSummary?: string | null;
+    30→  commitSha?: string | null;
+    31→}
+    32→
+    33→interface SelfEnhanceStatus {
+    34→  running: boolean;
+    35→  stats: {
+    36→    tasksGenerated: number;
+    37→    tasksDone: number;
+    38→    tasksFailed: number;
+    39→    tasksDeferred: number;
+    40→    tasksNoop: number;
+    41→    totalPushed: number;
+    42→    lastEnhancementAt: string | null;
+    43→    startedAt: string | null;
+    44→    cyclesSinceClaim: number;
+    45→    lastClaimAt: string | null;
+    46→  };
+    47→  logs: LogEntry[];
+    48→  currentTask: { kind: string; filePath: string; line: number } | null;
+    49→  queue: QueueStats | null;
+    50→  inputMode: string;
+    51→}
+    52→
+    53→const COLOR_MAP: Record<LogEntry["type"], string> = {
+    54→  info: "#00ff00",
+    55→  success: "#00ff00",
+    56→  warn: "#ffff00",
+    57→  error: "#ff4444",
+    58→};
+    59→
+    60→const PROMPT_COLOR = "#00ff00";
+    61→const DIM_COLOR = "#008800";
+    62→const USER_INPUT_COLOR = "#ffffff";
+    63→
+    64→const METHOD_LABEL: Record<string, string> = {
+    65→  "todo-comment": "LLM",
+    66→  "empty-catch": "LLM",
+    67→  "any-usage": "LLM",
+    68→  "missing-return-type": "DET", // deterministic — runs even during 429
+    69→  "magic-number": "LLM",
+    70→  "non-null-assertion": "LLM",
+    71→};
+    72→
+    73→export default function Home() {
+    74→  const [status, setStatus] = useState<SelfEnhanceStatus | null>(null);
+    75→  const [input, setInput] = useState("");
+    76→  const [history, setHistory] = useState<string[]>([]);
+    77→  const [historyIdx, setHistoryIdx] = useState(-1);
+    78→  const [terminalLines, setTerminalLines] = useState<
+    79→    Array<{ type: "system" | "command" | "output"; text: string }>
+    80→  >([
+    81→    { type: "system", text: "ARCHITECTURE HELPER PIPELINE v4.4 — SELF-ENHANCE MODE" },
+    82→    { type: "system", text: "(c) 2026 Z.ai Code — Autonomous Self-Modifying System" },
+    83→    { type: "system", text: "" },
+    84→    { type: "system", text: "INPUT: SYSTEM-DEFINED" },
+    85→    { type: "system", text: "  The system scans its own source with the TypeScript" },
+    86→    { type: "system", text: "  compiler API and derives its own task queue. No user" },
+    87→    { type: "system", text: "  goals. No prompts. The queue IS the input." },
+    88→    { type: "system", text: "" },
+    89→    { type: "system", text: "Verification: in-memory typecheck before every write" },
+    90→    { type: "system", text: "Proof: git push of current live state on each fix" },
+    91→    { type: "system", text: "" },
+    92→    { type: "system", text: "Type 'help' for commands. Type 'tasks' to see the queue." },
+    93→    { type: "system", text: "" },
+    94→  ]);
+    95→
+    96→  // Config panel state
+    97→  const [configOpen, setConfigOpen] = useState(false);
+    98→  const [cfgToken, setCfgToken] = useState("");
+    99→  const [cfgRepo, setCfgRepo] = useState("");
+   100→  const [cfgPublic, setCfgPublic] = useState(false);
+   101→  const [cfgAutoCreate, setCfgAutoCreate] = useState(true);
+   102→  const [cfgShowToken, setCfgShowToken] = useState(false);
+   103→  const [cfgLoading, setCfgLoading] = useState(false);
+   104→  const [cfgError, setCfgError] = useState<string | null>(null);
+   105→  const [cfgStatusMsg, setCfgStatusMsg] = useState<string | null>(null);
+   106→  const [cfgTarget, setCfgTarget] = useState<{ configured: boolean; repo?: string; branch?: string; createdRepo?: boolean; lastPushSha?: string | null; lastPushAt?: string | null; lastPushError?: string | null } | null>(null);
+   107→  const [pushTarget, setPushTarget] = useState<{ configured: boolean; repo?: string } | null>(null);
+   108→  const [cmdBusy, setCmdBusy] = useState(false);
+   109→  const cfgTokenRef = useRef<HTMLInputElement>(null);
+   110→  const logRef = useRef<HTMLDivElement>(null);
+   111→  const inputRef = useRef<HTMLInputElement>(null);
+   112→
+   113→  // Poll for status every 2 seconds
+   114→  useEffect(() => {
+   115→    let mounted = true;
+   116→
+   117→    async function poll() {
+   118→      try {
+   119→        const [statusRes, targetRes] = await Promise.all([
+   120→          fetch("/api/self-enhance/status"),
+   121→          fetch("/api/self-enhance/push-target"),
+   122→        ]);
+   123→        if (statusRes.ok && mounted) setStatus(await statusRes.json());
+   124→        if (targetRes.ok && mounted) setPushTarget(await targetRes.json());
+   125→      } catch {
+   126→        // ignore
+   127→      }
+   128→    }
+   129→
+   130→    poll();
+   131→    const interval = setInterval(poll, 2000);
+   132→
+   133→    return () => {
+   134→      mounted = false;
+   135→      clearInterval(interval);
+   136→    };
+   137→  }, []);
+   138→
+   139→  // Auto-scroll to bottom of log when NEW COMMAND OUTPUT appears (terminalLines),
+   140→  // not when server logs update (which would yank the view away from what the
+   141→  // user just typed).
+   142→  const terminalLineCount = terminalLines.length;
+   143→  useEffect(() => {
+   144→    if (logRef.current) {
+   145→      logRef.current.scrollTop = logRef.current.scrollHeight;
+   146→    }
+   147→  }, [terminalLineCount]);
+   148→
+   149→  // Focus input on click anywhere — but NOT while the config modal is open
+   150→  useEffect(() => {
+   151→    const handler = () => {
+   152→      if (!configOpen) inputRef.current?.focus();
+   153→    };
+   154→    document.addEventListener("click", handler);
+   155→    return () => document.removeEventListener("click", handler);
+   156→  }, [configOpen]);
+   157→
+   158→  // Escape closes the config modal
+   159→  useEffect(() => {
+   160→    if (!configOpen) return;
+   161→    const handler = (e: KeyboardEvent) => {
+   162→      if (e.key === "Escape") {
+   163→        e.preventDefault();
+   164→        closeConfig();
+   165→      }
+   166→    };
+   167→    document.addEventListener("keydown", handler);
+   168→    return () => document.removeEventListener("keydown", handler);
+   169→  }, [configOpen]);
+   170→
+   171→  /** Append output lines to the terminal (used by the config flow). */
+   172→  function emitOutput(lines: string[]) {
+   173→    setTerminalLines((prev) => [
+   174→      ...prev,
+   175→      ...lines.map((l) => ({ type: "output" as const, text: l })),
+   176→    ]);
+   177→  }
+   178→
+   179→  async function openConfig() {
+   180→    setConfigOpen(true);
+   181→    setCfgError(null);
+   182→    setCfgStatusMsg(null);
+   183→    setCfgLoading(false);
+   184→    try {
+   185→      const res = await fetch("/api/self-enhance/push-target");
+   186→      if (res.ok) {
+   187→        const t = await res.json();
+   188→        setCfgTarget(t);
+   189→        if (t.configured && t.repo) setCfgRepo(t.repo);
+   190→      }
+   191→    } catch {
+   192→      /* best-effort */
+   193→    }
+   194→    setTimeout(() => cfgTokenRef.current?.focus(), 50);
+   195→  }
+   196→
+   197→  function closeConfig() {
+   198→    setConfigOpen(false);
+   199→    setCfgError(null);
+   200→    setCfgStatusMsg(null);
+   201→    setCfgToken("");
+   202→    setCfgShowToken(false);
+   203→    inputRef.current?.focus();
+   204→  }
+   205→
+   206→  async function submitConfig() {
+   207→    setCfgLoading(true);
+   208→    setCfgError(null);
+   209→    setCfgStatusMsg(null);
+   210→    const token = cfgToken.trim();
+   211→    const repo = cfgRepo.trim();
+   212→    if (!token || !repo) {
+   213→      setCfgLoading(false);
+   214→      setCfgError("Both token and repo are required.");
+   215→      return;
+   216→    }
+   217→    try {
+   218→      const res = await fetch("/api/self-enhance/push-target", {
+   219→        method: "POST",
+   220→        headers: { "Content-Type": "application/json" },
+   221→        body: JSON.stringify({ repo, token, isPublic: cfgPublic, createIfMissing: cfgAutoCreate }),
+   222→      });
+   223→      const data = await res.json();
+   224→      if (!data.ok) {
+   225→        setCfgLoading(false);
+   226→        setCfgError(data.error ?? "Configuration failed");
+   227→        return;
+   228→      }
+   229→      setCfgStatusMsg(data.created ? `Created github.com/${data.repo}. Pushing first proof...` : `Connected as ${data.login}. Pushing first proof...`);
+   230→      try {
+   231→        const pushRes = await fetch("/api/self-enhance/push", { method: "POST" });
+   232→        const pushData = await pushRes.json();
+   233→        if (pushData.pushed) {
+   234→          emitOutput([
+   235→            `[CONFIG] Connected to github.com/${data.repo} as ${data.login}`,
+   236→            `[CONFIG] First proof push: commit ${pushData.commitSha}`,
+   237→          ]);
+   238→          const fresh = await fetch("/api/self-enhance/push-target");
+   239→          if (fresh.ok) setCfgTarget(await fresh.json());
+   240→          setCfgToken("");
+   241→          setCfgShowToken(false);
+   242→          setCfgStatusMsg(`Pushed commit ${pushData.commitSha}. Connected ✓`);
+   243→        } else {
+   244→          setCfgError(`Connected, but initial push failed: ${pushData.error ?? "unknown"}`);
+   245→        }
+   246→      } catch {
+   247→        setCfgError("Connected, but initial push failed (network error).");
+   248→      }
+   249→    } catch (e) {
+   250→      setCfgError((e as Error).message);
+   251→    } finally {
+   252→      setCfgLoading(false);
+   253→    }
+   254→  }
+   255→
+   256→  async function disconnectTarget() {
+   257→    setCfgLoading(true);
+   258→    setCfgError(null);
+   259→    setCfgStatusMsg(null);
+   260→    try {
+   261→      const res = await fetch("/api/self-enhance/push-target", { method: "DELETE" });
+   262→      const data = await res.json();
+   263→      if (data.ok) {
+   264→        setCfgTarget({ configured: false });
+   265→        setCfgRepo("");
+   266→        setCfgStatusMsg("Disconnected. The system will commit locally only.");
+   267→        emitOutput(["[CONFIG] Push target disconnected."]);
+   268→      } else {
+   269→        setCfgError(data.error ?? "Disconnect failed");
+   270→      }
+   271→    } catch (e) {
+   272→      setCfgError((e as Error).message);
+   273→    } finally {
+   274→      setCfgLoading(false);
+   275→    }
+   276→  }
+   277→
+   278→  async function executeCommand(cmd: string) {
+   279→    const trimmed = cmd.trim();
+   280→    if (!trimmed) return;
+   281→
+   282→    setHistory((prev) => [...prev, trimmed]);
+   283→    setHistoryIdx(-1);
+   284→
+   285→    const lower = trimmed.toLowerCase();
+   286→    const command = lower.split(/\s+/)[0];
+   287→
+   288→    switch (command) {
+   289→      case "help":
+   290→        return [
+   291→          "Available commands:",
+   292→          "  start       — Start continuous self-enhancement loop",
+   293→          "  stop        — Stop the loop",
+   294→          "  trigger     — Run one cycle (scan queue + execute next tasks)",
+   295→          "  tasks       — Show the system-defined task queue",
+   296→          "  rescan      — Force re-scan of own source (re-define input)",
+   297→          "  skip        — Veto the next pending task (user's only input power)",
+   298→          "  status      — Show current status",
+   299→          "  push        — Push current live state to GitHub",
+   300→          "  config      — Open Git config panel",
+   301→          "  logs        — Show recent logs",
+   302→          "  clear       — Clear the terminal",
+   303→          "  help        — Show this help",
+   304→          "",
+   305→          "INPUT IS SYSTEM-DEFINED:",
+   306→          "  The system scans its own source code and generates its own",
+   307→          "  task queue (TODOs, any-types, empty catches, magic numbers,",
+   308→          "  missing return types, non-null assertions). You do not feed",
+   309→          "  it goals. Your only power over the input is 'skip' (veto).",
+   310→          "",
+   311→        ];
+   312→
+   313→      case "start": {
+   314→        try {
+   315→          const res = await fetch("/api/self-enhance/start", { method: "POST" });
+   316→          const data = await res.json();
+   317→          return [data.message || "Started"];
+   318→        } catch (e) {
+   319→          return [`Error: ${(e as Error).message}`];
+   320→        }
+   321→      }
+   322→
+   323→      case "stop": {
+   324→        try {
+   325→          await fetch("/api/self-enhance/stop", { method: "POST" });
+   326→          return ["Self-enhancement loop stopped"];
+   327→        } catch (e) {
+   328→          return [`Error: ${(e as Error).message}`];
+   329→        }
+   330→      }
+   331→
+   332→      case "config":
+   333→      case "cfg": {
+   334→        openConfig();
+   335→        return ["Opening Git config panel... (or click [CONFIG] in the header)"];
+   336→      }
+   337→
+   338→      case "trigger":
+   339→      case "run": {
+   340→        setCmdBusy(true);
+   341→        try {
+   342→          const res = await fetch("/api/self-enhance/trigger", { method: "POST" });
+   343→          const data = await res.json();
+   344→          const lines = [`Cycle complete: ${data.processed ?? 0} task(s) processed.`];
+   345→          for (const r of data.results ?? []) {
+   346→            const tag =
+   347→              r.status === "applied" ? "✓ FIXED" :
+   348→              r.status === "deferred" ? "… DEFERRED (LLM 429)" :
+   349→              r.status === "failed" ? "✗ FAILED" : "· NO-OP";
+   350→            lines.push(`  ${tag} [${r.kind}] ${r.filePath}:${r.line}${r.status === "applied" && r.pushed ? ` — pushed ${r.commitSha}` : ""}`);
+   351→          }
+   352→          return lines;
+   353→        } catch (e) {
+   354→          return [`Error: ${(e as Error).message}`];
+   355→        } finally {
+   356→          setCmdBusy(false);
+   357→        }
+   358→      }
+   359→
+   360→      case "tasks":
+   361→      case "queue": {
+   362→        setCmdBusy(true);
+   363→        try {
+   364→          const res = await fetch("/api/self-enhance/tasks?status=pending&limit=15");
+   365→          const data = await res.json();
+   366→          const q = data.queue as QueueStats | undefined;
+   367→          const header = [
+   368→            `QUEUE — pending=${q?.pending ?? 0} in-progress=${q?.in_progress ?? 0} done=${q?.done ?? 0} failed=${q?.failed ?? 0} skipped=${q?.skipped ?? 0}`,
+   369→            `Last input scan: ${q?.lastScanAt ?? "not yet (runs when queue empties or via 'rescan')"}`,
+   370→            "",
+   371→          ];
+   372→          const tasks = (data.tasks ?? []) as SelfTask[];
+   373→          if (tasks.length === 0) {
+   374→            return [...header, "  (no pending tasks — run 'rescan' to define new input)"];
+   375→          }
+   376→          return [
+   377→            ...header,
+   378→            ...tasks.map(
+   379→              (t) =>
+   380→                `  [P${t.kind === "todo-comment" ? 1 : t.kind === "empty-catch" ? 2 : t.kind === "any-usage" ? 3 : t.kind === "missing-return-type" ? 4 : t.kind === "magic-number" ? 5 : 6}/${METHOD_LABEL[t.kind] ?? "?"}] ${t.kind} — ${t.filePath}:${t.line}`
+   381→            ),
+   382→            "",
+   383→            `  (${tasks.length} shown${q && q.pending > tasks.length ? `, ${q.pending - tasks.length} more pending` : ""})`,
+   384→          ];
+   385→        } catch (e) {
+   386→          return [`Error: ${(e as Error).message}`];
+   387→        } finally {
+   388→          setCmdBusy(false);
+   389→        }
+   390→      }
+   391→
+   392→      case "rescan": {
+   393→        setCmdBusy(true);
+   394→        try {
+   395→          const res = await fetch("/api/self-enhance/rescan", { method: "POST" });
+   396→          const data = await res.json();
+   397→          return [
+   398→            `Input re-defined by system scan:`,
+   399→            `  files analyzed: ${data.filesAnalyzed}`,
+   400→            `  findings:       ${data.findings}`,
+   401→            `  new tasks:      ${data.newTasks}`,
+   402→            `  already known:  ${data.alreadyQueued}`,
+   403→          ];
+   404→        } catch (e) {
+   405→          return [`Error: ${(e as Error).message}`];
+   406→        } finally {
+   407→          setCmdBusy(false);
+   408→        }
+   409→      }
+   410→
+   411→      case "skip":
+   412→      case "veto": {
+   413→        try {
+   414→          const res = await fetch("/api/self-enhance/skip", { method: "POST" });
+   415→          const data = await res.json();
+   416→          if (data.skipped) {
+   417→            return [`Vetoed: [${data.kind}] ${data.filePath}:${data.line} — task marked skipped`];
+   418→          }
+   419→          return ["Nothing to veto — queue is empty."];
+   420→        } catch (e) {
+   421→          return [`Error: ${(e as Error).message}`];
+   422→        }
+   423→      }
+   424→
+   425→      case "status": {
+   426→        const s = status;
+   427→        if (!s) return ["No status available yet"];
+   428→        const q = s.queue;
+   429→        return [
+   430→          `Running:         ${s.running ? "YES" : "NO"}`,
+   431→          `Input mode:      ${s.inputMode ?? "system-defined"} (system scans own source)`,
+   432→          `Queue:           pending=${q?.pending ?? 0} in-progress=${q?.in_progress ?? 0} done=${q?.done ?? 0} failed=${q?.failed ?? 0} skipped=${q?.skipped ?? 0}`,
+   433→          `Current task:    ${s.currentTask ? `[${s.currentTask.kind}] ${s.currentTask.filePath}:${s.currentTask.line}` : "idle"}`,
+   434→          `Tasks generated: ${s.stats.tasksGenerated}`,
+   435→          `Tasks done:      ${s.stats.tasksDone}`,
+   436→          `Tasks failed:    ${s.stats.tasksFailed}`,
+   437→          `Deferred (429):  ${s.stats.tasksDeferred}`,
+   438→          `Pushes to git:   ${s.stats.totalPushed}`,
+   439→          `Last fix:        ${s.stats.lastEnhancementAt ?? "never"}`,
+   440→          `Liveness:        ${s.stats.cyclesSinceClaim ?? 0} idle cycle(s) since last claim (${s.stats.lastClaimAt ?? "never"})${(s.stats.cyclesSinceClaim ?? 0) >= 5 ? " — WARN: possible stall" : ""}`,
+   441→        ];
+   442→      }
+   443→
+   444→      case "push": {
+   445→        try {
+   446→          const res = await fetch("/api/self-enhance/push", { method: "POST" });
+   447→          const data = await res.json();
+   448→          if (data.pushed) return [`Pushed to GitHub: commit ${data.commitSha}`];
+   449→          if (data.committed) return [`Committed ${data.commitSha} but push failed (no remote?)`];
+   450→          return ["No changes to push"];
+   451→        } catch (e) {
+   452→          return [`Error: ${(e as Error).message}`];
+   453→        }
+   454→      }
+   455→
+   456→      case "logs": {
+   457→        const logs = status?.logs ?? [];
+   458→        if (logs.length === 0) return ["No logs yet"];
+   459→        return logs.slice(0, 20).map((l) => `[${l.timestamp}] ${l.message}`);
+   460→      }
+   461→
+   462→      case "clear":
+   463→      case "cls": {
+   464→        setTerminalLines([]);
+   465→        return [""];
+   466→      }
+   467→
+   468→      case "exit":
+   469→      case "quit":
+   470→        return ["Cannot exit — the system runs continuously. Use 'stop' to halt enhancement."];
+   471→
+   472→      case "about":
+   473→        return [
+   474→          "Architecture Helper Pipeline v4.4",
+   475→          "Self-enhancing autonomous system with SYSTEM-DEFINED INPUT.",
+   476→          "",
+   477→          "The system scans its own source (src/lib/pipeline/) with the",
+   478→          "TypeScript compiler API and derives a task queue: TODOs, any",
+   479→          "types, empty catches, magic numbers, missing return types,",
+   480→          "non-null assertions. It executes tasks one by one — deterministic",
+   481→          "fixes run even when the LLM API is rate-limited; LLM fixes are",
+   482→          "focused single-issue prompts. Every fix is verified in memory",
+   483→          "before it touches disk, then pushed to GitHub as proof.",
+   484→          "",
+   485→          "What you see on GitHub IS the current live state of the server.",
+   486→        ];
+   487→
+   488→      default: {
+   489→        // Not a command — the system does not accept user goals.
+   490→        return [
+   491→          `'${trimmed}' is not a command.`,
+   492→          "",
+   493→          "INPUT IS SYSTEM-DEFINED: this system does not take goals from",
+   494→          "users. It scans its own source and generates its own task queue.",
+   495→          "",
+   496→          "Type 'tasks' to see the queue, 'rescan' to re-define the input,",
+   497→          "or 'skip' to veto the next task. Type 'help' for all commands.",
+   498→        ];
+   499→      }
+   500→    }
+   501→  }
+   502→
+   503→  async function handleSubmit(e: React.FormEvent) {
+   504→    e.preventDefault();
+   505→    const cmd = input;
+   506→    setInput("");
+   507→    if (!cmd.trim()) return;
+   508→
+   509→    // Echo the command to the terminal
+   510→    setTerminalLines((prev) => [...prev, { type: "command", text: cmd }]);
+   511→
+   512→    // Execute and show output
+   513→    const output = await executeCommand(cmd);
+   514→    if (output && output.length > 0) {
+   515→      setTerminalLines((prev) => [
+   516→        ...prev,
+   517→        ...output.map((line) => ({ type: "output" as const, text: line })),
+   518→      ]);
+   519→    }
+   520→
+   521→    // Force a status poll
+   522→    setTimeout(async () => {
+   523→      try {
+   524→        const res = await fetch("/api/self-enhance/status");
+   525→        if (res.ok) setStatus(await res.json());
+   526→      } catch {
+   527→        /* ignore */
+   528→      }
+   529→    }, 500);
+   530→  }
+   531→
+   532→  function handleKeyDown(e: React.KeyboardEvent) {
+   533→    if (e.key === "ArrowUp") {
+   534→      e.preventDefault();
+   535→      if (history.length > 0) {
+   536→        const newIdx = historyIdx === -1 ? history.length - 1 : Math.max(0, historyIdx - 1);
+   537→        setHistoryIdx(newIdx);
+   538→        setInput(history[newIdx]);
+   539→      }
+   540→    } else if (e.key === "ArrowDown") {
+   541→      e.preventDefault();
+   542→      if (historyIdx !== -1) {
+   543→        const newIdx = historyIdx + 1;
+   544→        if (newIdx >= history.length) {
+   545→          setHistoryIdx(-1);
+   546→          setInput("");
+   547→        } else {
+   548→          setHistoryIdx(newIdx);
+   549→          setInput(history[newIdx]);
+   550→        }
+   551→      }
+   552→    }
+   553→  }
+   554→
+   555→  const logs = status?.logs ?? [];
+   556→  const s = status?.stats;
+   557→  const q = status?.queue;
+   558→  const running = status?.running ?? false;
+   559→
+   560→  return (
+   561→    <div
+   562→      style={{
+   563→        position: "fixed",
+   564→        inset: 0,
+   565→        background: "#000",
+   566→        color: PROMPT_COLOR,
+   567→        fontFamily: "'Courier New', 'Lucida Console', monospace",
+   568→        fontSize: "14px",
+   569→        lineHeight: "1.4",
+   570→        padding: "8px",
+   571→        overflow: "hidden",
+   572→        display: "flex",
+   573→        flexDirection: "column",
+   574→      }}
+   575→    >
+   576→      {/* Header bar */}
+   577→      <div
+   578→        style={{
+   579→          borderBottom: `1px solid ${DIM_COLOR}`,
+   580→          paddingBottom: "4px",
+   581→          marginBottom: "8px",
+   582→          flexShrink: 0,
+   583→          display: "flex",
+   584→          alignItems: "center",
+   585→          justifyContent: "space-between",
+   586→          gap: "8px",
+   587→        }}
+   588→      >
+   589→        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
+   590→          <span style={{ color: DIM_COLOR }}>┌─ </span>
+   591→          <span style={{ color: PROMPT_COLOR, fontWeight: "bold" }}>
+   592→            ARCHITECTURE HELPER PIPELINE v4.4 — SELF-ENHANCE MODE
+   593→          </span>
+   594→          <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>─┐</span>
+   595→          <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>│</span>
+   596→          <span style={{ marginLeft: "8px", color: running ? "#00ff00" : "#ff4444" }}>
+   597→            [{running ? "ENHANCING" : "IDLE"}]
+   598→          </span>
+   599→          <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>INPUT: SYSTEM-DEFINED</span>
+   600→          {q && (
+   601→            <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>
+   602→              queue={q.pending + q.in_progress} done={q.done} failed={q.failed}
+   603→            </span>
+   604→          )}
+   605→          {s && s.totalPushed > 0 && (
+   606→            <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>pushed={s.totalPushed}</span>
+   607→          )}
+   608→        </div>
+   609→        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+   610→          <span style={{ color: pushTarget?.configured ? PROMPT_COLOR : DIM_COLOR }}>
+   611→            [GIT: {pushTarget?.configured ? "ON" : "OFF"}]
+   612→          </span>
+   613→          <button
+   614→            type="button"
+   615→            onClick={(e) => {
+   616→              e.stopPropagation();
+   617→              openConfig();
+   618→            }}
+   619→            aria-label="Open Git push configuration"
+   620→            style={{
+   621→              background: "#000",
+   622→              border: `1px solid ${DIM_COLOR}`,
+   623→              color: PROMPT_COLOR,
+   624→              fontFamily: "inherit",
+   625→              fontSize: "inherit",
+   626→              padding: "2px 8px",
+   627→              cursor: "pointer",
+   628→            }}
+   629→          >
+   630→            [CONFIG]
+   631→          </button>
+   632→        </div>
+   633→      </div>
+   634→
+   635→      {/* Log area */}
+   636→      <div
+   637→        ref={logRef}
+   638→        style={{
+   639→          flex: 1,
+   640→          overflowY: "auto",
+   641→          paddingRight: "4px",
+   642→        }}
+   643→      >
+   644→        {/* Server logs (top — scrolling history of loop activity) */}
+   645→        {logs.map((log, idx) => (
+   646→          <div key={`log-${idx}`} style={{ color: COLOR_MAP[log.type], whiteSpace: "pre-wrap" }}>
+   647→            <span style={{ color: DIM_COLOR }}>[{log.timestamp}]</span>{" "}
+   648→            {log.message}
+   649→          </div>
+   650→        ))}
+   651→
+   652→        {/* Terminal lines (bottom — command output stays visible after auto-scroll) */}
+   653→        {terminalLines.map((line, idx) => (
+   654→          <div
+   655→            key={`term-${idx}`}
+   656→            style={{
+   657→              color:
+   658→                line.type === "command"
+   659→                  ? "#ffffff"
+   660→                  : line.type === "output"
+   661→                  ? "#00ff00"
+   662→                  : "#008800",
+   663→              whiteSpace: "pre-wrap",
+   664→            }}
+   665→          >
+   666→            {line.type === "command" ? `> ${line.text}` : line.text || "\u00a0"}
+   667→          </div>
+   668→        ))}
+   669→        {cmdBusy && (
+   670→          <div style={{ color: DIM_COLOR }}>working...</div>
+   671→        )}
+   672→      </div>
+   673→
+   674→      {/* Prompt */}
+   675→      <div
+   676→        style={{
+   677→          borderTop: `1px solid ${DIM_COLOR}`,
+   678→          paddingTop: "4px",
+   679→          marginTop: "4px",
+   680→          flexShrink: 0,
+   681→          display: "flex",
+   682→          alignItems: "center",
+   683→        }}
+   684→      >
+   685→        <form onSubmit={handleSubmit} style={{ flex: 1, display: "flex" }}>
+   686→          <span style={{ color: PROMPT_COLOR, marginRight: "8px" }}>{">"}</span>
+   687→          <input
+   688→            ref={inputRef}
+   689→            type="text"
+   690→            value={input}
+   691→            onChange={(e) => setInput(e.target.value)}
+   692→            onKeyDown={handleKeyDown}
+   693→            autoFocus
+   694→            autoComplete="off"
+   695→            spellCheck={false}
+   696→            aria-label="Terminal command input"
+   697→            style={{
+   698→              flex: 1,
+   699→              background: "transparent",
+   700→              border: "none",
+   701→              outline: "none",
+   702→              color: USER_INPUT_COLOR,
+   703→              fontFamily: "inherit",
+   704→              fontSize: "inherit",
+   705→              caretColor: PROMPT_COLOR,
+   706→            }}
+   707→          />
+   708→        </form>
+   709→      </div>
+   710→
+   711→      {/* Git config modal — DOS-styled, click-outside + Escape to close */}
+   712→      {configOpen && (
+   713→        <div
+   714→          onClick={closeConfig}
+   715→          style={{
+   716→            position: "fixed",
+   717→            inset: 0,
+   718→            background: "rgba(0, 0, 0, 0.75)",
+   719→            display: "flex",
+   720→            alignItems: "center",
+   721→            justifyContent: "center",
+   722→            zIndex: 100,
+   723→            padding: "16px",
+   724→          }}
+   725→        >
+   726→          <div
+   727→            role="dialog"
+   728→            aria-modal="true"
+   729→            aria-labelledby="cfg-title"
+   730→            onClick={(e) => e.stopPropagation()}
+   731→            style={{
+   732→              background: "#000",
+   733→              border: `1px solid ${PROMPT_COLOR}`,
+   734→              color: PROMPT_COLOR,
+   735→              fontFamily: "inherit",
+   736→              fontSize: "14px",
+   737→              padding: "16px",
+   738→              width: "min(560px, 92vw)",
+   739→              maxHeight: "90vh",
+   740→              overflowY: "auto",
+   741→              boxShadow: "0 0 24px rgba(0, 255, 0, 0.15)",
+   742→            }}
+   743→          >
+   744→            <div id="cfg-title" style={{ fontWeight: "bold", borderBottom: `1px solid ${DIM_COLOR}`, paddingBottom: "8px", marginBottom: "12px" }}>
+   745→              ┌─ GIT CONFIG ──────────────────────┐
+   746→            </div>
+   747→
+   748→            {/* Token */}
+   749→            <div style={{ marginBottom: "12px" }}>
+   750→              <div style={{ color: DIM_COLOR, marginBottom: "4px" }}>GitHub Token</div>
+   751→              <div style={{ display: "flex", gap: "4px" }}>
+   752→                <input
+   753→                  ref={cfgTokenRef}
+   754→                  type={cfgShowToken ? "text" : "password"}
+   755→                  value={cfgToken}
+   756→                  onChange={(e) => setCfgToken(e.target.value)}
+   757→                  placeholder="ghp_... (paste your GitHub PAT)"
+   758→                  autoComplete="off"
+   759→                  spellCheck={false}
+   760→                  style={{ flex: 1, background: "#000", border: `1px solid ${DIM_COLOR}`, color: USER_INPUT_COLOR, fontFamily: "inherit", fontSize: "inherit", padding: "4px 6px", outline: "none" }}
+   761→                />
+   762→                <button
+   763→                  type="button"
+   764→                  onClick={() => setCfgShowToken((v) => !v)}
+   765→                  style={{ background: "#000", border: `1px solid ${DIM_COLOR}`, color: PROMPT_COLOR, fontFamily: "inherit", fontSize: "inherit", padding: "4px 10px", cursor: "pointer" }}
+   766→                >
+   767→                  {cfgShowToken ? "[HIDE]" : "[SHOW]"}
+   768→                </button>
+   769→              </div>
+   770→            </div>
+   771→
+   772→            {/* Repo */}
+   773→            <div style={{ marginBottom: "12px" }}>
+   774→              <div style={{ color: DIM_COLOR, marginBottom: "4px" }}>Repository (owner/name)</div>
+   775→              <input
+   776→                type="text"
+   777→                value={cfgRepo}
+   778→                onChange={(e) => setCfgRepo(e.target.value)}
+   779→                placeholder="yourname/self-enhance"
+   780→                autoComplete="off"
+   781→                spellCheck={false}
+   782→                style={{ flex: 1, width: "100%", background: "#000", border: `1px solid ${DIM_COLOR}`, color: USER_INPUT_COLOR, fontFamily: "inherit", fontSize: "inherit", padding: "4px 6px", outline: "none" }}
+   783→              />
+   784→            </div>
+   785→
+   786→            {/* Toggles */}
+   787→            <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", marginBottom: "8px", color: PROMPT_COLOR, userSelect: "none" }}>
+   788→              <input type="checkbox" checked={cfgPublic} onChange={(e) => setCfgPublic(e.target.checked)} style={{ accentColor: PROMPT_COLOR }} />
+   789→              <span>Public repo (unchecked = private)</span>
+   790→            </label>
+   791→            <label style={{ display: "flex", alignItems: "flex-start", gap: "6px", cursor: "pointer", marginBottom: "12px", color: PROMPT_COLOR, userSelect: "none" }}>
+   792→              <input type="checkbox" checked={cfgAutoCreate} onChange={(e) => setCfgAutoCreate(e.target.checked)} style={{ accentColor: PROMPT_COLOR, marginTop: "2px", flexShrink: 0 }} />
+   793→              <span>
+   794→                Auto-create repo if missing
+   795→                <span style={{ color: DIM_COLOR, display: "block", fontSize: "12px", marginTop: "2px" }}>
+   796→                  Needs a classic PAT with repo scope — fine-grained PATs cannot create repos.
+   797→                </span>
+   798→              </span>
+   799→            </label>
+   800→
+   801→            {/* Current target */}
+   802→            {cfgTarget?.configured && (
+   803→              <div style={{ borderTop: `1px solid ${DIM_COLOR}`, marginTop: "12px", paddingTop: "8px", marginBottom: "12px" }}>
+   804→                <div style={{ color: DIM_COLOR, marginBottom: "4px" }}>CURRENT TARGET</div>
+   805→                <div style={{ wordBreak: "break-all" }}>
+   806→                  github.com/{cfgTarget.repo} (branch {cfgTarget.branch}{cfgTarget.createdRepo ? ", auto-created" : ""})
+   807→                </div>
+   808→                <div style={{ color: DIM_COLOR }}>
+   809→                  Last push: {cfgTarget.lastPushSha ? `commit ${cfgTarget.lastPushSha}` : "never"}
+   810→                </div>
+   811→                {cfgTarget.lastPushError && (
+   812→                  <div style={{ color: "#ff4444", marginTop: "4px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+   813→                    Last error: {cfgTarget.lastPushError}
+   814→                  </div>
+   815→                )}
+   816→              </div>
+   817→            )}
+   818→
+   819→            {/* Buttons */}
+   820→            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+   821→              <button
+   822→                type="button"
+   823→                onClick={submitConfig}
+   824→                disabled={cfgLoading}
+   825→                style={{ background: "#000", border: `1px solid ${DIM_COLOR}`, color: PROMPT_COLOR, fontFamily: "inherit", fontSize: "inherit", padding: "4px 10px", cursor: cfgLoading ? "wait" : "pointer", opacity: cfgLoading ? 0.5 : 1 }}
+   826→              >
+   827→                [ CONNECT &amp; PUSH ]
+   828→              </button>
+   829→              {cfgTarget?.configured && (
+   830→                <button
+   831→                  type="button"
+   832→                  onClick={disconnectTarget}
+   833→                  disabled={cfgLoading}
+   834→                  style={{ background: "#000", border: `1px solid ${DIM_COLOR}`, color: PROMPT_COLOR, fontFamily: "inherit", fontSize: "inherit", padding: "4px 10px", cursor: cfgLoading ? "wait" : "pointer", opacity: cfgLoading ? 0.5 : 1 }}
+   835→                >
+   836→                  [ DISCONNECT ]
+   837→                </button>
+   838→              )}
+   839→              <button type="button" onClick={closeConfig} style={{ background: "#000", border: `1px solid ${DIM_COLOR}`, color: PROMPT_COLOR, fontFamily: "inherit", fontSize: "inherit", padding: "4px 10px", cursor: "pointer" }}>
+   840→                [ CLOSE ]
+   841→              </button>
+   842→            </div>
+   843→
+   844→            {/* Status / error */}
+   845→            {cfgStatusMsg && (
+   846→              <div style={{ color: PROMPT_COLOR, marginTop: "10px", whiteSpace: "pre-wrap" }}>{cfgStatusMsg}</div>
+   847→            )}
+   848→            {cfgError && (
+   849→              <div style={{ color: "#ff4444", marginTop: "10px", whiteSpace: "pre-wrap" }}>{cfgError}</div>
+   850→            )}
+   851→
+   852→            <div style={{ color: DIM_COLOR, marginTop: "12px", fontSize: "12px", lineHeight: 1.3 }}>
+   853→              Token verified with GitHub. Token stored locally only — never in git config,
+   854→              URLs, or the pushed repo. Need a token? github.com/settings/tokens (classic PAT, repo scope).
+   855→            </div>
+   856→          </div>
+   857→        </div>
+   858→      )}
+   859→    </div>
+   860→  );
+   861→}
+   862→
