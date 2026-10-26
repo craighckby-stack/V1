@@ -178,7 +178,7 @@ export async function setPushTarget(opts: {
       throw new Error(
         "GitHub refused to create the repo (403). Fine-grained PATs CANNOT create repos — use a classic PAT with 'repo' scope, or create the repo manually first."
       );
-    } else if (createRes.status === 404) {
+    } else if (createRes.status === NOT_FOUND_STATUS) {
       throw new Error(
         `Owner '${owner}' not found (404). For org repos, the token must administer that org.`
       );
