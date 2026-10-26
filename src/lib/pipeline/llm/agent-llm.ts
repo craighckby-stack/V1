@@ -115,6 +115,25 @@ export function extractCodeBlock(raw: string): string {
   return raw.trim();
 }
 
+/**
+ * Extract BOTH the summary (text before the code block) AND the code block
+ * from an LLM response. Used when the prompt asks the LLM to explain what it
+ * changed before showing the code. Returns { summary, code }.
+ */
+export function extractSummaryAndCode(raw: string): { summary: string; code: string } {
+  if (!raw) return { summary: "", code: "" };
+  const fenceMatch = raw.match(/```(?:[a-zA-Z0-9_+-]*)?\n([\s\S]*?)```/);
+  if (fenceMatch && fenceMatch[1]) {
+    const code = fenceMatch[1].trim();
+    // Everything before the opening fence is the summary
+    const fenceStart = raw.indexOf("```");
+    const summary = fenceStart > 0 ? raw.slice(0, fenceStart).trim() : "";
+    return { summary, code };
+  }
+  // No fence — whole response is code, no summary
+  return { summary: "", code: raw.trim() };
+}
+
 const REFRACTOR_SYSTEM_PROMPT = `You are an expert code refactorer operating inside an autonomous pipeline. Your output will be committed to a GitHub branch by an automated system.
 
 HARD RULES (violating any rule fails the pipeline):

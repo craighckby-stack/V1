@@ -15,7 +15,7 @@
 import { readFileSync, writeFileSync, readdirSync } from "fs";
 import { spawnSync } from "child_process";
 import { join, relative } from "path";
-import { llmComplete, extractCodeBlock } from "../llm/agent-llm";
+import { llmComplete, extractSummaryAndCode } from "../llm/agent-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
 import { pushCurrentState } from "./push-target";
 
@@ -294,19 +294,42 @@ class SelfEnhanceLoop {
         relPath
       );
 
-      // 3. LLM refactor
-      this.log(`Refactoring ${relPath}...`, "info");
-      const refactorSystem = `You are a code refactorer. Refactor the following TypeScript file. Rules:
-- Preserve EVERY export (function, class, interface, type, const). Do not rename or remove them.
-- Add explicit type annotations where they're missing.
-- Extract magic numbers into named constants.
-- Use modern TypeScript features where appropriate.
-- Do NOT add any header comments or branding.
+      // 3. LLM improvement — ask for REAL improvements, not cosmetic refactoring
+      this.log(`Improving ${relPath}...`, "info");
+      const refactorSystem = `You are a senior code reviewer improving a TypeScript file inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
+
+Your job: find and fix REAL issues. Do NOT make cosmetic changes (type annotations, magic numbers, syntax modernization). Those are pointless. Instead, look for:
+
+1. BUGS: null/undefined crashes, missing error handling, unhandled edge cases, race conditions, off-by-one errors, resource leaks (unclosed handles)
+2. ERROR HANDLING: bare try/catch that swallows errors, missing error context, unhelpful error messages. Add actionable error messages with context.
+3. INPUT VALIDATION: functions that assume valid input and would crash or misbehave on bad input. Add guard clauses with clear errors.
+4. PERFORMANCE: obvious inefficiencies — O(n²) where O(n) works, repeated computations in loops, unnecessary allocations, synchronous I/O that could be async.
+5. SECURITY: injection risks, unsafe eval, hardcoded secrets, missing input sanitization.
+6. DEAD CODE: unused imports, unreachable branches, commented-out code.
+
+HARD RULES (violating any rule fails the pipeline):
+- Preserve EVERY top-level exported symbol (function, class, interface, type, const). Do not rename or remove them.
+- Do NOT add header comments, banners, or branding.
 - Do NOT add unused interfaces or types.
-- Output ONLY the refactored code in a single fenced code block.
+- Do NOT change the public API signature of any export (parameter names, types, return type must stay the same).
+- Keep changes focused — don't rewrite the whole file. Only fix real issues.
+- If there are NO real issues to fix, output the original code unchanged.
+
+OUTPUT FORMAT (mandatory):
+- First, write a SHORT summary (1-5 bullet points) of what you changed and why. Start with "## Changes" on its own line.
+- Then output the complete refactored code in a single fenced \`\`\`typescript block.
+- Example:
+## Changes
+- Added null check in parseX() — could crash on undefined input
+- Replaced bare catch with contextual error message in fetchY()
+- Added input validation for limit parameter (negative values caused infinite loop)
+
+\`\`\`typescript
+// the full file with fixes applied
+\`\`\`
 ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
 
-      const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nRefactor this file. Output ONLY the refactored code.`;
+      const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nFind real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in this file. Fix them. If nothing needs fixing, return the file unchanged. Output the summary first, then the code.`;
 
       const llmResult = await llmComplete({
         systemPrompt: refactorSystem,
@@ -340,7 +363,8 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       // LLM succeeded — reset the circuit breaker
       this.consecutiveRateLimits = 0;
 
-      let refactoredCode = extractCodeBlock(llmResult.content);
+      // Extract the summary (what changed + why) AND the code from the response
+      const { summary: changeSummary, code: refactoredCode } = extractSummaryAndCode(llmResult.content);
       if (!refactoredCode || refactoredCode.trim().length === 0) {
         result.reason = "LLM returned no code";
         this.log(`LLM returned no code for ${relPath}`, "warn");
@@ -348,22 +372,19 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       }
 
       // 3b. Mechanical guard: strip decorative banner comments the LLM
-      // sometimes prepends (defense-in-depth — the prompt alone failed before)
+      // sometimes prepends to the code (defense-in-depth)
       const banner = this.stripBannerComments(refactoredCode);
+      const cleanCode = banner.code;
       if (banner.stripped) {
         this.log(`Stripped decorative banner header from ${relPath} (LLM ignored the no-header rule)`, "warn");
-        refactoredCode = banner.code;
       }
 
       result.llmUsed = true;
-      result.newBytes = refactoredCode.length;
-      result.diffBytes = Math.abs(refactoredCode.length - originalCode.length);
+      result.newBytes = cleanCode.length;
+      result.diffBytes = Math.abs(cleanCode.length - originalCode.length);
 
       // 3c. Detect truncated LLM output before the expensive typecheck.
-      // The LLM often hits its output token limit mid-comment on larger files,
-      // producing code with unbalanced braces or unterminated block comments.
-      // Catching this early saves a ~10s typecheck cycle.
-      const truncation = this.detectTruncation(refactoredCode, originalCode);
+      const truncation = this.detectTruncation(cleanCode, originalCode);
       if (truncation.truncated) {
         result.reason = `Rejected (LLM output truncated: ${truncation.reason})`;
         this.log(`Rejected ${relPath} (LLM output truncated: ${truncation.reason})`, "warn");
@@ -373,7 +394,7 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
           filePath: relPath,
           failureType: "COMPILE_ERROR",
           symptom: `LLM output truncated: ${truncation.reason}`,
-          evidence: `Original: ${originalCode.length}b, Refactored: ${refactoredCode.length}b. The LLM hit its output token limit before finishing.`,
+          evidence: `Original: ${originalCode.length}b, Refactored: ${cleanCode.length}b. The LLM hit its output token limit before finishing.`,
           constraints: `The previous refactor of ${relPath} was truncated by the LLM's output limit. Make smaller, more targeted changes — do not rewrite the whole file.`,
         });
         this.stats.totalReverted++;
@@ -381,9 +402,9 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       }
 
       // 4. Check if anything actually changed
-      if (refactoredCode.trim() === originalCode.trim()) {
-        result.reason = "No semantic change";
-        this.log(`No change for ${relPath} (LLM returned same code)`, "info");
+      if (cleanCode.trim() === originalCode.trim()) {
+        result.reason = "No issues found";
+        this.log(`No change for ${relPath} (LLM found no real issues to fix)`, "info");
         return result;
       }
 
@@ -391,7 +412,7 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       // until it passes typecheck. This prevents Turbopack from ever seeing
       // broken code (the root cause of the stale browser error).
       this.log(`Verifying ${relPath} (in-memory typecheck)...`, "info");
-      const verification = this.verifyRefactor(filePath, refactoredCode);
+      const verification = this.verifyRefactor(filePath, cleanCode);
       result.compiled = verification.ok;
 
       if (!verification.ok) {
@@ -406,7 +427,7 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
           filePath: relPath,
           failureType: "COMPILE_ERROR",
           symptom: `Refactored code failed in-memory typecheck: ${errorSummary}`,
-          evidence: `Original: ${originalCode.length} bytes, Refactored: ${refactoredCode.length} bytes. Errors: ${verification.errors.join("\n")}`,
+          evidence: `Original: ${originalCode.length} bytes, Refactored: ${cleanCode.length} bytes. Errors: ${verification.errors.join("\n")}`,
           constraints: `The previous refactor of ${relPath} did not compile. Make smaller, safer changes. Preserve all type signatures exactly.`,
         });
 
@@ -414,21 +435,27 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         return result;
       }
 
-      // 6. Typecheck passed — NOW it's safe to write the refactored code to the live file.
+      // 6. Typecheck passed — NOW it's safe to write the improved code to the live file.
       // Turbopack will hot-reload it and see only valid code.
-      writeFileSync(filePath, refactoredCode, "utf-8");
+      writeFileSync(filePath, cleanCode, "utf-8");
 
       // 9. Enhancement succeeded — the file is now LIVE (hot-reload will pick it up)
       result.enhanced = true;
-      result.reason = "Enhanced and live";
+      result.reason = changeSummary ? "Enhanced and live" : "Enhanced and live (no summary)";
       this.stats.totalEnhanced++;
       this.stats.lastEnhancementAt = new Date().toISOString();
-      this.log(`Enhanced ${relPath} (+${result.diffBytes} bytes, compiled ✓, live)`, "success");
 
-      // 10. Git commit + push (the proof)
-      const pushResult = await this.gitPush(
-        `Self-enhancement: ${relPath} (LLM refactor, tsc verified, ${result.diffBytes}b diff)`
-      );
+      // Log the enhancement WITH the change summary so you can see WHAT was fixed
+      const shortSummary = changeSummary
+        ? changeSummary.split("\n").slice(0, 3).join(" | ").slice(0, 200)
+        : "no summary provided";
+      this.log(`Enhanced ${relPath} (${result.diffBytes}b diff): ${shortSummary}`, "success");
+
+      // 10. Git commit + push (the proof) — include the change summary in the message
+      const commitMessage = changeSummary
+        ? `Self-enhancement: ${relPath}\n\n${changeSummary}\n\n(tsc verified, ${result.diffBytes}b diff)`
+        : `Self-enhancement: ${relPath} (tsc verified, ${result.diffBytes}b diff)`;
+      const pushResult = await this.gitPush(commitMessage);
       result.pushed = pushResult.pushed;
       result.commitSha = pushResult.commitSha;
       if (pushResult.pushed) {
