@@ -106,9 +106,10 @@ export function performArchitecturalVote(fileName: string, codeSnippet: string):
     lowerName.includes("token") ||
     lowerSnippet.includes("key")
   ) {
+    const SECURITY_SCORE = 96;
     return {
       source: SIPHON_SOURCES[1],
-      score: 96,
+      score: SECURITY_SCORE,
       rationale:
         "Handles sensitive keys and security credentials; applied Shannon entropy sanitization and memory isolation.",
       recommendedPattern: "Shannon Entropy Secret Sanitizer",
