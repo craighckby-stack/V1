@@ -377,7 +377,8 @@ Output the COMPLETE new content for this file that achieves the goal.`;
     if (status.trim()) {
       const GIT_ADD_TIMEOUT_MS = 5000;
       execSync("git add -A", { cwd: PROJECT_ROOT, timeout: GIT_ADD_TIMEOUT_MS });
-      const commitMsg = `Chat task: ${plan.userGoal.slice(0, 60)}\n\n${plan.summary}`;
+      const MAX_COMMIT_MESSAGE_LENGTH = 60;
+      const commitMsg = `Chat task: ${plan.userGoal.slice(0, MAX_COMMIT_MESSAGE_LENGTH)}\n\n${plan.summary}`;
       execSync(`git commit -m "${commitMsg.replace(/"/g, '\\"').slice(0, 200)}"`, {
         cwd: PROJECT_ROOT,
         timeout: 5000,
