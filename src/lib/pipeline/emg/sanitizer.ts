@@ -92,7 +92,8 @@ function isLikelyEnvVarOrPath(s: string): boolean {
     if (/^[a-z]+$/i.test(s) && unique >= ALPHABET_UNIQUE_CHARS_THRESHOLD) return true; // alphabet
     const DIGIT_SEQUENCE_UNIQUE_CHARS_THRESHOLD = 8;
     if (/^[0-9]+$/i.test(s) && unique >= DIGIT_SEQUENCE_UNIQUE_CHARS_THRESHOLD) return true;  // digit sequence
-    if (/^[a-z0-9]+$/i.test(s) && unique >= 22 && s.length <= 36) return true; // alphanumeric utility
+    const ALPHANUMERIC_UNIQUE_CHARS_THRESHOLD = 22;
+    if (/^[a-z0-9]+$/i.test(s) && unique >= ALPHANUMERIC_UNIQUE_CHARS_THRESHOLD && s.length <= 36) return true; // alphanumeric utility
   }
 
   return false;
