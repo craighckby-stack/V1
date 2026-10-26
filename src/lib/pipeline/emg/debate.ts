@@ -99,7 +99,8 @@ export function conductDebate(topic: string, candidateCode: string, filePath: st
     const CONDITIONAL_APPROVAL_CONSENSUS_COEFFICIENT = 0.72;
     consensus = "CONDITIONAL_APPROVAL";
     consensusCoefficient = CONDITIONAL_APPROVAL_CONSENSUS_COEFFICIENT;
-    cognitiveFriction = 0.4;
+    const CONDITIONAL_COGNITIVE_FRICTION = 0.4;
+    cognitiveFriction = CONDITIONAL_COGNITIVE_FRICTION;
     leadSummary =
       "Review summary: Conditional approval. Verify AST symbol retention before finalizing merge.";
   }
