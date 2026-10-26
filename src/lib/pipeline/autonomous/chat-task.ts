@@ -431,3 +431,4 @@ Output the COMPLETE new content for this file that achieves the goal.`;
 }
 
 const REASON_INDEX = 3;
+const GIT_COMMIT_TIMEOUT_MS = 5000;
