@@ -25,6 +25,7 @@ const ALGO = "aes-256-gcm";
 const SECRET_SEED = process.env.BINARY_SHIELD_SEED ?? "HELPER_SECURITY_KEY_2026";
 const IV_LENGTH = 12;
 const MIN_CIPHERTEXT_LENGTH = 16;
+const GCM_TAG_LENGTH = 16;
 
 function getKeyBuffer(): Buffer {
   // Derive a 32-byte key from the seed using SHA-256.
@@ -53,7 +54,7 @@ export class BinaryShield {
     const iv = Buffer.from(packet.iv, "base64");
     const combined = Buffer.from(packet.data, "base64");
     if (combined.length < MIN_CIPHERTEXT_LENGTH) throw new Error("Ciphertext too short");
-    const tag = combined.subarray(combined.length - 16);
+    const tag = combined.subarray(combined.length - GCM_TAG_LENGTH);
     const enc = combined.subarray(0, combined.length - 16);
     const decipher = createDecipheriv(ALGO, key, iv);
     decipher.setAuthTag(tag);
