@@ -2,7 +2,9 @@ skills/
 node_modules/
 tsconfig.tsbuildinfo
 dev.log
+**/dev.log
 *.tmp
 *.bak
 .next/
 db/*.db
+*.db
