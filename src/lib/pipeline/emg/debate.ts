@@ -57,6 +57,9 @@ export function conductDebate(topic: string, candidateCode: string, filePath: st
   architecturePoints.push(`Public export contracts for '${filePath}' remain backwards-compatible.`);
   architecturePoints.push("Enhancements maintain maintainability and clean structure.");
 
+  const SECURITY_FRICTION_HIGH = 0.65;
+  const SECURITY_FRICTION_LOW = 0.15;
+
   args.push({
     speaker: "security",
     speakerName: "Security Reviewer",
@@ -64,7 +67,7 @@ export function conductDebate(topic: string, candidateCode: string, filePath: st
     stance: securityPoints.length > 1 ? "OPPOSE" : "ENDORSE",
     statement: `Reviewing candidate file ${filePath}: ${securityPoints.join(" ")}`,
     citations: ["Security Guideline: Credential Sanitization", "AST Diff Retention Protocol"],
-    cognitiveFriction: securityPoints.length > 1 ? 0.65 : 0.15,
+    cognitiveFriction: securityPoints.length > 1 ? SECURITY_FRICTION_HIGH : SECURITY_FRICTION_LOW,
   });
 
   args.push({
@@ -74,7 +77,7 @@ export function conductDebate(topic: string, candidateCode: string, filePath: st
     stance: "ENDORSE",
     statement: `Structural assessment: ${architecturePoints.join(" ")}`,
     citations: ["Clean Code Standards", "Type Safety & Modularity Guidelines"],
-    cognitiveFriction: 0.15,
+    cognitiveFriction: SECURITY_FRICTION_LOW,
   });
 
   const criticalFlaws = containsSecrets || containsEval;
