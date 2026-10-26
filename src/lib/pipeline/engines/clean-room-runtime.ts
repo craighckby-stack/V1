@@ -308,6 +308,7 @@ export async function executeCleanRoomEngine(
   session.addMessage("user", goal);
 
   const CODE_TRUNCATION_LIMIT = 6000;
+  const REFACTOR_TEMPERATURE = 0.2;
   let proposedEvolvedCode = "";
   let llmUsed = false;
   let llmTotalLatencyMs = 0;
@@ -327,7 +328,7 @@ Output a 3-5 bullet refactor plan only.`;
       const planRes = await llmComplete({
         systemPrompt: PLAN_SYSTEM,
         userPrompt: planUser,
-        temperature: 0.2,
+        temperature: REFACTOR_TEMPERATURE,
       });
       llmTotalLatencyMs += planRes.latencyMs;
       if (planRes.ok) {
@@ -380,7 +381,7 @@ Output ONLY the refactored code in a single \`\`\`${lang} fenced block. Preserve
       const refactorRes = await llmComplete({
         systemPrompt: REFACTOR_SYSTEM,
         userPrompt: refactorUser,
-        temperature: 0.2,
+        temperature: REFACTOR_TEMPERATURE,
       });
       llmTotalLatencyMs += refactorRes.latencyMs;
       if (refactorRes.ok) {
