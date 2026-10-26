@@ -100,7 +100,7 @@ function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .split(/[^a-z0-9_+-]+/)
-    .filter((t) => t.length > MIN_TOKEN_LENGTH && !STOP_WORDS.has(t));
+    .filter((t): t is string => t.length > MIN_TOKEN_LENGTH && !STOP_WORDS.has(t));
 }
 
 /**
@@ -109,9 +109,11 @@ function tokenize(text: string): string[] {
 function termFreq(doc: string): Map<string, number> {
   const tokens = tokenize(doc);
   const tf = new Map<string, number>();
-  for (const t of tokens) {
-    tf.set(t, (tf.get(t) ?? 0) + 1);
+  
+  for (const token of tokens) {
+    tf.set(token, (tf.get(token) ?? 0) + 1);
   }
+  
   return tf;
 }
 
@@ -122,16 +124,21 @@ function termFreq(doc: string): Map<string, number> {
 function computeIdf(documents: string[]): Map<string, number> {
   const N = documents.length;
   const df = new Map<string, number>();
+  
   for (const doc of documents) {
     const seen = new Set<string>(tokenize(doc));
-    for (const t of seen) {
-      df.set(t, (df.get(t) ?? 0) + 1);
+    
+    for (const term of seen) {
+      df.set(term, (df.get(term) ?? 0) + 1);
     }
   }
+  
   const idf = new Map<string, number>();
-  for (const [t, d] of df) {
-    idf.set(t, Math.log((N + 1) / (1 + d)) + 1);
+  
+  for (const [term, frequency] of df) {
+    idf.set(term, Math.log((N + 1) / (1 + frequency)) + 1);
   }
+  
   return idf;
 }
 
@@ -143,28 +150,34 @@ function tfidfVector(doc: string, idf: Map<string, number>): Map<string, number>
   const tf = termFreq(doc);
   const vec = new Map<string, number>();
   let norm = 0;
-  for (const [t, freq] of tf) {
-    const weight = freq * (idf.get(t) ?? 1);
-    vec.set(t, weight);
+  
+  for (const [term, frequency] of tf) {
+    const weight = frequency * (idf.get(term) ?? 1);
+    vec.set(term, weight);
     norm += weight * weight;
   }
+  
   norm = Math.sqrt(norm);
+  
   if (norm > 0) {
-    for (const [t, w] of vec) {
-      vec.set(t, w / norm);
+    for (const [term, weight] of vec) {
+      vec.set(term, weight / norm);
     }
   }
+  
   return vec;
 }
 
 function cosine(a: Map<string, number>, b: Map<string, number>): number {
   // a is unit-normalized; for efficiency we iterate over the smaller vector.
-  const [small, large] = a.size < b.size ? [a, b] : [b, a];
+  const [small, large] = a.size < b.size ? [a, b] as const : [b, a] as const;
   let dot = 0;
-  for (const [t, w] of small) {
-    const other = large.get(t);
-    if (other) dot += w * other;
+  
+  for (const [term, weight] of small) {
+    const other = large.get(term);
+    if (other) dot += weight * other;
   }
+  
   // b is also unit-normalized so dot product = cosine
   return dot;
 }
@@ -178,23 +191,22 @@ class EmgRagMemory {
   public async ensureSeeded(): Promise<void> {
     if (this.seeded) return;
     this.seeded = true;
+    
     try {
       const count = await db.memoryEntry.count();
+      
       if (count === 0) {
-        for (const entry of INITIAL_MEMORY_ENTRIES) {
-          await db.memoryEntry.create({
-            data: {
-              provenance: entry.provenance,
-              trust: entry.trust,
-              filePath: entry.filePath,
-              ruleToAvoid: entry.ruleToAvoid,
-              diagnosis: entry.diagnosis,
-              cleanSnippet: entry.cleanSnippet,
-              content: entry.content,
-            },
-          });
-        }
+        await db.memoryEntry.createMany({
+          data: INITIAL_MEMORY_ENTRIES.map(entry => ({
+            ...entry,
+            filePath: entry.filePath ?? null,
+            ruleToAvoid: entry.ruleToAvoid ?? null,
+            diagnosis: entry.diagnosis ?? null,
+            cleanSnippet: entry.cleanSnippet ?? null,
+          })),
+        });
       }
+      
       const rows = await db.memoryEntry.findMany({ orderBy: { createdAt: "asc" } });
       this.entries = rows.map((r) => ({
         id: r.id,
@@ -214,6 +226,7 @@ class EmgRagMemory {
         timestamp: Date.now() - idx * 60000,
       }));
     }
+    
     this.recomputeVectors();
   }
 
@@ -225,6 +238,7 @@ class EmgRagMemory {
     const docs = this.entries.map((e) => this.entryDoc(e));
     this.idf = computeIdf(docs);
     this.vectors.clear();
+    
     for (const e of this.entries) {
       this.vectors.set(e.id, tfidfVector(this.entryDoc(e), this.idf));
     }
@@ -240,9 +254,10 @@ class EmgRagMemory {
       id: `vec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       timestamp: Date.now(),
     };
+    
     this.entries.push(newEntry);
-    // Recompute IDF + vectors incrementally is overkill; just recompute all.
     this.recomputeVectors();
+    
     db.memoryEntry
       .create({
         data: {
@@ -258,6 +273,7 @@ class EmgRagMemory {
       .catch(() => {
         /* ignore */
       });
+    
     return newEntry;
   }
 
@@ -270,6 +286,7 @@ class EmgRagMemory {
         epistemicRuling: "EMPTY_MEMORY: No pattern history yet.",
       };
     }
+    
     const queryVec = tfidfVector(queryText, this.idf);
     const scored = this.entries.map((entry) => {
       const vec = this.vectors.get(entry.id);
@@ -290,14 +307,14 @@ class EmgRagMemory {
       .map((s) => s.entry);
 
     // Friction: how much failure signal dominates over clean signal.
-    // NOTE: max scores must be read from the `scored` array (which carries
-    // `score`), not from topFailures/topFixes (which are mapped to entries).
     const maxFailureScore = scored
       .filter((s) => s.entry.provenance === "failure")
       .reduce((max, s) => Math.max(max, s.score), 0);
+      
     const maxFixScore = scored
       .filter((s) => s.entry.provenance === "clean")
       .reduce((max, s) => Math.max(max, s.score), 0);
+      
     const friction = Math.min(
       1,
       Math.max(
@@ -309,6 +326,7 @@ class EmgRagMemory {
     );
 
     let ruling = "EPISTEMIC_HARMONY: Mutation aligns with validated clean-room patterns.";
+    
     if (maxFailureScore > maxFixScore && maxFailureScore > HIGH_SIMILARITY_THRESHOLD) {
       ruling = "COGNITIVE_FRICTION_ELEVATED: Known failure patterns dominate the query signal.";
     } else if (friction > ELEVATED_FRICTION_THRESHOLD) {
@@ -329,6 +347,7 @@ class EmgRagMemory {
     this.entries = [];
     this.idf.clear();
     this.vectors.clear();
+    
     db.memoryEntry.deleteMany({}).catch(() => {
       /* ignore */
     });
