@@ -41,7 +41,8 @@ export class SelfStoppingGovernor {
   private lastFilePath?: string;
 
   constructor(options?: { maxConsecutiveFailures?: number; maxCycles?: number }) {
-    this.maxConsecutiveFailures = options?.maxConsecutiveFailures ?? 3;
+    const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3;
+    this.maxConsecutiveFailures = options?.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
     this.maxCycles = options?.maxCycles ?? 100;
   }
 
