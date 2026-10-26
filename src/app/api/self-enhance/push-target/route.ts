@@ -23,10 +23,11 @@ export async function GET() {
 
 /**
  * POST /api/self-enhance/push-target
- * Body: { repo: string, token: string, isPublic?: boolean }
+ * Body: { repo: string, token: string, isPublic?: boolean, createIfMissing?: boolean }
  *
  * Verifies the token with GitHub, verifies (or auto-creates) the repo,
  * persists the target, and points the git `origin` remote at it.
+ * createIfMissing defaults to true — when false, missing repos are rejected.
  */
 export async function POST(req: Request) {
   try {
@@ -34,6 +35,7 @@ export async function POST(req: Request) {
       repo?: string;
       token?: string;
       isPublic?: boolean;
+      createIfMissing?: boolean;
     };
 
     if (!body.repo || !body.token) {
@@ -43,11 +45,13 @@ export async function POST(req: Request) {
       );
     }
 
+    const createIfMissing = body.createIfMissing !== false; // default true
+
     const result = await setPushTarget({
       repo: body.repo,
       token: body.token,
       isPublic: Boolean(body.isPublic),
-      createIfMissing: true,
+      createIfMissing,
     });
 
     return NextResponse.json({

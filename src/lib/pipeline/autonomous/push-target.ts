@@ -138,24 +138,63 @@ export async function setPushTarget(opts: {
   if (repoRes.status === 404) {
     const createIfMissing = opts.createIfMissing ?? true;
     if (!createIfMissing) {
-      throw new Error(`Repo ${repo} not found (or token lacks access)`);
+      throw new Error(
+        `Repo ${repo} not found. Create it manually on github.com, or enable "Auto-create repo" in the config panel.`
+      );
     }
-    const [, name] = repo.split("/");
-    const createRes = await ghFetch("/user/repos", token, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        private: !(opts.isPublic ?? false),
-        description: "Live state of a self-enhancing code pipeline (auto-pushed)",
-        auto_init: false, // empty repo → first push won't conflict
-      }),
-    });
+
+    const [owner, name] = repo.split("/");
+    let createRes: Response;
+
+    if (owner === login) {
+      // Personal repo under the authenticated user's account
+      createRes = await ghFetch("/user/repos", token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          private: !(opts.isPublic ?? false),
+          description: "Live state of a self-enhancing code pipeline (auto-pushed)",
+          auto_init: false,
+        }),
+      });
+    } else {
+      // Owner is someone other than the user — treat as an org and create there.
+      // POST /orgs/{org}/repos works only if the user is a member with admin
+      // privileges on that org; otherwise GitHub returns 404/403.
+      createRes = await ghFetch(`/orgs/${owner}/repos`, token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          private: !(opts.isPublic ?? false),
+          description: "Live state of a self-enhancing code pipeline (auto-pushed)",
+          auto_init: false,
+        }),
+      });
+    }
+
     if (createRes.status === 201) {
       created = true;
+    } else if (createRes.status === 403) {
+      const body = (await createRes.json().catch(() => ({}))) as { message?: string };
+      throw new Error(
+        `GitHub refused to create ${repo} (403): ${body.message ?? "forbidden"}. ` +
+          "Fine-grained PATs CANNOT create repos — use a classic PAT with 'repo' scope, " +
+          "or create the repo manually on github.com first, then reconnect."
+      );
+    } else if (createRes.status === 404) {
+      throw new Error(
+        `Owner '${owner}' not found (404). ` +
+          "For org repos, your token must be a member of the org with admin privileges. " +
+          "Create the repo manually on github.com, then reconnect."
+      );
     } else if (createRes.status === 422) {
       // Name collision that /repos couldn't see (e.g. just-created, eventual consistency)
-      throw new Error(`Repo ${repo} exists but is not accessible with this token (422)`);
+      throw new Error(
+        `Repo ${repo} exists but is not accessible with this token (422). ` +
+          "Check the token has access to that owner/repo."
+      );
     } else {
       const body = (await createRes.json().catch(() => ({}))) as { message?: string };
       throw new Error(`Failed to create repo ${repo}: ${body.message ?? `HTTP ${createRes.status}`}`);

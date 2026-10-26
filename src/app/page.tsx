@@ -91,6 +91,7 @@ export default function Home() {
   const [cfgToken, setCfgToken] = useState("");
   const [cfgRepo, setCfgRepo] = useState("");
   const [cfgPublic, setCfgPublic] = useState(false);
+  const [cfgAutoCreate, setCfgAutoCreate] = useState(true);
   const [cfgShowToken, setCfgShowToken] = useState(false);
   const [cfgLoading, setCfgLoading] = useState(false);
   const [cfgError, setCfgError] = useState<string | null>(null);
@@ -216,7 +217,12 @@ export default function Home() {
       const res = await fetch("/api/self-enhance/push-target", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo, token, isPublic: cfgPublic }),
+        body: JSON.stringify({
+          repo,
+          token,
+          isPublic: cfgPublic,
+          createIfMissing: cfgAutoCreate,
+        }),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -806,7 +812,7 @@ export default function Home() {
                 alignItems: "center",
                 gap: "6px",
                 cursor: "pointer",
-                marginBottom: "12px",
+                marginBottom: "8px",
                 color: PROMPT_COLOR,
                 userSelect: "none",
               }}
@@ -818,6 +824,34 @@ export default function Home() {
                 style={{ accentColor: PROMPT_COLOR }}
               />
               <span>Public repo (unchecked = private)</span>
+            </label>
+
+            {/* Auto-create toggle */}
+            <label
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "6px",
+                cursor: "pointer",
+                marginBottom: "12px",
+                color: PROMPT_COLOR,
+                userSelect: "none",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={cfgAutoCreate}
+                onChange={(e) => setCfgAutoCreate(e.target.checked)}
+                style={{ accentColor: PROMPT_COLOR, marginTop: "2px", flexShrink: 0 }}
+              />
+              <span>
+                Auto-create repo if missing
+                <span style={{ color: DIM_COLOR, display: "block", fontSize: "12px", marginTop: "2px" }}>
+                  Creates {`{owner}/{name}`} under the token's account (or an org you
+                  administer). Needs a classic PAT with repo scope — fine-grained PATs
+                  cannot create repos.
+                </span>
+              </span>
             </label>
 
             {/* Current target status */}
@@ -895,9 +929,12 @@ export default function Home() {
 
             {/* Footer hint */}
             <div style={{ color: DIM_COLOR, marginTop: "12px", fontSize: "12px", lineHeight: 1.3 }}>
-              Token verified with GitHub. Repo auto-created if missing (private unless
-              Public checked). Token stored locally only — never in git config, URLs, or
-              the pushed repo. Need a token? github.com/settings/tokens (repo scope).
+              Token verified with GitHub.{" "}
+              {cfgAutoCreate
+                ? "Repo auto-created if missing (private unless Public checked). For org repos, the token must administer that org."
+                : "Repo must already exist — connect only, no creation."}
+              {" "}Token stored locally only — never in git config, URLs, or the pushed
+              repo. Need a token? github.com/settings/tokens (classic PAT, repo scope).
             </div>
           </div>
         </div>
