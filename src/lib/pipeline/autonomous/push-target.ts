@@ -325,10 +325,11 @@ export async function pushCurrentState(opts?: {
       GIT_CONFIG_VALUE_0: auth,
     };
 
+    const GIT_PUSH_TIMEOUT = 60000;
     try {
       execSync(`git push origin ${refspec}${forceArg}`, {
         cwd: PROJECT_ROOT,
-        timeout: 60000,
+        timeout: GIT_PUSH_TIMEOUT,
         stdio: "pipe",
         env: pushEnv,
       });
