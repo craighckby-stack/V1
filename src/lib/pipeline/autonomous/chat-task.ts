@@ -343,6 +343,7 @@ Output the COMPLETE new content for this file that achieves the goal.`;
     });
     compiled = true;
   } catch {
+    // ignore compilation errors - will revert changes
     compiled = false;
   }
 
