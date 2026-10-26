@@ -83,7 +83,8 @@ function isLikelyEnvVarOrPath(s: string): boolean {
   //    "abcdefghijklmnopqrstuvwxyz" has entropy 4.70 but is clearly not a secret.
   //    Detect: all-unique chars in a sequential run, or pure repeated patterns.
   const unique = new Set(s).size;
-  if (unique === s.length && s.length >= 20) {
+  const MIN_UNIQUE_CHARS_THRESHOLD = 20;
+  if (unique === s.length && s.length >= MIN_UNIQUE_CHARS_THRESHOLD) {
     // All characters are unique AND length >= 20 — could be alphabet or similar.
     // Real secrets are NOT typically all-unique (they have repetition due to base64).
     // Check if it's a known non-secret pattern:
