@@ -89,9 +89,7 @@ function isLikelyEnvVarOrPath(s: string): boolean {
   if (/^[A-Z][A-Z0-9_]*=/.test(s)) return true;
 
   // 2. Known env var prefixes
-  for (const prefix of ENV_VAR_PREFIXES) {
-    if (s.startsWith(prefix)) return true;
-  }
+  if (ENV_VAR_PREFIXES.some(prefix => s.startsWith(prefix))) return true;
 
   // 3. File path (starts with / or contains / and has a file extension)
   if (s.startsWith("/") || /^[a-z]:\//i.test(s)) return true;
@@ -118,9 +116,7 @@ function isLikelyFixtureFile(filePath: string | undefined, code: string): boolea
   // 1. Path-based detection
   if (filePath) {
     const lower = filePath.toLowerCase();
-    for (const pat of FIXTURE_PATH_PATTERNS) {
-      if (pat.test(lower)) return true;
-    }
+    if (FIXTURE_PATH_PATTERNS.some(pat => pat.test(lower))) return true;
   }
 
   // 2. Content-based detection — known fixture prefixes assigned to constants
