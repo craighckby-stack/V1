@@ -291,7 +291,8 @@ export async function pushCurrentState(opts?: {
       timeout: GIT_COMMAND_TIMEOUT,
     });
     if (status.trim()) {
-      const message = (opts?.message ?? "Self-enhancement: current live state").replace(/"/g, '\\"').slice(0, 300);
+      const MAX_COMMIT_MESSAGE_LENGTH = 300;
+      const message = (opts?.message ?? "Self-enhancement: current live state").replace(/"/g, '\\"').slice(0, MAX_COMMIT_MESSAGE_LENGTH);
       execSync("git add -A", { cwd: PROJECT_ROOT, timeout: 10000 });
       // Use a temp file for the commit message to handle multi-line safely
       const msgFile = "/tmp/commit-msg.txt";
