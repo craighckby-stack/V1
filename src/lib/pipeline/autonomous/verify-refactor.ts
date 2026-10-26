@@ -12,7 +12,7 @@
 
 import { typecheckRefactor, syntaxCheck } from "./in-memory-typecheck";
 
-async function main() {
+async function main() : Promise<void> {
   const filePath = process.argv[2];
   if (!filePath) {
     console.log(JSON.stringify({ ok: false, errors: ["No file path provided"] }));

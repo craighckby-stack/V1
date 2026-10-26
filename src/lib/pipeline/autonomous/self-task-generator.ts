@@ -1,0 +1,354 @@
+/**
+ * Self-Task Generator — THE INPUT LAYER.
+ *
+ * Principle: the system defines its own input. No user goals, no prompts.
+ * This module statically analyzes the system's OWN source code with the
+ * TypeScript compiler API and derives a prioritized task queue from what
+ * it finds. The queue IS the input; the loop consumes it.
+ *
+ * Analysis is 100% deterministic — it works even when the LLM API is
+ * rate-limited. Findings are persisted as SelfTask rows (deduped), so the
+ * queue survives restarts and every task has an audit trail.
+ *
+ * Task kinds (priority = importance):
+ *   1 todo-comment        LLM  — explicit debt markers (TODO/FIXME/HACK)
+ *   2 empty-catch         LLM  — catch blocks that swallow errors silently
+ *   3 any-usage           LLM  — `: any` / `as any` type-safety holes
+ *   4 missing-return-type DET  — deterministic fix: checker-inferred annotation
+ *   5 magic-number        LLM  — unnamed numeric literals in expressions
+ *   6 non-null-assertion  LLM  — `!.` unsafe member access
+ */
+
+import * as ts from "typescript";
+import { readFileSync, readdirSync } from "fs";
+import { join, relative, resolve } from "path";
+import { db } from "@/lib/db";
+
+const PROJECT_ROOT = "/home/z/my-project";
+const PIPELINE_SRC_DIR = join(PROJECT_ROOT, "src/lib/pipeline");
+
+/**
+ * Files the system must NOT modify (would break its own loop).
+ * Tasks are never generated for these — the system doesn't queue work
+ * it refuses to do.
+ */
+export const PROTECTED_FILES = new Set([
+  "src/lib/pipeline/autonomous/loop-runtime.ts",
+  "src/lib/pipeline/autonomous/self-enhance-loop.ts",
+  "src/lib/pipeline/autonomous/self-task-generator.ts",
+  "src/lib/pipeline/autonomous/loop-event-bus.ts",
+  "src/lib/pipeline/llm/agent-llm.ts",
+  "src/lib/pipeline/llm/debate-llm.ts",
+]);
+
+export const TASK_KINDS = {
+  "todo-comment": { priority: 1, method: "llm" as const },
+  "empty-catch": { priority: 2, method: "llm" as const },
+  "any-usage": { priority: 3, method: "llm" as const },
+  "missing-return-type": { priority: 4, method: "deterministic" as const },
+  "magic-number": { priority: 5, method: "llm" as const },
+  "non-null-assertion": { priority: 6, method: "llm" as const },
+};
+
+export type TaskKind = keyof typeof TASK_KINDS;
+
+export interface Finding {
+  kind: TaskKind;
+  filePath: string; // relative
+  line: number; // 1-based
+  evidence: string; // trimmed source line
+}
+
+const MAX_TASKS_PER_KIND_PER_FILE = 5;
+const MAX_PENDING_TOTAL = 200;
+
+/** Recursively list .ts source files in the pipeline dir (excluding protected). */
+function listOwnSourceFiles(): string[] {
+  const files: string[] = [];
+  const scan = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scan(full);
+      } else if (
+        entry.name.endsWith(".ts") &&
+        !entry.name.endsWith(".test.ts") &&
+        !entry.name.endsWith(".bak") &&
+        !entry.name.endsWith(".tmp")
+      ) {
+        const rel = relative(PROJECT_ROOT, full);
+        if (!PROTECTED_FILES.has(rel)) files.push(full);
+      }
+    }
+  };
+  scan(PIPELINE_SRC_DIR);
+  return files;
+}
+
+/** Is this numeric literal "magic"? (excluding 0/1/2/-1, enum members, and declaration initializers — those already have names) */
+function isMagicNumber(node: ts.NumericLiteral): boolean {
+  const value = Number(node.text);
+  if ([0, 1, 2, -1].includes(value)) return false;
+
+  const parent = node.parent;
+  if (!parent) return false;
+
+  // Skip enum members (named by definition)
+  if (ts.isEnumMember(parent)) return false;
+
+  // Skip declaration initializers — `const X = 5000` binds the value to a name
+  if (
+    (ts.isVariableDeclaration(parent) || ts.isPropertyDeclaration(parent)) &&
+    parent.initializer === node
+  ) {
+    return false;
+  }
+
+  return true; // inline literal in an expression — the classic magic number
+}
+
+/** Line number (1-based) for a position in a source file. */
+function lineOf(sf: ts.SourceFile, pos: number): number {
+  return sf.getLineAndCharacterOfPosition(pos).line + 1;
+}
+
+/** Analyze one source file → findings. Pure static analysis, no LLM. */
+function analyzeFile(absPath: string): Finding[] {
+  const relPath = relative(PROJECT_ROOT, absPath);
+  const text = readFileSync(absPath, "utf-8");
+  const sf = ts.createSourceFile(absPath, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const findings: Finding[] = [];
+
+  const seen = new Set<string>(); // kind:line dedup within file
+  const push = (kind: TaskKind, pos: number) => {
+    const line = lineOf(sf, pos);
+    const key = `${kind}:${line}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const evidence = (text.split("\n")[line - 1] ?? "").trim().slice(0, 160);
+    findings.push({ kind, filePath: relPath, line, evidence });
+  };
+
+  // 1) TODO/FIXME/HACK comments — require a comment marker so string
+  // literals that merely mention the words are not flagged
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (/(\/\/|\/\*|\*).*\b(TODO|FIXME|HACK)\b/.test(lines[i])) {
+      const key = `todo-comment:${i + 1}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        findings.push({
+          kind: "todo-comment",
+          filePath: relPath,
+          line: i + 1,
+          evidence: lines[i].trim().slice(0, 160),
+        });
+      }
+    }
+  }
+
+  // AST-based kinds
+  const visit = (node: ts.Node): void => {
+    // 2) empty catch blocks
+    if (ts.isCatchClause(node) && node.block.statements.length === 0) {
+      push("empty-catch", node.block.getStart());
+    }
+
+    // 3) `any` usage
+    if (node.kind === ts.SyntaxKind.AnyKeyword && node.parent) {
+      // Only flag in type positions (annotation, as-expression, type args)
+      const p = node.parent;
+      const inTypePosition =
+        (p as { type?: ts.Node }).type === node || // x: any / (p: any) => — annotation is parent's .type
+        ts.isAsExpression(p) || // as any
+        ts.isTypeReferenceNode(p) || // Array<any>
+        ts.isArrayTypeNode(p);
+      if (inTypePosition) push("any-usage", node.getStart());
+    }
+
+    // 4) missing return type on function/method declarations
+    if (
+      (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) &&
+      node.body &&
+      !node.type &&
+      node.name
+    ) {
+      push("missing-return-type", node.name.getStart());
+    }
+
+    // 5) magic numbers
+    if (ts.isNumericLiteral(node) && isMagicNumber(node)) {
+      push("magic-number", node.getStart());
+    }
+
+    // 6) non-null assertions
+    if (ts.isNonNullExpression(node)) {
+      push("non-null-assertion", node.getStart());
+    }
+
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+
+  return findings;
+}
+
+/** Cap findings per kind per file to keep the queue balanced. */
+function capPerKind(findings: Finding[]): Finding[] {
+  const counts = new Map<string, number>();
+  const out: Finding[] = [];
+  for (const f of findings) {
+    const key = `${f.kind}:${f.filePath}`;
+    const n = counts.get(key) ?? 0;
+    if (n >= MAX_TASKS_PER_KIND_PER_FILE) continue;
+    counts.set(key, n + 1);
+    out.push(f);
+  }
+  return out;
+}
+
+export interface ScanResult {
+  filesAnalyzed: number;
+  findings: number;
+  newTasks: number;
+  alreadyQueued: number;
+  skippedProtected: number;
+}
+
+let lastScanAt: Date | null = null;
+
+/**
+ * Scan the system's own source and persist new tasks.
+ * This is the system DEFINING ITS INPUT — the core act.
+ */
+export async function generateTasks(): Promise<ScanResult> {
+  const files = listOwnSourceFiles();
+  const allFindings: Finding[] = [];
+
+  // Count protected files for transparency
+  let protectedCount = 0;
+  const scanAll = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) scanAll(full);
+      else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+        if (PROTECTED_FILES.has(relative(PROJECT_ROOT, full))) protectedCount++;
+      }
+    }
+  };
+  scanAll(PIPELINE_SRC_DIR);
+
+  for (const file of files) {
+    try {
+      allFindings.push(...analyzeFile(file));
+    } catch {
+      /* unreadable file — skip */
+    }
+  }
+
+  const capped = capPerKind(allFindings);
+  let newTasks = 0;
+  let alreadyQueued = 0;
+
+  // Don't flood: check current pending count
+  const pendingCount = await db.selfTask.count({ where: { status: { in: ["pending", "in_progress"] } } });
+  let budget = Math.max(0, MAX_PENDING_TOTAL - pendingCount);
+
+  for (const f of capped) {
+    if (budget <= 0) break;
+    const existing = await db.selfTask.findUnique({
+      where: { kind_filePath_line: { kind: f.kind, filePath: f.filePath, line: f.line } },
+    });
+    if (existing && ["pending", "in_progress", "done", "skipped"].includes(existing.status)) {
+      alreadyQueued++;
+      continue;
+    }
+    if (existing && existing.status === "failed" && existing.attempts >= 3) {
+      alreadyQueued++; // give up permanently on this one
+      continue;
+    }
+    await db.selfTask.upsert({
+      where: { kind_filePath_line: { kind: f.kind, filePath: f.filePath, line: f.line } },
+      update: { status: "pending", evidence: f.evidence }, // retry failed
+      create: {
+        kind: f.kind,
+        filePath: f.filePath,
+        line: f.line,
+        evidence: f.evidence,
+        priority: TASK_KINDS[f.kind].priority,
+      },
+    });
+    newTasks++;
+    budget--;
+  }
+
+  lastScanAt = new Date();
+  return {
+    filesAnalyzed: files.length,
+    findings: capped.length,
+    newTasks,
+    alreadyQueued,
+    skippedProtected: protectedCount,
+  };
+}
+
+export interface QueueCounts {
+  pending: number;
+  in_progress: number;
+  done: number;
+  failed: number;
+  skipped: number;
+  lastScanAt: string | null;
+  [key: string]: number | string | null;
+}
+
+/** Queue counts by status. */
+export async function getQueueStats(): Promise<QueueCounts> {
+  const grouped = await db.selfTask.groupBy({ by: ["status"], _count: true });
+  const stats: QueueCounts = {
+    pending: 0,
+    in_progress: 0,
+    done: 0,
+    failed: 0,
+    skipped: 0,
+    lastScanAt: lastScanAt?.toISOString() ?? null,
+  };
+  for (const g of grouped) {
+    stats[g.status] = typeof g._count === "number" ? g._count : 0;
+  }
+  return stats;
+}
+
+/** List tasks (most recent first within status). */
+export async function listTasks(status?: string, limit = 30) {
+  return db.selfTask.findMany({
+    where: status ? { status } : undefined,
+    orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
+    take: Math.min(limit, 100),
+  });
+}
+
+/** Pull the next pending task (priority, then oldest). Marks it in_progress.
+ * `onlyDeterministic` restricts claiming to checker-inferred fix kinds — used
+ * when the LLM is rate-limited so the loop still has executable work. */
+export async function claimNextTask(onlyDeterministic = false) {
+  const next = await db.selfTask.findFirst({
+    where: onlyDeterministic
+      ? { status: "pending", kind: "missing-return-type" }
+      : { status: "pending" },
+    orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
+  });
+  if (!next) return null;
+  return db.selfTask.update({
+    where: { id: next.id },
+    data: { status: "in_progress", attempts: { increment: 1 } },
+  });
+}
+
+export function getTaskMethod(kind: string): "deterministic" | "llm" {
+  return (TASK_KINDS[kind as TaskKind] ?? TASK_KINDS["magic-number"]).method;
+}
+
+export function getLastScanAt(): Date | null {
+  return lastScanAt;
+}

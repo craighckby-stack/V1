@@ -20,6 +20,14 @@ const COLOR_MAP = {
 const PROMPT_COLOR = "#00ff00";
 const DIM_COLOR = "#008800";
 const USER_INPUT_COLOR = "#ffffff";
+const METHOD_LABEL = {
+    "todo-comment": "LLM",
+    "empty-catch": "LLM",
+    "any-usage": "LLM",
+    "missing-return-type": "DET",
+    "magic-number": "LLM",
+    "non-null-assertion": "LLM"
+};
 function Home() {
     const [status, setStatus] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])(null);
     const [input, setInput] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])("");
@@ -28,7 +36,7 @@ function Home() {
     const [terminalLines, setTerminalLines] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])([
         {
             type: "system",
-            text: "ARCHITECTURE HELPER PIPELINE v4.3 — SELF-ENHANCE MODE"
+            text: "ARCHITECTURE HELPER PIPELINE v4.4 — SELF-ENHANCE MODE"
         },
         {
             type: "system",
@@ -40,19 +48,19 @@ function Home() {
         },
         {
             type: "system",
-            text: "Target: src/lib/pipeline/ (self-enhancement)"
+            text: "INPUT: SYSTEM-DEFINED"
         },
         {
             type: "system",
-            text: "Mode: continuous autonomous refactoring"
+            text: "  The system scans its own source with the TypeScript"
         },
         {
             type: "system",
-            text: "Verification: tsc --noEmit before every write"
+            text: "  compiler API and derives its own task queue. No user"
         },
         {
             type: "system",
-            text: "Proof: git push of current live state on each enhancement"
+            text: "  goals. No prompts. The queue IS the input."
         },
         {
             type: "system",
@@ -60,19 +68,25 @@ function Home() {
         },
         {
             type: "system",
-            text: "Type 'help' for commands, or type a goal in plain English."
+            text: "Verification: in-memory typecheck before every write"
         },
         {
             type: "system",
-            text: "Example: 'add a search input that filters the file list'"
+            text: "Proof: git push of current live state on each fix"
+        },
+        {
+            type: "system",
+            text: ""
+        },
+        {
+            type: "system",
+            text: "Type 'help' for commands. Type 'tasks' to see the queue."
         },
         {
             type: "system",
             text: ""
         }
     ]);
-    const [pendingPlan, setPendingPlan] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])(null);
-    const [taskLoading, setTaskLoading] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])(false);
     // Config panel state
     const [configOpen, setConfigOpen] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])(false);
     const [cfgToken, setCfgToken] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])("");
@@ -85,6 +99,7 @@ function Home() {
     const [cfgStatusMsg, setCfgStatusMsg] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])(null);
     const [cfgTarget, setCfgTarget] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])(null);
     const [pushTarget, setPushTarget] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])(null);
+    const [cmdBusy, setCmdBusy] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useState"])(false);
     const cfgTokenRef = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useRef"])(null);
     const logRef = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useRef"])(null);
     const inputRef = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["useRef"])(null);
@@ -272,28 +287,29 @@ function Home() {
             ]);
         setHistoryIdx(-1);
         const lower = trimmed.toLowerCase();
-        const parts = lower.split(/\s+/);
-        const command = parts[0];
+        const command = lower.split(/\s+/)[0];
         switch(command){
             case "help":
                 return [
                     "Available commands:",
                     "  start       — Start continuous self-enhancement loop",
                     "  stop        — Stop the loop",
-                    "  trigger     — Run one enhancement cycle",
+                    "  trigger     — Run one cycle (scan queue + execute next tasks)",
+                    "  tasks       — Show the system-defined task queue",
+                    "  rescan      — Force re-scan of own source (re-define input)",
+                    "  skip        — Veto the next pending task (user's only input power)",
                     "  status      — Show current status",
                     "  push        — Push current live state to GitHub",
                     "  config      — Open Git config panel",
                     "  logs        — Show recent logs",
-                    "  files       — List files being enhanced",
                     "  clear       — Clear the terminal",
                     "  help        — Show this help",
                     "",
-                    "CHAT MODE:",
-                    "  Type anything that's not a command and the system will",
-                    "  analyze the codebase, propose a plan, and ask you to approve.",
-                    "  Example: 'add a search input that filters the file list'",
-                    "  Then type 'yes' to apply, or anything else to cancel.",
+                    "INPUT IS SYSTEM-DEFINED:",
+                    "  The system scans its own source code and generates its own",
+                    "  task queue (TODOs, any-types, empty catches, magic numbers,",
+                    "  missing return types, non-null assertions). You do not feed",
+                    "  it goals. Your only power over the input is 'skip' (veto).",
                     ""
                 ];
             case "start":
@@ -338,9 +354,106 @@ function Home() {
             case "trigger":
             case "run":
                 {
-                    return [
-                        "Running one cycle... (check logs for progress)"
-                    ];
+                    setCmdBusy(true);
+                    try {
+                        const res = await fetch("/api/self-enhance/trigger", {
+                            method: "POST"
+                        });
+                        const data = await res.json();
+                        const lines = [
+                            `Cycle complete: ${data.processed ?? 0} task(s) processed.`
+                        ];
+                        for (const r of data.results ?? []){
+                            const tag = r.status === "applied" ? "✓ FIXED" : r.status === "deferred" ? "… DEFERRED (LLM 429)" : r.status === "failed" ? "✗ FAILED" : "· NO-OP";
+                            lines.push(`  ${tag} [${r.kind}] ${r.filePath}:${r.line}${r.status === "applied" && r.pushed ? ` — pushed ${r.commitSha}` : ""}`);
+                        }
+                        return lines;
+                    } catch (e) {
+                        return [
+                            `Error: ${e.message}`
+                        ];
+                    } finally{
+                        setCmdBusy(false);
+                    }
+                }
+            case "tasks":
+            case "queue":
+                {
+                    setCmdBusy(true);
+                    try {
+                        const res = await fetch("/api/self-enhance/tasks?status=pending&limit=15");
+                        const data = await res.json();
+                        const q = data.queue;
+                        const header = [
+                            `QUEUE — pending=${q?.pending ?? 0} in-progress=${q?.in_progress ?? 0} done=${q?.done ?? 0} failed=${q?.failed ?? 0} skipped=${q?.skipped ?? 0}`,
+                            `Last input scan: ${q?.lastScanAt ?? "not yet (runs when queue empties or via 'rescan')"}`,
+                            ""
+                        ];
+                        const tasks = data.tasks ?? [];
+                        if (tasks.length === 0) {
+                            return [
+                                ...header,
+                                "  (no pending tasks — run 'rescan' to define new input)"
+                            ];
+                        }
+                        return [
+                            ...header,
+                            ...tasks.map((t)=>`  [P${t.kind === "todo-comment" ? 1 : t.kind === "empty-catch" ? 2 : t.kind === "any-usage" ? 3 : t.kind === "missing-return-type" ? 4 : t.kind === "magic-number" ? 5 : 6}/${METHOD_LABEL[t.kind] ?? "?"}] ${t.kind} — ${t.filePath}:${t.line}`),
+                            "",
+                            `  (${tasks.length} shown${q && q.pending > tasks.length ? `, ${q.pending - tasks.length} more pending` : ""})`
+                        ];
+                    } catch (e) {
+                        return [
+                            `Error: ${e.message}`
+                        ];
+                    } finally{
+                        setCmdBusy(false);
+                    }
+                }
+            case "rescan":
+                {
+                    setCmdBusy(true);
+                    try {
+                        const res = await fetch("/api/self-enhance/rescan", {
+                            method: "POST"
+                        });
+                        const data = await res.json();
+                        return [
+                            `Input re-defined by system scan:`,
+                            `  files analyzed: ${data.filesAnalyzed}`,
+                            `  findings:       ${data.findings}`,
+                            `  new tasks:      ${data.newTasks}`,
+                            `  already known:  ${data.alreadyQueued}`
+                        ];
+                    } catch (e) {
+                        return [
+                            `Error: ${e.message}`
+                        ];
+                    } finally{
+                        setCmdBusy(false);
+                    }
+                }
+            case "skip":
+            case "veto":
+                {
+                    try {
+                        const res = await fetch("/api/self-enhance/skip", {
+                            method: "POST"
+                        });
+                        const data = await res.json();
+                        if (data.skipped) {
+                            return [
+                                `Vetoed: [${data.kind}] ${data.filePath}:${data.line} — task marked skipped`
+                            ];
+                        }
+                        return [
+                            "Nothing to veto — queue is empty."
+                        ];
+                    } catch (e) {
+                        return [
+                            `Error: ${e.message}`
+                        ];
+                    }
                 }
             case "status":
                 {
@@ -348,14 +461,18 @@ function Home() {
                     if (!s) return [
                         "No status available yet"
                     ];
+                    const q = s.queue;
                     return [
-                        `Running:       ${s.running ? "YES" : "NO"}`,
-                        `Files scanned: ${s.stats.totalScanned}`,
-                        `Files enhanced: ${s.stats.totalEnhanced}`,
-                        `Files reverted: ${s.stats.totalReverted}`,
-                        `Pushes to git:  ${s.stats.totalPushed}`,
-                        `Last enhanced:  ${s.stats.lastEnhancementAt ?? "never"}`,
-                        `Current file:   ${s.currentFile ?? "idle"}`
+                        `Running:         ${s.running ? "YES" : "NO"}`,
+                        `Input mode:      ${s.inputMode ?? "system-defined"} (system scans own source)`,
+                        `Queue:           pending=${q?.pending ?? 0} in-progress=${q?.in_progress ?? 0} done=${q?.done ?? 0} failed=${q?.failed ?? 0} skipped=${q?.skipped ?? 0}`,
+                        `Current task:    ${s.currentTask ? `[${s.currentTask.kind}] ${s.currentTask.filePath}:${s.currentTask.line}` : "idle"}`,
+                        `Tasks generated: ${s.stats.tasksGenerated}`,
+                        `Tasks done:      ${s.stats.tasksDone}`,
+                        `Tasks failed:    ${s.stats.tasksFailed}`,
+                        `Deferred (429):  ${s.stats.tasksDeferred}`,
+                        `Pushes to git:   ${s.stats.totalPushed}`,
+                        `Last fix:        ${s.stats.lastEnhancementAt ?? "never"}`
                     ];
                 }
             case "push":
@@ -388,151 +505,46 @@ function Home() {
                     ];
                     return logs.slice(0, 20).map((l)=>`[${l.timestamp}] ${l.message}`);
                 }
-            case "files":
-            case "list":
-                {
-                    return [
-                        "Self-enhancement targets (src/lib/pipeline/):",
-                        "  core/       — unified-pipeline, ast-diff-gate, siphon, binaryShield",
-                        "  emg/        — sanitizer, debate, halt, emg-rag",
-                        "  engines/    — clean-room-runtime",
-                        "  postmortem/ — postmortem-store",
-                        "",
-                        "Protected (not modified):",
-                        "  autonomous/ — loop-runtime, self-enhance-loop, loop-event-bus",
-                        "  llm/         — agent-llm, debate-llm"
-                    ];
-                }
             case "clear":
             case "cls":
-                setStatus(null);
-                return [
-                    ""
-                ];
+                {
+                    setTerminalLines([]);
+                    return [
+                        ""
+                    ];
+                }
             case "exit":
             case "quit":
                 return [
                     "Cannot exit — the system runs continuously. Use 'stop' to halt enhancement."
                 ];
-            case "yes":
-            case "y":
-            case "approve":
-                {
-                    if (!pendingPlan) {
-                        return [
-                            "No pending plan to approve. Type a goal first."
-                        ];
-                    }
-                    setTaskLoading(true);
-                    try {
-                        const res = await fetch("/api/self-enhance/chat-task/apply", {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json"
-                            },
-                            body: JSON.stringify({
-                                ...pendingPlan,
-                                ok: true
-                            })
-                        });
-                        const data = await res.json();
-                        setPendingPlan(null);
-                        if (data.ok) {
-                            const lines = [
-                                "APPLIED:",
-                                ...data.results.map((r)=>`  ${r.applied ? "✓" : "✗"} ${r.path} — ${r.reason}`)
-                            ];
-                            if (data.pushed) {
-                                lines.push(`Pushed to GitHub: commit ${data.commitSha}`);
-                            } else if (data.error) {
-                                lines.push(`⚠ ${data.error}`);
-                            }
-                            return lines;
-                        }
-                        return [
-                            `Failed: ${data.error}`
-                        ];
-                    } catch (e) {
-                        setPendingPlan(null);
-                        return [
-                            `Error applying plan: ${e.message}`
-                        ];
-                    } finally{
-                        setTaskLoading(false);
-                    }
-                }
-            case "no":
-            case "n":
-            case "cancel":
-                {
-                    if (pendingPlan) {
-                        setPendingPlan(null);
-                        return [
-                            "Plan cancelled."
-                        ];
-                    }
-                    return [
-                        "Nothing to cancel."
-                    ];
-                }
             case "about":
                 return [
-                    "Architecture Helper Pipeline v4.3",
-                    "Self-enhancing autonomous refactoring system",
-                    "The system modifies its own source code in src/lib/pipeline/,",
-                    "verifies with tsc --noEmit, and pushes to GitHub as proof.",
-                    "What you see on GitHub IS the current live state of the server.",
+                    "Architecture Helper Pipeline v4.4",
+                    "Self-enhancing autonomous system with SYSTEM-DEFINED INPUT.",
                     "",
-                    "CHAT MODE: type a goal in plain English to direct the system."
+                    "The system scans its own source (src/lib/pipeline/) with the",
+                    "TypeScript compiler API and derives a task queue: TODOs, any",
+                    "types, empty catches, magic numbers, missing return types,",
+                    "non-null assertions. It executes tasks one by one — deterministic",
+                    "fixes run even when the LLM API is rate-limited; LLM fixes are",
+                    "focused single-issue prompts. Every fix is verified in memory",
+                    "before it touches disk, then pushed to GitHub as proof.",
+                    "",
+                    "What you see on GitHub IS the current live state of the server."
                 ];
             default:
                 {
-                    // Not a command — treat as a chat task goal
-                    if (taskLoading) return [
-                        "Task in progress, please wait..."
+                    // Not a command — the system does not accept user goals.
+                    return [
+                        `'${trimmed}' is not a command.`,
+                        "",
+                        "INPUT IS SYSTEM-DEFINED: this system does not take goals from",
+                        "users. It scans its own source and generates its own task queue.",
+                        "",
+                        "Type 'tasks' to see the queue, 'rescan' to re-define the input,",
+                        "or 'skip' to veto the next task. Type 'help' for all commands."
                     ];
-                    setTaskLoading(true);
-                    try {
-                        const res = await fetch("/api/self-enhance/chat-task/propose", {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json"
-                            },
-                            body: JSON.stringify({
-                                goal: trimmed
-                            })
-                        });
-                        const plan = await res.json();
-                        if (!plan.ok) {
-                            return [
-                                `Could not plan: ${plan.error ?? "unknown error"}`
-                            ];
-                        }
-                        // Store the plan for "yes" approval
-                        setPendingPlan({
-                            userGoal: plan.userGoal,
-                            understanding: plan.understanding,
-                            files: plan.files,
-                            summary: plan.summary
-                        });
-                        const lines = [
-                            `UNDERSTANDING: ${plan.understanding}`,
-                            "",
-                            "PROPOSED CHANGES:",
-                            ...plan.files.map((f)=>`  ${f.action.toUpperCase()}: ${f.path} — ${f.reason}`),
-                            "",
-                            `SUMMARY: ${plan.summary}`,
-                            "",
-                            "Type 'yes' to apply and push, or 'no' to cancel."
-                        ];
-                        return lines;
-                    } catch (e) {
-                        return [
-                            `Error: ${e.message}`
-                        ];
-                    } finally{
-                        setTaskLoading(false);
-                    }
                 }
         }
     }
@@ -593,6 +605,7 @@ function Home() {
     }
     const logs = status?.logs ?? [];
     const s = status?.stats;
+    const q = status?.queue;
     const running = status?.running ?? false;
     return /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
         style: {
@@ -636,7 +649,7 @@ function Home() {
                                 children: "┌─ "
                             }, void 0, false, {
                                 fileName: "[project]/src/app/page.tsx",
-                                lineNumber: 558,
+                                lineNumber: 587,
                                 columnNumber: 11
                             }, this),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -644,10 +657,10 @@ function Home() {
                                     color: PROMPT_COLOR,
                                     fontWeight: "bold"
                                 },
-                                children: "ARCHITECTURE HELPER PIPELINE v4.3 — SELF-ENHANCE MODE"
+                                children: "ARCHITECTURE HELPER PIPELINE v4.4 — SELF-ENHANCE MODE"
                             }, void 0, false, {
                                 fileName: "[project]/src/app/page.tsx",
-                                lineNumber: 559,
+                                lineNumber: 588,
                                 columnNumber: 11
                             }, this),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -658,7 +671,7 @@ function Home() {
                                 children: "─┐"
                             }, void 0, false, {
                                 fileName: "[project]/src/app/page.tsx",
-                                lineNumber: 562,
+                                lineNumber: 591,
                                 columnNumber: 11
                             }, this),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -669,7 +682,7 @@ function Home() {
                                 children: "│"
                             }, void 0, false, {
                                 fileName: "[project]/src/app/page.tsx",
-                                lineNumber: 563,
+                                lineNumber: 592,
                                 columnNumber: 11
                             }, this),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -684,33 +697,56 @@ function Home() {
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/app/page.tsx",
-                                lineNumber: 564,
+                                lineNumber: 593,
                                 columnNumber: 11
                             }, this),
-                            s && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                style: {
+                                    color: DIM_COLOR,
+                                    marginLeft: "16px"
+                                },
+                                children: "INPUT: SYSTEM-DEFINED"
+                            }, void 0, false, {
+                                fileName: "[project]/src/app/page.tsx",
+                                lineNumber: 596,
+                                columnNumber: 11
+                            }, this),
+                            q && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
                                 style: {
                                     color: DIM_COLOR,
                                     marginLeft: "16px"
                                 },
                                 children: [
-                                    "scanned=",
-                                    s.totalScanned,
-                                    " enhanced=",
-                                    s.totalEnhanced,
-                                    " reverted=",
-                                    s.totalReverted,
-                                    " pushed=",
+                                    "queue=",
+                                    q.pending + q.in_progress,
+                                    " done=",
+                                    q.done,
+                                    " failed=",
+                                    q.failed
+                                ]
+                            }, void 0, true, {
+                                fileName: "[project]/src/app/page.tsx",
+                                lineNumber: 598,
+                                columnNumber: 13
+                            }, this),
+                            s && s.totalPushed > 0 && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                style: {
+                                    color: DIM_COLOR,
+                                    marginLeft: "16px"
+                                },
+                                children: [
+                                    "pushed=",
                                     s.totalPushed
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/app/page.tsx",
-                                lineNumber: 568,
+                                lineNumber: 603,
                                 columnNumber: 13
                             }, this)
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/app/page.tsx",
-                        lineNumber: 557,
+                        lineNumber: 586,
                         columnNumber: 9
                     }, this),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -732,7 +768,7 @@ function Home() {
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/app/page.tsx",
-                                lineNumber: 574,
+                                lineNumber: 607,
                                 columnNumber: 11
                             }, this),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -754,19 +790,19 @@ function Home() {
                                 children: "[CONFIG]"
                             }, void 0, false, {
                                 fileName: "[project]/src/app/page.tsx",
-                                lineNumber: 577,
+                                lineNumber: 610,
                                 columnNumber: 11
                             }, this)
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/app/page.tsx",
-                        lineNumber: 573,
+                        lineNumber: 606,
                         columnNumber: 9
                     }, this)
                 ]
             }, void 0, true, {
                 fileName: "[project]/src/app/page.tsx",
-                lineNumber: 545,
+                lineNumber: 574,
                 columnNumber: 7
             }, this),
             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -794,7 +830,7 @@ function Home() {
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 611,
+                                    lineNumber: 644,
                                     columnNumber: 13
                                 }, this),
                                 " ",
@@ -802,7 +838,7 @@ function Home() {
                             ]
                         }, `log-${idx}`, true, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 610,
+                            lineNumber: 643,
                             columnNumber: 11
                         }, this)),
                     terminalLines.map((line, idx)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -813,13 +849,23 @@ function Home() {
                             children: line.type === "command" ? `> ${line.text}` : line.text || "\u00a0"
                         }, `term-${idx}`, false, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 618,
+                            lineNumber: 651,
                             columnNumber: 11
-                        }, this))
+                        }, this)),
+                    cmdBusy && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                        style: {
+                            color: DIM_COLOR
+                        },
+                        children: "working..."
+                    }, void 0, false, {
+                        fileName: "[project]/src/app/page.tsx",
+                        lineNumber: 667,
+                        columnNumber: 11
+                    }, this)
                 ]
             }, void 0, true, {
                 fileName: "[project]/src/app/page.tsx",
-                lineNumber: 600,
+                lineNumber: 633,
                 columnNumber: 7
             }, this),
             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -846,7 +892,7 @@ function Home() {
                             children: ">"
                         }, void 0, false, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 647,
+                            lineNumber: 683,
                             columnNumber: 11
                         }, this),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -858,6 +904,7 @@ function Home() {
                             autoFocus: true,
                             autoComplete: "off",
                             spellCheck: false,
+                            "aria-label": "Terminal command input",
                             style: {
                                 flex: 1,
                                 background: "transparent",
@@ -870,18 +917,18 @@ function Home() {
                             }
                         }, void 0, false, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 648,
+                            lineNumber: 684,
                             columnNumber: 11
                         }, this)
                     ]
                 }, void 0, true, {
                     fileName: "[project]/src/app/page.tsx",
-                    lineNumber: 646,
+                    lineNumber: 682,
                     columnNumber: 9
                 }, this)
             }, void 0, false, {
                 fileName: "[project]/src/app/page.tsx",
-                lineNumber: 636,
+                lineNumber: 672,
                 columnNumber: 7
             }, this),
             configOpen && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -925,7 +972,7 @@ function Home() {
                             children: "┌─ GIT CONFIG ──────────────────────┐"
                         }, void 0, false, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 704,
+                            lineNumber: 741,
                             columnNumber: 13
                         }, this),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -941,7 +988,7 @@ function Home() {
                                     children: "GitHub Token"
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 710,
+                                    lineNumber: 747,
                                     columnNumber: 15
                                 }, this),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -970,7 +1017,7 @@ function Home() {
                                             }
                                         }, void 0, false, {
                                             fileName: "[project]/src/app/page.tsx",
-                                            lineNumber: 712,
+                                            lineNumber: 749,
                                             columnNumber: 17
                                         }, this),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -988,19 +1035,19 @@ function Home() {
                                             children: cfgShowToken ? "[HIDE]" : "[SHOW]"
                                         }, void 0, false, {
                                             fileName: "[project]/src/app/page.tsx",
-                                            lineNumber: 722,
+                                            lineNumber: 759,
                                             columnNumber: 17
                                         }, this)
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 711,
+                                    lineNumber: 748,
                                     columnNumber: 15
                                 }, this)
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 709,
+                            lineNumber: 746,
                             columnNumber: 13
                         }, this),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1016,7 +1063,7 @@ function Home() {
                                     children: "Repository (owner/name)"
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 734,
+                                    lineNumber: 771,
                                     columnNumber: 15
                                 }, this),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -1039,13 +1086,13 @@ function Home() {
                                     }
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 735,
+                                    lineNumber: 772,
                                     columnNumber: 15
                                 }, this)
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 733,
+                            lineNumber: 770,
                             columnNumber: 13
                         }, this),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
@@ -1068,20 +1115,20 @@ function Home() {
                                     }
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 748,
+                                    lineNumber: 785,
                                     columnNumber: 15
                                 }, this),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
                                     children: "Public repo (unchecked = private)"
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 749,
+                                    lineNumber: 786,
                                     columnNumber: 15
                                 }, this)
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 747,
+                            lineNumber: 784,
                             columnNumber: 13
                         }, this),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
@@ -1106,7 +1153,7 @@ function Home() {
                                     }
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 752,
+                                    lineNumber: 789,
                                     columnNumber: 15
                                 }, this),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
@@ -1122,19 +1169,19 @@ function Home() {
                                             children: "Needs a classic PAT with repo scope — fine-grained PATs cannot create repos."
                                         }, void 0, false, {
                                             fileName: "[project]/src/app/page.tsx",
-                                            lineNumber: 755,
+                                            lineNumber: 792,
                                             columnNumber: 17
                                         }, this)
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 753,
+                                    lineNumber: 790,
                                     columnNumber: 15
                                 }, this)
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 751,
+                            lineNumber: 788,
                             columnNumber: 13
                         }, this),
                         cfgTarget?.configured && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1153,7 +1200,7 @@ function Home() {
                                     children: "CURRENT TARGET"
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 764,
+                                    lineNumber: 801,
                                     columnNumber: 17
                                 }, this),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1170,7 +1217,7 @@ function Home() {
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 765,
+                                    lineNumber: 802,
                                     columnNumber: 17
                                 }, this),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1183,7 +1230,7 @@ function Home() {
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 768,
+                                    lineNumber: 805,
                                     columnNumber: 17
                                 }, this),
                                 cfgTarget.lastPushError && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1199,13 +1246,13 @@ function Home() {
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 772,
+                                    lineNumber: 809,
                                     columnNumber: 19
                                 }, this)
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 763,
+                            lineNumber: 800,
                             columnNumber: 15
                         }, this),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1232,7 +1279,7 @@ function Home() {
                                     children: "[ CONNECT & PUSH ]"
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 781,
+                                    lineNumber: 818,
                                     columnNumber: 15
                                 }, this),
                                 cfgTarget?.configured && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -1252,7 +1299,7 @@ function Home() {
                                     children: "[ DISCONNECT ]"
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 790,
+                                    lineNumber: 827,
                                     columnNumber: 17
                                 }, this),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
@@ -1270,13 +1317,13 @@ function Home() {
                                     children: "[ CLOSE ]"
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 799,
+                                    lineNumber: 836,
                                     columnNumber: 15
                                 }, this)
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 780,
+                            lineNumber: 817,
                             columnNumber: 13
                         }, this),
                         cfgStatusMsg && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1288,7 +1335,7 @@ function Home() {
                             children: cfgStatusMsg
                         }, void 0, false, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 806,
+                            lineNumber: 843,
                             columnNumber: 15
                         }, this),
                         cfgError && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1300,7 +1347,7 @@ function Home() {
                             children: cfgError
                         }, void 0, false, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 809,
+                            lineNumber: 846,
                             columnNumber: 15
                         }, this),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$ssr$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$ssr$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -1313,24 +1360,24 @@ function Home() {
                             children: "Token verified with GitHub. Token stored locally only — never in git config, URLs, or the pushed repo. Need a token? github.com/settings/tokens (classic PAT, repo scope)."
                         }, void 0, false, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 812,
+                            lineNumber: 849,
                             columnNumber: 13
                         }, this)
                     ]
                 }, void 0, true, {
                     fileName: "[project]/src/app/page.tsx",
-                    lineNumber: 686,
+                    lineNumber: 723,
                     columnNumber: 11
                 }, this)
             }, void 0, false, {
                 fileName: "[project]/src/app/page.tsx",
-                lineNumber: 673,
+                lineNumber: 710,
                 columnNumber: 9
             }, this)
         ]
     }, void 0, true, {
         fileName: "[project]/src/app/page.tsx",
-        lineNumber: 529,
+        lineNumber: 558,
         columnNumber: 5
     }, this);
 }

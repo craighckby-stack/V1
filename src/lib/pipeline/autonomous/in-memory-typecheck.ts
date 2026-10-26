@@ -38,7 +38,13 @@ function loadTsConfig(): { fileNames: string[]; options: ts.CompilerOptions } {
     TSCONFIG_PATH
   );
 
-  cachedFileNames = parsedConfig.fileNames;
+  // Scope the program to PROJECT code only. Reference folders (examples/,
+  // skills/) ship with pre-existing type errors that would reject every
+  // refactor even when the refactor is fine — the gate must only judge the
+  // code the system owns and can actually break.
+  cachedFileNames = parsedConfig.fileNames.filter(
+    (f) => !f.includes("/examples/") && !f.includes("/skills/")
+  );
   cachedCompilerOptions = { ...parsedConfig.options, noEmit: true };
   return { fileNames: cachedFileNames, options: cachedCompilerOptions };
 }

@@ -8,17 +8,44 @@ interface LogEntry {
   type: "info" | "success" | "warn" | "error";
 }
 
+interface QueueStats {
+  pending: number;
+  in_progress: number;
+  done: number;
+  failed: number;
+  skipped: number;
+  lastScanAt: string | null;
+}
+
+interface SelfTask {
+  id: string;
+  kind: string;
+  filePath: string;
+  line: number;
+  evidence: string;
+  status: string;
+  attempts: number;
+  deferred: number;
+  fixSummary?: string | null;
+  commitSha?: string | null;
+}
+
 interface SelfEnhanceStatus {
   running: boolean;
   stats: {
-    totalScanned: number;
-    totalEnhanced: number;
-    totalReverted: number;
+    tasksGenerated: number;
+    tasksDone: number;
+    tasksFailed: number;
+    tasksDeferred: number;
+    tasksNoop: number;
     totalPushed: number;
     lastEnhancementAt: string | null;
+    startedAt: string | null;
   };
   logs: LogEntry[];
-  currentFile: string | null;
+  currentTask: { kind: string; filePath: string; line: number } | null;
+  queue: QueueStats | null;
+  inputMode: string;
 }
 
 const COLOR_MAP: Record<LogEntry["type"], string> = {
@@ -32,6 +59,15 @@ const PROMPT_COLOR = "#00ff00";
 const DIM_COLOR = "#008800";
 const USER_INPUT_COLOR = "#ffffff";
 
+const METHOD_LABEL: Record<string, string> = {
+  "todo-comment": "LLM",
+  "empty-catch": "LLM",
+  "any-usage": "LLM",
+  "missing-return-type": "DET", // deterministic — runs even during 429
+  "magic-number": "LLM",
+  "non-null-assertion": "LLM",
+};
+
 export default function Home() {
   const [status, setStatus] = useState<SelfEnhanceStatus | null>(null);
   const [input, setInput] = useState("");
@@ -40,25 +76,20 @@ export default function Home() {
   const [terminalLines, setTerminalLines] = useState<
     Array<{ type: "system" | "command" | "output"; text: string }>
   >([
-    { type: "system", text: "ARCHITECTURE HELPER PIPELINE v4.3 — SELF-ENHANCE MODE" },
+    { type: "system", text: "ARCHITECTURE HELPER PIPELINE v4.4 — SELF-ENHANCE MODE" },
     { type: "system", text: "(c) 2026 Z.ai Code — Autonomous Self-Modifying System" },
     { type: "system", text: "" },
-    { type: "system", text: "Target: src/lib/pipeline/ (self-enhancement)" },
-    { type: "system", text: "Mode: continuous autonomous refactoring" },
-    { type: "system", text: "Verification: tsc --noEmit before every write" },
-    { type: "system", text: "Proof: git push of current live state on each enhancement" },
+    { type: "system", text: "INPUT: SYSTEM-DEFINED" },
+    { type: "system", text: "  The system scans its own source with the TypeScript" },
+    { type: "system", text: "  compiler API and derives its own task queue. No user" },
+    { type: "system", text: "  goals. No prompts. The queue IS the input." },
     { type: "system", text: "" },
-    { type: "system", text: "Type 'help' for commands, or type a goal in plain English." },
-    { type: "system", text: "Example: 'add a search input that filters the file list'" },
+    { type: "system", text: "Verification: in-memory typecheck before every write" },
+    { type: "system", text: "Proof: git push of current live state on each fix" },
+    { type: "system", text: "" },
+    { type: "system", text: "Type 'help' for commands. Type 'tasks' to see the queue." },
     { type: "system", text: "" },
   ]);
-  const [pendingPlan, setPendingPlan] = useState<{
-    userGoal: string;
-    understanding: string;
-    files: Array<{ path: string; action: string; reason: string }>;
-    summary: string;
-  } | null>(null);
-  const [taskLoading, setTaskLoading] = useState(false);
 
   // Config panel state
   const [configOpen, setConfigOpen] = useState(false);
@@ -72,6 +103,7 @@ export default function Home() {
   const [cfgStatusMsg, setCfgStatusMsg] = useState<string | null>(null);
   const [cfgTarget, setCfgTarget] = useState<{ configured: boolean; repo?: string; branch?: string; createdRepo?: boolean; lastPushSha?: string | null; lastPushAt?: string | null; lastPushError?: string | null } | null>(null);
   const [pushTarget, setPushTarget] = useState<{ configured: boolean; repo?: string } | null>(null);
+  const [cmdBusy, setCmdBusy] = useState(false);
   const cfgTokenRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -249,8 +281,7 @@ export default function Home() {
     setHistoryIdx(-1);
 
     const lower = trimmed.toLowerCase();
-    const parts = lower.split(/\s+/);
-    const command = parts[0];
+    const command = lower.split(/\s+/)[0];
 
     switch (command) {
       case "help":
@@ -258,20 +289,22 @@ export default function Home() {
           "Available commands:",
           "  start       — Start continuous self-enhancement loop",
           "  stop        — Stop the loop",
-          "  trigger     — Run one enhancement cycle",
+          "  trigger     — Run one cycle (scan queue + execute next tasks)",
+          "  tasks       — Show the system-defined task queue",
+          "  rescan      — Force re-scan of own source (re-define input)",
+          "  skip        — Veto the next pending task (user's only input power)",
           "  status      — Show current status",
           "  push        — Push current live state to GitHub",
           "  config      — Open Git config panel",
           "  logs        — Show recent logs",
-          "  files       — List files being enhanced",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
           "",
-          "CHAT MODE:",
-          "  Type anything that's not a command and the system will",
-          "  analyze the codebase, propose a plan, and ask you to approve.",
-          "  Example: 'add a search input that filters the file list'",
-          "  Then type 'yes' to apply, or anything else to cancel.",
+          "INPUT IS SYSTEM-DEFINED:",
+          "  The system scans its own source code and generates its own",
+          "  task queue (TODOs, any-types, empty catches, magic numbers,",
+          "  missing return types, non-null assertions). You do not feed",
+          "  it goals. Your only power over the input is 'skip' (veto).",
           "",
         ];
 
@@ -302,20 +335,106 @@ export default function Home() {
 
       case "trigger":
       case "run": {
-        return ["Running one cycle... (check logs for progress)"];
+        setCmdBusy(true);
+        try {
+          const res = await fetch("/api/self-enhance/trigger", { method: "POST" });
+          const data = await res.json();
+          const lines = [`Cycle complete: ${data.processed ?? 0} task(s) processed.`];
+          for (const r of data.results ?? []) {
+            const tag =
+              r.status === "applied" ? "✓ FIXED" :
+              r.status === "deferred" ? "… DEFERRED (LLM 429)" :
+              r.status === "failed" ? "✗ FAILED" : "· NO-OP";
+            lines.push(`  ${tag} [${r.kind}] ${r.filePath}:${r.line}${r.status === "applied" && r.pushed ? ` — pushed ${r.commitSha}` : ""}`);
+          }
+          return lines;
+        } catch (e) {
+          return [`Error: ${(e as Error).message}`];
+        } finally {
+          setCmdBusy(false);
+        }
+      }
+
+      case "tasks":
+      case "queue": {
+        setCmdBusy(true);
+        try {
+          const res = await fetch("/api/self-enhance/tasks?status=pending&limit=15");
+          const data = await res.json();
+          const q = data.queue as QueueStats | undefined;
+          const header = [
+            `QUEUE — pending=${q?.pending ?? 0} in-progress=${q?.in_progress ?? 0} done=${q?.done ?? 0} failed=${q?.failed ?? 0} skipped=${q?.skipped ?? 0}`,
+            `Last input scan: ${q?.lastScanAt ?? "not yet (runs when queue empties or via 'rescan')"}`,
+            "",
+          ];
+          const tasks = (data.tasks ?? []) as SelfTask[];
+          if (tasks.length === 0) {
+            return [...header, "  (no pending tasks — run 'rescan' to define new input)"];
+          }
+          return [
+            ...header,
+            ...tasks.map(
+              (t) =>
+                `  [P${t.kind === "todo-comment" ? 1 : t.kind === "empty-catch" ? 2 : t.kind === "any-usage" ? 3 : t.kind === "missing-return-type" ? 4 : t.kind === "magic-number" ? 5 : 6}/${METHOD_LABEL[t.kind] ?? "?"}] ${t.kind} — ${t.filePath}:${t.line}`
+            ),
+            "",
+            `  (${tasks.length} shown${q && q.pending > tasks.length ? `, ${q.pending - tasks.length} more pending` : ""})`,
+          ];
+        } catch (e) {
+          return [`Error: ${(e as Error).message}`];
+        } finally {
+          setCmdBusy(false);
+        }
+      }
+
+      case "rescan": {
+        setCmdBusy(true);
+        try {
+          const res = await fetch("/api/self-enhance/rescan", { method: "POST" });
+          const data = await res.json();
+          return [
+            `Input re-defined by system scan:`,
+            `  files analyzed: ${data.filesAnalyzed}`,
+            `  findings:       ${data.findings}`,
+            `  new tasks:      ${data.newTasks}`,
+            `  already known:  ${data.alreadyQueued}`,
+          ];
+        } catch (e) {
+          return [`Error: ${(e as Error).message}`];
+        } finally {
+          setCmdBusy(false);
+        }
+      }
+
+      case "skip":
+      case "veto": {
+        try {
+          const res = await fetch("/api/self-enhance/skip", { method: "POST" });
+          const data = await res.json();
+          if (data.skipped) {
+            return [`Vetoed: [${data.kind}] ${data.filePath}:${data.line} — task marked skipped`];
+          }
+          return ["Nothing to veto — queue is empty."];
+        } catch (e) {
+          return [`Error: ${(e as Error).message}`];
+        }
       }
 
       case "status": {
         const s = status;
         if (!s) return ["No status available yet"];
+        const q = s.queue;
         return [
-          `Running:       ${s.running ? "YES" : "NO"}`,
-          `Files scanned: ${s.stats.totalScanned}`,
-          `Files enhanced: ${s.stats.totalEnhanced}`,
-          `Files reverted: ${s.stats.totalReverted}`,
-          `Pushes to git:  ${s.stats.totalPushed}`,
-          `Last enhanced:  ${s.stats.lastEnhancementAt ?? "never"}`,
-          `Current file:   ${s.currentFile ?? "idle"}`,
+          `Running:         ${s.running ? "YES" : "NO"}`,
+          `Input mode:      ${s.inputMode ?? "system-defined"} (system scans own source)`,
+          `Queue:           pending=${q?.pending ?? 0} in-progress=${q?.in_progress ?? 0} done=${q?.done ?? 0} failed=${q?.failed ?? 0} skipped=${q?.skipped ?? 0}`,
+          `Current task:    ${s.currentTask ? `[${s.currentTask.kind}] ${s.currentTask.filePath}:${s.currentTask.line}` : "idle"}`,
+          `Tasks generated: ${s.stats.tasksGenerated}`,
+          `Tasks done:      ${s.stats.tasksDone}`,
+          `Tasks failed:    ${s.stats.tasksFailed}`,
+          `Deferred (429):  ${s.stats.tasksDeferred}`,
+          `Pushes to git:   ${s.stats.totalPushed}`,
+          `Last fix:        ${s.stats.lastEnhancementAt ?? "never"}`,
         ];
       }
 
@@ -337,134 +456,43 @@ export default function Home() {
         return logs.slice(0, 20).map((l) => `[${l.timestamp}] ${l.message}`);
       }
 
-      case "files":
-      case "list": {
-        return [
-          "Self-enhancement targets (src/lib/pipeline/):",
-          "  core/       — unified-pipeline, ast-diff-gate, siphon, binaryShield",
-          "  emg/        — sanitizer, debate, halt, emg-rag",
-          "  engines/    — clean-room-runtime",
-          "  postmortem/ — postmortem-store",
-          "",
-          "Protected (not modified):",
-          "  autonomous/ — loop-runtime, self-enhance-loop, loop-event-bus",
-          "  llm/         — agent-llm, debate-llm",
-        ];
-      }
-
       case "clear":
-      case "cls":
-        setStatus(null);
+      case "cls": {
+        setTerminalLines([]);
         return [""];
+      }
 
       case "exit":
       case "quit":
         return ["Cannot exit — the system runs continuously. Use 'stop' to halt enhancement."];
 
-      case "yes":
-      case "y":
-      case "approve": {
-        if (!pendingPlan) {
-          return ["No pending plan to approve. Type a goal first."];
-        }
-        setTaskLoading(true);
-        try {
-          const res = await fetch("/api/self-enhance/chat-task/apply", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...pendingPlan, ok: true }),
-          });
-          const data = await res.json();
-          setPendingPlan(null);
-          if (data.ok) {
-            const lines = [
-              "APPLIED:",
-              ...data.results.map(
-                (r: { path: string; applied: boolean; reason: string }) =>
-                  `  ${r.applied ? "✓" : "✗"} ${r.path} — ${r.reason}`
-              ),
-            ];
-            if (data.pushed) {
-              lines.push(`Pushed to GitHub: commit ${data.commitSha}`);
-            } else if (data.error) {
-              lines.push(`⚠ ${data.error}`);
-            }
-            return lines;
-          }
-          return [`Failed: ${data.error}`];
-        } catch (e) {
-          setPendingPlan(null);
-          return [`Error applying plan: ${(e as Error).message}`];
-        } finally {
-          setTaskLoading(false);
-        }
-      }
-
-      case "no":
-      case "n":
-      case "cancel": {
-        if (pendingPlan) {
-          setPendingPlan(null);
-          return ["Plan cancelled."];
-        }
-        return ["Nothing to cancel."];
-      }
-
       case "about":
         return [
-          "Architecture Helper Pipeline v4.3",
-          "Self-enhancing autonomous refactoring system",
-          "The system modifies its own source code in src/lib/pipeline/,",
-          "verifies with tsc --noEmit, and pushes to GitHub as proof.",
-          "What you see on GitHub IS the current live state of the server.",
+          "Architecture Helper Pipeline v4.4",
+          "Self-enhancing autonomous system with SYSTEM-DEFINED INPUT.",
           "",
-          "CHAT MODE: type a goal in plain English to direct the system.",
+          "The system scans its own source (src/lib/pipeline/) with the",
+          "TypeScript compiler API and derives a task queue: TODOs, any",
+          "types, empty catches, magic numbers, missing return types,",
+          "non-null assertions. It executes tasks one by one — deterministic",
+          "fixes run even when the LLM API is rate-limited; LLM fixes are",
+          "focused single-issue prompts. Every fix is verified in memory",
+          "before it touches disk, then pushed to GitHub as proof.",
+          "",
+          "What you see on GitHub IS the current live state of the server.",
         ];
 
       default: {
-        // Not a command — treat as a chat task goal
-        if (taskLoading) return ["Task in progress, please wait..."];
-
-        setTaskLoading(true);
-        try {
-          const res = await fetch("/api/self-enhance/chat-task/propose", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ goal: trimmed }),
-          });
-          const plan = await res.json();
-
-          if (!plan.ok) {
-            return [`Could not plan: ${plan.error ?? "unknown error"}`];
-          }
-
-          // Store the plan for "yes" approval
-          setPendingPlan({
-            userGoal: plan.userGoal,
-            understanding: plan.understanding,
-            files: plan.files,
-            summary: plan.summary,
-          });
-
-          const lines = [
-            `UNDERSTANDING: ${plan.understanding}`,
-            "",
-            "PROPOSED CHANGES:",
-            ...plan.files.map(
-              (f: { path: string; action: string; reason: string }) =>
-                `  ${f.action.toUpperCase()}: ${f.path} — ${f.reason}`
-            ),
-            "",
-            `SUMMARY: ${plan.summary}`,
-            "",
-            "Type 'yes' to apply and push, or 'no' to cancel.",
-          ];
-          return lines;
-        } catch (e) {
-          return [`Error: ${(e as Error).message}`];
-        } finally {
-          setTaskLoading(false);
-        }
+        // Not a command — the system does not accept user goals.
+        return [
+          `'${trimmed}' is not a command.`,
+          "",
+          "INPUT IS SYSTEM-DEFINED: this system does not take goals from",
+          "users. It scans its own source and generates its own task queue.",
+          "",
+          "Type 'tasks' to see the queue, 'rescan' to re-define the input,",
+          "or 'skip' to veto the next task. Type 'help' for all commands.",
+        ];
       }
     }
   }
@@ -523,6 +551,7 @@ export default function Home() {
 
   const logs = status?.logs ?? [];
   const s = status?.stats;
+  const q = status?.queue;
   const running = status?.running ?? false;
 
   return (
@@ -557,17 +586,21 @@ export default function Home() {
         <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
           <span style={{ color: DIM_COLOR }}>┌─ </span>
           <span style={{ color: PROMPT_COLOR, fontWeight: "bold" }}>
-            ARCHITECTURE HELPER PIPELINE v4.3 — SELF-ENHANCE MODE
+            ARCHITECTURE HELPER PIPELINE v4.4 — SELF-ENHANCE MODE
           </span>
           <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>─┐</span>
           <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>│</span>
           <span style={{ marginLeft: "8px", color: running ? "#00ff00" : "#ff4444" }}>
             [{running ? "ENHANCING" : "IDLE"}]
           </span>
-          {s && (
+          <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>INPUT: SYSTEM-DEFINED</span>
+          {q && (
             <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>
-              scanned={s.totalScanned} enhanced={s.totalEnhanced} reverted={s.totalReverted} pushed={s.totalPushed}
+              queue={q.pending + q.in_progress} done={q.done} failed={q.failed}
             </span>
+          )}
+          {s && s.totalPushed > 0 && (
+            <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>pushed={s.totalPushed}</span>
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
@@ -630,6 +663,9 @@ export default function Home() {
             {line.type === "command" ? `> ${line.text}` : line.text || "\u00a0"}
           </div>
         ))}
+        {cmdBusy && (
+          <div style={{ color: DIM_COLOR }}>working...</div>
+        )}
       </div>
 
       {/* Prompt */}
@@ -654,6 +690,7 @@ export default function Home() {
             autoFocus
             autoComplete="off"
             spellCheck={false}
+            aria-label="Terminal command input"
             style={{
               flex: 1,
               background: "transparent",

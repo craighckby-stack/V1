@@ -299,6 +299,24 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../../src/app/api/self-enhance/rescan/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/self-enhance/rescan">> = Specific
+  const handler = {} as typeof import("../../../src/app/api/self-enhance/rescan/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../../src/app/api/self-enhance/skip/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/self-enhance/skip">> = Specific
+  const handler = {} as typeof import("../../../src/app/api/self-enhance/skip/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../../src/app/api/self-enhance/start/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/self-enhance/start">> = Specific
@@ -321,6 +339,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/self-enhance/stop">> = Specific
   const handler = {} as typeof import("../../../src/app/api/self-enhance/stop/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../../src/app/api/self-enhance/tasks/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/self-enhance/tasks">> = Specific
+  const handler = {} as typeof import("../../../src/app/api/self-enhance/tasks/route.js")
   type __Check = __IsExpected<typeof handler>
   // @ts-ignore
   type __Unused = __Check

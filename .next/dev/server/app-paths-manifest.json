@@ -1,8 +1,4 @@
 {
-  "/api/autonomous/status/route": "app/api/autonomous/status/route.js",
-  "/api/self-enhance/chat-task/propose/route": "app/api/self-enhance/chat-task/propose/route.js",
-  "/api/self-enhance/push-target/route": "app/api/self-enhance/push-target/route.js",
-  "/api/self-enhance/push/route": "app/api/self-enhance/push/route.js",
-  "/api/self-enhance/status/route": "app/api/self-enhance/status/route.js",
+  "/api/self-enhance/trigger/route": "app/api/self-enhance/trigger/route.js",
   "/page": "app/page.js"
 }
