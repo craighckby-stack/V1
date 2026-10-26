@@ -31,7 +31,8 @@ export function conductDebate(topic: string, candidateCode: string, filePath: st
   const containsSecrets = secretPattern.test(candidateCode);
   const containsEval = /\beval\s*\(|\bnew\s+Function\s*\(/.test(candidateCode);
   const hasTypeAnnotations = /:\s*(string|number|boolean|Promise<|void|Record<)/.test(candidateCode);
-  const isLarge = candidateCode.length > 10000;
+  const LARGE_CODE_THRESHOLD = 10000;
+  const isLarge = candidateCode.length > LARGE_CODE_THRESHOLD;
 
   const securityPoints: string[] = [];
   const architecturePoints: string[] = [];
