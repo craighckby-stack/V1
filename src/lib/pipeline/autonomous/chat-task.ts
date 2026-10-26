@@ -401,9 +401,10 @@ Output the COMPLETE new content for this file that achieves the goal.`;
           stdio: "pipe",
         }).trim();
         if (remote.includes("origin")) {
+          const GIT_PUSH_TIMEOUT_MS = 15000;
           execSync("git push origin main 2>&1", {
             cwd: PROJECT_ROOT,
-            timeout: 15000,
+            timeout: GIT_PUSH_TIMEOUT_MS,
             stdio: "pipe",
           });
           pushed = true;
