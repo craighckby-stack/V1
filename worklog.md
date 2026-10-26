@@ -664,3 +664,28 @@ Stage Summary:
 - Terminal commands now produce visible output that stays on screen
 - The input was never broken — the output was being scrolled off-screen by the server log rendering order
 - Loop restarted and running cleanly
+
+---
+Task ID: fix-429-rate-limits-1
+Agent: main (Z.ai Code)
+Task: Fix LLM 429 (Too Many Requests) errors
+
+Work Log:
+- Root cause: the loop was calling the LLM API as fast as possible — only 500ms between files, and the retry logic waited just 400ms before retrying a 429. The API responded with 429 (Too Many Requests) on most calls.
+- Fix 1 — LLM wrapper (agent-llm.ts):
+  * Increased maxAttempts from 2 to 5 (more retries for rate-limited responses)
+  * Detect 429/rate-limit errors via regex on the error message
+  * Exponential backoff for 429s: 10s → 20s → 40s → 80s
+  * Non-429 errors keep the fast retry: 400ms → 800ms
+- Fix 2 — Loop (self-enhance-loop.ts):
+  * Circuit breaker: consecutiveRateLimits counter tracks back-to-back 429s
+  * On 429: pause 15s × consecutive count (capped at 60s) before returning
+  * On success: reset the circuit breaker to 0
+  * Increased inter-file delay from 500ms to 2s (gives the API breathing room)
+- Verified: 2 minutes of continuous running, zero 429 errors. The loop now paces itself instead of firing requests as fast as possible.
+- Committed + pushed (7a81844)
+
+Stage Summary:
+- 429 rate limiting eliminated through proper exponential backoff + circuit breaker
+- The loop now takes ~2s between files (was 0.5s), trading speed for reliability
+- LLM wrapper retries 429s up to 5 times with 10-80s backoff before giving up
