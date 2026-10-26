@@ -165,8 +165,9 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
     const matches = sanitized.match(pattern);
     if (matches) {
       for (const match of matches) {
+        const SECRET_PREVIEW_LENGTH = 6;
         violations.push(
-          `Detected known secret signature: ${match.slice(0, 6)}... (length: ${match.length})`
+          `Detected known secret signature: ${match.slice(0, SECRET_PREVIEW_LENGTH)}... (length: ${match.length})`
         );
         sanitized = sanitized.split(match).join(`[REDACTED_SECRET_${match.slice(0, 4)}]`);
       }
@@ -199,8 +200,9 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
       // strings. Real secrets typically have entropy > 4.5.
       if (entropy > 4.5) {
         highEntropyTokensFound++;
+        const HIGH_ENTROPY_PREVIEW_LENGTH = 6;
         violations.push(
-          `Detected high-entropy string (entropy: ${entropy.toFixed(2)}): ${inner.slice(0, 6)}...`
+          `Detected high-entropy string (entropy: ${entropy.toFixed(2)}): ${inner.slice(0, HIGH_ENTROPY_PREVIEW_LENGTH)}...`
         );
         sanitized = sanitized.split(inner).join("[REDACTED_HIGH_ENTROPY_KEY]");
       }
