@@ -761,3 +761,34 @@ Stage Summary:
 - This is the real fix for the 429 problem: the Z.AI account throttle is the documented "natural stop point", but a user-pasted Gemini key is an INDEPENDENT quota that bypasses it. The user supplies the credential; the system still defines its own work.
 - Header indicator [GEMINI: ON/OFF] shows the state at a glance alongside [GIT: ON/OFF].
 - Verified end-to-end in the browser: format validation + Google verification both work; the real key flow is ready for the user to paste their key from aistudio.google.com/apikey.
+
+---
+Task ID: gemini-location-blocked-handling
+Agent: main (Z.ai Code)
+Task: User pasted a real Gemini key and got: "Key rejected by Google (400): User location is not supported for the API use. FAILED_PRECONDITION"
+
+Work Log:
+- DIAGNOSED: the error is NOT a bad key — it's Google's geo-restriction. Verified the sandbox's network egress IP is in Hong Kong (47.57.232.232 / 8.212.10.159 — HK). Google's free-tier Gemini API does NOT support Hong Kong as a region. The key itself is valid (Google checked it); every request from this sandbox will be rejected with FAILED_PRECONDITION "location is not supported".
+- This is a HARD EXTERNAL CONSTRAINT — no code can fix it. The sandbox egresses through HK; Google blocks HK; therefore a Gemini API key cannot be used from HERE regardless of how the code is wired.
+
+- CODE FIX (correct handling of the location error, even though it can't make the key work HERE):
+  1. llm-config/route.ts POST: now distinguishes the Google error cases:
+     - INVALID_ARGUMENT + "api key not valid" → reject (don't save) — the key is actually bad
+     - FAILED_PRECONDITION + "location" → SAVE the key (it's valid!) + return { ok: true, locationBlocked: true, warning: "..." } — the key is good, just unusable from this region; will work from a supported region
+     - 403 PERMISSION_DENIED → reject
+     - 429 → save (valid, throttled — already handled)
+     The lastError column records "Location not supported by Google Gemini API (key is valid; will work from a supported region)" so the UI shows the situation.
+  2. gemini-direct.ts: added LOCATION_BLOCKED_UNTIL in-memory cooldown (10min). When Google returns FAILED_PRECONDITION + "location", arm the cooldown so geminiComplete short-circuits subsequent calls for 10 minutes instead of burning a Google request per task per cycle while the sandbox is geo-blocked. Resets on server restart (acceptable — a restart is also when the network egress might change).
+  3. page.tsx saveGeminiKey: handles data.locationBlocked distinctly — shows "Key saved (valid) but this network's region is not supported... It will work if the system runs from a supported region... Until then, the loop falls back to the Z.AI chain." instead of an error. Emits a [CONFIG] line to the terminal too.
+  4. page.tsx modal status: lastError now shows as a yellow ⚠ warning (not red error) when the key is configured but location-blocked — visually distinguishes "saved but unusable here" from "rejected".
+
+- VERIFIED: the fake-key POST (AIzaSyDxn... which is not a real key) correctly returns "Key rejected by Google: API key not valid" (INVALID_ARGUMENT path). The user's REAL key takes the FAILED_PRECONDITION path and will now save + return locationBlocked:true. The DB is clean (test key not saved).
+
+- Pushed as 1581903. 0/0 sync, no secrets in source.
+
+Stage Summary:
+- ROOT CAUSE: the sandbox egresses through Hong Kong (verified via ipwho.is: country_code HK). Google's free-tier Gemini API doesn't support HK. The user's key is valid; the location isn't. No code can fix this — it's Google's geo-policy.
+- HANDLED CORRECTLY: the route now saves valid-but-location-blocked keys (instead of rejecting them) and surfaces a clear "saved but region-blocked" message. The key will work if the system runs from a supported region (US, EU, etc.).
+- COOLDOWN: gemini-direct.ts arms a 10-minute in-memory cooldown on location errors so the loop doesn't burn a Google request per task per cycle while geo-blocked — it short-circuits and falls through to the Z.AI chain immediately.
+- HONEST STATUS: from THIS sandbox, the Z.AI model chain remains the only working LLM path (and it's currently account-level 429 throttled too). The Gemini key is saved for when the system runs from a supported region.
+- The user should retry pasting their real key — it will now save with the clear "region not supported" warning instead of showing a rejection error.
