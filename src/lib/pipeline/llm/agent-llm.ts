@@ -11,6 +11,7 @@
  */
 
 import ZAI from "z-ai-web-dev-sdk";
+import { geminiComplete } from "./gemini-direct";
 
 type ZAIType = Awaited<ReturnType<typeof ZAI.create>>;
 
@@ -66,16 +67,46 @@ const MODEL_CHAIN = [
 ];
 
 /**
- * Single-shot LLM call with a model fallback chain + retry.
+ * Single-shot LLM call. Resolution order:
  *
- * For each model in the chain, try up to 2 attempts. On any failure
- * (429, 5xx, network, empty response), fall through to the next model.
- * Returns `ok: false` only when EVERY model on the chain has failed.
- * The `modelUsed` field on success records which upstream actually served
- * the call — useful for observability (which provider is carrying the load).
+ *   1. GEMINI DIRECT (if user pasted a key) — Google's REST API on its
+ *      own quota, separate from the Z.AI gateway. The "correct model".
+ *   2. Z.AI MODEL CHAIN — gemini-2.5-flash -> glm-4.6 -> gpt-4o-mini ->
+ *      claude-3.5-sonnet -> deepseek-v3 (the gateway's upstream providers).
+ *
+ * Only if BOTH fail do we report ok:false — at which point the loop
+ * defers the task and rotates to the next one (defer-rotation).
+ *
+ * `modelUsed` on success records which path served the call — useful
+ * for observability ("via gemini-2.5-flash" vs "via glm-4.6").
  */
 export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> {
   const started = performance.now();
+
+  // 1. Try Gemini direct first (the user's pasted key, on Google's quota)
+  try {
+    const gem = await geminiComplete({
+      systemPrompt: opts.systemPrompt,
+      userPrompt: opts.userPrompt,
+      temperature: opts.temperature,
+    });
+    if (gem.ok) {
+      return {
+        ok: true,
+        content: gem.content,
+        attempts: 1,
+        latencyMs: gem.latencyMs,
+        modelUsed: gem.model,
+      };
+    }
+    // Gemini failed (not configured, 429, network, blocked) — fall through
+    // to the Z.AI chain. Don't return yet; record the error for the chain's
+    // final error message if everything else also fails.
+  } catch {
+    // geminiComplete swallows errors internally; this is just defense
+  }
+
+  // 2. Z.AI gateway model chain fallback
   let lastError: string | undefined;
   let attempts = 0;
 
@@ -123,7 +154,7 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
   return {
     ok: false,
     content: "",
-    error: `all ${MODEL_CHAIN.length} models on chain failed (last: ${lastError ?? "unknown"})`,
+    error: `all providers failed (gemini-direct + ${MODEL_CHAIN.length} Z.AI models; last: ${lastError ?? "unknown"})`,
     attempts,
     latencyMs: Math.round(performance.now() - started),
   };

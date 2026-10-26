@@ -1,0 +1,168 @@
+/**
+ * Gemini Direct — calls Google's Gemini REST API directly with a
+ * user-pasted API key. No SDK, no Z.AI gateway — a separate quota.
+ *
+ * This is the "fallback gemini api" made primary: when the user pastes a
+ * real Gemini key into the config panel, the loop calls Google FIRST and
+ * only falls through to the Z.AI gateway chain (agent-llm.ts MODEL_CHAIN)
+ * if Gemini fails or isn't configured.
+ *
+ * The key is a credential (like the GitHub PAT), not a goal. The system
+ * still defines its own work via the SelfTask queue — this only changes
+ * WHICH upstream serves the LLM call, not what work gets queued.
+ */
+
+import { db } from "@/lib/db";
+
+const SINGLETON_ID = "singleton";
+
+interface GeminiConfig {
+  apiKey: string;
+  model: string;
+}
+
+/** Read the stored Gemini config (with key) — server-side only. */
+export async function getGeminiConfig(): Promise<GeminiConfig | null> {
+  const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } }).catch(() => null);
+  if (!row) return null;
+  return { apiKey: row.geminiApiKey, model: row.geminiModel };
+}
+
+/** Public view (key never included) — for the UI status indicator. */
+export async function getGeminiConfigPublic(): Promise<{
+  configured: boolean;
+  model?: string;
+  lastUsedAt?: string | null;
+  lastError?: string | null;
+}> {
+  const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } }).catch(() => null);
+  if (!row) return { configured: false };
+  return {
+    configured: true,
+    model: row.geminiModel,
+    lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+    lastError: row.lastError,
+  };
+}
+
+export interface GeminiCallResult {
+  ok: boolean;
+  content: string;
+  error?: string;
+  latencyMs: number;
+  model: string;
+}
+
+/**
+ * Call Google's Gemini REST API directly. Returns the text from the first
+ * candidate. On any failure (429, 5xx, network, malformed response), returns
+ * ok:false so the caller can fall through to the Z.AI chain.
+ *
+ * Google Gemini generateContent REST format:
+ *   POST v1beta/models/{model}:generateContent?key=KEY
+ *   body: { contents: [{role, parts:[{text}]}], systemInstruction?, generationConfig? }
+ *   resp: { candidates: [{content: {parts: [{text}], role}}] }
+ */
+export async function geminiComplete(opts: {
+  systemPrompt: string;
+  userPrompt: string;
+  temperature?: number;
+}): Promise<GeminiCallResult> {
+  const started = performance.now();
+  const cfg = await getGeminiConfig();
+  if (!cfg) {
+    return { ok: false, content: "", error: "Gemini not configured", latencyMs: 0, model: "" };
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model}:generateContent?key=${cfg.apiKey}`;
+  const body = {
+    systemInstruction: { parts: [{ text: opts.systemPrompt }] },
+    contents: [{ role: "user", parts: [{ text: opts.userPrompt }] }],
+    generationConfig: {
+      temperature: opts.temperature ?? 0.1,
+    },
+  };
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      // Record the error for the UI but don't fail the whole call chain
+      await db.llmConfig
+        .update({
+          where: { id: SINGLETON_ID },
+          data: { lastError: `HTTP ${res.status}: ${errText.slice(0, 200)}` },
+        })
+        .catch(() => {});
+      return {
+        ok: false,
+        content: "",
+        error: `Gemini ${res.status}: ${errText.slice(0, 160)}`,
+        latencyMs: Math.round(performance.now() - started),
+        model: cfg.model,
+      };
+    }
+
+    const json = (await res.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      promptFeedback?: { blockReason?: string };
+      error?: { message?: string };
+    };
+
+    // Google can return 200 with a blockReason and no candidates
+    if (json.promptFeedback?.blockReason && !json.candidates?.length) {
+      return {
+        ok: false,
+        content: "",
+        error: `Gemini blocked: ${json.promptFeedback.blockReason}`,
+        latencyMs: Math.round(performance.now() - started),
+        model: cfg.model,
+      };
+    }
+
+    const content = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    if (!content.trim()) {
+      return {
+        ok: false,
+        content: "",
+        error: "Gemini returned empty content",
+        latencyMs: Math.round(performance.now() - started),
+        model: cfg.model,
+      };
+    }
+
+    // Success — clear any stale lastError, record lastUsedAt
+    await db.llmConfig
+      .update({
+        where: { id: SINGLETON_ID },
+        data: { lastUsedAt: new Date(), lastError: null },
+      })
+      .catch(() => {});
+
+    return {
+      ok: true,
+      content,
+      latencyMs: Math.round(performance.now() - started),
+      model: cfg.model,
+    };
+  } catch (e) {
+    await db.llmConfig
+      .update({
+        where: { id: SINGLETON_ID },
+        data: { lastError: `network: ${(e as Error).message.slice(0, 200)}` },
+      })
+      .catch(() => {});
+    return {
+      ok: false,
+      content: "",
+      error: `Gemini network error: ${(e as Error).message}`,
+      latencyMs: Math.round(performance.now() - started),
+      model: cfg.model,
+    };
+  }
+}

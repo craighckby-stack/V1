@@ -105,7 +105,18 @@ export default function Home() {
   const [cfgStatusMsg, setCfgStatusMsg] = useState<string | null>(null);
   const [cfgTarget, setCfgTarget] = useState<{ configured: boolean; repo?: string; branch?: string; createdRepo?: boolean; lastPushSha?: string | null; lastPushAt?: string | null; lastPushError?: string | null } | null>(null);
   const [pushTarget, setPushTarget] = useState<{ configured: boolean; repo?: string } | null>(null);
+  const [geminiHeader, setGeminiHeader] = useState<{ configured: boolean; model?: string } | null>(null);
   const [cmdBusy, setCmdBusy] = useState(false);
+  // Gemini LLM key state — a user-pasted Google API key (credential, not a
+  // goal). When set, the loop calls Google's Gemini REST API directly as the
+  // PRIMARY LLM path, separate quota from the Z.AI gateway.
+  const [cfgGeminiKey, setCfgGeminiKey] = useState("");
+  const [cfgGeminiModel, setCfgGeminiModel] = useState("gemini-2.5-flash");
+  const [cfgGeminiShow, setCfgGeminiShow] = useState(false);
+  const [cfgGeminiStatus, setCfgGeminiStatus] = useState<{ configured: boolean; model?: string; lastUsedAt?: string | null; lastError?: string | null } | null>(null);
+  const [cfgGeminiSaving, setCfgGeminiSaving] = useState(false);
+  const [cfgGeminiMsg, setCfgGeminiMsg] = useState<string | null>(null);
+  const [cfgGeminiErr, setCfgGeminiErr] = useState<string | null>(null);
   // displayedLogs: the server-log slice currently shown in the terminal.
   // status.logs is the full server-side log (newest-first, capped at 500)
   // and is fetched state — `clear` can't empty it at the source. So we keep
@@ -120,6 +131,10 @@ export default function Home() {
   const cfgTokenRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // configOpenRef mirrors `configOpen` for the poll effect (avoids putting
+  // configOpen in the poll's deps, which would re-subscribe the interval
+  // on every modal open/close).
+  const configOpenRef = useRef(false);
 
   // Poll for status every 2 seconds
   useEffect(() => {
@@ -127,12 +142,21 @@ export default function Home() {
 
     async function poll() {
       try {
-        const [statusRes, targetRes] = await Promise.all([
+        const [statusRes, targetRes, gemRes] = await Promise.all([
           fetch("/api/self-enhance/status"),
           fetch("/api/self-enhance/push-target"),
+          fetch("/api/self-enhance/llm-config"),
         ]);
         if (statusRes.ok && mounted) setStatus(await statusRes.json());
         if (targetRes.ok && mounted) setPushTarget(await targetRes.json());
+        if (gemRes.ok && mounted) {
+          const g = await gemRes.json();
+          setGeminiHeader(g);
+          // keep the modal's status fresh too if it's open (read via ref so
+          // we don't need configOpen in the effect deps — avoids re-subscribing
+          // the interval on every modal open/close)
+          if (configOpenRef.current) setCfgGeminiStatus(g);
+        }
       } catch {
         // ignore
       }
@@ -210,15 +234,28 @@ export default function Home() {
 
   async function openConfig() {
     setConfigOpen(true);
+    configOpenRef.current = true;
     setCfgError(null);
     setCfgStatusMsg(null);
     setCfgLoading(false);
+    setCfgGeminiMsg(null);
+    setCfgGeminiErr(null);
+    setCfgGeminiKey("");
+    setCfgGeminiShow(false);
     try {
-      const res = await fetch("/api/self-enhance/push-target");
-      if (res.ok) {
-        const t = await res.json();
+      const [tgtRes, gemRes] = await Promise.all([
+        fetch("/api/self-enhance/push-target"),
+        fetch("/api/self-enhance/llm-config"),
+      ]);
+      if (tgtRes.ok) {
+        const t = await tgtRes.json();
         setCfgTarget(t);
         if (t.configured && t.repo) setCfgRepo(t.repo);
+      }
+      if (gemRes.ok) {
+        const g = await gemRes.json();
+        setCfgGeminiStatus(g);
+        if (g.configured && g.model) setCfgGeminiModel(g.model);
       }
     } catch {
       /* best-effort */
@@ -228,6 +265,7 @@ export default function Home() {
 
   function closeConfig() {
     setConfigOpen(false);
+    configOpenRef.current = false;
     setCfgError(null);
     setCfgStatusMsg(null);
     setCfgToken("");
@@ -304,6 +342,64 @@ export default function Home() {
       setCfgError((e as Error).message);
     } finally {
       setCfgLoading(false);
+    }
+  }
+
+  /** Save the user-pasted Gemini API key — verified against Google first. */
+  async function saveGeminiKey() {
+    setCfgGeminiSaving(true);
+    setCfgGeminiMsg(null);
+    setCfgGeminiErr(null);
+    const key = cfgGeminiKey.trim();
+    if (!key) {
+      setCfgGeminiSaving(false);
+      setCfgGeminiErr("Paste a Gemini API key first (from aistudio.google.com/apikey).");
+      return;
+    }
+    try {
+      const res = await fetch("/api/self-enhance/llm-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ geminiApiKey: key, model: cfgGeminiModel }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setCfgGeminiErr(data.error ?? "Gemini key rejected.");
+        return;
+      }
+      setCfgGeminiKey("");
+      setCfgGeminiShow(false);
+      setCfgGeminiMsg(`Verified & saved. Loop will call Google ${data.model} directly (separate quota from Z.AI).`);
+      emitOutput([`[CONFIG] Gemini API key set — primary LLM is now Google ${data.model}`]);
+      // Refresh the status view
+      const fresh = await fetch("/api/self-enhance/llm-config");
+      if (fresh.ok) setCfgGeminiStatus(await fresh.json());
+    } catch (e) {
+      setCfgGeminiErr((e as Error).message);
+    } finally {
+      setCfgGeminiSaving(false);
+    }
+  }
+
+  /** Clear the stored Gemini key — the loop falls back to the Z.AI chain. */
+  async function disconnectGemini() {
+    setCfgGeminiSaving(true);
+    setCfgGeminiMsg(null);
+    setCfgGeminiErr(null);
+    try {
+      const res = await fetch("/api/self-enhance/llm-config", { method: "DELETE" });
+      const data = await res.json();
+      if (data.ok) {
+        setCfgGeminiStatus({ configured: false });
+        setCfgGeminiMsg("Gemini key cleared. Loop falls back to Z.AI chain.");
+        emitOutput(["[CONFIG] Gemini key cleared — falling back to Z.AI model chain."]);
+      } else {
+        setCfgGeminiErr(data.error ?? "Disconnect failed");
+      }
+    } catch (e) {
+      setCfgGeminiErr((e as Error).message);
+    } finally {
+      setCfgGeminiSaving(false);
     }
   }
 
@@ -643,6 +739,9 @@ export default function Home() {
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+          <span style={{ color: geminiHeader?.configured ? PROMPT_COLOR : DIM_COLOR }}>
+            [GEMINI: {geminiHeader?.configured ? "ON" : "OFF"}]
+          </span>
           <span style={{ color: pushTarget?.configured ? PROMPT_COLOR : DIM_COLOR }}>
             [GIT: {pushTarget?.configured ? "ON" : "OFF"}]
           </span>
@@ -884,6 +983,101 @@ export default function Home() {
             {cfgError && (
               <div style={{ color: "#ff4444", marginTop: "10px", whiteSpace: "pre-wrap" }}>{cfgError}</div>
             )}
+
+            {/* ─── GEMINI LLM KEY ─── a credential, not a goal ─── */}
+            <div style={{ borderTop: `1px solid ${DIM_COLOR}`, marginTop: "16px", paddingTop: "12px" }}>
+              <div style={{ fontWeight: "bold", marginBottom: "8px", color: PROMPT_COLOR }}>
+                ┌─ GEMINI API KEY ─────────────────┐
+              </div>
+              <div style={{ color: DIM_COLOR, fontSize: "12px", marginBottom: "8px", lineHeight: 1.3 }}>
+                A user-pasted Google Gemini key is the PRIMARY LLM path — Google&apos;s own
+                quota, separate from the Z.AI gateway. Falls back to the Z.AI model chain if
+                Gemini fails. Get a key at aistudio.google.com/apikey.
+              </div>
+
+              {/* Gemini key input + show/hide */}
+              <div style={{ marginBottom: "8px" }}>
+                <div style={{ color: DIM_COLOR, marginBottom: "4px" }}>Gemini API key</div>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <input
+                    type={cfgGeminiShow ? "text" : "password"}
+                    value={cfgGeminiKey}
+                    onChange={(e) => setCfgGeminiKey(e.target.value)}
+                    placeholder="AIza... (paste your Google Gemini key)"
+                    autoComplete="off"
+                    spellCheck={false}
+                    style={{ flex: 1, background: "#000", border: `1px solid ${DIM_COLOR}`, color: USER_INPUT_COLOR, fontFamily: "inherit", fontSize: "inherit", padding: "4px 6px", outline: "none" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCfgGeminiShow((v) => !v)}
+                    style={{ background: "#000", border: `1px solid ${DIM_COLOR}`, color: PROMPT_COLOR, fontFamily: "inherit", fontSize: "inherit", padding: "4px 10px", cursor: "pointer" }}
+                  >
+                    {cfgGeminiShow ? "[HIDE]" : "[SHOW]"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Model selector */}
+              <div style={{ marginBottom: "8px" }}>
+                <div style={{ color: DIM_COLOR, marginBottom: "4px" }}>Model</div>
+                <input
+                  type="text"
+                  value={cfgGeminiModel}
+                  onChange={(e) => setCfgGeminiModel(e.target.value)}
+                  placeholder="gemini-2.5-flash"
+                  autoComplete="off"
+                  spellCheck={false}
+                  style={{ width: "100%", background: "#000", border: `1px solid ${DIM_COLOR}`, color: USER_INPUT_COLOR, fontFamily: "inherit", fontSize: "inherit", padding: "4px 6px", outline: "none" }}
+                />
+              </div>
+
+              {/* Current Gemini status */}
+              {cfgGeminiStatus?.configured && (
+                <div style={{ marginBottom: "8px", color: DIM_COLOR, fontSize: "12px", lineHeight: 1.3 }}>
+                  <span style={{ color: PROMPT_COLOR }}>[GEMINI: ON]</span> using {cfgGeminiStatus.model}
+                  {cfgGeminiStatus.lastUsedAt ? ` (last used ${cfgGeminiStatus.lastUsedAt})` : " (not yet used)"}
+                  {cfgGeminiStatus.lastError && (
+                    <div style={{ color: "#ff4444", marginTop: "2px" }}>Last error: {cfgGeminiStatus.lastError}</div>
+                  )}
+                </div>
+              )}
+              {!cfgGeminiStatus?.configured && (
+                <div style={{ marginBottom: "8px", color: DIM_COLOR, fontSize: "12px" }}>
+                  [GEMINI: OFF] — loop uses the Z.AI model chain (gemini-2.5-flash &rarr; glm-4.6 &rarr; ...)
+                </div>
+              )}
+
+              {/* Gemini buttons */}
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={saveGeminiKey}
+                  disabled={cfgGeminiSaving}
+                  style={{ background: "#000", border: `1px solid ${DIM_COLOR}`, color: PROMPT_COLOR, fontFamily: "inherit", fontSize: "inherit", padding: "4px 10px", cursor: cfgGeminiSaving ? "wait" : "pointer", opacity: cfgGeminiSaving ? 0.5 : 1 }}
+                >
+                  [ SAVE GEMINI KEY ]
+                </button>
+                {cfgGeminiStatus?.configured && (
+                  <button
+                    type="button"
+                    onClick={disconnectGemini}
+                    disabled={cfgGeminiSaving}
+                    style={{ background: "#000", border: `1px solid ${DIM_COLOR}`, color: PROMPT_COLOR, fontFamily: "inherit", fontSize: "inherit", padding: "4px 10px", cursor: cfgGeminiSaving ? "wait" : "pointer", opacity: cfgGeminiSaving ? 0.5 : 1 }}
+                  >
+                    [ CLEAR GEMINI ]
+                  </button>
+                )}
+              </div>
+
+              {/* Gemini status / error */}
+              {cfgGeminiMsg && (
+                <div style={{ color: PROMPT_COLOR, marginTop: "8px", whiteSpace: "pre-wrap", fontSize: "12px" }}>{cfgGeminiMsg}</div>
+              )}
+              {cfgGeminiErr && (
+                <div style={{ color: "#ff4444", marginTop: "8px", whiteSpace: "pre-wrap", fontSize: "12px" }}>{cfgGeminiErr}</div>
+              )}
+            </div>
 
             <div style={{ color: DIM_COLOR, marginTop: "12px", fontSize: "12px", lineHeight: 1.3 }}>
               Token verified with GitHub. Token stored locally only — never in git config,
