@@ -179,7 +179,8 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
     const matches = sanitized.match(pii);
     if (matches) {
       for (const match of matches) {
-        violations.push(`Detected PII leak: ${match.slice(0, 3)}***`);
+        const PII_PREVIEW_LENGTH = 3;
+        violations.push(`Detected PII leak: ${match.slice(0, PII_PREVIEW_LENGTH)}***`);
         sanitized = sanitized.split(match).join("[REDACTED_PII]");
       }
     }
