@@ -727,3 +727,37 @@ Stage Summary:
 - GEMINI FALLBACK ADDED: agent-llm.ts now tries a 6-model chain (Gemini primary, then GLM/GPT/Claude/DeepSeek) on every LLM call, falling through on 429. The "correct model" is now explicitly named (gemini-2.5-flash) instead of the SDK default. modelUsed is surfaced in the success log and trigger output for observability.
 - The fallback is verified live (24 SDK 429 traces = 4 tasks × 6 models) but can't prove a fix lands because the whole Z.AI account is throttled right now. When any provider clears, the loop will use it — the architecture is correct, the throttle is the documented "natural stop point."
 - HARD-WON LESSON re-confirmed: editing a server module imported by the running loop requires a FULL server restart (pkill -f next-server), not just hot-reload — the running async loop holds the old module binding. The LOOP_VERSION singleton guard handles the class but not its imported functions. This is the third time this lesson has been paid for; it's now in the worklog three times so the next agent starts the loop AFTER restarting, not before.
+
+---
+Task ID: user-paste-gemini-key
+Agent: main (Z.ai Code)
+Task: User: "Need user input to paste gemini api"
+
+Work Log:
+- PRINCIPLE CHECK: a user-pasted Gemini API key is a CREDENTIAL (like the GitHub PAT already in the config modal), not a GOAL. The core principle ("system defines its own input, not user") is about WORK input (what tasks the system works on), not credentials. The user already provides the GitHub PAT; a Gemini key is the same category. Consistent with the principle and with readme.bat's chat-mode constraint (which forbids user GOAL injection, not credentials). The system still defines its own work via the SelfTask queue; this only changes WHICH upstream serves the LLM call.
+
+- FULL STACK IMPLEMENTATION:
+  1. PRISMA SCHEMA: added LlmConfig model (singleton, like GitPushTarget) with geminiApiKey, geminiModel (default gemini-2.5-flash), lastUsedAt, lastError. db:push applied the table. Key stored in the untracked DB, never returned to clients.
+  2. API ROUTE (/api/self-enhance/llm-config): GET returns {configured, model, lastUsedAt, lastError} (key NEVER included). POST verifies the key against Google's REST API (v1beta/models/{model}:generateContent?key=KEY with a tiny "say OK" probe) BEFORE persisting — rejects 400/401/403, accepts 429 (valid key, temporary throttle — save anyway so the loop can use it when quota resets). DELETE clears the config.
+  3. gemini-direct.ts (new helper): calls Google's Gemini REST API directly with fetch — NO @google/generative-ai SDK needed (zero new deps). Uses generateContent format: systemInstruction + contents + generationConfig. Returns GeminiCallResult with ok/content/error/model. Records lastUsedAt on success, lastError on failure. Handles the 200-with-blockReason edge case (Google can return 200 with no candidates if content is blocked).
+  4. agent-llm.ts: llmComplete now tries GEMINI DIRECT FIRST (if configured), then falls through to the existing Z.AI MODEL_CHAIN (gemini-2.5-flash -> glm-4.6 -> gpt-4o-mini -> claude-3.5-sonnet -> deepseek-v3). Returns ok:false only if BOTH paths fail. modelUsed is surfaced through the whole result chain (TaskExecutionResult -> SelfEnhanceResult -> success log + trigger output) so the user sees "via gemini-2.5-flash" when Google served the call vs "via glm-4.6" when the Z.AI chain did.
+  5. page.tsx (config modal): added a "GEMINI API KEY" section below the existing "GIT CONFIG" section — key input (with show/hide), model input (default gemini-2.5-flash), [SAVE GEMINI KEY] and [CLEAR GEMINI] buttons, live status ([GEMINI: ON] using model X / [GEMINI: OFF] using Z.AI chain). Also added a [GEMINI: ON/OFF] indicator to the header bar next to [GIT: ON/OFF], polled every 2s alongside status/push-target. Help text points the user to aistudio.google.com/apikey.
+
+- VERIFICATION via agent-browser (fresh server, full restart to load schema client + routes + page):
+  * Header shows both [GEMINI: OFF] and [GIT: ON] indicators.
+  * Config modal opens with the new GEMINI API KEY section visible below the GIT CONFIG section.
+  * Format validation: pasting "fake-invalid-key" -> "Key looks malformed (expected 20+ chars, no whitespace)".
+  * Google verification: pasting a well-formed-but-fake key "AIzaSyA-very-fake-key-..." -> calls Google's REST API, gets "API key not valid. Please pass a valid API key." (400 INVALID_ARGUMENT) shown in the modal. So a real key will be verified end-to-end before saving.
+  * llm-config GET returns {configured: false} before any save.
+
+- KEY INSIGHT: the Z.AI gateway is account-level throttled right now (all 6 models 429). A user-pasted Gemini key is the actual escape hatch — Google's quota is separate. Once the user pastes a real Gemini key, the loop calls Google directly, bypassing the Z.AI throttle entirely. The Z.AI chain becomes the fallback (for when Google is down or not configured), not the primary.
+
+- Lint clean. Pushed as e96afb6. 0/0 sync, no secrets in source (the ghp_/AIza scan came back empty for src/ + prisma/). 5 files changed: schema, route, page.tsx, agent-llm.ts, gemini-direct.ts.
+
+Stage Summary:
+- The user can now paste a Google Gemini API key via the CONFIG modal (a CREDENTIAL, not a goal — consistent with the "system defines its own input" principle, same category as the GitHub PAT).
+- The key is verified against Google's REST API before saving, stored in the untracked DB, never returned to clients, never in git.
+- With a key set, the loop calls Google's Gemini API DIRECTLY as the PRIMARY LLM path (separate quota from the Z.AI gateway), falling through to the existing 6-model Z.AI chain on failure. modelUsed is surfaced in the success log + trigger output for observability.
+- This is the real fix for the 429 problem: the Z.AI account throttle is the documented "natural stop point", but a user-pasted Gemini key is an INDEPENDENT quota that bypasses it. The user supplies the credential; the system still defines its own work.
+- Header indicator [GEMINI: ON/OFF] shows the state at a glance alongside [GIT: ON/OFF].
+- Verified end-to-end in the browser: format validation + Google verification both work; the real key flow is ready for the user to paste their key from aistudio.google.com/apikey.
