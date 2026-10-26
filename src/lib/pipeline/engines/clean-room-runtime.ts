@@ -253,6 +253,9 @@ const REFACTOR_SYSTEM = `You are the execution step inside a bounded ReAct agent
 const MAX_CODE_LENGTH = 6000;
 const MAX_FALLBACK_PLAN_LENGTH = 240;
 const DEFAULT_MAX_STEPS = 5;
+const TOKEN_COMPACT_THRESHOLD = 0.8;
+const MIN_PATH_LENGTH_FOR_PRUNING = 4;
+const PRUNE_KEEP_COUNT = 3;
 
 export async function executeCleanRoomEngine(
   engineId: string,
