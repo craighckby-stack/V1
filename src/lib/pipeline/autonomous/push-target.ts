@@ -72,8 +72,10 @@ function validRepoFormat(repo: string): boolean {
   return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo);
 }
 
+const MIN_TOKEN_LENGTH = 20;
+
 function validTokenFormat(token: string): boolean {
-  return token.length >= 20 && !/\s/.test(token);
+  return token.length >= MIN_TOKEN_LENGTH && !/\s/.test(token);
 }
 
 /** Read the stored target (with token) — server-side only. */
