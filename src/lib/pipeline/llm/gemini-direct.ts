@@ -107,7 +107,7 @@ export async function geminiComplete(opts: {
     systemInstruction: { parts: [{ text: opts.systemPrompt }] },
     contents: [{ role: "user", parts: [{ text: opts.userPrompt }] }],
     generationConfig: {
-      temperature: opts.temperature ?? 0.1,
+      temperature: opts.temperature ?? DEFAULT_TEMPERATURE,
     },
   };
 
@@ -204,3 +204,5 @@ export async function geminiComplete(opts: {
     };
   }
 }
+
+const DEFAULT_TEMPERATURE = 0.1;
