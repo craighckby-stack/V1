@@ -169,7 +169,8 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
         violations.push(
           `Detected known secret signature: ${match.slice(0, SECRET_PREVIEW_LENGTH)}... (length: ${match.length})`
         );
-        sanitized = sanitized.split(match).join(`[REDACTED_SECRET_${match.slice(0, 4)}]`);
+        const SECRET_PREFIX_LENGTH = 4;
+        sanitized = sanitized.split(match).join(`[REDACTED_SECRET_${match.slice(0, SECRET_PREFIX_LENGTH)}]`);
       }
     }
   }
