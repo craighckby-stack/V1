@@ -171,7 +171,8 @@ export async function setPushTarget(opts: {
       });
     }
 
-    if (createRes.status === 201) {
+    const CREATED_STATUS = 201;
+    if (createRes.status === CREATED_STATUS) {
       created = true;
     } else if (createRes.status === 403) {
       throw new Error(
