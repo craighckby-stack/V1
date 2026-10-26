@@ -307,6 +307,7 @@ export async function executeCleanRoomEngine(
   vfs.writeFile(filePath, originalCode || `// Target code for engine ${engineId}`);
   session.addMessage("user", goal);
 
+  const CODE_TRUNCATION_LIMIT = 6000;
   let proposedEvolvedCode = "";
   let llmUsed = false;
   let llmTotalLatencyMs = 0;
@@ -319,7 +320,7 @@ export async function executeCleanRoomEngine(
 
 File contents:
 \`\`\`
-${originalCode.slice(0, 6000)}${originalCode.length > 6000 ? "\n// ... (truncated)" : ""}
+${originalCode.slice(0, CODE_TRUNCATION_LIMIT)}${originalCode.length > CODE_TRUNCATION_LIMIT ? "\n// ... (truncated)" : ""}
 \`\`\`
 
 Output a 3-5 bullet refactor plan only.`;
@@ -372,7 +373,7 @@ ${postmortemBlock}
 
 Original code (\`${lang}\`):
 \`\`\`${lang}
-${originalCode.slice(0, 6000)}${originalCode.length > 6000 ? "\n// ... (truncated)" : ""}
+${originalCode.slice(0, CODE_TRUNCATION_LIMIT)}${originalCode.length > CODE_TRUNCATION_LIMIT ? "\n// ... (truncated)" : ""}
 \`\`\`
 
 Output ONLY the refactored code in a single \`\`\`${lang} fenced block. Preserve every public symbol name exactly.`;
