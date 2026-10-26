@@ -84,7 +84,7 @@ const INITIAL_MEMORY_ENTRIES: Omit<VectorEntry, "id" | "timestamp">[] = [
   },
 ];
 
-const STOP_WORDS = new Set([
+const STOP_WORDS: ReadonlySet<string> = new Set([
   "a", "an", "the", "and", "or", "but", "if", "then", "else", "for", "while", "do",
   "of", "in", "on", "at", "to", "from", "by", "with", "without", "into", "out",
   "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
