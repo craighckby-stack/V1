@@ -1,16 +1,3 @@
-/**
- * Pattern Vector Memory Helper (server-side RAG with real TF-IDF scoring)
- *
- * Replaces the previous token-overlap scorer with proper TF-IDF vectors
- * and cosine similarity. Stop words are filtered. Term frequencies are
- * weighted by inverse document frequency across the memory bank, so
- * rare distinctive terms (like "WeakMap", "Shannon", "AST") dominate the
- * similarity score over common words (like "the", "and").
- *
- * Persistence: in-memory + best-effort Prisma. The DB is seeded once on
- * first use with the baseline patterns below.
- */
-
 import { db } from "@/lib/db";
 
 export interface VectorEntry {
@@ -31,6 +18,14 @@ export interface EmgQueryResult {
   readonly cognitiveFrictionScore: number;
   readonly epistemicRuling: string;
 }
+
+const MIN_TOKEN_LENGTH = 2;
+const FRICTION_FAILURE_WEIGHT = 0.8;
+const FRICTION_COUNT_WEIGHT = 0.2;
+const FRICTION_NO_FIX_WEIGHT = 0.15;
+const HIGH_SIMILARITY_THRESHOLD = 0.05;
+const ELEVATED_FRICTION_THRESHOLD = 0.6;
+const LOW_SIMILARITY_THRESHOLD = 0.02;
 
 const INITIAL_MEMORY_ENTRIES: Omit<VectorEntry, "id" | "timestamp">[] = [
   {
@@ -105,7 +100,7 @@ function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .split(/[^a-z0-9_+-]+/)
-    .filter((t) => t.length > 2 && !STOP_WORDS.has(t));
+    .filter((t) => t.length > MIN_TOKEN_LENGTH && !STOP_WORDS.has(t));
 }
 
 /**
@@ -307,16 +302,18 @@ class EmgRagMemory {
       1,
       Math.max(
         0,
-        maxFailureScore * 0.8 + (topFailures.length > topFixes.length ? 0.2 : 0) + (maxFixScore === 0 ? 0.15 : 0)
+        maxFailureScore * FRICTION_FAILURE_WEIGHT + 
+        (topFailures.length > topFixes.length ? FRICTION_COUNT_WEIGHT : 0) + 
+        (maxFixScore === 0 ? FRICTION_NO_FIX_WEIGHT : 0)
       )
     );
 
     let ruling = "EPISTEMIC_HARMONY: Mutation aligns with validated clean-room patterns.";
-    if (maxFailureScore > maxFixScore && maxFailureScore > 0.05) {
+    if (maxFailureScore > maxFixScore && maxFailureScore > HIGH_SIMILARITY_THRESHOLD) {
       ruling = "COGNITIVE_FRICTION_ELEVATED: Known failure patterns dominate the query signal.";
-    } else if (friction > 0.6) {
+    } else if (friction > ELEVATED_FRICTION_THRESHOLD) {
       ruling = "CONTRADICTION_UNRESOLVED: Conflicting architectural constraints detected.";
-    } else if (maxFixScore < 0.02 && maxFailureScore < 0.02) {
+    } else if (maxFixScore < LOW_SIMILARITY_THRESHOLD && maxFailureScore < LOW_SIMILARITY_THRESHOLD) {
       ruling = "NOVEL_INPUT: Query has low similarity to any prior pattern — proceed with caution.";
     }
 
