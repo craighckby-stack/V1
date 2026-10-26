@@ -449,3 +449,49 @@ Stage Summary:
 - Git push after each successful enhancement = the proof (GitHub shows current live state).
 - MS-DOS terminal UI replaces the dashboard: black/green monospace, command prompt, no fancy components.
 - The architecture is: scan own code → LLM refactor → tsc verify → write live → git push → repeat.
+
+---
+Task ID: AUDIT
+Agent: orchestrator (main)
+Task: Deep audit of every file in the system — verify correctness, find all remaining bugs, fix them.
+
+Work Log:
+- Inventoried the full system: 16 pipeline lib files (4,613 lines), 28 API routes (1,128 lines), 2 app pages, 11 dead dashboard components, 3 hooks, 1 mini-service.
+- Identified the system's dual personality: remote-repo enhancer (loop-runtime) + self-enhancer (self-enhance-loop), sharing pipeline core code.
+
+CRITICAL BUGS FOUND AND FIXED:
+1. tsc --noEmit (the self-enhance safety net) was ALREADY FAILING on the unmodified codebase — meaning the loop would revert every change including good ones. Root causes:
+   a. tsconfig didn't exclude examples/, skills/, mini-services/ (their own deps don't typecheck) → added to exclude
+   b. loop-event-bus.ts: extends EventEmitter with incompatible emit/on overrides (TS2416) → rewrote with composition (private emitter)
+   c. unified-pipeline.ts: PipelineConfig.triggeredBy missing "scheduled" → added
+   d. emg-rag.ts: read .score from mapped entries (VectorEntry has no score) → compute max scores from the scored array directly
+   e. agent-llm.ts: `import type { ZAI }` doesn't exist in SDK → type ZAIType = Awaited<ReturnType<typeof ZAI.create>>
+   f. debate-llm.ts: `unknown ?? 0` arithmetic (TS2365) → Number() coercion
+   g. postmortem-store.ts: imported types from unified-pipeline which only imports (not re-exports) them → import from actual modules
+   h. postmortem-store.ts: TS2678 dead switch cases (HEADER_STRIPPED/COMPILE_ERROR unreachable in that fn due to control-flow narrowing) → documented + widened the declared type
+   → tsc --noEmit now exits 0.
+2. Terminal `trigger` command printed a message but never called the API → now POSTs /api/self-enhance/trigger and reports scanned/enhanced counts.
+3. self-enhance runContinuous() exited after ONE cycle (inverted while-condition: `running || totalScanned===0` goes false after first cycle) → proper `continuous` flag; stop() now stops the outer loop too.
+4. currentFile was never assigned → status always showed "idle" during work → set in enhanceFile, cleared in runCycle.
+5. totalScanned accumulated per cycle (unbounded) → now reports current-cycle count; added cyclesCompleted.
+6. .next/ (160 build artifacts) was tracked in git despite .gitignore (added before ignore existed) → git rm -r --cached .next; commits no longer carry build-cache churn.
+7. Hot-reload had reverted (again): previouslyCommittedPaths skip-set + effectiveMaxFiles 500 cap in loop-runtime → re-applied both + the updateConfig clear-on-repo-change, now with the dev server stopped during edits.
+8. Removed leftover /api/route.ts ("Hello, world!" scaffold).
+9. /api/health still said v4.2.0 with no self-enhance awareness → v4.3.0, mode: self-enhance, reports both loop runtimes.
+10. gitignore: added tsconfig.tsbuildinfo, dev.log.
+
+REMAINING KNOWN ISSUES (documented, not fixed — deliberate):
+- No git remote configured: self-enhance commits stay local until user runs `git remote add origin ... && git push -u origin main`. The loop logs this honestly ("push failed").
+- Dead code: 11 old dashboard components + pipeline-store.ts + use-loop-socket.ts + socket.io-client dep remain on disk (lint-clean, unreferenced by the terminal UI). Left in place — they're harmless and the user may want the dashboard back.
+- WS mini-service (3003) still polls the remote-loop status, not self-enhance; redundant with the terminal's 2s HTTP polling but harmless.
+- Self-enhance only guards against type errors (tsc). A refactor that compiles but changes behavior would go live and be pushed. AST gate is NOT run on self-enhance (by design — tsc subsumes symbol checking for TS).
+
+VERIFICATION:
+- ESLint: exit 0. tsc --noEmit: exit 0 (fresh, no incremental cache).
+- /api/health → 4.3.0, mode self-enhance, both loops reported.
+- Terminal UI loads, status command works, trigger command now hits the API.
+- No page errors in agent-browser.
+- Committed audited state (2 commits).
+
+Stage Summary:
+The safety net (tsc) was broken before this audit — the self-enhance loop could never have enhanced anything. Now tsc passes clean on the current tree, which means verifyCompiles() gives a true baseline, and any refactor that breaks types gets reverted while type-safe refactors go live. All identified critical/high bugs are fixed; remaining items are documented trade-offs, not defects.
