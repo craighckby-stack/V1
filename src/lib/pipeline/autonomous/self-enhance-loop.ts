@@ -374,7 +374,7 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         const result = await this.enhanceFile(file);
         results.push(result);
         if (result.enhanced) enhanced++;
-        if (!result.enhanced && result.compiled === false) this.stats.totalReverted++;
+        if (result.reason.startsWith("Rejected")) this.stats.totalReverted++;
 
         // Brief pause between files to let hot-reload settle
         await new Promise((r) => setTimeout(r, 500));
