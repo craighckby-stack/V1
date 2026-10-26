@@ -95,23 +95,30 @@ export interface ArchitecturalVote {
   recommendedPattern: string;
 }
 
-export function performArchitecturalVote(fileName: string, codeSnippet: string): ArchitecturalVote {
+function isSecurityRelated(fileName: string, codeSnippet: string): boolean {
   const lowerName = fileName.toLowerCase();
   const lowerSnippet = codeSnippet.toLowerCase();
+  
+  const securityKeywords = ["crypto", "auth", "token", "key"];
+  
+  return securityKeywords.some(keyword => 
+    lowerName.includes(keyword) || lowerSnippet.includes(keyword)
+  );
+}
 
-  const isSecurityRelated = 
-    lowerName.includes("crypto") ||
-    lowerName.includes("auth") ||
-    lowerName.includes("token") ||
-    lowerSnippet.includes("key");
+function isAgentRelated(fileName: string, codeSnippet: string): boolean {
+  const lowerName = fileName.toLowerCase();
+  const lowerSnippet = codeSnippet.toLowerCase();
+  
+  const agentKeywords = ["agent", "loop", "engine", "prompt"];
+  
+  return agentKeywords.some(keyword => 
+    lowerName.includes(keyword) || lowerSnippet.includes(keyword)
+  );
+}
 
-  const isAgentRelated = 
-    lowerName.includes("agent") ||
-    lowerName.includes("loop") ||
-    lowerName.includes("engine") ||
-    lowerSnippet.includes("prompt");
-
-  if (isSecurityRelated) {
+export function performArchitecturalVote(fileName: string, codeSnippet: string): ArchitecturalVote {
+  if (isSecurityRelated(fileName, codeSnippet)) {
     return {
       source: SIPHON_SOURCES[1],
       score: SECURITY_THRESHOLD,
@@ -121,7 +128,7 @@ export function performArchitecturalVote(fileName: string, codeSnippet: string):
     };
   }
 
-  if (isAgentRelated) {
+  if (isAgentRelated(fileName, codeSnippet)) {
     return {
       source: SIPHON_SOURCES[2],
       score: AGENT_THRESHOLD,
