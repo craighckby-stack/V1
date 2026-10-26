@@ -16,6 +16,15 @@ import { db } from "@/lib/db";
 
 const SINGLETON_ID = "singleton";
 
+// In-memory cooldown for location-blocked keys. When Google returns
+// FAILED_PRECONDITION "location is not supported", we set this to
+// Date.now() + 10min so the loop short-circuits Gemini calls instead of
+// burning a request per task per cycle while the sandbox is geo-blocked.
+// Resets on server restart (acceptable — a restart is also when the
+// network egress might change).
+let LOCATION_BLOCKED_UNTIL = 0;
+const LOCATION_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+
 interface GeminiConfig {
   apiKey: string;
   model: string;
@@ -74,6 +83,24 @@ export async function geminiComplete(opts: {
     return { ok: false, content: "", error: "Gemini not configured", latencyMs: 0, model: "" };
   }
 
+  // SHORT-CIRCUIT for location-blocked keys: if the last call failed with a
+  // location/region error, don't hammer Google again every cycle — it will
+  // keep failing the same way until the network egress changes. Cool down
+  // for 10 minutes before retrying. This stops the loop burning a Google
+  // request per task per cycle when the sandbox is in an unsupported region.
+  // The cooldown is in-memory (resets on server restart) — cheap and correct.
+  if (
+    LOCATION_BLOCKED_UNTIL > Date.now()
+  ) {
+    return {
+      ok: false,
+      content: "",
+      error: "Gemini location-blocked (cooldown — retrying later)",
+      latencyMs: 0,
+      model: cfg.model,
+    };
+  }
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model}:generateContent?key=${cfg.apiKey}`;
   const body = {
     systemInstruction: { parts: [{ text: opts.systemPrompt }] },
@@ -92,17 +119,27 @@ export async function geminiComplete(opts: {
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
+      // Detect the location-blocked error (FAILED_PRECONDITION with
+      // "location is not supported") and arm the cooldown so the loop
+      // short-circuits subsequent Gemini calls for 10 minutes instead of
+      // re-burning the request every cycle while the sandbox is geo-blocked.
+      if (/FAILED_PRECONDITION/i.test(errText) && /location/i.test(errText)) {
+        LOCATION_BLOCKED_UNTIL = Date.now() + LOCATION_COOLDOWN_MS;
+      }
+      const friendlyError = /location/i.test(errText)
+        ? `Gemini location not supported (key is valid; cool-down 10min — will work from a supported region)`
+        : `Gemini ${res.status}: ${errText.slice(0, 160)}`;
       // Record the error for the UI but don't fail the whole call chain
       await db.llmConfig
         .update({
           where: { id: SINGLETON_ID },
-          data: { lastError: `HTTP ${res.status}: ${errText.slice(0, 200)}` },
+          data: { lastError: friendlyError },
         })
         .catch(() => {});
       return {
         ok: false,
         content: "",
-        error: `Gemini ${res.status}: ${errText.slice(0, 160)}`,
+        error: friendlyError,
         latencyMs: Math.round(performance.now() - started),
         model: cfg.model,
       };

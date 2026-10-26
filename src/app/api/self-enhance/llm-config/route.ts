@@ -38,6 +38,7 @@ export async function POST(req: Request) {
   }
 
   // Verify the key with a minimal generateContent call.
+  let locationBlocked = false;
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
     const verify = await fetch(url, {
@@ -48,18 +49,48 @@ export async function POST(req: Request) {
         generationConfig: { maxOutputTokens: 5, temperature: 0 },
       }),
     });
-    if (verify.status === 400 || verify.status === 401 || verify.status === 403) {
-      const errBody = await verify.text().catch(() => "");
-      return NextResponse.json({ ok: false, error: `Key rejected by Google (${verify.status}): ${errBody.slice(0, 200)}` }, { status: 400 });
-    }
-    if (verify.status === 429) {
-      // Key is valid but the Google quota is temporarily exhausted — still
-      // save it; the loop will use it when quota resets. Don't punish a good
-      // key for a temporary throttle.
-      // fall through to save
+
+    // Decode the Google error envelope once (Google returns { error: { code, message, status, details } })
+    const readGoogleErr = async (): Promise<{ code?: number; message?: string; status?: string }> => {
+      try {
+        const body = (await verify.clone().json().catch(() => null)) as { error?: { code?: number; message?: string; status?: string } } | null;
+        return body?.error ?? {};
+      } catch {
+        return {};
+      }
+    };
+
+    if (verify.ok) {
+      // Key works RIGHT NOW — fall through to save below.
+    } else if (verify.status === 429) {
+      // Key is valid, Google quota temporarily exhausted — save anyway so
+      // the loop uses it when quota resets.
+    } else if (verify.status === 400 || verify.status === 403 || verify.status === 401) {
+      const gerr = await readGoogleErr();
+      const status = gerr.status ?? "";
+      const msg = gerr.message ?? "";
+
+      // FAILED_PRECONDITION with "location is not supported" = the KEY is
+      // valid, but the current network egress region isn't supported by
+      // Google's free-tier Gemini API (e.g. HK, CN, ...). The key will work
+      // from a supported region. SAVE it (don't punish a good key for the
+      // sandbox's geography) and return a clear "saved but location-blocked"
+      // status so the UI can show what's going on.
+      if (status === "FAILED_PRECONDITION" && /location/i.test(msg)) {
+        locationBlocked = true;
+        // fall through to save
+      } else if (status === "INVALID_ARGUMENT" && /api key/i.test(msg)) {
+        return NextResponse.json({ ok: false, error: `Key rejected by Google: ${msg || "API key not valid"}` }, { status: 400 });
+      } else if (verify.status === 403) {
+        return NextResponse.json({ ok: false, error: `Key rejected by Google (403 PERMISSION_DENIED): ${msg || "key not permitted for this API"}` }, { status: 400 });
+      } else if (verify.status === 401) {
+        return NextResponse.json({ ok: false, error: `Key rejected by Google (401): ${msg || "unauthorized"}` }, { status: 400 });
+      } else {
+        return NextResponse.json({ ok: false, error: `Google verification failed (${verify.status} ${status}): ${msg}` }, { status: 400 });
+      }
     } else if (!verify.ok) {
       const errBody = await verify.text().catch(() => "");
-      return NextResponse.json({ ok: false, error: `Google verification failed (${verify.status}): ${errBody.slice(0, 200)}` }, { status: 400 });
+      return NextResponse.json({ ok: false, error: `Google verification failed (HTTP ${verify.status}): ${errBody.slice(0, 200)}` }, { status: 400 });
     }
   } catch (e) {
     return NextResponse.json({ ok: false, error: `Network error verifying key: ${(e as Error).message}` }, { status: 500 });
@@ -67,9 +98,19 @@ export async function POST(req: Request) {
 
   await db.llmConfig.upsert({
     where: { id: SINGLETON_ID },
-    update: { geminiApiKey: key, geminiModel: model, lastError: null },
-    create: { id: SINGLETON_ID, geminiApiKey: key, geminiModel: model },
+    update: { geminiApiKey: key, geminiModel: model, lastError: locationBlocked ? `Location not supported by Google Gemini API (key is valid; will work from a supported region)` : null },
+    create: { id: SINGLETON_ID, geminiApiKey: key, geminiModel: model, lastError: locationBlocked ? `Location not supported by Google Gemini API (key is valid; will work from a supported region)` : null },
   });
+
+  if (locationBlocked) {
+    return NextResponse.json({
+      ok: true,
+      model,
+      verified: false,
+      locationBlocked: true,
+      warning: `Key is valid but this network's egress region is not supported by Google's Gemini API. Key saved — it will work if the system runs from a supported region (US, EU, etc.). Until then, the loop falls back to the Z.AI model chain.`,
+    });
+  }
 
   return NextResponse.json({ ok: true, model, verified: true });
 }

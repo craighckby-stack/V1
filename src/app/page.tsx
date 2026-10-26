@@ -369,8 +369,16 @@ export default function Home() {
       }
       setCfgGeminiKey("");
       setCfgGeminiShow(false);
-      setCfgGeminiMsg(`Verified & saved. Loop will call Google ${data.model} directly (separate quota from Z.AI).`);
-      emitOutput([`[CONFIG] Gemini API key set — primary LLM is now Google ${data.model}`]);
+      // locationBlocked = key is VALID but this region can't reach Google's
+      // Gemini API (e.g. Hong Kong egress). The key is saved and will work
+      // from a supported region; from here, the loop falls back to Z.AI.
+      if (data.locationBlocked) {
+        setCfgGeminiMsg(`Key saved (valid) but this network's region is not supported by Google's Gemini API. It will work if the system runs from a supported region (US, EU, etc.). Until then, the loop falls back to the Z.AI chain.`);
+        emitOutput([`[CONFIG] Gemini key saved — but region not supported by Google; falling back to Z.AI chain (key will work from a supported region).`]);
+      } else {
+        setCfgGeminiMsg(`Verified & saved. Loop will call Google ${data.model} directly (separate quota from Z.AI).`);
+        emitOutput([`[CONFIG] Gemini API key set — primary LLM is now Google ${data.model}`]);
+      }
       // Refresh the status view
       const fresh = await fetch("/api/self-enhance/llm-config");
       if (fresh.ok) setCfgGeminiStatus(await fresh.json());
@@ -1037,9 +1045,11 @@ export default function Home() {
                 <div style={{ marginBottom: "8px", color: DIM_COLOR, fontSize: "12px", lineHeight: 1.3 }}>
                   <span style={{ color: PROMPT_COLOR }}>[GEMINI: ON]</span> using {cfgGeminiStatus.model}
                   {cfgGeminiStatus.lastUsedAt ? ` (last used ${cfgGeminiStatus.lastUsedAt})` : " (not yet used)"}
-                  {cfgGeminiStatus.lastError && (
-                    <div style={{ color: "#ff4444", marginTop: "2px" }}>Last error: {cfgGeminiStatus.lastError}</div>
-                  )}
+                  {cfgGeminiStatus.lastError ? (
+                    <div style={{ color: "#ffff00", marginTop: "2px" }}>
+                      ⚠ {cfgGeminiStatus.lastError}
+                    </div>
+                  ) : null}
                 </div>
               )}
               {!cfgGeminiStatus?.configured && (
