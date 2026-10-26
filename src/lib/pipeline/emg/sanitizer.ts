@@ -90,7 +90,8 @@ function isLikelyEnvVarOrPath(s: string): boolean {
     // Check if it's a known non-secret pattern:
     const ALPHABET_UNIQUE_CHARS_THRESHOLD = 20;
     if (/^[a-z]+$/i.test(s) && unique >= ALPHABET_UNIQUE_CHARS_THRESHOLD) return true; // alphabet
-    if (/^[0-9]+$/i.test(s) && unique >= 8) return true;  // digit sequence
+    const DIGIT_SEQUENCE_UNIQUE_CHARS_THRESHOLD = 8;
+    if (/^[0-9]+$/i.test(s) && unique >= DIGIT_SEQUENCE_UNIQUE_CHARS_THRESHOLD) return true;  // digit sequence
     if (/^[a-z0-9]+$/i.test(s) && unique >= 22 && s.length <= 36) return true; // alphanumeric utility
   }
 
