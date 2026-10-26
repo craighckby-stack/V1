@@ -141,7 +141,15 @@ export default function Home() {
 
       case "trigger":
       case "run": {
-        return ["Running one cycle... (check logs for progress)"];
+        try {
+          const res = await fetch("/api/self-enhance/trigger", { method: "POST" });
+          const data = await res.json();
+          return [
+            `Cycle complete: scanned ${data.filesScanned ?? 0}, enhanced ${data.filesEnhanced ?? 0}`,
+          ];
+        } catch (e) {
+          return [`Error: ${(e as Error).message}`];
+        }
       }
 
       case "status": {

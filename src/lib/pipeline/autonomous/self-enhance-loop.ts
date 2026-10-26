@@ -46,12 +46,14 @@ export interface SelfEnhanceResult {
 
 class SelfEnhanceLoop {
   private running = false;
+  private continuous = false;
   private currentFile: string | null = null;
   private stats = {
     totalScanned: 0,
     totalEnhanced: 0,
     totalReverted: 0,
     totalPushed: 0,
+    cyclesCompleted: 0,
     lastEnhancementAt: null as string | null,
   };
   private logs: Array<{
@@ -166,6 +168,7 @@ class SelfEnhanceLoop {
    */
   async enhanceFile(filePath: string): Promise<SelfEnhanceResult> {
     const relPath = relative(PROJECT_ROOT, filePath);
+    this.currentFile = relPath;
     const startTime = Date.now();
 
     const result: SelfEnhanceResult = {
@@ -317,10 +320,12 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       return { filesScanned: 0, filesEnhanced: 0, results: [] };
     }
     this.running = true;
+    this.currentFile = null;
 
     try {
       const files = this.scanFiles();
-      this.stats.totalScanned += files.length;
+      // Report unique files seen, not a cumulative count per cycle
+      this.stats.totalScanned = files.length;
       this.log(`Scanned ${files.length} files in src/lib/pipeline/`, "info");
 
       const results: SelfEnhanceResult[] = [];
@@ -330,11 +335,14 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         const result = await this.enhanceFile(file);
         results.push(result);
         if (result.enhanced) enhanced++;
+        if (!result.enhanced && result.compiled === false) this.stats.totalReverted++;
 
         // Brief pause between files to let hot-reload settle
         await new Promise((r) => setTimeout(r, 500));
       }
 
+      this.stats.cyclesCompleted++;
+      this.currentFile = null;
       this.log(`Cycle complete: ${enhanced}/${files.length} files enhanced`, "success");
       return { filesScanned: files.length, filesEnhanced: enhanced, results };
     } finally {
@@ -346,19 +354,22 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
    * Run continuously: cycle after cycle until stopped.
    */
   async runContinuous(onUpdate?: () => void): Promise<void> {
+    this.continuous = true;
     this.log("Starting continuous self-enhancement loop", "success");
-    while (this.running || this.stats.totalScanned === 0) {
-      this.running = true;
+    while (this.continuous) {
       await this.runCycle();
       if (onUpdate) onUpdate();
+      if (!this.continuous) break;
       // Wait between cycles
       this.log("Waiting 5s before next cycle...", "info");
       await new Promise((r) => setTimeout(r, 5000));
     }
+    this.log("Continuous self-enhancement loop exited", "info");
   }
 
   stop() {
     this.running = false;
+    this.continuous = false;
     this.log("Self-enhance loop stopped", "warn");
   }
 

@@ -176,7 +176,9 @@ Synthesize a final verdict as JSON per your instructions.`;
     leadJson = {
       consensus,
       consensusCoefficient: coefficient,
-      cognitiveFriction: clamp((secJson.cognitiveFriction ?? 0) + (archJson.cognitiveFriction ?? 0)) / 2,
+      cognitiveFriction: clamp(
+        (Number(secJson.cognitiveFriction) || 0) + (Number(archJson.cognitiveFriction) || 0)
+      ) / 2,
       leadSummary: `Lead synthesis (fallback): ${consensus} based on Security=${secJson.stance} and Architecture=${archJson.stance}.`,
       securityPoints: asStringArray(secJson.points),
       architecturePoints: asStringArray(archJson.points),

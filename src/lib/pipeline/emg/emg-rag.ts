@@ -295,8 +295,14 @@ class EmgRagMemory {
       .map((s) => s.entry);
 
     // Friction: how much failure signal dominates over clean signal.
-    const maxFailureScore = topFailures[0]?.score ?? 0;
-    const maxFixScore = topFixes[0]?.score ?? 0;
+    // NOTE: max scores must be read from the `scored` array (which carries
+    // `score`), not from topFailures/topFixes (which are mapped to entries).
+    const maxFailureScore = scored
+      .filter((s) => s.entry.provenance === "failure")
+      .reduce((max, s) => Math.max(max, s.score), 0);
+    const maxFixScore = scored
+      .filter((s) => s.entry.provenance === "clean")
+      .reduce((max, s) => Math.max(max, s.score), 0);
     const friction = Math.min(
       1,
       Math.max(

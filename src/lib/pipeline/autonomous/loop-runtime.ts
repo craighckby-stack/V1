@@ -130,6 +130,12 @@ class AutonomousLoopRuntime {
   private recentCycles: AutonomousCycleSummary[] = [];
   private timer: NodeJS.Timeout | null = null;
   private continuousLoopRunning = false;
+  /**
+   * Set of file paths already committed to the evolution branch in prior
+   * cycles — skipped so each cycle processes NEW files instead of re-doing
+   * the same first-N-alphabetical files every time.
+   */
+  private previouslyCommittedPaths: Set<string> = new Set();
 
   // --- Token resolution (don't log the value) ---
   private resolveToken(clientToken?: string): string | null {
@@ -197,7 +203,21 @@ class AutonomousLoopRuntime {
   public updateConfig(patch: Partial<LoopConfig>): LoopConfig {
     const wasEnabled = this.config.enabled;
     const oldMode = this.config.mode;
+    const oldRepo = this.config.targetRepo;
+    const oldBranch = this.config.evolutionBranch;
     this.config = { ...this.config, ...patch };
+    // If the target repo or evolution branch changed, clear the committed-
+    // paths cache — those commits don't apply to the new target.
+    if (
+      (patch.targetRepo && patch.targetRepo !== oldRepo) ||
+      (patch.evolutionBranch && patch.evolutionBranch !== oldBranch)
+    ) {
+      this.previouslyCommittedPaths.clear();
+      this.addLog(
+        `Cleared committed-paths cache (repo or branch changed from ${oldRepo}:${oldBranch}).`,
+        "info"
+      );
+    }
     // If token was passed as "[REDACTED]" keep previous one (UI never re-sends real value).
     if (patch.githubToken === "[REDACTED]") {
       // Keep the previously-stored token; UI never overwrites with real value during edits.
@@ -393,18 +413,27 @@ class AutonomousLoopRuntime {
       //    add type annotations, modularize, etc.
       const codeExtRegex = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|swift|rb|php|c|cpp|cc|cs)$/i;
       const ignored = /^(node_modules|\.git|\.next|dist|build|coverage|public\/assets|vendor|third_party|\.agents|docs?|examples?)\//i;
+      // Hard cap on files per cycle — prevents runaway LLM API costs.
+      const effectiveMaxFiles = Math.min(this.config.maxFilesPerCycle, 500);
+      // Skip files already committed in prior cycles so each cycle makes
+      // forward progress through large repos.
+      const alreadyCommitted = this.previouslyCommittedPaths;
       const codeBlobs = tree
         .filter(
           (item) =>
             item.type === "blob" &&
             codeExtRegex.test(item.path) &&
-            !ignored.test(item.path)
+            !ignored.test(item.path) &&
+            !alreadyCommitted.has(item.path)
         )
-        .slice(0, this.config.maxFilesPerCycle);
+        .slice(0, effectiveMaxFiles);
 
       this.currentCycle!.filesScanned = codeBlobs.length;
       this.stats.totalFilesScanned += codeBlobs.length;
-      this.addLog(`Selected ${codeBlobs.length} code file(s) for pipeline processing.`, "info");
+      this.addLog(
+        `Selected ${codeBlobs.length} code file(s) for pipeline processing (${alreadyCommitted.size} already committed in prior cycles, skipped).`,
+        "info"
+      );
 
       // 2.5. Ensure the evolution branch exists before we try to commit to it.
       //     If the branch doesn't exist, create it from the source branch's HEAD.
@@ -595,6 +624,8 @@ class AutonomousLoopRuntime {
               if (commitRes.ok) {
                 pushed = true;
                 committed++;
+                // Track this path so future cycles skip it.
+                this.previouslyCommittedPaths.add(blob.path);
                 this.addLog(
                   `Pushed ${blob.path} → ${this.config.evolutionBranch} (proof ${report.proofCommitHash})`,
                   "success",

@@ -18,7 +18,9 @@
  */
 
 import { db } from "@/lib/db";
-import type { AstDiffResult, SecuritySanitizerResult, DebateVerdict } from "../core/unified-pipeline";
+import type { AstDiffResult } from "../core/ast-diff-gate";
+import type { SecuritySanitizerResult } from "../emg/sanitizer";
+import type { DebateVerdict } from "../emg/debate";
 
 export type PostmortemFailureType =
   | "AST_SYMBOL_DROPPED"
@@ -284,7 +286,10 @@ export function generatePostmortemFromReport(params: {
   const { filePath, astDiffResult, sanitizerResult, reviewVerdict, haltReason } = params;
 
   // Determine the primary failure type
-  let failureType: PostmortemFailureType = "OTHER";
+  // NOTE: this function never produces HEADER_STRIPPED or COMPILE_ERROR —
+  // those are recorded directly by the self-enhance loop. The switch below
+  // widens back to the full union so those cases stay defensive.
+  let failureType = "OTHER" as PostmortemFailureType;
   let symptom = `Pipeline failed for ${filePath}`;
 
   if (!astDiffResult.passed) {

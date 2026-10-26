@@ -1,9 +1,7 @@
 /**
- * Loop Event Bus — in-process pub/sub for streaming autonomous loop events
- * to the WebSocket mini-service. Lives in the Next.js server process so the
- * API routes can publish here and the WS mini-service (running on port 3003)
- * can poll via HTTP if needed, or — when running in the same process —
- * subscribe directly.
+ * Loop Event Bus — in-process pub/sub for streaming autonomous loop events.
+ * Uses composition (a private EventEmitter) instead of extends so we don't
+ * fight EventEmitter's method signatures (TS2416).
  */
 
 import { EventEmitter } from "events";
@@ -21,20 +19,23 @@ export type LoopEvent =
       stage: PipelineStageState;
     };
 
-class LoopEventBus extends EventEmitter {
+type LoopEventListener = (evt: LoopEvent) => void;
+
+class LoopEventBus {
+  private readonly emitter = new EventEmitter();
+
   constructor() {
-    super();
-    this.setMaxListeners(50);
+    this.emitter.setMaxListeners(50);
   }
 
   public emit(evt: LoopEvent): boolean {
-    return super.emit("event", evt);
+    return this.emitter.emit("event", evt);
   }
 
-  public on(listener: (evt: LoopEvent) => void): () => void {
-    super.on("event", listener);
+  public on(listener: LoopEventListener): () => void {
+    this.emitter.on("event", listener);
     return () => {
-      super.off("event", listener);
+      this.emitter.off("event", listener);
     };
   }
 }
