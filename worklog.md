@@ -645,3 +645,22 @@ Stage Summary:
 - Large files (unified-pipeline.ts 18KB, ast-diff-gate.ts 13KB) now skipped with clear log instead of failing repeatedly
 - Truncation detector catches cut-off output in 1ms vs 10s typecheck
 - The loop is running cleanly and pushing verified enhancements to craighckby-stack/V1
+
+---
+Task ID: fix-input-buried-1
+Agent: main (Z.ai Code)
+Task: Fix terminal command input not working
+
+Work Log:
+- Diagnosed: the input itself worked fine (agent-browser could fill, type, submit). The real issue was command OUTPUT was invisible — buried 2634px above the viewport
+- Root cause: server logs rendered AFTER terminal lines in the JSX. When the loop was running, server logs accumulated below the command output, pushing it up. Auto-scroll triggered on status.logs change (every 2s) which scrolled to the bottom — showing server logs, not the command the user just typed
+- User experience: type 'help' → see loop logs instead of help text → "input doesn't work"
+- Fix 1: swapped render order — server logs render first (top), terminal lines render last (bottom). Command output stays at the bottom, always visible after auto-scroll
+- Fix 2: auto-scroll now triggers on terminalLines change (new command output), not on status.logs change (server logs). Server log updates no longer yank the scroll position
+- Verified via agent-browser: 'help' output at top=227 (visible:true), 'status' output at top=365 (visible:true), both remain visible 3+ seconds after status polls fire. No console/page errors
+- Committed + pushed (ba95794)
+
+Stage Summary:
+- Terminal commands now produce visible output that stays on screen
+- The input was never broken — the output was being scrolled off-screen by the server log rendering order
+- Loop restarted and running cleanly
