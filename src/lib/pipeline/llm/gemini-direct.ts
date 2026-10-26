@@ -84,6 +84,7 @@ export async function geminiComplete(opts: {
 
   const LOCATION_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
   const MAX_ERROR_LENGTH = 160;
+  const NETWORK_ERROR_MESSAGE_LENGTH = 200;
 
   // SHORT-CIRCUIT for location-blocked keys: if the last call failed with a
   // location/region error, don't hammer Google again every cycle — it will
@@ -193,7 +194,7 @@ export async function geminiComplete(opts: {
     await db.llmConfig
       .update({
         where: { id: SINGLETON_ID },
-        data: { lastError: `network: ${(e as Error).message.slice(0, 200)}` },
+        data: { lastError: `network: ${(e as Error).message.slice(0, NETWORK_ERROR_MESSAGE_LENGTH)}` },
       })
       .catch(() => {});
     return {
