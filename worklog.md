@@ -614,3 +614,22 @@ Stage Summary:
 - The file is permanently user-owned: .bat extension is outside the system's .ts-only scanner, so the autonomous loop can never ingest or rewrite it
 - It's the user's fixed statement about a system that otherwise writes itself: what it is, what it does, the core principle (system defines its own input), the invariants, the incidents, and pointers to DIRECTIONS.md + worklog.md + the live repo
 - The format IS the guardrail — a .md would be a target; a .bat is invisible to the system
+
+---
+Task ID: readme-bat-chat-mode-constraint
+Agent: main (Z.ai Code)
+Task: User asked to add a "chat mode future design proving concept" to readme.bat.
+
+Work Log:
+- Interpreted the request as a CONSTRAINT on future chat mode, not a speculation about it. Rationale: readme.bat is the fixed point (user-owned, system can't eat it); DIRECTIONS.md already owns speculation. A constraint ("chat must prove X before it ships") is a fixed point; a feature sketch ("chat might look like Y") would drift. So the addition belongs in readme.bat only as a guardrail.
+- Added a new section "FUTURE CHAT MODE — THE PROOF IT MUST PASS" between THE POINT OF THE SYSTEM (the principle chat mode violated) and INVARIANTS. Content:
+  - THE TEST: any chat feature must prove it does NOT make the user the source of new work. System input stays the static self-scan. User may shape/veto/review, never inject.
+  - COMPLIANT DESIGNS: veto/reorder (current 'skip' command is this), execution refinement (HOW not WHAT), post-hoc review (user as feedback signal -> postmortem constraints -> gate; this is the design DIRECTIONS.md says is missing).
+  - FORBIDDEN: user goal injection — what was removed, named as the trap.
+  - THE PROOF REQUIRED: three demonstrations before shipping — (1) chat present == same self-defined queue as absent, (2) no user string becomes a task target, (3) removing chat changes no loop behavior. All three => interface not input => passes.
+- Pushed via scripts/push-now.ts. Commit 2985890. Verified: 0/0 sync, no token in commit. Loop still running (UUID commit 9b1e2f6 between my manual pushes).
+
+Stage Summary:
+- readme.bat now contains a permanent constraint on any future chat mode: it must prove it's interface, not input. Three compliant designs sketched; goal injection explicitly forbidden; three proof demonstrations required before shipping.
+- The section is a fixed guardrail (won't drift) vs DIRECTIONS.md's speculation about directions (will drift). Both point at each other appropriately.
+- readme.bat remains user-owned and system-untouchable (.bat extension outside the .ts-only scanner).
