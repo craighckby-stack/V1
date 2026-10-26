@@ -515,3 +515,32 @@ Stage Summary:
 - Banner defense is now 2 layers: prompt rule + mechanical strip (tested)
 - Key behavior change: LLM returning original code + banner → now skipped as no-change instead of pushed as fake enhancement
 - Branch model: self-enhance loop = same branch (main), new commit per version, NOT new branches. No remote configured so nothing reaches GitHub currently
+
+---
+Task ID: push-target-1
+Agent: main (Z.ai Code)
+Task: Make the self-enhance loop actually push its new versions to GitHub
+
+Work Log:
+- Diagnosed why pushes were no-ops: `git remote -v` empty (no remote at all), no token anywhere on disk (old loop held it in memory only, lost on restart)
+- Verified sandbox networking: github.com reachable, api.github.com unauthenticated quota exhausted for shared IP BUT authenticated quota is separate (token verification viable)
+- Added `GitPushTarget` Prisma model (singleton: repo, token, branch, createdRepo, lastPushAt/Sha/Error) + `bun run db:push`
+- Created src/lib/pipeline/autonomous/push-target.ts:
+  * setPushTarget(): validates repo/token format, verifies token via GET /user, checks repo via GET /repos/:repo, auto-creates repo (POST /user/repos, private default, auto_init:false) if 404, persists to DB, sets tokenless `origin` remote
+  * pushCurrentState(): self-heals origin remote, commits if dirty, pushes HEAD:refs/heads/main with auth injected via GIT_CONFIG_* env vars (extraheader) — token NEVER in git config, remote URL, command line, or process list; records lastPush fields; scrubs token from all error strings; in-process mutex
+  * clearPushTarget(): deletes row + removes remote
+- Rewired self-enhance-loop gitPush() → async, delegates to pushCurrentState(); added push-target.ts to PROTECTED_FILES (loop must not refactor its own push auth)
+- API routes: new /api/self-enhance/push-target (GET public view token-free / POST configure / DELETE clear); rewrote /api/self-enhance/push (needsConfig + force support)
+- Terminal UI (page.tsx): `push <token> <owner/repo> [public]` configures + immediately pushes first proof; `push force`; `push clear`; plain `push` shows usage when unconfigured; status shows push target + last push/error
+- FIXED latent bug: command args were parsed from lowercased string — would corrupt pasted GitHub tokens (case-sensitive); now parses raw string
+- Token masking: echoed commands show ghp_**** instead of the real token
+- Fixed stale Prisma client (dev server restart needed after db:push — globalForPrisma caches old client)
+- SECURITY FIX: db/custom.db was git-tracked — would have leaked the stored GitHub token on push. Untracked db/*.db, .next/ (270 files), dev.log, .zscripts/dev.log; two clean commits (186389a, ba8bb43)
+- Verified via curl: GET push-target, POST push needsConfig, invalid repo format 400, fake token → "Token rejected by GitHub (401)", fake-token full push path: commit lands locally, remote self-heals, AUTH HEADER CONFIRMED SENT via GIT_TRACE_CURL (github rejects fake creds as expected), error recorded token-free in DB
+- Verified via agent-browser: help text, unconfigured push usage, token masking in echo (ghp_****), 401 config rejection, status target line; no console/page errors
+- tsc --noEmit ✓, eslint ✓
+
+Stage Summary:
+- Push pipeline fully built and verified up to the auth boundary; only a real PAT is needed to complete the happy path
+- User activation: run `push <github_token> <owner/repo> [public]` in the terminal — repo auto-created if missing, first proof push fires immediately, then every tsc-verified enhancement pushes automatically
+- Token security: stored in untracked local DB, scrubbed from all logs/errors/UI, never in git config or URLs; repo pushed to GitHub contains no secrets
