@@ -3,6 +3,11 @@
  * Dual-perspective analysis: Security Reviewer vs Architecture Reviewer.
  */
 
+const SECRET_PATTERN = /\b(AIzaSy[A-Za-z0-9_-]{28,40}|sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{36}|AKIA[0-9A-Z]{16})\b/;
+const EVAL_PATTERN = /\beval\s*\(|\bnew\s+Function\s*\(/;
+const TYPE_ANNOTATION_PATTERN = /:\s*(string|number|boolean|Promise<|void|Record<)/;
+const LARGE_CODE_THRESHOLD = 10000;
+
 export interface DebateArgument {
   speaker: "security" | "architecture" | "lead";
   speakerName: string;
@@ -26,12 +31,10 @@ export interface DebateVerdict {
 }
 
 export function conductDebate(topic: string, candidateCode: string, filePath: string): DebateVerdict {
-  const secretPattern =
-    /\b(AIzaSy[A-Za-z0-9_-]{28,40}|sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{36}|AKIA[0-9A-Z]{16})\b/;
-  const containsSecrets = secretPattern.test(candidateCode);
-  const containsEval = /\beval\s*\(|\bnew\s+Function\s*\(/.test(candidateCode);
-  const hasTypeAnnotations = /:\s*(string|number|boolean|Promise<|void|Record<)/.test(candidateCode);
-  const isLarge = candidateCode.length > 10000;
+  const containsSecrets = SECRET_PATTERN.test(candidateCode);
+  const containsEval = EVAL_PATTERN.test(candidateCode);
+  const hasTypeAnnotations = TYPE_ANNOTATION_PATTERN.test(candidateCode);
+  const isLarge = candidateCode.length > LARGE_CODE_THRESHOLD;
 
   const securityPoints: string[] = [];
   const architecturePoints: string[] = [];
