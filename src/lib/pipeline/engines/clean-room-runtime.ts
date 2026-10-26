@@ -230,10 +230,11 @@ export class SessionTreeTokenBudgetEngine {
   public getTotalBudget(): { used: number; cap: number; percentage: number } {
     const path = this.getActivePath();
     const used = path.reduce((sum, n) => sum + n.tokensEstimate, 0);
+    const MAX_PERCENTAGE = 100;
     return {
       used,
       cap: this.tokenCap,
-      percentage: Math.min(100, Math.round((used / this.tokenCap) * 100)),
+      percentage: Math.min(MAX_PERCENTAGE, Math.round((used / this.tokenCap) * 100)),
     };
   }
 
