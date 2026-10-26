@@ -1,11 +1,3 @@
-/**
- * Self-Stopping & Convergence Helper
- * Three primary self-stopping mechanisms:
- *   1. Tree Fingerprint Saturation Lockout (SHA-256 tree hash comparison)
- *   2. 0-Diff Code Saturation Detection (normalizeCode equality)
- *   3. 3-Failure Consecutive Skip-List Logic
- */
-
 export interface HaltEvaluationState {
   shouldHalt: boolean;
   reason?:
@@ -21,6 +13,10 @@ export interface TreeFileDescriptor {
   sha?: string;
   size?: number;
 }
+
+const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3;
+const DEFAULT_MAX_CYCLES = 100;
+const MAX_ALLOWED_CYCLES = 1000;
 
 export function normalizeCode(code: string): string {
   return code
@@ -41,8 +37,8 @@ export class SelfStoppingGovernor {
   private lastFilePath?: string;
 
   constructor(options?: { maxConsecutiveFailures?: number; maxCycles?: number }) {
-    this.maxConsecutiveFailures = options?.maxConsecutiveFailures ?? 3;
-    this.maxCycles = options?.maxCycles ?? 100;
+    this.maxConsecutiveFailures = options?.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
+    this.maxCycles = options?.maxCycles ?? DEFAULT_MAX_CYCLES;
   }
 
   public computeTreeFingerprint(files: TreeFileDescriptor[]): string {
@@ -134,7 +130,7 @@ export class SelfStoppingGovernor {
 
   public setMaxCycles(max: number): void {
     if (typeof max === "number" && max > 0) {
-      this.maxCycles = Math.min(1000, max);
+      this.maxCycles = Math.min(MAX_ALLOWED_CYCLES, max);
     }
   }
 
