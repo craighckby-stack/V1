@@ -201,12 +201,13 @@ export class SessionTreeTokenBudgetEngine {
     parentId?: string
   ): SessionTreeNode {
     const NODE_ID_SUFFIX_RANGE = 1000;
+    const TOKENS_PER_CHAR_ESTIMATE = 4;
     const node: SessionTreeNode = {
       id: `node-${Date.now()}-${Math.floor(Math.random() * NODE_ID_SUFFIX_RANGE)}`,
       parentId: parentId ?? this.activeLeafId,
       role,
       content,
-      tokensEstimate: Math.ceil(content.length / 4),
+      tokensEstimate: Math.ceil(content.length / TOKENS_PER_CHAR_ESTIMATE),
       timestamp: Date.now(),
     };
     this.nodes.set(node.id, node);
