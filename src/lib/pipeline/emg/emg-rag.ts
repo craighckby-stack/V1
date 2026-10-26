@@ -182,6 +182,7 @@ class EmgRagMemory {
   private readonly TIMESTAMP_INTERVAL_MINUTES = 60000;
   private readonly RANDOM_ID_SUFFIX_MAX = 1000;
   private readonly DEFAULT_COGNITIVE_FRICTION_SCORE = 0.05;
+  private readonly TOP_RESULTS_COUNT = 3;
 
   public async ensureSeeded(): Promise<void> {
     if (this.seeded) return;
@@ -289,12 +290,12 @@ class EmgRagMemory {
     const topFixesScored = scored
       .filter((s) => s.entry.provenance === "clean")
       .sort((a, b) => b.score - a.score)
-      .slice(0, 3);
+      .slice(0, this.TOP_RESULTS_COUNT);
 
     const topFailuresScored = scored
       .filter((s) => s.entry.provenance === "failure")
       .sort((a, b) => b.score - a.score)
-      .slice(0, 3);
+      .slice(0, this.TOP_RESULTS_COUNT);
 
     const topFixes = topFixesScored.map((s) => s.entry);
     const topFailures = topFailuresScored.map((s) => s.entry);
