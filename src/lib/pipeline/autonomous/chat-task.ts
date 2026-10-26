@@ -336,9 +336,10 @@ Output the COMPLETE new content for this file that achieves the goal.`;
   // Verify the project still compiles
   let compiled = false;
   try {
+    const TYPESCRIPT_CHECK_TIMEOUT_MS = 30000;
     execSync("npx tsc --noEmit 2>&1", {
       cwd: PROJECT_ROOT,
-      timeout: 30000,
+      timeout: TYPESCRIPT_CHECK_TIMEOUT_MS,
       stdio: "pipe",
     });
     compiled = true;
