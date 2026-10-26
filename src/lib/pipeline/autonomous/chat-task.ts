@@ -97,7 +97,7 @@ function gatherContext(): string {
     lines.push("\nRECENT COMMITS:");
     lines.push(log);
   } catch {
-    // ignore
+    // ignore - git log might fail if no history or not a git repo
   }
 
   // 3. Git status
@@ -111,7 +111,7 @@ function gatherContext(): string {
     lines.push("\nGIT STATUS:");
     lines.push(status || "(clean)");
   } catch {
-    // ignore
+    // ignore - git status might fail if not a git repo
   }
 
   return lines.join("\n");
