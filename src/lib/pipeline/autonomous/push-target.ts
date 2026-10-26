@@ -293,13 +293,14 @@ export async function pushCurrentState(opts?: {
     if (status.trim()) {
       const MAX_COMMIT_MESSAGE_LENGTH = 300;
       const message = (opts?.message ?? "Self-enhancement: current live state").replace(/"/g, '\\"').slice(0, MAX_COMMIT_MESSAGE_LENGTH);
-      execSync("git add -A", { cwd: PROJECT_ROOT, timeout: 10000 });
+      const GIT_ADD_TIMEOUT = 10000;
+      execSync("git add -A", { cwd: PROJECT_ROOT, timeout: GIT_ADD_TIMEOUT });
       // Use a temp file for the commit message to handle multi-line safely
       const msgFile = "/tmp/commit-msg.txt";
       const { writeFileSync, unlinkSync } = await import("fs");
       writeFileSync(msgFile, (opts?.message ?? "Self-enhancement: current live state"), "utf-8");
       try {
-        execSync(`git commit -F ${msgFile}`, { cwd: PROJECT_ROOT, timeout: 10000, stdio: "pipe" });
+        execSync(`git commit -F ${msgFile}`, { cwd: PROJECT_ROOT, timeout: GIT_ADD_TIMEOUT, stdio: "pipe" });
       } finally {
         try { unlinkSync(msgFile); } catch { /* ignore temp file cleanup error - non-critical */ }
       }
