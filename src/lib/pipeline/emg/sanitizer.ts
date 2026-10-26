@@ -88,7 +88,8 @@ function isLikelyEnvVarOrPath(s: string): boolean {
     // All characters are unique AND length >= 20 — could be alphabet or similar.
     // Real secrets are NOT typically all-unique (they have repetition due to base64).
     // Check if it's a known non-secret pattern:
-    if (/^[a-z]+$/i.test(s) && unique >= 20) return true; // alphabet
+    const ALPHABET_UNIQUE_CHARS_THRESHOLD = 20;
+    if (/^[a-z]+$/i.test(s) && unique >= ALPHABET_UNIQUE_CHARS_THRESHOLD) return true; // alphabet
     if (/^[0-9]+$/i.test(s) && unique >= 8) return true;  // digit sequence
     if (/^[a-z0-9]+$/i.test(s) && unique >= 22 && s.length <= 36) return true; // alphanumeric utility
   }
