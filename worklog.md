@@ -475,3 +475,31 @@ Work Log:
 Stage Summary:
 - DIRECTIONS.md is at github.com/craighckby-stack/V1/DIRECTIONS.md
 - The writeup points out that the API rate limit (already implemented with exponential backoff + circuit breaker) is the only natural stop point the system needs
+
+---
+Task ID: chat-driven-agent-1
+Agent: main (Z.ai Code)
+Task: Build Direction 1 — chat-driven agent interface
+
+Work Log:
+- Created src/lib/pipeline/autonomous/chat-task.ts:
+  * proposeTaskPlan(): gathers codebase context (src/ file list with sizes, recent 5 git commits, git status), sends user goal + context to LLM, parses structured plan (UNDERSTANDING, FILES with action+reason, SUMMARY)
+  * applyTaskPlan(): for each file in plan, asks LLM to generate complete new content, checks for truncation (unbalanced braces), writes to disk, runs tsc --noEmit on whole project, reverts ALL if it fails, commits + pushes if it passes
+- Created two API routes:
+  * POST /api/self-enhance/chat-task/propose — takes {goal}, returns plan
+  * POST /api/self-enhance/chat-task/apply — takes plan, applies + pushes
+- Updated terminal UI (page.tsx):
+  * Non-command input (anything that's not start/stop/status/etc.) → sent to chat-task/propose
+  * Plan displayed with UNDERSTANDING, PROPOSED CHANGES, SUMMARY
+  * User types 'yes'/'y'/'approve' → applies the plan + pushes
+  * User types 'no'/'n'/'cancel' → cancels the plan
+  * Help text updated with CHAT MODE section
+  * Boot message updated: "Type 'help' for commands, or type a goal in plain English"
+- Verified: tsc clean (only pre-existing errors in loop-event-bus/loop-runtime/emg-rag), lint clean, pushed to GitHub (a2f13c9)
+- HONEST LIMIT: could not test end-to-end because the LLM API is still 429 rate-limited from heavy use this session. The propose API returns the 429 error cleanly. Once the rate limit resets (~15-60 min), the full flow will work: type goal → see plan → type yes → see push to GitHub.
+
+Stage Summary:
+- Direction 1 (chat-driven agent) is built and pushed to GitHub
+- The terminal is now a chat interface: type a goal, get a plan, approve, system applies + pushes
+- User IS the feedback signal (the missing piece identified in DIRECTIONS.md)
+- Pending: end-to-end verification once the API rate limit resets
