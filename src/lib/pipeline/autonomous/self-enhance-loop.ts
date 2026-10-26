@@ -260,6 +260,14 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         writeFileSync(filePath, originalCode, "utf-8");
         this.log(`Reverted ${relPath} (tsc --noEmit failed after refactor)`, "error");
 
+        // Clean up temp/backup so they don't linger or get committed by git add -A
+        try {
+          unlinkSync(tempFile);
+          unlinkSync(backupFile);
+        } catch {
+          /* ignore */
+        }
+
         // Record postmortem
         await postmortemStore.recordFailure({
           repo: "self",

@@ -2,3 +2,5 @@ skills/
 node_modules/
 tsconfig.tsbuildinfo
 dev.log
+*.tmp
+*.bak
