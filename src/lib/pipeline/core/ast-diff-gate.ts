@@ -387,6 +387,7 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
   const MAX_DRIFT_THRESHOLD = 0.65;
   const RETENTION_SCORE_MULTIPLIER = 60;
   const PERCENTAGE_MULTIPLIER = 100;
+  const BASE_SCORE_BONUS = 40;
   if (driftRatio > MAX_DRIFT_THRESHOLD) {
     violations.push({
       code: "AST_STRUCTURAL_DRIFT",
@@ -402,7 +403,7 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
   const HIGH_SEVERITY_PENALTY = 25;
   const penalty =
     brandingInjections.length * BRANDING_PENALTY_PER_INJECTION + violations.filter((v) => v.severity === "high").length * HIGH_SEVERITY_PENALTY;
-  const astScore = Math.max(0, Math.min(100, Math.round(retentionScore + 40 - penalty)));
+  const astScore = Math.max(0, Math.min(100, Math.round(retentionScore + BASE_SCORE_BONUS - penalty)));
 
   const passed =
     violations.filter((v) => v.severity === "high").length === 0 && astScore >= 50;
