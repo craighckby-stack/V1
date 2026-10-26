@@ -122,9 +122,10 @@ export function performArchitecturalVote(fileName: string, codeSnippet: string):
     lowerName.includes("engine") ||
     lowerSnippet.includes("prompt")
   ) {
+    const AGENT_PATTERN_SCORE = 94;
     return {
       source: SIPHON_SOURCES[2],
-      score: 94,
+      score: AGENT_PATTERN_SCORE,
       rationale:
         "Implements execution cycles or agent workflows; mapped to 5-Pillar Modular Agent Architecture.",
       recommendedPattern: "Bounded ReAct Reasoning Loop & VFS Sandbox",
