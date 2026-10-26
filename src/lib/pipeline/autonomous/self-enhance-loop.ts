@@ -44,6 +44,7 @@ export interface SelfEnhanceResult {
   summary: string;
   pushed: boolean;
   commitSha?: string;
+  modelUsed?: string; // which LLM upstream served an 'applied' result (observability for the fallback chain)
 }
 
 class SelfEnhanceLoop {
@@ -206,7 +207,7 @@ class SelfEnhanceLoop {
     }
     const absPath = join(PROJECT_ROOT, task.filePath);
     writeFileSync(absPath, result.newCode, "utf-8");
-    this.log(`Fixed [${task.kind}] ${task.filePath}:${task.line} — ${result.summary} (verified in memory, now live)`, "success");
+    this.log(`Fixed [${task.kind}] ${task.filePath}:${task.line} — ${result.summary}${result.modelUsed ? ` via ${result.modelUsed}` : ""} (verified in memory, now live)`, "success");
     this.stats.tasksDone++;
     this.stats.lastEnhancementAt = new Date().toISOString();
 
@@ -238,6 +239,7 @@ class SelfEnhanceLoop {
       summary: result.summary,
       pushed: push.pushed,
       commitSha: push.commitSha,
+      modelUsed: result.modelUsed,
     };
   }
 
@@ -392,7 +394,7 @@ class SelfEnhanceLoop {
 
 // Singleton — version-guarded so hot-reloads replace instances whose class
 // shape changed (otherwise globalThis caches a stale instance missing new methods)
-const LOOP_VERSION = 5;
+const LOOP_VERSION = 6;
 const globalForSelfEnhance = globalThis as unknown as {
   __selfEnhanceLoop?: SelfEnhanceLoop;
   __selfEnhanceLoopVersion?: number;

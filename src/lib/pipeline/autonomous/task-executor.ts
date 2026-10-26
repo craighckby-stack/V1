@@ -34,6 +34,7 @@ export interface TaskExecutionResult {
   newCode?: string; // verified replacement (caller writes it)
   summary: string;
   error?: string;
+  modelUsed?: string; // which LLM upstream served an 'applied' result (observability)
 }
 
 interface TaskRow {
@@ -224,7 +225,7 @@ ${code}
     return { status: "failed", method: "llm", summary: "syntax error in LLM output", error: syntax.error };
   }
 
-  return { status: "applied", method: "llm", newCode, summary: `LLM fix applied for ${task.kind}` };
+  return { status: "applied", method: "llm", newCode, summary: `LLM fix applied for ${task.kind}`, modelUsed: result.modelUsed };
 }
 
 /**

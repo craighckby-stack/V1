@@ -106,6 +106,17 @@ export default function Home() {
   const [cfgTarget, setCfgTarget] = useState<{ configured: boolean; repo?: string; branch?: string; createdRepo?: boolean; lastPushSha?: string | null; lastPushAt?: string | null; lastPushError?: string | null } | null>(null);
   const [pushTarget, setPushTarget] = useState<{ configured: boolean; repo?: string } | null>(null);
   const [cmdBusy, setCmdBusy] = useState(false);
+  // displayedLogs: the server-log slice currently shown in the terminal.
+  // status.logs is the full server-side log (newest-first, capped at 500)
+  // and is fetched state — `clear` can't empty it at the source. So we keep
+  // a local mirror that we own: each poll, NEW logs from status.logs are
+  // prepended (deduped by a persistent seenKeys ref); `clear` sets this to [].
+  // seenLogKeys is a ref (not state) so it survives `clear` — that's the
+  // trick: after clear, the sync effect sees all old logs are still "seen"
+  // and adds none of them back; only genuinely new logs appear. This makes
+  // `clear` actually clear the screen while new activity still streams in.
+  const [displayedLogs, setDisplayedLogs] = useState<LogEntry[]>([]);
+  const seenLogKeys = useRef<Set<string>>(new Set());
   const cfgTokenRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -135,6 +146,27 @@ export default function Home() {
       clearInterval(interval);
     };
   }, []);
+
+  // Sync displayedLogs from status.logs — prepend only NEW entries (deduped
+  // by the persistent seenLogKeys ref, which survives `clear`). status.logs
+  // is newest-first, so we walk it from the front and stop at the first entry
+  // we've already seen. This keeps the screen streaming new activity without
+  // re-adding cleared logs.
+  useEffect(() => {
+    if (!status?.logs) return;
+    setDisplayedLogs((prev) => {
+      const fresh: LogEntry[] = [];
+      for (const l of status.logs) {
+        const key = `${l.timestamp}|${l.message}`;
+        if (seenLogKeys.current.has(key)) break; // newest-first: once we hit
+        // something already seen, everything after is older and known too.
+        seenLogKeys.current.add(key);
+        fresh.push(l);
+      }
+      if (fresh.length === 0) return prev;
+      return [...fresh, ...prev]; // newest-first: fresh (newer) go to the front
+    });
+  }, [status?.logs]);
 
   // Auto-scroll to bottom of log when NEW COMMAND OUTPUT appears (terminalLines),
   // not when server logs update (which would yank the view away from what the
@@ -347,7 +379,7 @@ export default function Home() {
               r.status === "applied" ? "✓ FIXED" :
               r.status === "deferred" ? "… DEFERRED (LLM 429)" :
               r.status === "failed" ? "✗ FAILED" : "· NO-OP";
-            lines.push(`  ${tag} [${r.kind}] ${r.filePath}:${r.line}${r.status === "applied" && r.pushed ? ` — pushed ${r.commitSha}` : ""}`);
+            lines.push(`  ${tag} [${r.kind}] ${r.filePath}:${r.line}${r.status === "applied" && r.pushed ? ` — pushed ${r.commitSha}` : ""}${r.modelUsed ? ` via ${r.modelUsed}` : ""}`);
           }
           return lines;
         } catch (e) {
@@ -462,6 +494,10 @@ export default function Home() {
       case "clear":
       case "cls": {
         setTerminalLines([]);
+        setDisplayedLogs([]); // also clear the server-log stream — without
+        // this, `clear` left the server logs visible above the prompt and
+        // looked broken (the logs come from status.logs, a separate source
+        // from terminalLines). Now `clear` truly empties the screen.
         return [""];
       }
 
@@ -552,7 +588,7 @@ export default function Home() {
     }
   }
 
-  const logs = status?.logs ?? [];
+  const logs = displayedLogs; // render the clearable mirror, not raw status.logs
   const s = status?.stats;
   const q = status?.queue;
   const running = status?.running ?? false;

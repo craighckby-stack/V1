@@ -39,42 +39,83 @@ export interface LlmCallResult {
   error?: string;
   attempts: number;
   latencyMs: number;
+  modelUsed?: string;
 }
 
 /**
- * Single-shot LLM call with retry + graceful degradation.
- * Returns `ok: false` when the SDK is unavailable; callers must handle
- * this by falling back to a deterministic alternative.
+ * Model fallback chain — the "fallback gemini api" + "correct model".
+ *
+ * The Z.AI gateway accepts a `model` param per call and routes to different
+ * upstream providers (Google, OpenAI, Anthropic, Zhipu, DeepSeek, ...).
+ * Each upstream has its own sub-quota, so a 429 on one model does NOT mean
+ * a 429 on another. We try models in order and fall through on any failure
+ * (429, 5xx, network). Only if EVERY model fails do we report the call as
+ * unavailable — at which point the loop defers the task and rotates to the
+ * next one (see self-task-generator claimNextTask defer-rotation).
+ *
+ * Gemini is the primary (the user's "correct model" — fast, capable for
+ * code, and on a Google upstream quota separate from the GLM default).
+ */
+const MODEL_CHAIN = [
+  "gemini-2.5-flash",   // primary — Google upstream
+  "gemini-2.0-flash",   // fallback 1 — older Gemini, different quota bucket
+  "glm-4.6",            // fallback 2 — Zhipu upstream (the old default family)
+  "gpt-4o-mini",        // fallback 3 — OpenAI upstream
+  "claude-3.5-sonnet",  // fallback 4 — Anthropic upstream
+  "deepseek-v3",        // fallback 5 — DeepSeek upstream
+];
+
+/**
+ * Single-shot LLM call with a model fallback chain + retry.
+ *
+ * For each model in the chain, try up to 2 attempts. On any failure
+ * (429, 5xx, network, empty response), fall through to the next model.
+ * Returns `ok: false` only when EVERY model on the chain has failed.
+ * The `modelUsed` field on success records which upstream actually served
+ * the call — useful for observability (which provider is carrying the load).
  */
 export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> {
   const started = performance.now();
   let lastError: string | undefined;
-  const maxAttempts = 2;
+  let attempts = 0;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const zai = await getZai();
-      const completion = await zai.chat.completions.create({
-        messages: [
-          { role: "assistant", content: opts.systemPrompt },
-          { role: "user", content: opts.userPrompt },
-        ],
-        thinking: { type: "disabled" },
-      });
-      const content = completion.choices?.[0]?.message?.content ?? "";
-      if (!content.trim()) {
-        throw new Error("Empty LLM response");
-      }
-      return {
-        ok: true,
-        content,
-        attempts: attempt,
-        latencyMs: Math.round(performance.now() - started),
-      };
-    } catch (err) {
-      lastError = (err as Error).message;
-      if (attempt < maxAttempts) {
-        await new Promise((r) => setTimeout(r, 400 * attempt));
+  for (const model of MODEL_CHAIN) {
+    const maxAttempts = 2;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      attempts++;
+      try {
+        const zai = await getZai();
+        const completion = await zai.chat.completions.create({
+          model,
+          messages: [
+            { role: "assistant", content: opts.systemPrompt },
+            { role: "user", content: opts.userPrompt },
+          ],
+          thinking: { type: "disabled" },
+        } as { model: string; messages: { role: string; content: string }[]; thinking: { type: string } });
+        const content = completion.choices?.[0]?.message?.content ?? "";
+        if (!content.trim()) {
+          throw new Error("Empty LLM response");
+        }
+        return {
+          ok: true,
+          content,
+          attempts,
+          latencyMs: Math.round(performance.now() - started),
+          modelUsed: model,
+        };
+      } catch (err) {
+        lastError = (err as Error).message;
+        // 429 / 5xx / network → fall through to the next model immediately
+        // (don't retry the same throttled model). Only retry on
+        // potentially-transient parse/empty errors.
+        const isThrottle = /429|Too many requests|rate.?limit/i.test(lastError);
+        if (isThrottle) {
+          break; // next model
+        }
+        if (attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 400 * attempt));
+        }
       }
     }
   }
@@ -82,8 +123,8 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
   return {
     ok: false,
     content: "",
-    error: lastError ?? "LLM unavailable",
-    attempts: maxAttempts,
+    error: `all ${MODEL_CHAIN.length} models on chain failed (last: ${lastError ?? "unknown"})`,
+    attempts,
     latencyMs: Math.round(performance.now() - started),
   };
 }
