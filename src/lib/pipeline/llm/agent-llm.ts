@@ -51,7 +51,9 @@ export interface LlmCallResult {
 export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> {
   const started = performance.now();
   let lastError: string | undefined;
-  const maxAttempts = 2;
+  // More attempts for rate-limited (429) responses so we can back off
+  // properly instead of giving up after 2 quick tries.
+  const maxAttempts = 5;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -75,8 +77,15 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
       };
     } catch (err) {
       lastError = (err as Error).message;
+      const isRateLimit = /429|Too many requests|rate limit/i.test(lastError);
+
       if (attempt < maxAttempts) {
-        await new Promise((r) => setTimeout(r, 400 * attempt));
+        // For 429s: exponential backoff — 10s, 20s, 40s, 80s
+        // For other errors: quick retry — 400ms, 800ms
+        const delay = isRateLimit
+          ? 10000 * Math.pow(2, attempt - 1) // 10s, 20s, 40s, 80s
+          : 400 * attempt; // 400ms, 800ms, 1200ms, 1600ms
+        await new Promise((r) => setTimeout(r, delay));
       }
     }
   }

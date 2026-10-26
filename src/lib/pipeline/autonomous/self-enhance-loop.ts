@@ -52,6 +52,8 @@ class SelfEnhanceLoop {
   private running = false;
   private continuous = false;
   private currentFile: string | null = null;
+  // Circuit breaker: track consecutive 429s to back off the whole cycle
+  private consecutiveRateLimits = 0;
   private stats = {
     totalScanned: 0,
     totalEnhanced: 0,
@@ -315,10 +317,28 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       result.llmLatencyMs = llmResult.latencyMs;
 
       if (!llmResult.ok) {
-        result.reason = `LLM unavailable: ${llmResult.error}`;
-        this.log(`LLM unavailable for ${relPath}: ${llmResult.error}`, "warn");
+        const isRateLimit = /429|Too many requests|rate limit/i.test(llmResult.error ?? "");
+        if (isRateLimit) {
+          // Circuit breaker: track consecutive 429s and back off the whole cycle
+          this.consecutiveRateLimits++;
+          const backoffMs = Math.min(60000, 15000 * this.consecutiveRateLimits);
+          result.reason = `LLM rate-limited (429) — pausing ${backoffMs / 1000}s`;
+          this.log(
+            `LLM rate-limited (429) for ${relPath} — pausing ${backoffMs / 1000}s (consecutive #${this.consecutiveRateLimits})`,
+            "warn"
+          );
+          // Pause before returning so the next file doesn't immediately hit the API
+          await new Promise((r) => setTimeout(r, backoffMs));
+        } else {
+          this.consecutiveRateLimits = 0;
+          result.reason = `LLM unavailable: ${llmResult.error}`;
+          this.log(`LLM unavailable for ${relPath}: ${llmResult.error}`, "warn");
+        }
         return result;
       }
+
+      // LLM succeeded — reset the circuit breaker
+      this.consecutiveRateLimits = 0;
 
       let refactoredCode = extractCodeBlock(llmResult.content);
       if (!refactoredCode || refactoredCode.trim().length === 0) {
@@ -452,8 +472,8 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         if (result.enhanced) enhanced++;
         if (result.reason.startsWith("Rejected")) this.stats.totalReverted++;
 
-        // Brief pause between files to let hot-reload settle
-        await new Promise((r) => setTimeout(r, 500));
+        // Brief pause between files to avoid hammering the LLM API
+        await new Promise((r) => setTimeout(r, 2000));
       }
 
       this.stats.cyclesCompleted++;
