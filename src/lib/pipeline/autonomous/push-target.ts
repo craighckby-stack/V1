@@ -270,7 +270,7 @@ export async function pushCurrentState(opts?: {
       try {
         execSync("git remote remove origin", { cwd: PROJECT_ROOT, timeout: 5000, stdio: "pipe" });
       } catch {
-        /* no origin to remove */
+        // No origin to remove or failed to remove — non-critical
       }
       execSync(`git remote add origin ${remoteUrl}`, { cwd: PROJECT_ROOT, timeout: 5000 });
     }
