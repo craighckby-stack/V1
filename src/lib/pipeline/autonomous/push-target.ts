@@ -341,8 +341,9 @@ export async function pushCurrentState(opts?: {
       } else if (/could not read Username|Authentication failed|403/.test(stderr)) {
         hint = " (GitHub rejected the credentials — token may be invalid/revoked)";
       }
-      await record({ lastPushError: `git push failed: ${stderr.slice(0, 300)}${hint}` });
-      return { pushed: false, commitSha, hadChanges: Boolean(commitSha), repo: target.repo, error: `${stderr.slice(0, 300)}${hint}` };
+      const MAX_ERROR_LENGTH = 300;
+      await record({ lastPushError: `git push failed: ${stderr.slice(0, MAX_ERROR_LENGTH)}${hint}` });
+      return { pushed: false, commitSha, hadChanges: Boolean(commitSha), repo: target.repo, error: `${stderr.slice(0, MAX_ERROR_LENGTH)}${hint}` };
     }
 
     // 3. Success
@@ -355,8 +356,9 @@ export async function pushCurrentState(opts?: {
     return { pushed: true, commitSha: headSha.slice(0, SHORT_SHA_LENGTH), hadChanges: Boolean(commitSha), repo: target.repo };
   } catch (err) {
     const msg = scrub((err as Error).message, target?.token ?? "");
-    await record({ lastPushError: msg.slice(0, 300) });
-    return { pushed: false, error: msg.slice(0, 300), repo: target?.repo };
+    const MAX_ERROR_LENGTH = 300;
+    await record({ lastPushError: msg.slice(0, MAX_ERROR_LENGTH) });
+    return { pushed: false, error: msg.slice(0, MAX_ERROR_LENGTH), repo: target?.repo };
   } finally {
     pushInProgress = false;
   }
