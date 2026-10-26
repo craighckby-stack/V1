@@ -300,7 +300,8 @@ export async function pushCurrentState(opts?: {
       const { writeFileSync, unlinkSync } = await import("fs");
       writeFileSync(msgFile, (opts?.message ?? "Self-enhancement: current live state"), "utf-8");
       try {
-        execSync(`git commit -F ${msgFile}`, { cwd: PROJECT_ROOT, timeout: GIT_ADD_TIMEOUT, stdio: "pipe" });
+        const GIT_COMMIT_TIMEOUT = 10000;
+        execSync(`git commit -F ${msgFile}`, { cwd: PROJECT_ROOT, timeout: GIT_COMMIT_TIMEOUT, stdio: "pipe" });
       } finally {
         try { unlinkSync(msgFile); } catch { /* ignore temp file cleanup error - non-critical */ }
       }
