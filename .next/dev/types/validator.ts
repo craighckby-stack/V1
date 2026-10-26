@@ -263,6 +263,24 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../../src/app/api/self-enhance/chat-task/apply/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/self-enhance/chat-task/apply">> = Specific
+  const handler = {} as typeof import("../../../src/app/api/self-enhance/chat-task/apply/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../../src/app/api/self-enhance/chat-task/propose/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/self-enhance/chat-task/propose">> = Specific
+  const handler = {} as typeof import("../../../src/app/api/self-enhance/chat-task/propose/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../../src/app/api/self-enhance/push/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/self-enhance/push">> = Specific

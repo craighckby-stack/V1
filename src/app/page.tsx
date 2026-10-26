@@ -48,9 +48,17 @@ export default function Home() {
     { type: "system", text: "Verification: tsc --noEmit before every write" },
     { type: "system", text: "Proof: git push of current live state on each enhancement" },
     { type: "system", text: "" },
-    { type: "system", text: "Type 'help' for commands, 'start' to begin enhancing." },
+    { type: "system", text: "Type 'help' for commands, or type a goal in plain English." },
+    { type: "system", text: "Example: 'add a search input that filters the file list'" },
     { type: "system", text: "" },
   ]);
+  const [pendingPlan, setPendingPlan] = useState<{
+    userGoal: string;
+    understanding: string;
+    files: Array<{ path: string; action: string; reason: string }>;
+    summary: string;
+  } | null>(null);
+  const [taskLoading, setTaskLoading] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -113,10 +121,17 @@ export default function Home() {
           "  trigger     — Run one enhancement cycle",
           "  status      — Show current status",
           "  push        — Push current live state to GitHub",
+          "  config      — Open Git config panel",
           "  logs        — Show recent logs",
           "  files       — List files being enhanced",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
+          "",
+          "CHAT MODE:",
+          "  Type anything that's not a command and the system will",
+          "  analyze the codebase, propose a plan, and ask you to approve.",
+          "  Example: 'add a search input that filters the file list'",
+          "  Then type 'yes' to apply, or anything else to cancel.",
           "",
         ];
 
@@ -200,6 +215,55 @@ export default function Home() {
       case "quit":
         return ["Cannot exit — the system runs continuously. Use 'stop' to halt enhancement."];
 
+      case "yes":
+      case "y":
+      case "approve": {
+        if (!pendingPlan) {
+          return ["No pending plan to approve. Type a goal first."];
+        }
+        setTaskLoading(true);
+        try {
+          const res = await fetch("/api/self-enhance/chat-task/apply", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...pendingPlan, ok: true }),
+          });
+          const data = await res.json();
+          setPendingPlan(null);
+          if (data.ok) {
+            const lines = [
+              "APPLIED:",
+              ...data.results.map(
+                (r: { path: string; applied: boolean; reason: string }) =>
+                  `  ${r.applied ? "✓" : "✗"} ${r.path} — ${r.reason}`
+              ),
+            ];
+            if (data.pushed) {
+              lines.push(`Pushed to GitHub: commit ${data.commitSha}`);
+            } else if (data.error) {
+              lines.push(`⚠ ${data.error}`);
+            }
+            return lines;
+          }
+          return [`Failed: ${data.error}`];
+        } catch (e) {
+          setPendingPlan(null);
+          return [`Error applying plan: ${(e as Error).message}`];
+        } finally {
+          setTaskLoading(false);
+        }
+      }
+
+      case "no":
+      case "n":
+      case "cancel": {
+        if (pendingPlan) {
+          setPendingPlan(null);
+          return ["Plan cancelled."];
+        }
+        return ["Nothing to cancel."];
+      }
+
       case "about":
         return [
           "Architecture Helper Pipeline v4.3",
@@ -207,10 +271,55 @@ export default function Home() {
           "The system modifies its own source code in src/lib/pipeline/,",
           "verifies with tsc --noEmit, and pushes to GitHub as proof.",
           "What you see on GitHub IS the current live state of the server.",
+          "",
+          "CHAT MODE: type a goal in plain English to direct the system.",
         ];
 
-      default:
-        return [`Unknown command: ${command}. Type 'help' for available commands.`];
+      default: {
+        // Not a command — treat as a chat task goal
+        if (taskLoading) return ["Task in progress, please wait..."];
+
+        setTaskLoading(true);
+        try {
+          const res = await fetch("/api/self-enhance/chat-task/propose", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ goal: trimmed }),
+          });
+          const plan = await res.json();
+
+          if (!plan.ok) {
+            return [`Could not plan: ${plan.error ?? "unknown error"}`];
+          }
+
+          // Store the plan for "yes" approval
+          setPendingPlan({
+            userGoal: plan.userGoal,
+            understanding: plan.understanding,
+            files: plan.files,
+            summary: plan.summary,
+          });
+
+          const lines = [
+            `UNDERSTANDING: ${plan.understanding}`,
+            "",
+            "PROPOSED CHANGES:",
+            ...plan.files.map(
+              (f: { path: string; action: string; reason: string }) =>
+                `  ${f.action.toUpperCase()}: ${f.path} — ${f.reason}`
+            ),
+            "",
+            `SUMMARY: ${plan.summary}`,
+            "",
+            "Type 'yes' to apply and push, or 'no' to cancel.",
+          ];
+          return lines;
+        } catch (e) {
+          return [`Error: ${(e as Error).message}`];
+        } finally {
+          setTaskLoading(false);
+        }
+      }
     }
   }
 

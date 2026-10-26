@@ -1,1 +1,7 @@
-[00:00:01.101] Server  LOG     ✓ Ready in 887ms
+[00:00:00.971] Server  LOG     ✓ Ready in 744ms
+[00:00:06.952] Server  LOG     ○ Compiling / ...
+[00:00:12.372] Server  ERROR   Failed to make API request: Error: API request failed with status 429: {"error":"Too many requests, please try again later"}
+[00:00:12.854] Server  ERROR   Failed to make API request: Error: API request failed with status 429: {"error":"Too many requests, please try again later"}
+[00:00:21.233] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:00:29.176] Server  ERROR   Failed to make API request: Error: API request failed with status 429: {"error":"Too many requests, please try again later"}
+[00:00:29.680] Server  ERROR   Failed to make API request: Error: API request failed with status 429: {"error":"Too many requests, please try again later"}
