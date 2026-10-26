@@ -182,7 +182,7 @@ export async function setPushTarget(opts: {
       throw new Error(
         `Owner '${owner}' not found (404). For org repos, the token must administer that org.`
       );
-    } else if (createRes.status === 422) {
+    } else if (createRes.status === UNPROCESSABLE_ENTITY_STATUS) {
       throw new Error(`Repo ${repo} exists but is not accessible with this token (422).`);
     } else {
       const body = (await createRes.json().catch(() => ({}))) as { message?: string };
@@ -354,3 +354,4 @@ export async function pushCurrentState(opts?: {
 }
 
 const FORBIDDEN_STATUS = 403;
+const UNPROCESSABLE_ENTITY_STATUS = 422;
