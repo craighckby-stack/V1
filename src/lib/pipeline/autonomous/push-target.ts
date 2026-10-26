@@ -224,8 +224,9 @@ export async function setPushTarget(opts: {
 /** Clear the push target. */
 export async function clearPushTarget(): Promise<{ cleared: boolean }> {
   await db.gitPushTarget.deleteMany({ where: { id: SINGLETON_ID } });
+  const GIT_COMMAND_TIMEOUT = 5000;
   try {
-    execSync("git remote remove origin", { cwd: PROJECT_ROOT, timeout: 5000, stdio: "pipe" });
+    execSync("git remote remove origin", { cwd: PROJECT_ROOT, timeout: GIT_COMMAND_TIMEOUT, stdio: "pipe" });
   } catch {
     // No origin to remove or failed to remove — non-critical
   }
