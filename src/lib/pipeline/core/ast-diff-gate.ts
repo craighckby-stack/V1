@@ -48,7 +48,7 @@ const SYSTEM_PERSONA_BRANDING_TERMS: readonly string[] = [
   "omega_engine",
   "cognitive dominance",
   "grog engine",
-  "grog_engine",
+  "gro_engine",
   "recursive evolution loop",
   "nexus neural network",
 ] as const;
@@ -62,7 +62,7 @@ const BRANDING_PENALTY = 20;
 const HIGH_VIOLATION_PENALTY = 25;
 const MAX_SCORE = 100;
 
-const TS_LIKE_EXTENSIONS = ["ts", "tsx", "js", "jsx", "mjs", "cjs", ""] as const;
+const TS_LIKE_EXTENSIONS: readonly string[] = ["ts", "tsx", "js", "jsx", "mjs", "cjs", ""] as const;
 type TsLikeExtension = typeof TS_LIKE_EXTENSIONS[number];
 
 function isExported(node: ts.Node): boolean {
