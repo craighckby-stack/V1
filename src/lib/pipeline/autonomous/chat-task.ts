@@ -58,7 +58,8 @@ function gatherContext(): string {
   const srcDir = join(PROJECT_ROOT, "src");
   const files: string[] = [];
   const scan = (dir: string, depth = 0) => {
-    if (depth > 3) return;
+    const MAX_DEPTH = 3;
+    if (depth > MAX_DEPTH) return;
     try {
       const entries = readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
