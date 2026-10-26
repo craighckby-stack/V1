@@ -383,6 +383,7 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
   }
   
   const MAX_DRIFT_THRESHOLD = 0.65;
+  const RETENTION_SCORE_MULTIPLIER = 60;
   const PERCENTAGE_MULTIPLIER = 100;
   if (driftRatio > MAX_DRIFT_THRESHOLD) {
     violations.push({
@@ -393,7 +394,7 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
   }
 
   const retentionScore =
-    originalSymbols.length === 0 ? 100 : (retainedCount / originalSymbols.length) * 60;
+    originalSymbols.length === 0 ? 100 : (retainedCount / originalSymbols.length) * RETENTION_SCORE_MULTIPLIER;
   const penalty =
     brandingInjections.length * 20 + violations.filter((v) => v.severity === "high").length * 25;
   const astScore = Math.max(0, Math.min(100, Math.round(retentionScore + 40 - penalty)));
