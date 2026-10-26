@@ -29,12 +29,12 @@ export class BinaryShield {
     const key = getKeyBuffer();
     const iv = randomBytes(IV_LENGTH);
     const cipher = createCipheriv(ALGORITHM, key, iv);
-    const enc = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
-    const tag = cipher.getAuthTag();
-    const combined = Buffer.concat([enc, tag]);
+    const encryptedData = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    const combinedData = Buffer.concat([encryptedData, authTag]);
     
     return {
-      data: combined.toString("base64"),
+      data: combinedData.toString("base64"),
       iv: iv.toString("base64"),
       timestamp: Date.now(),
       algorithm: ALGORITHM_NAME,
@@ -44,19 +44,19 @@ export class BinaryShield {
   public async decrypt(packet: DecryptionPacket): Promise<string> {
     const key = getKeyBuffer();
     const iv = Buffer.from(packet.iv, "base64");
-    const combined = Buffer.from(packet.data, "base64");
+    const combinedData = Buffer.from(packet.data, "base64");
     
-    if (combined.length < AUTH_TAG_LENGTH) {
+    if (combinedData.length < AUTH_TAG_LENGTH) {
       throw new Error("Ciphertext too short");
     }
     
-    const tag = combined.subarray(combined.length - AUTH_TAG_LENGTH);
-    const enc = combined.subarray(0, combined.length - AUTH_TAG_LENGTH);
+    const authTag = combinedData.subarray(combinedData.length - AUTH_TAG_LENGTH);
+    const encryptedData = combinedData.subarray(0, combinedData.length - AUTH_TAG_LENGTH);
     const decipher = createDecipheriv(ALGORITHM, key, iv);
-    decipher.setAuthTag(tag);
-    const dec = Buffer.concat([decipher.update(enc), decipher.final()]);
+    decipher.setAuthTag(authTag);
+    const decryptedData = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
     
-    return dec.toString("utf8");
+    return decryptedData.toString("utf8");
   }
 
   public async computeHash(data: string): Promise<string> {
