@@ -544,3 +544,31 @@ Stage Summary:
 - Push pipeline fully built and verified up to the auth boundary; only a real PAT is needed to complete the happy path
 - User activation: run `push <github_token> <owner/repo> [public]` in the terminal — repo auto-created if missing, first proof push fires immediately, then every tsc-verified enhancement pushes automatically
 - Token security: stored in untracked local DB, scrubbed from all logs/errors/UI, never in git config or URLs; repo pushed to GitHub contains no secrets
+
+---
+Task ID: config-toggle-1
+Agent: main (Z.ai Code)
+Task: Add a clickable CONFIG toggle for users to input Git credentials (instead of typing in terminal)
+
+Work Log:
+- Folded push-target fetch into the existing 2s status poll → header shows [GIT: ON/OFF]
+- Added [CONFIG] button in the header bar (right-aligned, flex layout) — DOS-styled to match the terminal aesthetic
+- Built a modal dialog (role=dialog, aria-modal, aria-labelledby) with:
+  * GitHub Token input (password type + [SHOW]/[HIDE] toggle to reveal)
+  * Repository (owner/name) input (pre-fills with current repo if already connected)
+  * Public repo checkbox (accent-color: green)
+  * [ CONNECT & PUSH ] / [ DISCONNECT ] (only if connected) / [ CLOSE ] buttons
+  * Current target status block (repo, last push sha/time, last error)
+  * Footer hint with token-scope + settings URL guidance
+- Connect flow reuses existing /api/self-enhance/push-target POST → verifies token, auto-creates repo, then immediately POSTs /push for the first proof; success/failure shown inside the modal AND echoed to the terminal via emitOutput()
+- Escape key closes the modal; backdrop click closes; focus returns to terminal input on close; token cleared from component state on close
+- Suppressed the global click-to-focus-terminal handler while modal is open (deps=[configOpen]) so clicks inside the modal don't yank focus back to the terminal
+- Added 'config'/'cfg' terminal command as a keyboard shortcut to open the same panel
+- Kept the push <token> <owner/repo> [public] command as a power-user path; updated help/about text to mention [CONFIG]
+- Verified via agent-browser: CONFIG button present+labeled; modal opens with all fields; empty-submit → "Both token and repo are required"; fake token → "Token rejected by GitHub (401)" shown in modal; SHOW/HIDE toggles password↔text (value preserved); Escape closes; 'config' command opens it; backdrop click closes; header shows [GIT: OFF]; no console/page errors
+- tsc --noEmit ✓, eslint ✓, committed (106a984)
+
+Stage Summary:
+- Users can now connect GitHub push by clicking [CONFIG] → filling a form → [CONNECT & PUSH], no terminal typing needed
+- The terminal command path remains for power users; both routes hit the same secure backend
+- Modal is accessible (dialog role, Escape, focus management) and matches the DOS aesthetic
