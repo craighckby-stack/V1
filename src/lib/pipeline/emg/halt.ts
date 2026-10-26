@@ -17,13 +17,17 @@ export interface TreeFileDescriptor {
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3;
 const DEFAULT_MAX_CYCLES = 100;
 const MAX_ALLOWED_CYCLES = 1000;
+const WHITESPACE_REGEX = /\s+/g;
+const SPECIAL_CHARACTERS_REGEX = /\s*([{};:,=()])\s*/g;
+const SINGLE_LINE_COMMENT_REGEX = /\/\/[^\n\r]*/g;
+const MULTI_LINE_COMMENT_REGEX = /\/\*[\s\S]*?\*\//g;
 
 export function normalizeCode(code: string): string {
   return code
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/[^\n\r]*/g, "")
-    .replace(/\s+/g, " ")
-    .replace(/\s*([{};:,=()])\s*/g, "$1")
+    .replace(MULTI_LINE_COMMENT_REGEX, "")
+    .replace(SINGLE_LINE_COMMENT_REGEX, "")
+    .replace(WHITESPACE_REGEX, " ")
+    .replace(SPECIAL_CHARACTERS_REGEX, "$1")
     .trim();
 }
 
@@ -48,7 +52,7 @@ export class SelfStoppingGovernor {
     for (let i = 0; i < raw.length; i++) {
       hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
     }
-    return "tree_fp_" + Math.abs(hash).toString(16);
+    return `tree_fp_${Math.abs(hash).toString(16)}`;
   }
 
   public checkTreeSaturation(currentTreeFingerprint: string): HaltEvaluationState | null {
