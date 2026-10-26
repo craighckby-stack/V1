@@ -242,8 +242,9 @@ export class SessionTreeTokenBudgetEngine {
   public compactHistory(): number {
     const path = this.getActivePath();
     const totalTokens = path.reduce((sum, n) => sum + n.tokensEstimate, 0);
+    const TOKEN_COMPACT_THRESHOLD = 0.8;
     let pruned = 0;
-    if (totalTokens > this.tokenCap * 0.8 && path.length > 4) {
+    if (totalTokens > this.tokenCap * TOKEN_COMPACT_THRESHOLD && path.length > 4) {
       const toPrune = path.slice(1, path.length - 3);
       for (const node of toPrune) {
         this.nodes.delete(node.id);
