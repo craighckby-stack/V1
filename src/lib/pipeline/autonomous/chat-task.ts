@@ -210,7 +210,7 @@ function parsePlan(raw: string, userGoal: string): ChatTaskPlan {
         plan.files.push({
           path: match[1].trim(),
           action: match[2].toLowerCase() as "modify" | "create",
-          reason: match[3].trim(),
+          reason: match[REASON_INDEX].trim(),
         });
       }
     }
@@ -424,3 +424,5 @@ Output the COMPLETE new content for this file that achieves the goal.`;
     commitSha,
   };
 }
+
+const REASON_INDEX = 3;
