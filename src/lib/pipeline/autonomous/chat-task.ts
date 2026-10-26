@@ -88,10 +88,11 @@ function gatherContext(): string {
 
   // 2. Recent commits
   try {
+    const GIT_LOG_TIMEOUT_MS = 5000;
     const log = execSync("git log --oneline -5", {
       cwd: PROJECT_ROOT,
       encoding: "utf-8",
-      timeout: 5000,
+      timeout: GIT_LOG_TIMEOUT_MS,
     }).trim();
     lines.push("\nRECENT COMMITS:");
     lines.push(log);
@@ -101,10 +102,11 @@ function gatherContext(): string {
 
   // 3. Git status
   try {
+    const GIT_STATUS_TIMEOUT_MS = 5000;
     const status = execSync("git status --porcelain", {
       cwd: PROJECT_ROOT,
       encoding: "utf-8",
-      timeout: 5000,
+      timeout: GIT_STATUS_TIMEOUT_MS,
     }).trim();
     lines.push("\nGIT STATUS:");
     lines.push(status || "(clean)");
@@ -252,7 +254,7 @@ export async function applyTaskPlan(plan: ChatTaskPlan): Promise<ChatTaskApplyRe
 Rules:
 - Preserve every existing export (function, class, interface, type, const) — do not rename or remove
 - Only make the changes needed for the task
-- Output ONLY the complete file content in a single fenced \`\`\`typescript code block
+- Output ONLY the complete file content in a single fenced \`typescript\` code block
 - Do NOT add header comments, banners, or branding
 - If modifying, keep all existing code that isn't part of the change`;
 
@@ -262,7 +264,10 @@ FILE: ${file.path}
 ACTION: ${file.action}
 REASON: ${file.reason}
 
-${file.action === "modify" ? `CURRENT CONTENT:\n\`\`\`typescript\n${originalCode}\n\`\`\`` : "(new file)"}
+${file.action === "modify" ? `CURRENT CONTENT:
+\`\`\`typescript
+${originalCode}
+\`\`\`` : "(new file)"}
 
 Output the COMPLETE new content for this file that achieves the goal.`;
 
@@ -358,10 +363,11 @@ Output the COMPLETE new content for this file that achieves the goal.`;
   let pushed = false;
   let commitSha: string | undefined;
   try {
+    const GIT_STATUS_TIMEOUT_MS = 5000;
     const status = execSync("git status --porcelain", {
       cwd: PROJECT_ROOT,
       encoding: "utf-8",
-      timeout: 5000,
+      timeout: GIT_STATUS_TIMEOUT_MS,
     });
     if (status.trim()) {
       execSync("git add -A", { cwd: PROJECT_ROOT, timeout: 5000 });
