@@ -39,6 +39,34 @@ const MAX_ALPHANUMERIC_UTILITY_LENGTH = 36;
 const MIN_UPPER_CONST_ASSIGNMENTS_FOR_FIXTURE = 2;
 const MIN_LITERAL_LENGTH_FOR_ENTROPY_CHECK = 24;
 
+const ENV_VAR_PREFIXES = [
+  "DYLD_", "LD_", "PATH=", "HOME=", "USER=", "SHELL=", "TMPDIR=",
+  "LANG=", "LC_", "TERM=", "DISPLAY=", "EDITOR=", "VISUAL=",
+  "NODE_", "NPM_", "BUN_", "GITHUB_", "GIT_",
+] as const;
+
+const FIXTURE_PATH_PATTERNS = [
+  /(^|\/)tests?\//,
+  /(^|\/)__tests__\//,
+  /(^|\/)fixtures?\//,
+  /(^|\/)experiments?\//,
+  /(^|\/)specs?\//,
+  /(^|\/)e2e\//,
+  /(^|\/)demo\//,
+  /(^|\/)samples?\//,
+  /(^|\/)examples?\//,
+  /(^|\/)mocks?\//,
+  /(^|\/)stubs?\//,
+  /\.(test|spec)\.[a-z]+$/i,
+  /^test_/,
+  /_test\.[a-z]+$/i,
+] as const;
+
+const FIXTURE_CONTENT_PREFIXES = [
+  "jag_observation_", "jag_node_", "test_", "fixture_", "sample_",
+  "example_", "mock_", "stub_", "dummy_", "fake_", "oracle_", "expected_",
+] as const;
+
 export function calculateShannonEntropy(str: string): number {
   if (!str || str.length === 0) return 0;
   
@@ -60,14 +88,8 @@ function isLikelyEnvVarOrPath(s: string): boolean {
   // 1. ENV_VAR=value pattern (e.g. DYLD_FRAMEWORK_PATH=/override)
   if (/^[A-Z][A-Z0-9_]*=/.test(s)) return true;
 
-  // 2. Known env var prefixes (macOS dyld, Linux ld, common vars)
-  const envPrefixes = [
-    "DYLD_", "LD_", "PATH=", "HOME=", "USER=", "SHELL=", "TMPDIR=",
-    "LANG=", "LC_", "TERM=", "DISPLAY=", "EDITOR=", "VISUAL=",
-    "NODE_", "NPM_", "BUN_", "GITHUB_", "GIT_",
-  ] as const;
-  
-  for (const prefix of envPrefixes) {
+  // 2. Known env var prefixes
+  for (const prefix of ENV_VAR_PREFIXES) {
     if (s.startsWith(prefix)) return true;
   }
 
@@ -96,35 +118,13 @@ function isLikelyFixtureFile(filePath: string | undefined, code: string): boolea
   // 1. Path-based detection
   if (filePath) {
     const lower = filePath.toLowerCase();
-    const fixturePathPatterns = [
-      /(^|\/)tests?\//,
-      /(^|\/)__tests__\//,
-      /(^|\/)fixtures?\//,
-      /(^|\/)experiments?\//,
-      /(^|\/)specs?\//,
-      /(^|\/)e2e\//,
-      /(^|\/)demo\//,
-      /(^|\/)samples?\//,
-      /(^|\/)examples?\//,
-      /(^|\/)mocks?\//,
-      /(^|\/)stubs?\//,
-      /\.(test|spec)\.[a-z]+$/i,
-      /^test_/,
-      /_test\.[a-z]+$/i,
-    ] as const;
-    
-    for (const pat of fixturePathPatterns) {
+    for (const pat of FIXTURE_PATH_PATTERNS) {
       if (pat.test(lower)) return true;
     }
   }
 
   // 2. Content-based detection — known fixture prefixes assigned to constants
-  const fixturePrefixes = [
-    "jag_observation_", "jag_node_", "test_", "fixture_", "sample_",
-    "example_", "mock_", "stub_", "dummy_", "fake_", "oracle_", "expected_",
-  ] as const;
-  
-  for (const prefix of fixturePrefixes) {
+  for (const prefix of FIXTURE_CONTENT_PREFIXES) {
     if (code.includes(prefix)) {
       const constPattern = new RegExp(`[A-Z][A-Z0-9_]*\\s*=\\s*['"]${prefix}`, "");
       if (constPattern.test(code)) return true;
@@ -151,6 +151,7 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
   // high-entropy strings as deterministic test data, not secrets.
   const isFixtureFile = isLikelyFixtureFile(filePath, inputCode);
 
+  // Check for known secret patterns
   for (const pattern of SECRET_PATTERNS) {
     const matches = sanitized.match(pattern);
     if (matches) {
@@ -163,6 +164,7 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
     }
   }
 
+  // Check for PII patterns
   for (const pii of PII_PATTERNS) {
     const matches = sanitized.match(pii);
     if (matches) {
@@ -173,6 +175,7 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
     }
   }
 
+  // Check for high entropy strings
   const stringLiterals = inputCode.match(/["']([A-Za-z0-9_\-+/=]{24,})["']/g);
   if (stringLiterals) {
     for (const literal of stringLiterals) {
