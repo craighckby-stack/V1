@@ -572,3 +572,26 @@ Stage Summary:
 - Users can now connect GitHub push by clicking [CONFIG] → filling a form → [CONNECT & PUSH], no terminal typing needed
 - The terminal command path remains for power users; both routes hit the same secure backend
 - Modal is accessible (dialog role, Escape, focus management) and matches the DOS aesthetic
+
+---
+Task ID: auto-create-toggle-1
+Agent: main (Z.ai Code)
+Task: Make auto-create-repo explicit in the config panel
+
+Work Log:
+- Discovered auto-create was already implemented in setPushTarget (POST /user/repos on 404) but had three real bugs:
+  1. Org repos were silently broken — `myorg/myrepo` always called POST /user/repos, creating under the user's personal account instead of the org
+  2. Fine-grained PATs cannot create repos (only classic PATs with repo scope can) — error gave no hint why
+  3. No toggle — auto-create was hardcoded ON; users couldn't opt out for existing-repo-only flows
+- Backend (push-target.ts): split repo into [owner, name]; if owner === authenticated login → POST /user/repos, else → POST /orgs/{owner}/repos; added explicit handling for 403 (fine-grained PAT message + classic PAT suggestion), 404 (org membership requirement), 422 (token access issue); kept the auto-init:false setting so the first push won't conflict
+- API route (push-target/route.ts): accept createIfMissing from body (default true), pass through to setPushTarget
+- Frontend (page.tsx): added "Auto-create repo if missing" checkbox (default checked) below the Public checkbox, with a helper subtitle explaining the classic-PAT/fine-grained-PAT distinction; footer hint now dynamically reflects the checkbox state ("Repo auto-created if missing..." vs "Repo must already exist — connect only, no creation.")
+- Verified via agent-browser: checkbox present + checked by default; unchecking it updates the footer hint; re-checking restores it; submitting with fake token still hits the 401 gate (correct — token check runs before repo check)
+- Verified via curl: API accepts createIfMissing=false and defaults true when omitted
+- tsc --noEmit ✓, eslint ✓, committed (2701148)
+
+Stage Summary:
+- Auto-create is now an explicit, visible toggle in the config panel (default ON as requested)
+- Org repos now work correctly (POST /orgs/{owner}/repos), no more silent personal-account creation
+- Fine-grained PAT users get a clear actionable error explaining they need a classic PAT or manual repo creation
+- Users can opt out of auto-create to push to existing repos only
