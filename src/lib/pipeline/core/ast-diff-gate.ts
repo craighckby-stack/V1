@@ -331,13 +331,14 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
   const retainedCount = originalSymbols.length - missingSymbols.length;
 
   const violations: AstDiffViolation[] = [];
+  const MAX_SYMBOLS_TO_LIST = 5;
 
   if (missingSymbols.length > 0) {
     violations.push({
       code: "AST_SYMBOL_DROPPED",
       message: `Dropped ${missingSymbols.length} original symbol(s): ${missingSymbols
         .map((s) => s.name)
-        .slice(0, 5)
+        .slice(0, MAX_SYMBOLS_TO_LIST)
         .join(", ")}`,
       severity: missingSymbols.length > 2 ? "high" : "medium",
     });
