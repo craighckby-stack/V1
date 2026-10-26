@@ -395,8 +395,9 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
     });
   }
 
+  const PERFECT_RETENTION_SCORE = 100;
   const retentionScore =
-    originalSymbols.length === 0 ? 100 : (retainedCount / originalSymbols.length) * RETENTION_SCORE_MULTIPLIER;
+    originalSymbols.length === 0 ? PERFECT_RETENTION_SCORE : (retainedCount / originalSymbols.length) * RETENTION_SCORE_MULTIPLIER;
   const penalty =
     brandingInjections.length * 20 + violations.filter((v) => v.severity === "high").length * 25;
   const astScore = Math.max(0, Math.min(100, Math.round(retentionScore + 40 - penalty)));
