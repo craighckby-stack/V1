@@ -51,7 +51,7 @@ const SYSTEM_PERSONA_BRANDING_TERMS: readonly string[] = [
   "grog_engine",
   "recursive evolution loop",
   "nexus neural network",
-];
+] as const;
 
 const HIGH_SEVERITY_THRESHOLD = 2;
 const DRIFT_THRESHOLD = 0.65;
@@ -61,6 +61,9 @@ const BASE_QUALITY_WEIGHT = 40;
 const BRANDING_PENALTY = 20;
 const HIGH_VIOLATION_PENALTY = 25;
 const MAX_SCORE = 100;
+
+const TS_LIKE_EXTENSIONS = ["ts", "tsx", "js", "jsx", "mjs", "cjs", ""] as const;
+type TsLikeExtension = typeof TS_LIKE_EXTENSIONS[number];
 
 function isExported(node: ts.Node): boolean {
   return (
@@ -112,7 +115,8 @@ function declarationName(node: ts.Node): string | null {
 
 function extractSymbolsFromTs(sourceFile: ts.SourceFile): AstSymbol[] {
   const symbols: AstSymbol[] = [];
-  const visit = (node: ts.Node) => {
+  
+  const visit = (node: ts.Node): void => {
     let kind: AstSymbol["type"] | null = null;
     let name: string | null = null;
 
@@ -180,7 +184,7 @@ function extractSymbolsFromTs(sourceFile: ts.SourceFile): AstSymbol[] {
 function extractSymbolsRegex(code: string, filePath?: string): AstSymbol[] {
   const symbols: AstSymbol[] = [];
   const lines = code.split("\n");
-  const ext = (filePath ?? "").toLowerCase().split(".").pop() ?? "";
+  const ext = (filePath ?? "").toLowerCase().split(".").pop() as string;
 
   const topLevelPatterns: Array<[RegExp, AstSymbol["type"]]> = [
     [/(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)/, "function"],
@@ -263,17 +267,20 @@ function extractSymbolsRegex(code: string, filePath?: string): AstSymbol[] {
 }
 
 export function extractSymbols(code: string, filePath?: string): AstSymbol[] {
-  const ext = (filePath ?? "").toLowerCase().split(".").pop() ?? "";
-  const isTsLike = ["ts", "tsx", "js", "jsx", "mjs", "cjs", ""].includes(ext);
+  const ext = (filePath ?? "").toLowerCase().split(".").pop() as string;
+  const isTsLike = TS_LIKE_EXTENSIONS.includes(ext as TsLikeExtension);
+  
   if (!isTsLike) {
     return extractSymbolsRegex(code, filePath);
   }
+  
   try {
     const scriptKind =
       ext === "ts" ? ts.ScriptKind.TS :
       ext === "tsx" ? ts.ScriptKind.TSX :
       ext === "jsx" ? ts.ScriptKind.JSX :
       ts.ScriptKind.JS;
+      
     const sourceFile = ts.createSourceFile(
       "input." + (ext || "ts"),
       code,
@@ -334,8 +341,8 @@ function calculateDriftRatio(
 export function evaluateAstDiff(originalCode: string, proposedCode: string, filePath?: string): AstDiffResult {
   const originalSymbols = extractSymbols(originalCode, filePath);
   const proposedSymbols = extractSymbols(proposedCode, filePath);
-  const ext = (filePath ?? "").toLowerCase().split(".").pop() ?? "";
-  const parserUsed: AstDiffResult["parserUsed"] = ["ts", "tsx", "js", "jsx", "mjs", "cjs", ""].includes(ext)
+  const ext = (filePath ?? "").toLowerCase().split(".").pop() as string;
+  const parserUsed: AstDiffResult["parserUsed"] = TS_LIKE_EXTENSIONS.includes(ext as TsLikeExtension)
     ? "typescript"
     : "regex-fallback";
 
