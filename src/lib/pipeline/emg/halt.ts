@@ -43,7 +43,8 @@ export class SelfStoppingGovernor {
   constructor(options?: { maxConsecutiveFailures?: number; maxCycles?: number }) {
     const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3;
     this.maxConsecutiveFailures = options?.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
-    this.maxCycles = options?.maxCycles ?? 100;
+    const DEFAULT_MAX_CYCLES = 100;
+    this.maxCycles = options?.maxCycles ?? DEFAULT_MAX_CYCLES;
   }
 
   public computeTreeFingerprint(files: TreeFileDescriptor[]): string {
