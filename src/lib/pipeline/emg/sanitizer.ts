@@ -4,7 +4,7 @@ export type ErrorClass =
   | "HIGH_ENTROPY_TOKEN"
   | "PII"
   | "AST_PARSE"
-  | "UNGROUNDED_CLAIMS"
+  | "UNGROUDED_CLAIMS"
   | "CLEAN";
 
 export interface SecuritySanitizerResult {
