@@ -65,6 +65,46 @@ rem  but "what is a real feedback signal" - typecheck proves compilable, not
 rem  better. See DIRECTIONS.md for the open directions.
 rem
 rem ==========================================================================
+rem  FUTURE CHAT MODE — THE PROOF IT MUST PASS
+rem ==========================================================================
+rem
+rem  Chat mode (Direction 1) was built and removed. It made the user the
+rem  input source, violating the core principle. This section is the
+rem  constraint any future chat mode must satisfy before it ships. It is a
+rem  fixed guardrail, not a speculation — speculation lives in DIRECTIONS.md.
+rem
+rem  THE TEST
+rem  Any chat feature must prove, before it ships, that it does NOT make
+rem  the user the source of new work. The system's input remains its own
+rem  static self-scan. The user may shape, veto, or review — never inject.
+rem
+rem  COMPLIANT DESIGNS (would pass the test)
+rem
+rem  - Veto / reorder: user can skip or prioritize tasks the system already
+rem    queued, but cannot add new ones. (The current 'skip' command is this.)
+rem  - Execution refinement: user can shape HOW the system executes a task
+rem    it already defined (prompt tone, fix strategy), but not WHAT task.
+rem  - Post-hoc review: user tags commits good/bad/regression; those tags
+rem    become postmortem constraints fed back into the gate. The user is a
+rem    feedback signal, not an input source. (This is the design
+rem    DIRECTIONS.md says the system is missing — a real signal that's not
+rem    the LLM's own output.)
+rem
+rem  FORBIDDEN (would fail the test)
+rem
+rem  - User goal injection. Any design where the user types a goal and the
+rem    system works on it. This is what was removed. It is the trap.
+rem
+rem  THE PROOF REQUIRED
+rem  Before any chat mode ships, it must demonstrate:
+rem    1. With the chat interface present, the system still produces the
+rem       same self-defined task queue as with it absent.
+rem    2. No user input string becomes a task target.
+rem    3. Removing the chat interface changes no behavior of the loop.
+rem  If all three hold, the chat feature is interface, not input — and it
+rem  passes.
+rem
+rem ==========================================================================
 rem  INVARIANTS  (the system is structurally prevented from changing these)
 rem ==========================================================================
 rem
