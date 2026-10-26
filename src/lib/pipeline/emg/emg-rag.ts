@@ -179,6 +179,7 @@ class EmgRagMemory {
   private idf: Map<string, number> = new Map();
   private vectors: Map<string, Map<string, number>> = new Map();
   private seeded = false;
+  private readonly TIMESTAMP_INTERVAL_MINUTES = 60000;
 
   public async ensureSeeded(): Promise<void> {
     if (this.seeded) return;
@@ -216,7 +217,7 @@ class EmgRagMemory {
       this.entries = INITIAL_MEMORY_ENTRIES.map((e, idx) => ({
         ...e,
         id: `seed-${idx}`,
-        timestamp: Date.now() - idx * 60000,
+        timestamp: Date.now() - idx * this.TIMESTAMP_INTERVAL_MINUTES,
       }));
     }
     this.recomputeVectors();
