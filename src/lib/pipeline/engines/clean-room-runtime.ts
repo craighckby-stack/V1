@@ -220,8 +220,8 @@ export class SessionTreeTokenBudgetEngine {
     const path = this.getActivePath();
     const totalTokens = path.reduce((sum, n) => sum + n.tokensEstimate, 0);
     let pruned = 0;
-    if (totalTokens > this.tokenCap * 0.8 && path.length > 4) {
-      const toPrune = path.slice(1, path.length - 3);
+    if (totalTokens > this.tokenCap * TOKEN_COMPACT_THRESHOLD && path.length > MIN_PATH_LENGTH_FOR_PRUNING) {
+      const toPrune = path.slice(1, path.length - PRUNE_KEEP_COUNT);
       for (const node of toPrune) {
         this.nodes.delete(node.id);
         pruned++;
