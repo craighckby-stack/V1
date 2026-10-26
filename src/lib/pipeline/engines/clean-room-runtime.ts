@@ -240,13 +240,9 @@ export interface EngineExecutionResult {
   vfsFiles: string[];
   steps: ReactStep[];
   finalAnswer: string;
-  /** LLM-proposed evolved code, or empty string when LLM was unavailable. */
   proposedEvolvedCode: string;
-  /** Whether the LLM was actually called and returned a usable answer. */
   llmUsed: boolean;
-  /** Aggregate LLM latency in ms. */
   llmTotalLatencyMs: number;
-  /** Error message when the LLM was unavailable. */
   llmError?: string;
 }
 
@@ -258,14 +254,6 @@ const MAX_CODE_LENGTH = 6000;
 const MAX_FALLBACK_PLAN_LENGTH = 240;
 const DEFAULT_MAX_STEPS = 5;
 
-/**
- * Real LLM-driven clean-room engine. Step 1 plans, step 2 produces the
- * refactored code, step 3 is terminal. The refactored code is returned as
- * `proposedEvolvedCode` so the AST gate can verify it.
- *
- * On LLM failure, `proposedEvolvedCode` is empty and `llmUsed=false`. The
- * unified pipeline falls back to a deterministic transformation in that case.
- */
 export async function executeCleanRoomEngine(
   engineId: string,
   goal: string,
@@ -292,7 +280,6 @@ export async function executeCleanRoomEngine(
 
   const steps = await reactLoop.runLoop(goal, async (stepNumber) => {
     if (stepNumber === 1) {
-      // Plan step — call LLM with a planning prompt
       const planUser = `Goal: ${goal}
 
 File contents:
@@ -322,7 +309,6 @@ Output a 3-5 bullet refactor plan only.`;
         };
       }
       llmError = planRes.error;
-      // Deterministic fallback plan
       const fallbackPlan = `1. Add explicit type annotations to inferred parameters.\n2. Extract magic numbers into named constants.\n3. Add JSDoc to undocumented public functions.\n4. Preserve every public symbol exactly.`;
       session.addMessage("assistant", fallbackPlan);
       return {
@@ -338,7 +324,6 @@ Output a 3-5 bullet refactor plan only.`;
     }
 
     if (stepNumber === 2) {
-      // Execute step — produce refactored code
       const lang = filePath.toLowerCase().split(".").pop() || "ts";
       const planContext = session.getActivePath().slice(-2).map((n) => n.content).join("\n\n");
       const postmortemBlock = postmortemConstraints
@@ -378,7 +363,6 @@ Output ONLY the refactored code in a single \`\`\`${lang} fenced block. Preserve
           };
         }
       }
-      // Fallback — no LLM
       llmError = llmError ?? refactorRes.error;
       return {
         stepNumber,
@@ -392,7 +376,6 @@ Output ONLY the refactored code in a single \`\`\`${lang} fenced block. Preserve
       };
     }
 
-    // Terminal step
     return {
       stepNumber,
       thought: `[Pillar 3] Engine '${engineId}' synthesized clean-room solution${
