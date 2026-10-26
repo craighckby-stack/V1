@@ -389,7 +389,7 @@ Output the COMPLETE new content for this file that achieves the goal.`;
         cwd: PROJECT_ROOT,
         encoding: "utf-8",
         timeout: GIT_COMMIT_TIMEOUT_MS,
-      }).trim().slice(0, 7);
+      }).trim().slice(0, COMMIT_SHA_LENGTH);
 
       // Try to push using the configured remote (auth via env if available)
       try {
@@ -432,3 +432,4 @@ Output the COMPLETE new content for this file that achieves the goal.`;
 
 const REASON_INDEX = 3;
 const GIT_COMMIT_TIMEOUT_MS = 5000;
+const COMMIT_SHA_LENGTH = 7;
