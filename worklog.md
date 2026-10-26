@@ -595,3 +595,22 @@ Stage Summary:
 - Pushed commit e9221da includes: .next cache churn + scripts/push-now.ts helper (12 lines, no secrets). Minor noise but harmless; history is the audit trail.
 - No token leaked (verified post-push)
 - Local and remote fully in sync; working tree clean
+
+---
+Task ID: readme-bat
+Agent: main (Z.ai Code)
+Task: User asked for a README that the system can't eat: "we don't end with .md, have readme.bat, some file [extension] it can't use — [document] what the system is, does, point of system, add links to the .mds, live link to system."
+
+Work Log:
+- Confirmed self-task-generator.ts (lines 74-75) scans ONLY .ts files in src/lib/pipeline. A .bat at repo root is invisible to the autonomous loop's input layer — can never become a self-task, can never be rewritten by the system.
+- User's principle restated: the system defines its own input, not the user. A .md README would be consumable text the system could target for "enhancement." The .bat extension is the guardrail — format IS the protection.
+- Wrote readme.bat as a valid (do-nothing) batch file: @echo off + all rem-comment lines. Reads as documentation, renders readably on GitHub, does nothing if executed.
+- Content: WHAT THE SYSTEM IS (3-layer: mutation engine / verification gate / proof layer), WHAT THE SYSTEM DOES (static self-scan -> task queue -> deterministic+LLM execution -> in-memory verify -> push), THE POINT (system defines its own input, not the user — chat mode was removed for violating this), INVARIANTS (protected files list, gate scope, token-safe push), WHERE THE TRUTH LIVES (this file = fixed point; git log = current behavior; links to DIRECTIONS.md + worklog.md + live GitHub repo), KNOWN INCIDENTS (token leak c0752e7 purged / rea era 7k garbage commits), HOW TO RUN, WHY .bat AND NOT .md.
+- Pushed via scripts/push-now.ts (token-safe push path). Commit 2cb4ff6. Verified: readme.bat is on origin/main, 0/0 sync, no token in commit.
+- Loop is actively running: observed loop UUID commits d3f1cd1 and 232cde6 between my manual pushes — the autonomous cycle is working and pushing on its own.
+
+Stage Summary:
+- readme.bat is live on GitHub (craighckby-stack/V1, branch main, commit 2cb4ff6)
+- The file is permanently user-owned: .bat extension is outside the system's .ts-only scanner, so the autonomous loop can never ingest or rewrite it
+- It's the user's fixed statement about a system that otherwise writes itself: what it is, what it does, the core principle (system defines its own input), the invariants, the incidents, and pointers to DIRECTIONS.md + worklog.md + the live repo
+- The format IS the guardrail — a .md would be a target; a .bat is invisible to the system
