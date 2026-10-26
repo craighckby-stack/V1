@@ -55,7 +55,7 @@ export class BinaryShield {
     const combined = Buffer.from(packet.data, "base64");
     if (combined.length < MIN_CIPHERTEXT_LENGTH) throw new Error("Ciphertext too short");
     const tag = combined.subarray(combined.length - GCM_TAG_LENGTH);
-    const enc = combined.subarray(0, combined.length - 16);
+    const enc = combined.subarray(0, combined.length - GCM_TAG_LENGTH);
     const decipher = createDecipheriv(ALGO, key, iv);
     decipher.setAuthTag(tag);
     const dec = Buffer.concat([decipher.update(enc), decipher.final()]);
