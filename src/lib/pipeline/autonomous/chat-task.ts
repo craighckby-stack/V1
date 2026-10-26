@@ -351,7 +351,8 @@ Output the COMPLETE new content for this file that achieves the goal.`;
   if (!compiled) {
     // Revert all changes
     try {
-      execSync("git checkout -- .", { cwd: PROJECT_ROOT, timeout: 5000, stdio: "pipe" });
+      const GIT_CHECKOUT_TIMEOUT_MS = 5000;
+      execSync("git checkout -- .", { cwd: PROJECT_ROOT, timeout: GIT_CHECKOUT_TIMEOUT_MS, stdio: "pipe" });
     } catch {
       // ignore git failure - can't recover
     }
