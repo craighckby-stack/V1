@@ -23,6 +23,7 @@ export interface DecryptionPacket {
 
 const ALGO = "aes-256-gcm";
 const SECRET_SEED = process.env.BINARY_SHIELD_SEED ?? "HELPER_SECURITY_KEY_2026";
+const IV_LENGTH = 12;
 
 function getKeyBuffer(): Buffer {
   // Derive a 32-byte key from the seed using SHA-256.
@@ -32,7 +33,7 @@ function getKeyBuffer(): Buffer {
 export class BinaryShield {
   public async encrypt(plainText: string): Promise<EncryptionPacket> {
     const key = getKeyBuffer();
-    const iv = randomBytes(12);
+    const iv = randomBytes(IV_LENGTH);
     const cipher = createCipheriv(ALGO, key, iv);
     const enc = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
     const tag = cipher.getAuthTag();
