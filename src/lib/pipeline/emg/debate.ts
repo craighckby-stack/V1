@@ -83,6 +83,7 @@ export function conductDebate(topic: string, candidateCode: string, filePath: st
   const criticalFlaws = containsSecrets || containsEval;
   let consensus: DebateVerdict["consensus"] = "APPROVED";
   let consensusCoefficient = 0.92;
+  const ARCHITECTURE_FRICTION = 0.15;
   let cognitiveFriction = 0.18;
   let leadSummary = "Review summary: Candidate changes satisfy both security and architectural standards.";
 
