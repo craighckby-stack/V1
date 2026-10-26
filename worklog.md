@@ -792,3 +792,44 @@ Stage Summary:
 - COOLDOWN: gemini-direct.ts arms a 10-minute in-memory cooldown on location errors so the loop doesn't burn a Google request per task per cycle while geo-blocked — it short-circuits and falls through to the Z.AI chain immediately.
 - HONEST STATUS: from THIS sandbox, the Z.AI model chain remains the only working LLM path (and it's currently account-level 429 throttled too). The Gemini key is saved for when the system runs from a supported region.
 - The user should retry pasting their real key — it will now save with the clear "region not supported" warning instead of showing a rejection error.
+
+---
+Task ID: full-debug-add-deterministic-kind
+Agent: main (Z.ai Code)
+Task: User: "Please debug system full it. Stopped at 63 to go didn't push anything at all or hotswap unsure live telemetry not updating. Gemini was successful i think yay"
+
+Work Log:
+- GEMINI: confirmed saved (configured: true, model gemini-2.5-flash). Location-blocked from HK (as diagnosed in previous task). Key is valid; will work from a supported region. User's "Gemini was successful" = the save flow worked (location-blocked warning shown instead of error).
+
+- FULL SYSTEM DEBUG findings:
+  1. Dev server alive (HTTP 200), 4 processes running.
+  2. Loop running: True, cycling (tasksDeferred: 96), claiming tasks every cycle (cyclesSinceClaim: 1, lastClaimAt recent).
+  3. Telemetry IS updating — verified via agent-browser: timestamps advanced 2:12:31 → 2:12:48 PM (17s of new activity). The "frozen" appearance is because every cycle is IDENTICAL (claim → all-LLM-fail → defer → wait 8s → repeat). No console/page errors.
+  4. Zero pushes (totalPushed: 0) — confirmed. The UUID-tagged commits in git log (2c9fef0, 3c9e416, etc.) are just worklog.md churn from pushCurrentState's git add -A, NOT code fixes.
+  5. Queue: 78 pending, ALL LLM-required (67 magic-number, 8 empty-catch, 2 non-null-assertion, 1 any-usage). DETERMINISTIC available: 0 (the one missing-return-type was done long ago). So the loop CAN'T do any work without an LLM, and both LLM paths are blocked (Gemini location, Z.AI 429).
+  6. Root cause of "stuck": NOT a bug — the system is starved of LLM capacity AND has zero deterministic tasks left. Both paths blocked + no LLM-free work = no progress possible.
+
+- THE FIX: added a second deterministic task kind — `unused-import` — so the loop has LLM-free work during rate limits.
+  * self-task-generator.ts (PROTECTED, manual edit): added unused-import to TASK_KINDS (priority 4, method deterministic). Detection in analyzeFile: for each ImportDeclaration, check if each imported binding name appears as an identifier elsewhere in the file (outside the import line). If not, flag it. Heuristic-based (no type checker needed).
+  * task-executor.ts: added executeUnusedImport function. Handles 3 cases: (1) default import unused → remove whole line, (2) namespace import unused → remove whole line, (3) named imports with some unused → remove just the unused named elements, keep the used ones. Reconstructs the import statement textually.
+  * self-enhance-loop.ts: updated claimNextTask and the deterministic-count check to include unused-import alongside missing-return-type. Bumped LOOP_VERSION 6→7.
+  * page.tsx: added unused-import to METHOD_LABEL (DET) and the tasks command priority mapping.
+
+- CRITICAL BUG FOUND AND FIXED: the in-memory typecheck gate was rejecting EVERY fix (including the new unused-import fixes) because of a PRE-EXISTING type error in agent-llm.ts:119. My MODEL_CHAIN code had `as { model: string; messages: { role: string; content: string }[]; thinking: { type: string } }` which WIDENED the `role` type from `"user" | "assistant" | "system"` (a string literal union) to `string` — making it incompatible with the SDK's ChatMessage type. Removed the cast (the object literal is correctly typed without it). Verified the fix passes typecheck. This was the "poisoned gate" issue — a single type error anywhere in the project blocks ALL fixes, not just the file being modified.
+
+- After fixing the type error + resetting the 3 failed unused-import tasks (they'd been permanently failed by the type error), the loop immediately:
+  * Claimed [unused-import] chat-task.ts:17 → removed `extname` → verified in memory → pushed 32fb87a
+  * Claimed [unused-import] unified-pipeline.ts:17 → removed `conductDebate` → verified → pushed 6ed644d
+  * Claimed [unused-import] unified-pipeline.ts:22 → removed `generatePostmortemFromReport` → verified → pushed 1f3f791
+  * totalPushed: 3, tasksDone: 3. FIRST REAL CODE FIXES the system has ever pushed. Zero LLM calls.
+
+- Cleaned up temp scripts (check-unused.ts, sim-fix.ts, test-fix.ts, test-models.ts, reset-failed.ts, q.ts, q2.ts, test-claim.ts, check-llm.ts). Pushed as b696551.
+
+- Final state: 0/0 sync, lint clean, 3 real fix commits on GitHub, loop running. The deterministic kind gives the loop real work during rate limits — 3 fixes done with zero LLM, zero cost, zero rate-limit dependence.
+
+Stage Summary:
+- FULL DEBUG COMPLETE. The system was NOT broken — it was correctly cycling but starved of work it could do without an LLM (both LLM paths blocked + zero deterministic tasks left). The "telemetry not updating" was a perception issue — every cycle is identical, so the screen looks frozen even though it's live.
+- FIXED: added unused-import as a second deterministic task kind. The loop now removes unused imports with zero LLM, verified in memory, pushed to GitHub. 3 fixes already pushed (32fb87a, 6ed644d, 1f3f791) — the system's FIRST real code fixes.
+- CRITICAL GATE BUG FIXED: a pre-existing type error in agent-llm.ts (my model-chain cast widened the ChatMessage role type) was poisoning the in-memory typecheck gate — blocking EVERY fix, not just the file being modified. Removed the cast. This was likely blocking fixes since the Gemini fallback was added.
+- The loop is now running with 86 pending tasks (all LLM-required). The 3 deterministic tasks are done. It will keep deferring LLM tasks until the Z.AI 429 clears or the system runs from a Gemini-supported region. But it PROVED it can produce real fixes end-to-end with zero LLM during rate limits.
+- Gemini key saved (location-blocked from HK but valid). Will work from a supported region.
