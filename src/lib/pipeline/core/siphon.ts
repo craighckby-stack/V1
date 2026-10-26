@@ -132,9 +132,10 @@ export function performArchitecturalVote(fileName: string, codeSnippet: string):
     };
   }
 
+  const BASELINE_SCORE = 92;
   return {
     source: SIPHON_SOURCES[0],
-    score: 92,
+    score: BASELINE_SCORE,
     rationale: "Standard code refactoring and AST verification baseline.",
     recommendedPattern: "AST Diff Gate Verification & Type Safety",
   };
