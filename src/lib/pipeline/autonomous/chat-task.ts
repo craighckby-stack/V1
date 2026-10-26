@@ -83,7 +83,8 @@ function gatherContext(): string {
   };
   scan(srcDir);
   lines.push("SOURCE FILES:");
-  lines.push(files.slice(0, 50).join("\n"));
+  const MAX_FILES_TO_INCLUDE = 50;
+  lines.push(files.slice(0, MAX_FILES_TO_INCLUDE).join("\n"));
 
   // 2. Recent commits
   try {
