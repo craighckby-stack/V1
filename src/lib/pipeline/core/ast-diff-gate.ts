@@ -388,6 +388,7 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
   const RETENTION_SCORE_MULTIPLIER = 60;
   const PERCENTAGE_MULTIPLIER = 100;
   const BASE_SCORE_BONUS = 40;
+  const MINIMUM_AST_SCORE = 50;
   if (driftRatio > MAX_DRIFT_THRESHOLD) {
     violations.push({
       code: "AST_STRUCTURAL_DRIFT",
@@ -406,7 +407,7 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
   const astScore = Math.max(0, Math.min(100, Math.round(retentionScore + BASE_SCORE_BONUS - penalty)));
 
   const passed =
-    violations.filter((v) => v.severity === "high").length === 0 && astScore >= 50;
+    violations.filter((v) => v.severity === "high").length === 0 && astScore >= MINIMUM_AST_SCORE;
 
   return {
     passed,
