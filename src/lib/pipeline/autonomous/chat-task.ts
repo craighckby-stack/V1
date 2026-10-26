@@ -382,13 +382,13 @@ Output the COMPLETE new content for this file that achieves the goal.`;
       const MAX_COMMIT_MESSAGE_LENGTH_CHARS = 200;
       execSync(`git commit -m "${commitMsg.replace(/"/g, '\\"').slice(0, MAX_COMMIT_MESSAGE_LENGTH_CHARS)}"`, {
         cwd: PROJECT_ROOT,
-        timeout: 5000,
+        timeout: GIT_COMMIT_TIMEOUT_MS,
         stdio: "pipe",
       });
       commitSha = execSync("git rev-parse HEAD", {
         cwd: PROJECT_ROOT,
         encoding: "utf-8",
-        timeout: 5000,
+        timeout: GIT_COMMIT_TIMEOUT_MS,
       }).trim().slice(0, 7);
 
       // Try to push using the configured remote (auth via env if available)
@@ -397,7 +397,7 @@ Output the COMPLETE new content for this file that achieves the goal.`;
         const remote = execSync("git remote", {
           cwd: PROJECT_ROOT,
           encoding: "utf-8",
-          timeout: 5000,
+          timeout: GIT_COMMIT_TIMEOUT_MS,
           stdio: "pipe",
         }).trim();
         if (remote.includes("origin")) {
