@@ -202,16 +202,17 @@ export async function setPushTarget(opts: {
 
   // 4. Point `origin` at the tokenless URL
   const remoteUrl = `https://github.com/${repo}.git`;
+  const GIT_COMMAND_TIMEOUT = 5000;
   try {
-    const existing = execSync("git remote", { cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 5000 })
+    const existing = execSync("git remote", { cwd: PROJECT_ROOT, encoding: "utf-8", timeout: GIT_COMMAND_TIMEOUT })
       .trim()
       .split("\n")
       .map((s) => s.trim())
       .filter(Boolean);
     if (existing.includes("origin")) {
-      execSync(`git remote set-url origin ${remoteUrl}`, { cwd: PROJECT_ROOT, timeout: 5000 });
+      execSync(`git remote set-url origin ${remoteUrl}`, { cwd: PROJECT_ROOT, timeout: GIT_COMMAND_TIMEOUT });
     } else {
-      execSync(`git remote add origin ${remoteUrl}`, { cwd: PROJECT_ROOT, timeout: 5000 });
+      execSync(`git remote add origin ${remoteUrl}`, { cwd: PROJECT_ROOT, timeout: GIT_COMMAND_TIMEOUT });
     }
   } catch (err) {
     throw new Error(`Failed to set git remote: ${(err as Error).message}`);
