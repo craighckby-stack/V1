@@ -12,8 +12,8 @@
  * When you see a commit on GitHub, that's exactly what the server is running.
  */
 
-import { readFileSync, writeFileSync, readdirSync, unlinkSync } from "fs";
-import { execSync } from "child_process";
+import { readFileSync, writeFileSync, readdirSync } from "fs";
+import { spawnSync } from "child_process";
 import { join, relative } from "path";
 import { llmComplete, extractCodeBlock } from "../llm/agent-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
@@ -28,6 +28,8 @@ const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/self-enhance-loop.ts",
   "src/lib/pipeline/autonomous/loop-event-bus.ts",
   "src/lib/pipeline/autonomous/push-target.ts", // protect the push auth path
+  "src/lib/pipeline/autonomous/in-memory-typecheck.ts", // protect the typecheck
+  "src/lib/pipeline/autonomous/verify-refactor.ts", // protect the verifier
   "src/lib/pipeline/llm/agent-llm.ts", // protect the LLM wrapper
   "src/lib/pipeline/llm/debate-llm.ts",
 ]);
@@ -101,21 +103,38 @@ class SelfEnhanceLoop {
   }
 
   /**
-   * Verify the project compiles with tsc --noEmit.
-   * Returns true if compilation succeeds, false otherwise.
+   * Verify a refactored file IN MEMORY — spawns the verify-refactor script
+   * as a child process, passes the refactored code via stdin, and returns
+   * whether it typechecks. NOTHING is written to disk — Turbopack never
+   * sees the refactored code until it passes verification.
    */
-  private verifyCompiles(): boolean {
+  private verifyRefactor(filePath: string, refactoredCode: string): { ok: boolean; errors: string[] } {
     try {
-      execSync("npx tsc --noEmit 2>&1", {
-        cwd: PROJECT_ROOT,
-        timeout: 30000,
-        stdio: "pipe",
-      });
-      return true;
+      const result = spawnSync(
+        "bun",
+        ["run", "src/lib/pipeline/autonomous/verify-refactor.ts", filePath],
+        {
+          cwd: PROJECT_ROOT,
+          input: refactoredCode,
+          timeout: 60000,
+          encoding: "utf-8",
+        }
+      );
+
+      const stdout = (result.stdout || "").trim();
+      if (!stdout) {
+        const stderr = (result.stderr || "").slice(0, 200);
+        return { ok: false, errors: [`Verifier produced no output${stderr ? `: ${stderr}` : ""}`] };
+      }
+
+      try {
+        const parsed = JSON.parse(stdout) as { ok: boolean; errors: string[] };
+        return parsed;
+      } catch {
+        return { ok: false, errors: [`Verifier output not JSON: ${stdout.slice(0, 200)}`] };
+      }
     } catch (err) {
-      const output = (err as any).stdout || (err as any).stderr || "";
-      this.log(`tsc --noEmit failed: ${output.slice(0, 200)}`, "error");
-      return false;
+      return { ok: false, errors: [`Verifier failed to run: ${(err as Error).message}`] };
     }
   }
 
@@ -272,54 +291,36 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         return result;
       }
 
-      // 5. Write to temp file first, verify tsc, then apply
-      const tempFile = filePath + ".tmp";
-      writeFileSync(tempFile, refactoredCode, "utf-8");
+      // 5. Verify the refactored code IN MEMORY — nothing is written to disk
+      // until it passes typecheck. This prevents Turbopack from ever seeing
+      // broken code (the root cause of the stale browser error).
+      this.log(`Verifying ${relPath} (in-memory typecheck)...`, "info");
+      const verification = this.verifyRefactor(filePath, refactoredCode);
+      result.compiled = verification.ok;
 
-      // 6. Swap: move temp to real (atomic-ish)
-      const backupFile = filePath + ".bak";
-      writeFileSync(backupFile, originalCode, "utf-8");
-      writeFileSync(filePath, refactoredCode, "utf-8");
+      if (!verification.ok) {
+        // Refactor failed typecheck — do NOT write to disk. Turbopack never sees it.
+        const errorSummary = verification.errors.slice(0, 3).join("; ");
+        this.log(`Rejected ${relPath} (typecheck failed): ${errorSummary}`, "error");
 
-      // 7. Verify the project still compiles
-      const compiled = this.verifyCompiles();
-      result.compiled = compiled;
-
-      if (!compiled) {
-        // Revert!
-        writeFileSync(filePath, originalCode, "utf-8");
-        this.log(`Reverted ${relPath} (tsc --noEmit failed after refactor)`, "error");
-
-        // Clean up temp/backup so they don't linger or get committed by git add -A
-        try {
-          unlinkSync(tempFile);
-          unlinkSync(backupFile);
-        } catch {
-          /* ignore */
-        }
-
-        // Record postmortem
+        // Record postmortem so the next attempt gets warned
         await postmortemStore.recordFailure({
           repo: "self",
           branch: "main",
           filePath: relPath,
           failureType: "COMPILE_ERROR",
-          symptom: "Refactored code failed tsc --noEmit",
-          evidence: `Original: ${originalCode.length} bytes, Refactored: ${refactoredCode.length} bytes. tsc --noEmit rejected the change.`,
+          symptom: `Refactored code failed in-memory typecheck: ${errorSummary}`,
+          evidence: `Original: ${originalCode.length} bytes, Refactored: ${refactoredCode.length} bytes. Errors: ${verification.errors.join("\n")}`,
           constraints: `The previous refactor of ${relPath} did not compile. Make smaller, safer changes. Preserve all type signatures exactly.`,
         });
 
-        result.reason = "Reverted (tsc failed)";
+        result.reason = "Rejected (typecheck failed — nothing written to disk)";
         return result;
       }
 
-      // 8. Clean up temp/backup
-      try {
-        unlinkSync(tempFile);
-        unlinkSync(backupFile);
-      } catch {
-        /* ignore */
-      }
+      // 6. Typecheck passed — NOW it's safe to write the refactored code to the live file.
+      // Turbopack will hot-reload it and see only valid code.
+      writeFileSync(filePath, refactoredCode, "utf-8");
 
       // 9. Enhancement succeeded — the file is now LIVE (hot-reload will pick it up)
       result.enhanced = true;
