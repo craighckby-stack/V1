@@ -103,6 +103,51 @@ class SelfEnhanceLoop {
   }
 
   /**
+   * Detect truncated LLM output. The LLM often hits its output token limit
+   * mid-comment on larger files, producing code with:
+   *   - Unbalanced braces (more opens than closes)
+   *   - Unterminated block comments (odd count of block-comment delimiters)
+   *   - Missing closing code fence at the end
+   * Catching this early avoids a ~10s wasted typecheck cycle.
+   */
+  private detectTruncation(code: string, original: string): { truncated: boolean; reason?: string } {
+    // 1. Unbalanced braces — count { and } (ignoring strings/comments is hard;
+    //    a rough count is enough to catch truncation since the original was balanced)
+    let opens = 0, closes = 0;
+    for (let i = 0; i < code.length; i++) {
+      if (code[i] === "{") opens++;
+      else if (code[i] === "}") closes++;
+    }
+    if (opens !== closes) {
+      return {
+        truncated: true,
+        reason: `unbalanced braces (${opens} { vs ${closes} })`,
+      };
+    }
+
+    // 2. Unterminated block comment — odd number of /* */ pairs
+    const blockCommentOpens = (code.match(/\/\*/g) || []).length;
+    const blockCommentCloses = (code.match(/\*\//g) || []).length;
+    if (blockCommentOpens !== blockCommentCloses) {
+      return {
+        truncated: true,
+        reason: `unterminated block comment (${blockCommentOpens} /* vs ${blockCommentCloses} */)`,
+      };
+    }
+
+    // 3. Refactored code is significantly shorter than original + missing closing
+    //    characters — likely cut off mid-generation
+    if (code.length < original.length * 0.5 && !code.endsWith("}") && !code.endsWith(";")) {
+      return {
+        truncated: true,
+        reason: `output too short (${code.length}b vs ${original.length}b original) and not properly terminated`,
+      };
+    }
+
+    return { truncated: false };
+  }
+
+  /**
    * Verify a refactored file IN MEMORY — spawns the verify-refactor script
    * as a child process, passes the refactored code via stdin, and returns
    * whether it typechecks. NOTHING is written to disk — Turbopack never
@@ -230,6 +275,16 @@ class SelfEnhanceLoop {
       const originalCode = readFileSync(filePath, "utf-8");
       result.oldBytes = originalCode.length;
 
+      // 1a. Skip files that are too large for the LLM to refactor without truncating.
+      // The model's output token limit means files over ~12KB often get cut off
+      // mid-comment, producing syntax errors that waste a full typecheck cycle.
+      const MAX_FILE_BYTES = 12000;
+      if (originalCode.length > MAX_FILE_BYTES) {
+        result.reason = `Skipped (file too large: ${originalCode.length}b > ${MAX_FILE_BYTES}b)`;
+        this.log(`Skipped ${relPath} (${originalCode.length}b — too large for LLM, would truncate)`, "info");
+        return result;
+      }
+
       // 2. Check for postmortem constraints
       const postmortem = await postmortemStore.getConstraintsForFile(
         "self",
@@ -283,6 +338,27 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       result.llmUsed = true;
       result.newBytes = refactoredCode.length;
       result.diffBytes = Math.abs(refactoredCode.length - originalCode.length);
+
+      // 3c. Detect truncated LLM output before the expensive typecheck.
+      // The LLM often hits its output token limit mid-comment on larger files,
+      // producing code with unbalanced braces or unterminated block comments.
+      // Catching this early saves a ~10s typecheck cycle.
+      const truncation = this.detectTruncation(refactoredCode, originalCode);
+      if (truncation.truncated) {
+        result.reason = `Rejected (LLM output truncated: ${truncation.reason})`;
+        this.log(`Rejected ${relPath} (LLM output truncated: ${truncation.reason})`, "warn");
+        await postmortemStore.recordFailure({
+          repo: "self",
+          branch: "main",
+          filePath: relPath,
+          failureType: "COMPILE_ERROR",
+          symptom: `LLM output truncated: ${truncation.reason}`,
+          evidence: `Original: ${originalCode.length}b, Refactored: ${refactoredCode.length}b. The LLM hit its output token limit before finishing.`,
+          constraints: `The previous refactor of ${relPath} was truncated by the LLM's output limit. Make smaller, more targeted changes — do not rewrite the whole file.`,
+        });
+        this.stats.totalReverted++;
+        return result;
+      }
 
       // 4. Check if anything actually changed
       if (refactoredCode.trim() === originalCode.trim()) {
@@ -355,7 +431,7 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
    */
   async runCycle(): Promise<{ filesScanned: number; filesEnhanced: number; results: SelfEnhanceResult[] }> {
     if (this.running) {
-      this.log("Cycle already running, skipping", "warn");
+      // Don't log — the continuous runner polls runCycle and this is normal
       return { filesScanned: 0, filesEnhanced: 0, results: [] };
     }
     this.running = true;

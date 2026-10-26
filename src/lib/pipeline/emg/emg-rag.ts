@@ -26,6 +26,7 @@ const FRICTION_NO_FIX_WEIGHT = 0.15;
 const HIGH_SIMILARITY_THRESHOLD = 0.05;
 const ELEVATED_FRICTION_THRESHOLD = 0.6;
 const LOW_SIMILARITY_THRESHOLD = 0.02;
+const MAX_RESULTS_PER_CATEGORY = 3;
 
 const INITIAL_MEMORY_ENTRIES: Omit<VectorEntry, "id" | "timestamp">[] = [
   {
@@ -90,7 +91,7 @@ const STOP_WORDS: ReadonlySet<string> = new Set([
   "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
   "this", "that", "these", "those", "it", "its", "as", "not", "no", "yes",
   "we", "you", "they", "he", "she", "him", "her", "them", "us", "i", "me",
-  "can", "could", "should", "would", "may", "might", "must", "shall", "will",
+  "can", "could", "should", "would", "may", "may", "must", "shall", "will",
   "any", "all", "some", "none", "both", "either", "neither", "each", "every",
   "before", "after", "during", "while", "since", "until", "up", "down", "over",
   "more", "less", "most", "least", "very", "too", "quite", "just", "only",
@@ -297,13 +298,13 @@ class EmgRagMemory {
     const topFixes = scored
       .filter((s) => s.entry.provenance === "clean")
       .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
+      .slice(0, MAX_RESULTS_PER_CATEGORY)
       .map((s) => s.entry);
 
     const topFailures = scored
       .filter((s) => s.entry.provenance === "failure")
       .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
+      .slice(0, MAX_RESULTS_PER_CATEGORY)
       .map((s) => s.entry);
 
     // Friction: how much failure signal dominates over clean signal.
