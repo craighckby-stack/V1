@@ -221,7 +221,7 @@ export async function clearPushTarget(): Promise<{ cleared: boolean }> {
   try {
     execSync("git remote remove origin", { cwd: PROJECT_ROOT, timeout: 5000, stdio: "pipe" });
   } catch {
-    /* no origin to remove */
+    // No origin to remove or failed to remove — non-critical
   }
   return { cleared: true };
 }
