@@ -381,7 +381,9 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
     const symbolDrift = missingSymbols.length / originalSymbols.length;
     driftRatio = Math.max(driftRatio, symbolDrift);
   }
-  if (driftRatio > 0.65) {
+  
+  const MAX_DRIFT_THRESHOLD = 0.65;
+  if (driftRatio > MAX_DRIFT_THRESHOLD) {
     violations.push({
       code: "AST_STRUCTURAL_DRIFT",
       message: `Structural drift exceeds safe threshold (${Math.round(driftRatio * 100)}%)`,
