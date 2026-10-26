@@ -309,7 +309,9 @@ export async function pushCurrentState(opts?: {
         cwd: PROJECT_ROOT,
         encoding: "utf-8",
         timeout: GIT_COMMAND_TIMEOUT,
-      }).trim().slice(0, 7);
+      }).trim();
+      const SHORT_SHA_LENGTH = 7;
+      commitSha = commitSha.slice(0, SHORT_SHA_LENGTH);
     }
 
     // 2. Push with auth injected via env
@@ -346,10 +348,10 @@ export async function pushCurrentState(opts?: {
     const headSha =
       commitSha ??
       execSync("git rev-parse HEAD", { cwd: PROJECT_ROOT, encoding: "utf-8", timeout: GIT_COMMAND_TIMEOUT })
-        .trim()
-        .slice(0, 7);
-    await record({ lastPushSha: headSha, lastPushError: null });
-    return { pushed: true, commitSha: headSha, hadChanges: Boolean(commitSha), repo: target.repo };
+        .trim();
+    const SHORT_SHA_LENGTH = 7;
+    await record({ lastPushSha: headSha.slice(0, SHORT_SHA_LENGTH), lastPushError: null });
+    return { pushed: true, commitSha: headSha.slice(0, SHORT_SHA_LENGTH), hadChanges: Boolean(commitSha), repo: target.repo };
   } catch (err) {
     const msg = scrub((err as Error).message, target?.token ?? "");
     await record({ lastPushError: msg.slice(0, 300) });
