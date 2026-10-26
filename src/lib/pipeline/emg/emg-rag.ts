@@ -183,6 +183,7 @@ class EmgRagMemory {
   private readonly RANDOM_ID_SUFFIX_MAX = 1000;
   private readonly DEFAULT_COGNITIVE_FRICTION_SCORE = 0.05;
   private readonly TOP_RESULTS_COUNT = 3;
+  private readonly HIGH_FRICTION_THRESHOLD = 0.6;
 
   public async ensureSeeded(): Promise<void> {
     if (this.seeded) return;
@@ -318,7 +319,7 @@ class EmgRagMemory {
     let ruling = "EPISTEMIC_HARMONY: Mutation aligns with validated clean-room patterns.";
     if (maxFailureScore > maxFixScore && maxFailureScore > FAILURE_SCORE_THRESHOLD) {
       ruling = "COGNITIVE_FRICTION_ELEVATED: Known failure patterns dominate the query signal.";
-    } else if (friction > 0.6) {
+    } else if (friction > this.HIGH_FRICTION_THRESHOLD) {
       ruling = "CONTRADICTION_UNRESOLVED: Conflicting architectural constraints detected.";
     } else if (maxFixScore < 0.02 && maxFailureScore < 0.02) {
       ruling = "NOVEL_INPUT: Query has low similarity to any prior pattern — proceed with caution.";
