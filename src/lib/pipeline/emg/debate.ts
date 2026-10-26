@@ -89,7 +89,8 @@ export function conductDebate(topic: string, candidateCode: string, filePath: st
 
   if (criticalFlaws) {
     consensus = "REQUIRES_REWRITE";
-    consensusCoefficient = 0.3;
+    const CRITICAL_FLAW_CONSENSUS_COEFFICIENT = 0.3;
+    consensusCoefficient = CRITICAL_FLAW_CONSENSUS_COEFFICIENT;
     cognitiveFriction = 0.8;
     leadSummary =
       "Review summary: Security concerns identified. Redact credentials and remove dynamic execution before merge.";
