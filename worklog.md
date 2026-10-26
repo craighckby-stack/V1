@@ -595,3 +595,32 @@ Stage Summary:
 - Org repos now work correctly (POST /orgs/{owner}/repos), no more silent personal-account creation
 - Fine-grained PAT users get a clear actionable error explaining they need a classic PAT or manual repo creation
 - Users can opt out of auto-create to push to existing repos only
+
+---
+Task ID: fix-turbopack-errors-1
+Agent: main (Z.ai Code)
+Task: Fix all — eliminate transient Turbopack errors caused by the self-enhance loop
+
+Work Log:
+- Root cause confirmed: loop wrote refactored code to LIVE file, ran tsc --noEmit (30s window), reverted if failed. During that window, Turbopack's file-watcher saw the broken file and cached the parse error in the browser — error persisted even after revert
+- Built in-memory-typecheck.ts: uses TypeScript compiler API (ts.createProgram with custom compiler host that substitutes refactored content for the target file). Full project typecheck — catches syntax AND type errors — without writing anything to disk
+- Built verify-refactor.ts: child process script — reads code from stdin, runs typecheck, outputs JSON, exits. Memory-isolated from the Next.js server process
+- Rewired self-enhance-loop.ts enhanceFile():
+  * OLD: write to temp → write to live → tsc --noEmit → revert if fail → cleanup .tmp/.bak
+  * NEW: in-memory typecheck via child process → pass? write to live : reject (nothing written to disk)
+  * Removed verifyCompiles() method (tsc subprocess), removed .tmp/.bak file management, removed unlinkSync import
+  * Added spawnSync import, verifyRefactor() method, protected in-memory-typecheck.ts + verify-refactor.ts from self-modification
+- Fixed counting bug: "no change" files were counted as "reverted" because `compiled` field defaulted to false. Changed counter to only increment when reason starts with "Rejected"
+- Committed + pushed: e237812 (in-memory typecheck), a3f3a79 (counting fix)
+- Verified end-to-end:
+  * Loop running for ~5 minutes
+  * 1 file enhanced (siphon.ts, +27 bytes) → pushed to GitHub (0206821)
+  * 4 files rejected by in-memory typecheck → nothing written to disk → ZERO Turbopack errors
+  * Browser: no page errors, no console errors, "ENHANCING" indicator active
+  * dev.log: 0 occurrences of "Parsing ecmascript" / "PIPELINE_ID" / "MAX_RANDOM"
+
+Stage Summary:
+- Transient Turbopack errors are permanently eliminated — the loop never writes broken code to disk
+- The in-memory typecheck is a full project typecheck (same coverage as tsc --noEmit) but runs in a child process with the refactored code substituted in memory
+- Rejected refactors now log "Rejected {file} (typecheck failed)" instead of "Reverted" — more accurate, nothing was written to revert
+- The loop is currently running and pushing verified enhancements to craighckby-stack/V1
