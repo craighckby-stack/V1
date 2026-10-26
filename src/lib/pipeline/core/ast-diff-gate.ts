@@ -250,7 +250,9 @@ function extractSymbolsRegex(code: string, filePath?: string): AstSymbol[] {
   const skipNames = new Set(["if", "for", "while", "switch", "catch", "return", "new", "throw", "assert", "sizeof"]);
 
   for (let idx = 0; idx < lines.length; idx++) {
-    const line = lines[idx]!;
+    const line = lines[idx];
+    if (!line) continue;
+    
     let matched = false;
 
     // Try top-level patterns first
