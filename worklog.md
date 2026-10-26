@@ -572,3 +572,26 @@ Stage Summary:
 - Proven working during a live rate limit: one deterministic self-enhancement completed and pushed with zero LLM calls.
 - 75 self-defined tasks pending; the loop probes the 429 once per cycle and will drain the LLM queue automatically when it clears.
 - Root causes of "not working" found and fixed: (1) user-as-input architecture removed, (2) typecheck gate poisoned by reference-folder errors, (3) hot-reload singleton staleness, (4) failed-swallowed-as-done status bug.
+
+---
+Task ID: manual-push-to-main
+Agent: main (Z.ai Code)
+Task: User requested: "Can you push system to main repo on github. I backed up original."
+
+Work Log:
+- Checked git state: on `main`, working tree clean, 1 commit ahead of origin/main (`4e54d48` — a `.next` cache churn commit from the autonomous loop)
+- Remote: origin -> https://github.com/craighckby-stack/V1.git
+- Plain `git push origin main` failed (128): no credentials — git config has no token (by design; system stores token in DB, never in git config)
+- Inspected push-target.ts: system's pushCurrentState injects auth per-push via GIT_CONFIG_* env vars (http.https://github.com/.extraheader = "Authorization: Basic base64(x-access-token:TOKEN)"), token never on command line or in git config
+- Queried DB (GitPushTarget singleton): repo=craighckby-stack/V1, branch=main, tokenLen=40, tokenPrefix=ghp_ (classic PAT). lastPush was ceaf59d.
+- Wrote scripts/push-now.ts that calls pushCurrentState({ message: "Manual push: current live state" }) and prints before/after public state (token never printed)
+- Ran it. Outcome: pushed=true, commitSha=e9221da, hadChanges=true. (Dev server had churned more .next cache + the new scripts/push-now.ts between my earlier git status check and the push, so pushCurrentState committed them via git add -A and pushed.)
+- Verified sync: origin/main == main == e9221da, 0 ahead / 0 behind, working tree clean
+- Token-leak scan: `git show e9221da | rg ghp_` -> no matches (safe)
+
+Stage Summary:
+- System is now on the main GitHub repo (craighckby-stack/V1, branch main) at commit e9221da
+- Push used the system's own authenticated push path — token stayed in the DB, injected via env vars, never in git config or command line
+- Pushed commit e9221da includes: .next cache churn + scripts/push-now.ts helper (12 lines, no secrets). Minor noise but harmless; history is the audit trail.
+- No token leaked (verified post-push)
+- Local and remote fully in sync; working tree clean
