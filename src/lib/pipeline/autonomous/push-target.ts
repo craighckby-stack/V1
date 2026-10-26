@@ -174,7 +174,7 @@ export async function setPushTarget(opts: {
     const CREATED_STATUS = 201;
     if (createRes.status === CREATED_STATUS) {
       created = true;
-    } else if (createRes.status === 403) {
+    } else if (createRes.status === FORBIDDEN_STATUS) {
       throw new Error(
         "GitHub refused to create the repo (403). Fine-grained PATs CANNOT create repos — use a classic PAT with 'repo' scope, or create the repo manually first."
       );
@@ -352,3 +352,5 @@ export async function pushCurrentState(opts?: {
     pushInProgress = false;
   }
 }
+
+const FORBIDDEN_STATUS = 403;
