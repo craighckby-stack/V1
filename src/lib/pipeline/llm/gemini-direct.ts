@@ -23,7 +23,6 @@ const SINGLETON_ID = "singleton";
 // Resets on server restart (acceptable — a restart is also when the
 // network egress might change).
 let LOCATION_BLOCKED_UNTIL = 0;
-const LOCATION_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
 interface GeminiConfig {
   apiKey: string;
@@ -82,6 +81,8 @@ export async function geminiComplete(opts: {
   if (!cfg) {
     return { ok: false, content: "", error: "Gemini not configured", latencyMs: 0, model: "" };
   }
+
+  const LOCATION_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
   // SHORT-CIRCUIT for location-blocked keys: if the last call failed with a
   // location/region error, don't hammer Google again every cycle — it will
