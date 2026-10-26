@@ -1555,7 +1555,7 @@ Synthesize a final verdict as JSON per your instructions.`;
         leadJson = {
             consensus,
             consensusCoefficient: coefficient,
-            cognitiveFriction: clamp((secJson.cognitiveFriction ?? 0) + (archJson.cognitiveFriction ?? 0)) / 2,
+            cognitiveFriction: clamp((Number(secJson.cognitiveFriction) || 0) + (Number(archJson.cognitiveFriction) || 0)) / 2,
             leadSummary: `Lead synthesis (fallback): ${consensus} based on Security=${secJson.stance} and Architecture=${archJson.stance}.`,
             securityPoints: asStringArray(secJson.points),
             architecturePoints: asStringArray(archJson.points)
@@ -2105,11 +2105,14 @@ class EmgRagMemory {
                 score
             };
         });
-        const topFixes = scored.filter((s)=>s.entry.provenance === "clean").sort((a, b)=>b.score - a.score).slice(0, 3).map((s)=>s.entry);
-        const topFailures = scored.filter((s)=>s.entry.provenance === "failure").sort((a, b)=>b.score - a.score).slice(0, 3).map((s)=>s.entry);
+        // Keep the score alongside the entry so the max-score lookups below work.
+        const topFixesScored = scored.filter((s)=>s.entry.provenance === "clean").sort((a, b)=>b.score - a.score).slice(0, 3);
+        const topFailuresScored = scored.filter((s)=>s.entry.provenance === "failure").sort((a, b)=>b.score - a.score).slice(0, 3);
+        const topFixes = topFixesScored.map((s)=>s.entry);
+        const topFailures = topFailuresScored.map((s)=>s.entry);
         // Friction: how much failure signal dominates over clean signal.
-        const maxFailureScore = topFailures[0]?.score ?? 0;
-        const maxFixScore = topFixes[0]?.score ?? 0;
+        const maxFailureScore = topFailuresScored[0]?.score ?? 0;
+        const maxFixScore = topFixesScored[0]?.score ?? 0;
         const friction = Math.min(1, Math.max(0, maxFailureScore * 0.8 + (topFailures.length > topFixes.length ? 0.2 : 0) + (maxFixScore === 0 ? 0.15 : 0)));
         let ruling = "EPISTEMIC_HARMONY: Mutation aligns with validated clean-room patterns.";
         if (maxFailureScore > maxFixScore && maxFailureScore > 0.05) {
@@ -2499,6 +2502,8 @@ function generatePostmortemFromReport(params) {
     const evidence = evidenceParts.join("\n");
     // Build constraints — imperative instructions for the next attempt
     const constraintLines = [];
+    // Widen the control-flow-narrowed type back to the full union — this switch
+    // handles every failure type, including ones not assigned above.
     switch(failureType){
         case "AST_SYMBOL_DROPPED":
             constraintLines.push(`Preserve EVERY symbol from the original file. The following were dropped last time and MUST appear in the output:`);
@@ -2975,39 +2980,39 @@ class UnifiedPipelineRunner {
 }
 const unifiedPipelineRunnerInstance = new UnifiedPipelineRunner();
 }),
-"[externals]/events [external] (events, cjs)", ((__turbopack_context__, module, exports) => {
-
-const mod = __turbopack_context__.x("events", () => require("events"));
-
-module.exports = mod;
-}),
 "[project]/src/lib/pipeline/autonomous/loop-event-bus.ts [app-route] (ecmascript)", ((__turbopack_context__) => {
 "use strict";
 
-__turbopack_context__.s([
-    "loopEventBus",
-    ()=>loopEventBus
-]);
 /**
  * Loop Event Bus — in-process pub/sub for streaming autonomous loop events
  * to the WebSocket mini-service. Lives in the Next.js server process so the
- * API routes can publish here and the WS mini-service (running on port 3003)
- * can poll via HTTP if needed, or — when running in the same process —
- * subscribe directly.
- */ var __TURBOPACK__imported__module__$5b$externals$5d2f$events__$5b$external$5d$__$28$events$2c$__cjs$29$__ = __turbopack_context__.i("[externals]/events [external] (events, cjs)");
-;
-class LoopEventBus extends __TURBOPACK__imported__module__$5b$externals$5d2f$events__$5b$external$5d$__$28$events$2c$__cjs$29$__["EventEmitter"] {
-    constructor(){
-        super();
-        this.setMaxListeners(50);
+ * API routes can publish here and subscribers (WS bridge, status pollers)
+ * can subscribe directly.
+ *
+ * Note: deliberately does NOT extend EventEmitter — the overloaded
+ * emit/on signatures conflicted with EventEmitter's typed API.
+ */ __turbopack_context__.s([
+    "loopEventBus",
+    ()=>loopEventBus
+]);
+class LoopEventBus {
+    listeners = new Set();
+    /** Publish an event to all subscribers. */ emit(evt) {
+        if (this.listeners.size === 0) return false;
+        for (const listener of this.listeners){
+            try {
+                listener(evt);
+            } catch  {
+                // A broken subscriber must not break the publisher — remove it.
+                this.listeners.delete(listener);
+            }
+        }
+        return true;
     }
-    emit(evt) {
-        return super.emit("event", evt);
-    }
-    on(listener) {
-        super.on("event", listener);
+    /** Subscribe to events. Returns an unsubscribe function. */ on(listener) {
+        this.listeners.add(listener);
         return ()=>{
-            super.off("event", listener);
+            this.listeners.delete(listener);
         };
     }
 }
@@ -3374,7 +3379,7 @@ class AutonomousLoopRuntime {
                         userPrompt: this.config.userPrompt,
                         siphonSourceId: this.config.siphonSourceId,
                         code: rawContent,
-                        triggeredBy: mode
+                        triggeredBy: mode === "scheduled" ? "autonomous" : mode
                     }, (stage)=>{
                         __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$pipeline$2f$autonomous$2f$loop$2d$event$2d$bus$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["loopEventBus"].emit({
                             kind: "stage",
@@ -3634,4 +3639,4 @@ async function GET() {
 }),
 ];
 
-//# sourceMappingURL=%5Broot-of-the-server%5D__4cc46a4b._.js.map
+//# sourceMappingURL=%5Broot-of-the-server%5D__b7219959._.js.map

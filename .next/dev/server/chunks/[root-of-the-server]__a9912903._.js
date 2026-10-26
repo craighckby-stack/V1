@@ -530,6 +530,8 @@ function generatePostmortemFromReport(params) {
     const evidence = evidenceParts.join("\n");
     // Build constraints — imperative instructions for the next attempt
     const constraintLines = [];
+    // Widen the control-flow-narrowed type back to the full union — this switch
+    // handles every failure type, including ones not assigned above.
     switch(failureType){
         case "AST_SYMBOL_DROPPED":
             constraintLines.push(`Preserve EVERY symbol from the original file. The following were dropped last time and MUST appear in the output:`);

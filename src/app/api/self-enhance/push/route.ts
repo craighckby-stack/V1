@@ -1,24 +1,40 @@
 import { NextResponse } from "next/server";
-import { execSync } from "child_process";
+import { pushCurrentState, getPushTargetPublic } from "@/lib/pipeline/autonomous/push-target";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function POST() {
+/**
+ * POST /api/self-enhance/push
+ * Body: { force?: boolean }
+ *
+ * Commits (if dirty) and pushes the current live state to the configured
+ * GitHub target (authenticated via env-injected token). Returns needsConfig
+ * when no target is set.
+ */
+export async function POST(req: Request) {
   try {
-    const status = execSync("git status --porcelain", { cwd: "/home/z/my-project", encoding: "utf-8", timeout: 5000 });
-    if (!status.trim()) {
-      return NextResponse.json({ pushed: false, message: "No changes to push" });
+    const body = (await req.json().catch(() => ({}))) as { force?: boolean };
+    const target = await getPushTargetPublic();
+    if (!target.configured) {
+      return NextResponse.json({
+        pushed: false,
+        needsConfig: true,
+        error: "No push target configured. Open [CONFIG] or POST /api/self-enhance/push-target",
+      });
     }
-    execSync("git add -A", { cwd: "/home/z/my-project", timeout: 5000 });
-    execSync('git commit -m "Manual push: current live state"', { cwd: "/home/z/my-project", timeout: 5000 });
-    const sha = execSync("git rev-parse HEAD", { cwd: "/home/z/my-project", encoding: "utf-8", timeout: 5000 }).trim();
-    try {
-      execSync("git push 2>&1", { cwd: "/home/z/my-project", timeout: 15000 });
-      return NextResponse.json({ pushed: true, commitSha: sha.slice(0, 7) });
-    } catch (err) {
-      return NextResponse.json({ pushed: false, committed: true, commitSha: sha.slice(0, 7), error: "Push failed — no remote configured?" });
-    }
+
+    const outcome = await pushCurrentState({
+      message: "Manual push: current live state",
+      force: Boolean(body.force),
+    });
+
+    return NextResponse.json({
+      pushed: outcome.pushed,
+      commitSha: outcome.commitSha,
+      repo: outcome.repo,
+      error: outcome.error,
+    });
   } catch (err) {
     return NextResponse.json({ pushed: false, error: (err as Error).message }, { status: 500 });
   }

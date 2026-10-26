@@ -1,12 +1,13 @@
 /**
  * Loop Event Bus — in-process pub/sub for streaming autonomous loop events
  * to the WebSocket mini-service. Lives in the Next.js server process so the
- * API routes can publish here and the WS mini-service (running on port 3003)
- * can poll via HTTP if needed, or — when running in the same process —
- * subscribe directly.
+ * API routes can publish here and subscribers (WS bridge, status pollers)
+ * can subscribe directly.
+ *
+ * Note: deliberately does NOT extend EventEmitter — the overloaded
+ * emit/on signatures conflicted with EventEmitter's typed API.
  */
 
-import { EventEmitter } from "events";
 import { PipelineStageState } from "../core/unified-pipeline";
 import { LoopLogEntry, LoopState } from "./loop-runtime";
 
@@ -21,20 +22,28 @@ export type LoopEvent =
       stage: PipelineStageState;
     };
 
-class LoopEventBus extends EventEmitter {
-  constructor() {
-    super();
-    this.setMaxListeners(50);
-  }
+class LoopEventBus {
+  private listeners = new Set<(evt: LoopEvent) => void>();
 
+  /** Publish an event to all subscribers. */
   public emit(evt: LoopEvent): boolean {
-    return super.emit("event", evt);
+    if (this.listeners.size === 0) return false;
+    for (const listener of this.listeners) {
+      try {
+        listener(evt);
+      } catch {
+        // A broken subscriber must not break the publisher — remove it.
+        this.listeners.delete(listener);
+      }
+    }
+    return true;
   }
 
+  /** Subscribe to events. Returns an unsubscribe function. */
   public on(listener: (evt: LoopEvent) => void): () => void {
-    super.on("event", listener);
+    this.listeners.add(listener);
     return () => {
-      super.off("event", listener);
+      this.listeners.delete(listener);
     };
   }
 }

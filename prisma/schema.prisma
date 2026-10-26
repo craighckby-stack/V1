@@ -111,3 +111,18 @@ model Postmortem {
 
   @@unique([targetRepo, branch, filePath])
 }
+
+/// Persistent GitHub push target. Singleton row (id = "singleton").
+/// Token stored here (untracked DB) — never returned to clients.
+model GitPushTarget {
+  id            String    @id @default("singleton")
+  repo          String
+  token         String
+  branch        String    @default("main")
+  createdRepo   Boolean   @default(false)
+  lastPushAt    DateTime?
+  lastPushSha   String?
+  lastPushError String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}

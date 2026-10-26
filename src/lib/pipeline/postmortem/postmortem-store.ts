@@ -18,7 +18,9 @@
  */
 
 import { db } from "@/lib/db";
-import type { AstDiffResult, SecuritySanitizerResult, DebateVerdict } from "../core/unified-pipeline";
+import type { AstDiffResult } from "../core/ast-diff-gate";
+import type { SecuritySanitizerResult } from "../emg/sanitizer";
+import type { DebateVerdict } from "../emg/debate";
 
 export type PostmortemFailureType =
   | "AST_SYMBOL_DROPPED"
@@ -353,7 +355,9 @@ export function generatePostmortemFromReport(params: {
 
   // Build constraints — imperative instructions for the next attempt
   const constraintLines: string[] = [];
-  switch (failureType) {
+  // Widen the control-flow-narrowed type back to the full union — this switch
+  // handles every failure type, including ones not assigned above.
+  switch (failureType as PostmortemFailureType) {
     case "AST_SYMBOL_DROPPED":
       constraintLines.push(
         `Preserve EVERY symbol from the original file. The following were dropped last time and MUST appear in the output:`

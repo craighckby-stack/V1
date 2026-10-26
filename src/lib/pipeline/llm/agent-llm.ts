@@ -11,7 +11,8 @@
  */
 
 import ZAI from "z-ai-web-dev-sdk";
-import type { ZAI as ZAIType } from "z-ai-web-dev-sdk";
+
+type ZAIType = Awaited<ReturnType<typeof ZAI.create>>;
 
 let zaiPromise: Promise<ZAIType> | null = null;
 

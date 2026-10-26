@@ -282,21 +282,23 @@ class EmgRagMemory {
       return { entry, score };
     });
 
-    const topFixes = scored
+    // Keep the score alongside the entry so the max-score lookups below work.
+    const topFixesScored = scored
       .filter((s) => s.entry.provenance === "clean")
       .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
-      .map((s) => s.entry);
+      .slice(0, 3);
 
-    const topFailures = scored
+    const topFailuresScored = scored
       .filter((s) => s.entry.provenance === "failure")
       .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
-      .map((s) => s.entry);
+      .slice(0, 3);
+
+    const topFixes = topFixesScored.map((s) => s.entry);
+    const topFailures = topFailuresScored.map((s) => s.entry);
 
     // Friction: how much failure signal dominates over clean signal.
-    const maxFailureScore = topFailures[0]?.score ?? 0;
-    const maxFixScore = topFixes[0]?.score ?? 0;
+    const maxFailureScore = topFailuresScored[0]?.score ?? 0;
+    const maxFixScore = topFixesScored[0]?.score ?? 0;
     const friction = Math.min(
       1,
       Math.max(

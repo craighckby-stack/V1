@@ -75,6 +75,19 @@ function Home() {
     ]);
     const [pendingPlan, setPendingPlan] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(null);
     const [taskLoading, setTaskLoading] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(false);
+    // Config panel state
+    const [configOpen, setConfigOpen] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(false);
+    const [cfgToken, setCfgToken] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])("");
+    const [cfgRepo, setCfgRepo] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])("");
+    const [cfgPublic, setCfgPublic] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(false);
+    const [cfgAutoCreate, setCfgAutoCreate] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(true);
+    const [cfgShowToken, setCfgShowToken] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(false);
+    const [cfgLoading, setCfgLoading] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(false);
+    const [cfgError, setCfgError] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(null);
+    const [cfgStatusMsg, setCfgStatusMsg] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(null);
+    const [cfgTarget, setCfgTarget] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(null);
+    const [pushTarget, setPushTarget] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useState"])(null);
+    const cfgTokenRef = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useRef"])(null);
     const logRef = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useRef"])(null);
     const inputRef = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useRef"])(null);
     // Poll for status every 2 seconds
@@ -83,11 +96,12 @@ function Home() {
             let mounted = true;
             async function poll() {
                 try {
-                    const res = await fetch("/api/self-enhance/status");
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (mounted) setStatus(data);
-                    }
+                    const [statusRes, targetRes] = await Promise.all([
+                        fetch("/api/self-enhance/status"),
+                        fetch("/api/self-enhance/push-target")
+                    ]);
+                    if (statusRes.ok && mounted) setStatus(await statusRes.json());
+                    if (targetRes.ok && mounted) setPushTarget(await targetRes.json());
                 } catch  {
                 // ignore
                 }
@@ -102,7 +116,10 @@ function Home() {
             })["Home.useEffect"];
         }
     }["Home.useEffect"], []);
-    // Auto-scroll to bottom of log
+    // Auto-scroll to bottom of log when NEW COMMAND OUTPUT appears (terminalLines),
+    // not when server logs update (which would yank the view away from what the
+    // user just typed).
+    const terminalLineCount = terminalLines.length;
     (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useEffect"])({
         "Home.useEffect": ()=>{
             if (logRef.current) {
@@ -110,20 +127,162 @@ function Home() {
             }
         }
     }["Home.useEffect"], [
-        status?.logs
+        terminalLineCount
     ]);
-    // Focus input on click anywhere
+    // Focus input on click anywhere — but NOT while the config modal is open
     (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useEffect"])({
         "Home.useEffect": ()=>{
             const handler = {
-                "Home.useEffect.handler": ()=>inputRef.current?.focus()
+                "Home.useEffect.handler": ()=>{
+                    if (!configOpen) inputRef.current?.focus();
+                }
             }["Home.useEffect.handler"];
             document.addEventListener("click", handler);
             return ({
                 "Home.useEffect": ()=>document.removeEventListener("click", handler)
             })["Home.useEffect"];
         }
-    }["Home.useEffect"], []);
+    }["Home.useEffect"], [
+        configOpen
+    ]);
+    // Escape closes the config modal
+    (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useEffect"])({
+        "Home.useEffect": ()=>{
+            if (!configOpen) return;
+            const handler = {
+                "Home.useEffect.handler": (e)=>{
+                    if (e.key === "Escape") {
+                        e.preventDefault();
+                        closeConfig();
+                    }
+                }
+            }["Home.useEffect.handler"];
+            document.addEventListener("keydown", handler);
+            return ({
+                "Home.useEffect": ()=>document.removeEventListener("keydown", handler)
+            })["Home.useEffect"];
+        }
+    }["Home.useEffect"], [
+        configOpen
+    ]);
+    /** Append output lines to the terminal (used by the config flow). */ function emitOutput(lines) {
+        setTerminalLines((prev)=>[
+                ...prev,
+                ...lines.map((l)=>({
+                        type: "output",
+                        text: l
+                    }))
+            ]);
+    }
+    async function openConfig() {
+        setConfigOpen(true);
+        setCfgError(null);
+        setCfgStatusMsg(null);
+        setCfgLoading(false);
+        try {
+            const res = await fetch("/api/self-enhance/push-target");
+            if (res.ok) {
+                const t = await res.json();
+                setCfgTarget(t);
+                if (t.configured && t.repo) setCfgRepo(t.repo);
+            }
+        } catch  {
+        /* best-effort */ }
+        setTimeout(()=>cfgTokenRef.current?.focus(), 50);
+    }
+    function closeConfig() {
+        setConfigOpen(false);
+        setCfgError(null);
+        setCfgStatusMsg(null);
+        setCfgToken("");
+        setCfgShowToken(false);
+        inputRef.current?.focus();
+    }
+    async function submitConfig() {
+        setCfgLoading(true);
+        setCfgError(null);
+        setCfgStatusMsg(null);
+        const token = cfgToken.trim();
+        const repo = cfgRepo.trim();
+        if (!token || !repo) {
+            setCfgLoading(false);
+            setCfgError("Both token and repo are required.");
+            return;
+        }
+        try {
+            const res = await fetch("/api/self-enhance/push-target", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    repo,
+                    token,
+                    isPublic: cfgPublic,
+                    createIfMissing: cfgAutoCreate
+                })
+            });
+            const data = await res.json();
+            if (!data.ok) {
+                setCfgLoading(false);
+                setCfgError(data.error ?? "Configuration failed");
+                return;
+            }
+            setCfgStatusMsg(data.created ? `Created github.com/${data.repo}. Pushing first proof...` : `Connected as ${data.login}. Pushing first proof...`);
+            try {
+                const pushRes = await fetch("/api/self-enhance/push", {
+                    method: "POST"
+                });
+                const pushData = await pushRes.json();
+                if (pushData.pushed) {
+                    emitOutput([
+                        `[CONFIG] Connected to github.com/${data.repo} as ${data.login}`,
+                        `[CONFIG] First proof push: commit ${pushData.commitSha}`
+                    ]);
+                    const fresh = await fetch("/api/self-enhance/push-target");
+                    if (fresh.ok) setCfgTarget(await fresh.json());
+                    setCfgToken("");
+                    setCfgShowToken(false);
+                    setCfgStatusMsg(`Pushed commit ${pushData.commitSha}. Connected ✓`);
+                } else {
+                    setCfgError(`Connected, but initial push failed: ${pushData.error ?? "unknown"}`);
+                }
+            } catch  {
+                setCfgError("Connected, but initial push failed (network error).");
+            }
+        } catch (e) {
+            setCfgError(e.message);
+        } finally{
+            setCfgLoading(false);
+        }
+    }
+    async function disconnectTarget() {
+        setCfgLoading(true);
+        setCfgError(null);
+        setCfgStatusMsg(null);
+        try {
+            const res = await fetch("/api/self-enhance/push-target", {
+                method: "DELETE"
+            });
+            const data = await res.json();
+            if (data.ok) {
+                setCfgTarget({
+                    configured: false
+                });
+                setCfgRepo("");
+                setCfgStatusMsg("Disconnected. The system will commit locally only.");
+                emitOutput([
+                    "[CONFIG] Push target disconnected."
+                ]);
+            } else {
+                setCfgError(data.error ?? "Disconnect failed");
+            }
+        } catch (e) {
+            setCfgError(e.message);
+        } finally{
+            setCfgLoading(false);
+        }
+    }
     async function executeCommand(cmd) {
         const trimmed = cmd.trim();
         if (!trimmed) return;
@@ -187,6 +346,14 @@ function Home() {
                             `Error: ${e.message}`
                         ];
                     }
+                }
+            case "config":
+            case "cfg":
+                {
+                    openConfig();
+                    return [
+                        "Opening Git config panel... (or click [CONFIG] in the header)"
+                    ];
                 }
             case "trigger":
             case "run":
@@ -467,102 +634,159 @@ function Home() {
                     borderBottom: `1px solid ${DIM_COLOR}`,
                     paddingBottom: "4px",
                     marginBottom: "8px",
-                    flexShrink: 0
+                    flexShrink: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "8px"
                 },
                 children: [
-                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                         style: {
-                            color: DIM_COLOR
-                        },
-                        children: "┌─ "
-                    }, void 0, false, {
-                        fileName: "[project]/src/app/page.tsx",
-                        lineNumber: 400,
-                        columnNumber: 9
-                    }, this),
-                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                        style: {
-                            color: PROMPT_COLOR,
-                            fontWeight: "bold"
-                        },
-                        children: "ARCHITECTURE HELPER PIPELINE v4.3 — SELF-ENHANCE MODE"
-                    }, void 0, false, {
-                        fileName: "[project]/src/app/page.tsx",
-                        lineNumber: 401,
-                        columnNumber: 9
-                    }, this),
-                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                        style: {
-                            color: DIM_COLOR,
-                            marginLeft: "16px"
-                        },
-                        children: "─┐"
-                    }, void 0, false, {
-                        fileName: "[project]/src/app/page.tsx",
-                        lineNumber: 404,
-                        columnNumber: 9
-                    }, this),
-                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                        style: {
-                            color: DIM_COLOR,
-                            marginLeft: "16px"
-                        },
-                        children: "│"
-                    }, void 0, false, {
-                        fileName: "[project]/src/app/page.tsx",
-                        lineNumber: 405,
-                        columnNumber: 9
-                    }, this),
-                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                        style: {
-                            marginLeft: "8px",
-                            color: running ? "#00ff00" : "#ff4444"
+                            display: "flex",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                            minWidth: 0
                         },
                         children: [
-                            "[",
-                            running ? "ENHANCING" : "IDLE",
-                            "]"
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                style: {
+                                    color: DIM_COLOR
+                                },
+                                children: "┌─ "
+                            }, void 0, false, {
+                                fileName: "[project]/src/app/page.tsx",
+                                lineNumber: 558,
+                                columnNumber: 11
+                            }, this),
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                style: {
+                                    color: PROMPT_COLOR,
+                                    fontWeight: "bold"
+                                },
+                                children: "ARCHITECTURE HELPER PIPELINE v4.3 — SELF-ENHANCE MODE"
+                            }, void 0, false, {
+                                fileName: "[project]/src/app/page.tsx",
+                                lineNumber: 559,
+                                columnNumber: 11
+                            }, this),
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                style: {
+                                    color: DIM_COLOR,
+                                    marginLeft: "16px"
+                                },
+                                children: "─┐"
+                            }, void 0, false, {
+                                fileName: "[project]/src/app/page.tsx",
+                                lineNumber: 562,
+                                columnNumber: 11
+                            }, this),
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                style: {
+                                    color: DIM_COLOR,
+                                    marginLeft: "16px"
+                                },
+                                children: "│"
+                            }, void 0, false, {
+                                fileName: "[project]/src/app/page.tsx",
+                                lineNumber: 563,
+                                columnNumber: 11
+                            }, this),
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                style: {
+                                    marginLeft: "8px",
+                                    color: running ? "#00ff00" : "#ff4444"
+                                },
+                                children: [
+                                    "[",
+                                    running ? "ENHANCING" : "IDLE",
+                                    "]"
+                                ]
+                            }, void 0, true, {
+                                fileName: "[project]/src/app/page.tsx",
+                                lineNumber: 564,
+                                columnNumber: 11
+                            }, this),
+                            s && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                style: {
+                                    color: DIM_COLOR,
+                                    marginLeft: "16px"
+                                },
+                                children: [
+                                    "scanned=",
+                                    s.totalScanned,
+                                    " enhanced=",
+                                    s.totalEnhanced,
+                                    " reverted=",
+                                    s.totalReverted,
+                                    " pushed=",
+                                    s.totalPushed
+                                ]
+                            }, void 0, true, {
+                                fileName: "[project]/src/app/page.tsx",
+                                lineNumber: 568,
+                                columnNumber: 13
+                            }, this)
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/app/page.tsx",
-                        lineNumber: 406,
+                        lineNumber: 557,
                         columnNumber: 9
                     }, this),
-                    s && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                         style: {
-                            color: DIM_COLOR,
-                            marginLeft: "16px"
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            flexShrink: 0
                         },
                         children: [
-                            "scanned=",
-                            s.totalScanned,
-                            " enhanced=",
-                            s.totalEnhanced,
-                            " reverted=",
-                            s.totalReverted,
-                            " pushed=",
-                            s.totalPushed
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                style: {
+                                    color: pushTarget?.configured ? PROMPT_COLOR : DIM_COLOR
+                                },
+                                children: [
+                                    "[GIT: ",
+                                    pushTarget?.configured ? "ON" : "OFF",
+                                    "]"
+                                ]
+                            }, void 0, true, {
+                                fileName: "[project]/src/app/page.tsx",
+                                lineNumber: 574,
+                                columnNumber: 11
+                            }, this),
+                            /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                type: "button",
+                                onClick: (e)=>{
+                                    e.stopPropagation();
+                                    openConfig();
+                                },
+                                "aria-label": "Open Git push configuration",
+                                style: {
+                                    background: "#000",
+                                    border: `1px solid ${DIM_COLOR}`,
+                                    color: PROMPT_COLOR,
+                                    fontFamily: "inherit",
+                                    fontSize: "inherit",
+                                    padding: "2px 8px",
+                                    cursor: "pointer"
+                                },
+                                children: "[CONFIG]"
+                            }, void 0, false, {
+                                fileName: "[project]/src/app/page.tsx",
+                                lineNumber: 577,
+                                columnNumber: 11
+                            }, this)
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/app/page.tsx",
-                        lineNumber: 410,
-                        columnNumber: 11
-                    }, this),
-                    /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
-                        style: {
-                            color: DIM_COLOR,
-                            marginLeft: "16px"
-                        },
-                        children: "│"
-                    }, void 0, false, {
-                        fileName: "[project]/src/app/page.tsx",
-                        lineNumber: 414,
+                        lineNumber: 573,
                         columnNumber: 9
                     }, this)
                 ]
             }, void 0, true, {
                 fileName: "[project]/src/app/page.tsx",
-                lineNumber: 399,
+                lineNumber: 545,
                 columnNumber: 7
             }, this),
             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -573,17 +797,6 @@ function Home() {
                     paddingRight: "4px"
                 },
                 children: [
-                    terminalLines.map((line, idx)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
-                            style: {
-                                color: line.type === "command" ? "#ffffff" : line.type === "output" ? "#00ff00" : "#008800",
-                                whiteSpace: "pre-wrap"
-                            },
-                            children: line.type === "command" ? `> ${line.text}` : line.text || "\u00a0"
-                        }, `term-${idx}`, false, {
-                            fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 428,
-                            columnNumber: 11
-                        }, this)),
                     logs.map((log, idx)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
                             style: {
                                 color: COLOR_MAP[log.type],
@@ -601,7 +814,7 @@ function Home() {
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/app/page.tsx",
-                                    lineNumber: 447,
+                                    lineNumber: 611,
                                     columnNumber: 13
                                 }, this),
                                 " ",
@@ -609,13 +822,24 @@ function Home() {
                             ]
                         }, `log-${idx}`, true, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 446,
+                            lineNumber: 610,
+                            columnNumber: 11
+                        }, this)),
+                    terminalLines.map((line, idx)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            style: {
+                                color: line.type === "command" ? "#ffffff" : line.type === "output" ? "#00ff00" : "#008800",
+                                whiteSpace: "pre-wrap"
+                            },
+                            children: line.type === "command" ? `> ${line.text}` : line.text || "\u00a0"
+                        }, `term-${idx}`, false, {
+                            fileName: "[project]/src/app/page.tsx",
+                            lineNumber: 618,
                             columnNumber: 11
                         }, this))
                 ]
             }, void 0, true, {
                 fileName: "[project]/src/app/page.tsx",
-                lineNumber: 418,
+                lineNumber: 600,
                 columnNumber: 7
             }, this),
             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -642,7 +866,7 @@ function Home() {
                             children: ">"
                         }, void 0, false, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 465,
+                            lineNumber: 647,
                             columnNumber: 11
                         }, this),
                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
@@ -666,28 +890,471 @@ function Home() {
                             }
                         }, void 0, false, {
                             fileName: "[project]/src/app/page.tsx",
-                            lineNumber: 466,
+                            lineNumber: 648,
                             columnNumber: 11
                         }, this)
                     ]
                 }, void 0, true, {
                     fileName: "[project]/src/app/page.tsx",
-                    lineNumber: 464,
+                    lineNumber: 646,
                     columnNumber: 9
                 }, this)
             }, void 0, false, {
                 fileName: "[project]/src/app/page.tsx",
-                lineNumber: 454,
+                lineNumber: 636,
                 columnNumber: 7
+            }, this),
+            configOpen && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                onClick: closeConfig,
+                style: {
+                    position: "fixed",
+                    inset: 0,
+                    background: "rgba(0, 0, 0, 0.75)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 100,
+                    padding: "16px"
+                },
+                children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                    role: "dialog",
+                    "aria-modal": "true",
+                    "aria-labelledby": "cfg-title",
+                    onClick: (e)=>e.stopPropagation(),
+                    style: {
+                        background: "#000",
+                        border: `1px solid ${PROMPT_COLOR}`,
+                        color: PROMPT_COLOR,
+                        fontFamily: "inherit",
+                        fontSize: "14px",
+                        padding: "16px",
+                        width: "min(560px, 92vw)",
+                        maxHeight: "90vh",
+                        overflowY: "auto",
+                        boxShadow: "0 0 24px rgba(0, 255, 0, 0.15)"
+                    },
+                    children: [
+                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            id: "cfg-title",
+                            style: {
+                                fontWeight: "bold",
+                                borderBottom: `1px solid ${DIM_COLOR}`,
+                                paddingBottom: "8px",
+                                marginBottom: "12px"
+                            },
+                            children: "┌─ GIT CONFIG ──────────────────────┐"
+                        }, void 0, false, {
+                            fileName: "[project]/src/app/page.tsx",
+                            lineNumber: 704,
+                            columnNumber: 13
+                        }, this),
+                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            style: {
+                                marginBottom: "12px"
+                            },
+                            children: [
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    style: {
+                                        color: DIM_COLOR,
+                                        marginBottom: "4px"
+                                    },
+                                    children: "GitHub Token"
+                                }, void 0, false, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 710,
+                                    columnNumber: 15
+                                }, this),
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    style: {
+                                        display: "flex",
+                                        gap: "4px"
+                                    },
+                                    children: [
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                            ref: cfgTokenRef,
+                                            type: cfgShowToken ? "text" : "password",
+                                            value: cfgToken,
+                                            onChange: (e)=>setCfgToken(e.target.value),
+                                            placeholder: "ghp_... (paste your GitHub PAT)",
+                                            autoComplete: "off",
+                                            spellCheck: false,
+                                            style: {
+                                                flex: 1,
+                                                background: "#000",
+                                                border: `1px solid ${DIM_COLOR}`,
+                                                color: USER_INPUT_COLOR,
+                                                fontFamily: "inherit",
+                                                fontSize: "inherit",
+                                                padding: "4px 6px",
+                                                outline: "none"
+                                            }
+                                        }, void 0, false, {
+                                            fileName: "[project]/src/app/page.tsx",
+                                            lineNumber: 712,
+                                            columnNumber: 17
+                                        }, this),
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                            type: "button",
+                                            onClick: ()=>setCfgShowToken((v)=>!v),
+                                            style: {
+                                                background: "#000",
+                                                border: `1px solid ${DIM_COLOR}`,
+                                                color: PROMPT_COLOR,
+                                                fontFamily: "inherit",
+                                                fontSize: "inherit",
+                                                padding: "4px 10px",
+                                                cursor: "pointer"
+                                            },
+                                            children: cfgShowToken ? "[HIDE]" : "[SHOW]"
+                                        }, void 0, false, {
+                                            fileName: "[project]/src/app/page.tsx",
+                                            lineNumber: 722,
+                                            columnNumber: 17
+                                        }, this)
+                                    ]
+                                }, void 0, true, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 711,
+                                    columnNumber: 15
+                                }, this)
+                            ]
+                        }, void 0, true, {
+                            fileName: "[project]/src/app/page.tsx",
+                            lineNumber: 709,
+                            columnNumber: 13
+                        }, this),
+                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            style: {
+                                marginBottom: "12px"
+                            },
+                            children: [
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    style: {
+                                        color: DIM_COLOR,
+                                        marginBottom: "4px"
+                                    },
+                                    children: "Repository (owner/name)"
+                                }, void 0, false, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 734,
+                                    columnNumber: 15
+                                }, this),
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                    type: "text",
+                                    value: cfgRepo,
+                                    onChange: (e)=>setCfgRepo(e.target.value),
+                                    placeholder: "yourname/self-enhance",
+                                    autoComplete: "off",
+                                    spellCheck: false,
+                                    style: {
+                                        flex: 1,
+                                        width: "100%",
+                                        background: "#000",
+                                        border: `1px solid ${DIM_COLOR}`,
+                                        color: USER_INPUT_COLOR,
+                                        fontFamily: "inherit",
+                                        fontSize: "inherit",
+                                        padding: "4px 6px",
+                                        outline: "none"
+                                    }
+                                }, void 0, false, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 735,
+                                    columnNumber: 15
+                                }, this)
+                            ]
+                        }, void 0, true, {
+                            fileName: "[project]/src/app/page.tsx",
+                            lineNumber: 733,
+                            columnNumber: 13
+                        }, this),
+                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
+                            style: {
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                cursor: "pointer",
+                                marginBottom: "8px",
+                                color: PROMPT_COLOR,
+                                userSelect: "none"
+                            },
+                            children: [
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                    type: "checkbox",
+                                    checked: cfgPublic,
+                                    onChange: (e)=>setCfgPublic(e.target.checked),
+                                    style: {
+                                        accentColor: PROMPT_COLOR
+                                    }
+                                }, void 0, false, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 748,
+                                    columnNumber: 15
+                                }, this),
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                    children: "Public repo (unchecked = private)"
+                                }, void 0, false, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 749,
+                                    columnNumber: 15
+                                }, this)
+                            ]
+                        }, void 0, true, {
+                            fileName: "[project]/src/app/page.tsx",
+                            lineNumber: 747,
+                            columnNumber: 13
+                        }, this),
+                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("label", {
+                            style: {
+                                display: "flex",
+                                alignItems: "flex-start",
+                                gap: "6px",
+                                cursor: "pointer",
+                                marginBottom: "12px",
+                                color: PROMPT_COLOR,
+                                userSelect: "none"
+                            },
+                            children: [
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("input", {
+                                    type: "checkbox",
+                                    checked: cfgAutoCreate,
+                                    onChange: (e)=>setCfgAutoCreate(e.target.checked),
+                                    style: {
+                                        accentColor: PROMPT_COLOR,
+                                        marginTop: "2px",
+                                        flexShrink: 0
+                                    }
+                                }, void 0, false, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 752,
+                                    columnNumber: 15
+                                }, this),
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                    children: [
+                                        "Auto-create repo if missing",
+                                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("span", {
+                                            style: {
+                                                color: DIM_COLOR,
+                                                display: "block",
+                                                fontSize: "12px",
+                                                marginTop: "2px"
+                                            },
+                                            children: "Needs a classic PAT with repo scope — fine-grained PATs cannot create repos."
+                                        }, void 0, false, {
+                                            fileName: "[project]/src/app/page.tsx",
+                                            lineNumber: 755,
+                                            columnNumber: 17
+                                        }, this)
+                                    ]
+                                }, void 0, true, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 753,
+                                    columnNumber: 15
+                                }, this)
+                            ]
+                        }, void 0, true, {
+                            fileName: "[project]/src/app/page.tsx",
+                            lineNumber: 751,
+                            columnNumber: 13
+                        }, this),
+                        cfgTarget?.configured && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            style: {
+                                borderTop: `1px solid ${DIM_COLOR}`,
+                                marginTop: "12px",
+                                paddingTop: "8px",
+                                marginBottom: "12px"
+                            },
+                            children: [
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    style: {
+                                        color: DIM_COLOR,
+                                        marginBottom: "4px"
+                                    },
+                                    children: "CURRENT TARGET"
+                                }, void 0, false, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 764,
+                                    columnNumber: 17
+                                }, this),
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    style: {
+                                        wordBreak: "break-all"
+                                    },
+                                    children: [
+                                        "github.com/",
+                                        cfgTarget.repo,
+                                        " (branch ",
+                                        cfgTarget.branch,
+                                        cfgTarget.createdRepo ? ", auto-created" : "",
+                                        ")"
+                                    ]
+                                }, void 0, true, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 765,
+                                    columnNumber: 17
+                                }, this),
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    style: {
+                                        color: DIM_COLOR
+                                    },
+                                    children: [
+                                        "Last push: ",
+                                        cfgTarget.lastPushSha ? `commit ${cfgTarget.lastPushSha}` : "never"
+                                    ]
+                                }, void 0, true, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 768,
+                                    columnNumber: 17
+                                }, this),
+                                cfgTarget.lastPushError && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                                    style: {
+                                        color: "#ff4444",
+                                        marginTop: "4px",
+                                        whiteSpace: "pre-wrap",
+                                        wordBreak: "break-word"
+                                    },
+                                    children: [
+                                        "Last error: ",
+                                        cfgTarget.lastPushError
+                                    ]
+                                }, void 0, true, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 772,
+                                    columnNumber: 19
+                                }, this)
+                            ]
+                        }, void 0, true, {
+                            fileName: "[project]/src/app/page.tsx",
+                            lineNumber: 763,
+                            columnNumber: 15
+                        }, this),
+                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            style: {
+                                display: "flex",
+                                gap: "8px",
+                                flexWrap: "wrap"
+                            },
+                            children: [
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                    type: "button",
+                                    onClick: submitConfig,
+                                    disabled: cfgLoading,
+                                    style: {
+                                        background: "#000",
+                                        border: `1px solid ${DIM_COLOR}`,
+                                        color: PROMPT_COLOR,
+                                        fontFamily: "inherit",
+                                        fontSize: "inherit",
+                                        padding: "4px 10px",
+                                        cursor: cfgLoading ? "wait" : "pointer",
+                                        opacity: cfgLoading ? 0.5 : 1
+                                    },
+                                    children: "[ CONNECT & PUSH ]"
+                                }, void 0, false, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 781,
+                                    columnNumber: 15
+                                }, this),
+                                cfgTarget?.configured && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                    type: "button",
+                                    onClick: disconnectTarget,
+                                    disabled: cfgLoading,
+                                    style: {
+                                        background: "#000",
+                                        border: `1px solid ${DIM_COLOR}`,
+                                        color: PROMPT_COLOR,
+                                        fontFamily: "inherit",
+                                        fontSize: "inherit",
+                                        padding: "4px 10px",
+                                        cursor: cfgLoading ? "wait" : "pointer",
+                                        opacity: cfgLoading ? 0.5 : 1
+                                    },
+                                    children: "[ DISCONNECT ]"
+                                }, void 0, false, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 790,
+                                    columnNumber: 17
+                                }, this),
+                                /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("button", {
+                                    type: "button",
+                                    onClick: closeConfig,
+                                    style: {
+                                        background: "#000",
+                                        border: `1px solid ${DIM_COLOR}`,
+                                        color: PROMPT_COLOR,
+                                        fontFamily: "inherit",
+                                        fontSize: "inherit",
+                                        padding: "4px 10px",
+                                        cursor: "pointer"
+                                    },
+                                    children: "[ CLOSE ]"
+                                }, void 0, false, {
+                                    fileName: "[project]/src/app/page.tsx",
+                                    lineNumber: 799,
+                                    columnNumber: 15
+                                }, this)
+                            ]
+                        }, void 0, true, {
+                            fileName: "[project]/src/app/page.tsx",
+                            lineNumber: 780,
+                            columnNumber: 13
+                        }, this),
+                        cfgStatusMsg && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            style: {
+                                color: PROMPT_COLOR,
+                                marginTop: "10px",
+                                whiteSpace: "pre-wrap"
+                            },
+                            children: cfgStatusMsg
+                        }, void 0, false, {
+                            fileName: "[project]/src/app/page.tsx",
+                            lineNumber: 806,
+                            columnNumber: 15
+                        }, this),
+                        cfgError && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            style: {
+                                color: "#ff4444",
+                                marginTop: "10px",
+                                whiteSpace: "pre-wrap"
+                            },
+                            children: cfgError
+                        }, void 0, false, {
+                            fileName: "[project]/src/app/page.tsx",
+                            lineNumber: 809,
+                            columnNumber: 15
+                        }, this),
+                        /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
+                            style: {
+                                color: DIM_COLOR,
+                                marginTop: "12px",
+                                fontSize: "12px",
+                                lineHeight: 1.3
+                            },
+                            children: "Token verified with GitHub. Token stored locally only — never in git config, URLs, or the pushed repo. Need a token? github.com/settings/tokens (classic PAT, repo scope)."
+                        }, void 0, false, {
+                            fileName: "[project]/src/app/page.tsx",
+                            lineNumber: 812,
+                            columnNumber: 13
+                        }, this)
+                    ]
+                }, void 0, true, {
+                    fileName: "[project]/src/app/page.tsx",
+                    lineNumber: 686,
+                    columnNumber: 11
+                }, this)
+            }, void 0, false, {
+                fileName: "[project]/src/app/page.tsx",
+                lineNumber: 673,
+                columnNumber: 9
             }, this)
         ]
     }, void 0, true, {
         fileName: "[project]/src/app/page.tsx",
-        lineNumber: 383,
+        lineNumber: 529,
         columnNumber: 5
     }, this);
 }
-_s(Home, "tlPM6zVXKoDhbnMGmx8vdTs9iKQ=");
+_s(Home, "dejRKB2FTGP6mb4eOBwKyHdrM1o=");
 _c = Home;
 var _c;
 __turbopack_context__.k.register(_c, "Home");

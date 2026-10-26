@@ -503,7 +503,7 @@ class AutonomousLoopRuntime {
               userPrompt: this.config.userPrompt,
               siphonSourceId: this.config.siphonSourceId,
               code: rawContent,
-              triggeredBy: mode,
+              triggeredBy: mode === "scheduled" ? "autonomous" : mode,
             },
             (stage) => {
               loopEventBus.emit({
