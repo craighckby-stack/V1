@@ -11,13 +11,14 @@
  * placeholders (MY_*, "undefined", "[REDACTED]", or shorter than 8 chars).
  */
 export function getUsableToken(clientToken?: string): string | null {
+  const MIN_TOKEN_LENGTH = 8;
   const candidate = (clientToken ?? process.env.GITHUB_TOKEN ?? "").trim();
   if (
     !candidate ||
     candidate.startsWith("MY_") ||
     candidate === "undefined" ||
     candidate === "[REDACTED]" ||
-    candidate.length < 8
+    candidate.length < MIN_TOKEN_LENGTH
   ) {
     return null;
   }
