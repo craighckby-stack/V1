@@ -398,8 +398,10 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
   const PERFECT_RETENTION_SCORE = 100;
   const retentionScore =
     originalSymbols.length === 0 ? PERFECT_RETENTION_SCORE : (retainedCount / originalSymbols.length) * RETENTION_SCORE_MULTIPLIER;
+  const BRANDING_PENALTY_PER_INJECTION = 20;
+  const HIGH_SEVERITY_PENALTY = 25;
   const penalty =
-    brandingInjections.length * 20 + violations.filter((v) => v.severity === "high").length * 25;
+    brandingInjections.length * BRANDING_PENALTY_PER_INJECTION + violations.filter((v) => v.severity === "high").length * HIGH_SEVERITY_PENALTY;
   const astScore = Math.max(0, Math.min(100, Math.round(retentionScore + 40 - penalty)));
 
   const passed =
