@@ -4,3 +4,5 @@ tsconfig.tsbuildinfo
 dev.log
 *.tmp
 *.bak
+.next/
+db/*.db

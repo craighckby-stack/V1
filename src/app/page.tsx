@@ -100,9 +100,10 @@ export default function Home() {
     setHistory((prev) => [...prev, trimmed]);
     setHistoryIdx(-1);
 
-    const lower = trimmed.toLowerCase();
-    const parts = lower.split(/\s+/);
-    const command = parts[0];
+    // Parse args from the RAW string — tokens and repo names are case-sensitive
+    // (lowercasing everything would corrupt a pasted GitHub PAT).
+    const parts = trimmed.split(/\s+/);
+    const command = parts[0].toLowerCase();
 
     switch (command) {
       case "help":
@@ -113,6 +114,10 @@ export default function Home() {
           "  trigger     — Run one enhancement cycle",
           "  status      — Show current status",
           "  push        — Push current live state to GitHub",
+          "  push <token> <owner/repo> [public] — Configure the GitHub push target",
+          "                (auto-creates the repo if missing; private by default)",
+          "  push force  — Force-push (overwrite a diverged remote)",
+          "  push clear  — Disconnect the push target",
           "  logs        — Show recent logs",
           "  files       — List files being enhanced",
           "  clear       — Clear the terminal",
@@ -155,7 +160,7 @@ export default function Home() {
       case "status": {
         const s = status;
         if (!s) return ["No status available yet"];
-        return [
+        const lines = [
           `Running:       ${s.running ? "YES" : "NO"}`,
           `Files scanned: ${s.stats.totalScanned}`,
           `Files enhanced: ${s.stats.totalEnhanced}`,
@@ -164,15 +169,111 @@ export default function Home() {
           `Last enhanced:  ${s.stats.lastEnhancementAt ?? "never"}`,
           `Current file:   ${s.currentFile ?? "idle"}`,
         ];
+        try {
+          const res = await fetch("/api/self-enhance/push-target");
+          const t = await res.json();
+          if (t.configured) {
+            lines.push(
+              `Push target:    github.com/${t.repo} (branch ${t.branch}${t.createdRepo ? ", auto-created" : ""})`,
+              `Last push:      ${t.lastPushSha ? `commit ${t.lastPushSha}` : "never"}${t.lastPushAt ? ` at ${t.lastPushAt}` : ""}`
+            );
+            if (t.lastPushError) lines.push(`Last error:     ${t.lastPushError}`);
+          } else {
+            lines.push("Push target:    NOT CONFIGURED (run: push <token> <owner/repo>)");
+          }
+        } catch {
+          /* status is best-effort */
+        }
+        return lines;
       }
 
       case "push": {
+        const sub = parts[1]; // raw (case-preserved) subcommand/arg
+
+        // push force — overwrite a diverged remote
+        if (sub && sub.toLowerCase() === "force") {
+          try {
+            const res = await fetch("/api/self-enhance/push", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ force: true }),
+            });
+            const data = await res.json();
+            if (data.pushed) return [`Force-pushed to GitHub: commit ${data.commitSha} (${data.repo})`];
+            return [`Force-push failed: ${data.error ?? "unknown error"}`];
+          } catch (e) {
+            return [`Error: ${(e as Error).message}`];
+          }
+        }
+
+        // push clear — disconnect the target
+        if (sub && sub.toLowerCase() === "clear") {
+          try {
+            const res = await fetch("/api/self-enhance/push-target", { method: "DELETE" });
+            const data = await res.json();
+            return data.ok ? ["Push target cleared — the loop will commit locally only"] : [`Failed: ${data.error}`];
+          } catch (e) {
+            return [`Error: ${(e as Error).message}`];
+          }
+        }
+
+        // push <token> <owner/repo> [public] — configure the target
+        if (parts.length >= 3) {
+          const token = parts[1];
+          const repo = parts[2];
+          const isPublic = (parts[3] ?? "").toLowerCase() === "public";
+          try {
+            const res = await fetch("/api/self-enhance/push-target", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ repo, token, isPublic }),
+            });
+            const data = await res.json();
+            if (!data.ok) return [`Configuration failed: ${data.error}`];
+            const lines = [
+              data.created
+                ? `Created repo github.com/${data.repo} (private) — push target configured`
+                : `Connected to github.com/${data.repo} as ${data.login}`,
+              "Token verified. Pushing current live state...",
+            ];
+            // Immediately push the current state as the first proof
+            try {
+              const pushRes = await fetch("/api/self-enhance/push", { method: "POST" });
+              const pushData = await pushRes.json();
+              if (pushData.pushed) {
+                lines.push(`Pushed: commit ${pushData.commitSha} → github.com/${pushData.repo}`);
+                lines.push("Every successful self-enhancement will now be pushed automatically.");
+              } else {
+                lines.push(`Initial push failed: ${pushData.error ?? "unknown"}`);
+              }
+            } catch {
+              lines.push("Initial push failed — check 'push force' if the remote diverged");
+            }
+            return lines;
+          } catch (e) {
+            return [`Error: ${(e as Error).message}`];
+          }
+        }
+
+        // plain push — push to the configured target
         try {
+          const cfgRes = await fetch("/api/self-enhance/push-target");
+          const cfg = await cfgRes.json();
+          if (!cfg.configured) {
+            return [
+              "No push target configured.",
+              "Usage:  push <github_token> <owner/repo> [public]",
+              "Example: push ghp_xxxxxxxxxxxx yourname/self-enhance",
+              "",
+              "The repo is auto-created if it doesn't exist (private by default;",
+              "add 'public' to make it public). The token needs repo scope.",
+              "Get one at github.com/settings/tokens",
+            ];
+          }
           const res = await fetch("/api/self-enhance/push", { method: "POST" });
           const data = await res.json();
-          if (data.pushed) return [`Pushed to GitHub: commit ${data.commitSha}`];
-          if (data.committed) return [`Committed ${data.commitSha} but push failed (no remote?)`];
-          return ["No changes to push"];
+          if (data.pushed) return [`Pushed to GitHub: commit ${data.commitSha} (${data.repo})`];
+          return [`Push failed: ${data.error ?? "unknown error"}`];
         } catch (e) {
           return [`Error: ${(e as Error).message}`];
         }
@@ -215,6 +316,8 @@ export default function Home() {
           "The system modifies its own source code in src/lib/pipeline/,",
           "verifies with tsc --noEmit, and pushes to GitHub as proof.",
           "What you see on GitHub IS the current live state of the server.",
+          "",
+          "Push target: configure with 'push <token> <owner/repo> [public]'.",
         ];
 
       default:
@@ -228,8 +331,12 @@ export default function Home() {
     setInput("");
     if (!cmd.trim()) return;
 
-    // Echo the command to the terminal
-    setTerminalLines((prev) => [...prev, { type: "command", text: cmd }]);
+    // Echo the command to the terminal — mask any pasted GitHub token
+    const masked = cmd.replace(
+      /\b(ghp_|github_pat_|gho_|ghu_|ghr_|ghs_)[A-Za-z0-9_]+/g,
+      "$1****"
+    );
+    setTerminalLines((prev) => [...prev, { type: "command", text: masked }]);
 
     // Execute and show output
     const output = await executeCommand(cmd);

@@ -12,11 +12,12 @@
  * When you see a commit on GitHub, that's exactly what the server is running.
  */
 
-import { readFileSync, writeFileSync, readdirSync, unlinkSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, readdirSync, unlinkSync } from "fs";
 import { execSync } from "child_process";
 import { join, relative } from "path";
 import { llmComplete, extractCodeBlock } from "../llm/agent-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
+import { pushCurrentState } from "./push-target";
 
 const PIPELINE_SRC_DIR = "/home/z/my-project/src/lib/pipeline";
 const PROJECT_ROOT = "/home/z/my-project";
@@ -26,6 +27,7 @@ const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/loop-runtime.ts",
   "src/lib/pipeline/autonomous/self-enhance-loop.ts",
   "src/lib/pipeline/autonomous/loop-event-bus.ts",
+  "src/lib/pipeline/autonomous/push-target.ts", // protect the push auth path
   "src/lib/pipeline/llm/agent-llm.ts", // protect the LLM wrapper
   "src/lib/pipeline/llm/debate-llm.ts",
 ]);
@@ -118,49 +120,69 @@ class SelfEnhanceLoop {
   }
 
   /**
-   * Git commit and push the current live state.
+   * Git commit and push the current live state via the configured push target
+   * (authenticated; see push-target.ts). Falls back to commit-only when no
+   * target is configured.
    */
-  private gitPush(message: string): { pushed: boolean; commitSha?: string } {
+  private async gitPush(message: string): Promise<{ pushed: boolean; commitSha?: string }> {
     try {
-      // Check if there are changes to commit
-      const status = execSync("git status --porcelain", {
-        cwd: PROJECT_ROOT,
-        encoding: "utf-8",
-        timeout: 5000,
-      });
-      if (!status.trim()) {
+      const outcome = await pushCurrentState({ message });
+      if (outcome.pushed) {
+        this.log(`Pushed to GitHub: ${outcome.commitSha} (${outcome.repo})`, "success");
+        return { pushed: true, commitSha: outcome.commitSha };
+      }
+      if (!outcome.error) {
+        // No changes to commit and nothing new to push
         return { pushed: false };
       }
-
-      // Stage all changes
-      execSync("git add -A", { cwd: PROJECT_ROOT, timeout: 5000 });
-
-      // Commit
-      execSync(`git commit -m "${message.replace(/"/g, '\\"')}"`, {
-        cwd: PROJECT_ROOT,
-        timeout: 5000,
-      });
-
-      // Get the commit SHA
-      const sha = execSync("git rev-parse HEAD", {
-        cwd: PROJECT_ROOT,
-        encoding: "utf-8",
-        timeout: 5000,
-      }).trim();
-
-      // Push (may fail if no remote configured — that's OK)
-      try {
-        execSync("git push 2>&1", { cwd: PROJECT_ROOT, timeout: 15000 });
-        this.log(`Pushed to GitHub: ${sha.slice(0, 7)}`, "success");
-        return { pushed: true, commitSha: sha.slice(0, 7) };
-      } catch (err) {
-        this.log(`Git commit succeeded but push failed: ${(err as Error).message}`, "warn");
-        return { pushed: false, commitSha: sha.slice(0, 7) };
+      if (outcome.commitSha) {
+        this.log(`Committed ${outcome.commitSha} but push failed: ${outcome.error}`, "warn");
+      } else {
+        this.log(`Push skipped: ${outcome.error}`, "warn");
       }
+      return { pushed: false, commitSha: outcome.commitSha };
     } catch (err) {
       this.log(`Git operation failed: ${(err as Error).message}`, "error");
       return { pushed: false };
     }
+  }
+
+  /**
+   * Detect banner-style comments: decorative separator lines (====, ----, ****,
+   * ────, ════) or attribution/branding phrases. Plain JSDoc docstrings do NOT match.
+   */
+  private static looksLikeBanner(comment: string): boolean {
+    // A line that is essentially a separator run, optionally prefixed with "//"
+    const hasSeparatorLine = /(^|\n)\s*(?:\/\/)?\s*[=*\-#~─═]{4,}\s*(?=\n|$)/.test(comment);
+    // Attribution / branding phrases
+    const hasBranding =
+      /enhanced by|mutated by|refactored by|auto-generated|auto-refactor/i.test(comment);
+    return hasSeparatorLine || hasBranding;
+  }
+
+  /**
+   * Strip a LEADING banner comment (block or line-comment style) from refactored
+   * output. Conservative: only strips if it matches banner heuristics, so
+   * legitimate file docstrings survive.
+   */
+  private stripBannerComments(code: string): { code: string; stripped: boolean } {
+    let out = code;
+
+    // Leading block comment
+    const blockMatch = out.match(/^\/\*+\s*[\s\S]*?\*+\/\s*/);
+    if (blockMatch && SelfEnhanceLoop.looksLikeBanner(blockMatch[0])) {
+      out = out.slice(blockMatch[0].length);
+      return { code: out.replace(/^\s*\n/, ""), stripped: true };
+    }
+
+    // Leading run of // line comments
+    const lineMatch = out.match(/^(?:[ \t]*\/\/[^\n]*\n)+/);
+    if (lineMatch && SelfEnhanceLoop.looksLikeBanner(lineMatch[0])) {
+      out = out.slice(lineMatch[0].length);
+      return { code: out.replace(/^\s*\n/, ""), stripped: true };
+    }
+
+    return { code: out, stripped: false };
   }
 
   /**
@@ -224,11 +246,19 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         return result;
       }
 
-      const refactoredCode = extractCodeBlock(llmResult.content);
+      let refactoredCode = extractCodeBlock(llmResult.content);
       if (!refactoredCode || refactoredCode.trim().length === 0) {
         result.reason = "LLM returned no code";
         this.log(`LLM returned no code for ${relPath}`, "warn");
         return result;
+      }
+
+      // 3b. Mechanical guard: strip decorative banner comments the LLM
+      // sometimes prepends (defense-in-depth — the prompt alone failed before)
+      const banner = this.stripBannerComments(refactoredCode);
+      if (banner.stripped) {
+        this.log(`Stripped decorative banner header from ${relPath} (LLM ignored the no-header rule)`, "warn");
+        refactoredCode = banner.code;
       }
 
       result.llmUsed = true;
@@ -299,7 +329,7 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       this.log(`Enhanced ${relPath} (+${result.diffBytes} bytes, compiled ✓, live)`, "success");
 
       // 10. Git commit + push (the proof)
-      const pushResult = this.gitPush(
+      const pushResult = await this.gitPush(
         `Self-enhancement: ${relPath} (LLM refactor, tsc verified, ${result.diffBytes}b diff)`
       );
       result.pushed = pushResult.pushed;

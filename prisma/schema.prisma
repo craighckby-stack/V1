@@ -111,3 +111,20 @@ model Postmortem {
 
   @@unique([targetRepo, branch, filePath])
 }
+
+/// Persistent GitHub push target for the self-enhance loop.
+/// Singleton row (id = "singleton"). Stores the token used to authenticate
+/// git pushes of the system's own evolving source. The token is NEVER
+/// returned to the client — API routes redact it.
+model GitPushTarget {
+  id            String    @id @default("singleton")
+  repo          String    // "owner/name" on github.com
+  token         String    // classic PAT (ghp_...) or fine-grained PAT (github_pat_...)
+  branch        String    @default("main") // remote branch to push to
+  createdRepo   Boolean   @default(false) // true if we auto-created the repo
+  lastPushAt    DateTime?
+  lastPushSha   String?   // short sha of last successful push
+  lastPushError String?   // last push failure message (token-free)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}

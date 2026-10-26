@@ -495,3 +495,23 @@ VERIFICATION:
 
 Stage Summary:
 The safety net (tsc) was broken before this audit — the self-enhance loop could never have enhanced anything. Now tsc passes clean on the current tree, which means verifyCompiles() gives a true baseline, and any refactor that breaks types gets reverted while type-safe refactors go live. All identified critical/high bugs are fixed; remaining items are documented trade-offs, not defects.
+
+---
+Task ID: audit-followup-2
+Agent: main (Z.ai Code)
+Task: Answer user questions on branch model + banner headers; harden banner guard
+
+Work Log:
+- Verified git state: repo is on `main` only, `git remote -v` is EMPTY — self-enhance loop's `git push` currently fails every time (handled gracefully), commits accumulate locally
+- Confirmed old loop (loop-runtime.ts) used per-run `helper-evolution` branch on external repo via GitHub API — different model from self-enhance loop
+- Confirmed banner fix was prompt-only ("Do NOT add any header comments") — no mechanical guard existed
+- Added `stripBannerComments()` + `looksLikeBanner()` to self-enhance-loop.ts: strips LEADING block/line comments matching banner heuristics (separator runs of ===/---/***/───/═══, or "enhanced by/mutated by/refactored by/auto-generated/auto-refactor" attribution)
+- Applied after extractCodeBlock(), BEFORE the no-semantic-change comparison — so banner-only mutations now get skipped as "No semantic change" instead of committed
+- Tested 5 cases with bun script: block banner stripped, line banner stripped, legit docstring preserved (incl. "Self-Enhance Loop" docstring), plain code untouched, attribution-only stripped
+- Fixed in previous turn: failure path now cleans .tmp/.bak; added *.tmp/*.bak to .gitignore
+- lint clean
+
+Stage Summary:
+- Banner defense is now 2 layers: prompt rule + mechanical strip (tested)
+- Key behavior change: LLM returning original code + banner → now skipped as no-change instead of pushed as fake enhancement
+- Branch model: self-enhance loop = same branch (main), new commit per version, NOT new branches. No remote configured so nothing reaches GitHub currently
