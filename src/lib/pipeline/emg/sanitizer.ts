@@ -200,7 +200,8 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
 
       // Raised threshold from 4.15 to 4.5 — 4.15 catches too many legitimate
       // strings. Real secrets typically have entropy > 4.5.
-      if (entropy > 4.5) {
+      const HIGH_ENTROPY_THRESHOLD = 4.5;
+      if (entropy > HIGH_ENTROPY_THRESHOLD) {
         highEntropyTokensFound++;
         const HIGH_ENTROPY_PREVIEW_LENGTH = 6;
         violations.push(
