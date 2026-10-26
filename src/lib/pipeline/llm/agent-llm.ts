@@ -123,7 +123,7 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
             { role: "user", content: opts.userPrompt },
           ],
           thinking: { type: "disabled" },
-        } as { model: string; messages: { role: string; content: string }[]; thinking: { type: string } });
+        });
         const content = completion.choices?.[0]?.message?.content ?? "";
         if (!content.trim()) {
           throw new Error("Empty LLM response");

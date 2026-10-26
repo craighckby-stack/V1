@@ -14,7 +14,7 @@
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from "fs";
 import { execSync } from "child_process";
-import { join, relative, extname } from "path";
+import { join, relative } from "path";
 import { llmComplete, extractCodeBlock } from "../llm/agent-llm";
 
 const PROJECT_ROOT = "/home/z/my-project";

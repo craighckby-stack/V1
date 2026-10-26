@@ -66,6 +66,7 @@ const METHOD_LABEL: Record<string, string> = {
   "empty-catch": "LLM",
   "any-usage": "LLM",
   "missing-return-type": "DET", // deterministic — runs even during 429
+  "unused-import": "DET",      // deterministic — runs even during 429
   "magic-number": "LLM",
   "non-null-assertion": "LLM",
 };
@@ -513,7 +514,7 @@ export default function Home() {
             ...header,
             ...tasks.map(
               (t) =>
-                `  [P${t.kind === "todo-comment" ? 1 : t.kind === "empty-catch" ? 2 : t.kind === "any-usage" ? 3 : t.kind === "missing-return-type" ? 4 : t.kind === "magic-number" ? 5 : 6}/${METHOD_LABEL[t.kind] ?? "?"}] ${t.kind} — ${t.filePath}:${t.line}`
+                `  [P${t.kind === "todo-comment" ? 1 : t.kind === "empty-catch" ? 2 : t.kind === "any-usage" ? 3 : t.kind === "missing-return-type" || t.kind === "unused-import" ? 4 : t.kind === "magic-number" ? 5 : 6}/${METHOD_LABEL[t.kind] ?? "?"}] ${t.kind} — ${t.filePath}:${t.line}`
             ),
             "",
             `  (${tasks.length} shown${q && q.pending > tasks.length ? `, ${q.pending - tasks.length} more pending` : ""})`,

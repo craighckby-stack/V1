@@ -15,13 +15,20 @@
  *   2 empty-catch         LLM  — catch blocks that swallow errors silently
  *   3 any-usage           LLM  — `: any` / `as any` type-safety holes
  *   4 missing-return-type DET  — deterministic fix: checker-inferred annotation
+ *   4 unused-import       DET  — deterministic fix: remove unused import bindings
  *   5 magic-number        LLM  — unnamed numeric literals in expressions
  *   6 non-null-assertion  LLM  — `!.` unsafe member access
+ *
+ * Two DETERMINISTIC kinds now exist so the loop has LLM-free work during
+ * rate limits. The unused-import detector is a heuristic (name doesn't
+ * appear as an identifier elsewhere in the file); the in-memory typecheck
+ * gate is the safety net — if removing an import breaks anything, the fix
+ * is rejected before it touches disk.
  */
 
 import * as ts from "typescript";
 import { readFileSync, readdirSync } from "fs";
-import { join, relative, resolve } from "path";
+import { join, relative } from "path";
 import { db } from "@/lib/db";
 
 const PROJECT_ROOT = "/home/z/my-project";
@@ -46,6 +53,7 @@ export const TASK_KINDS = {
   "empty-catch": { priority: 2, method: "llm" as const },
   "any-usage": { priority: 3, method: "llm" as const },
   "missing-return-type": { priority: 4, method: "deterministic" as const },
+  "unused-import": { priority: 4, method: "deterministic" as const },
   "magic-number": { priority: 5, method: "llm" as const },
   "non-null-assertion": { priority: 6, method: "llm" as const },
 };
@@ -166,7 +174,7 @@ function analyzeFile(absPath: string): Finding[] {
       if (inTypePosition) push("any-usage", node.getStart());
     }
 
-    // 4) missing return type on function/method declarations
+    // 4a) missing return type on function/method declarations
     if (
       (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) &&
       node.body &&
@@ -174,6 +182,43 @@ function analyzeFile(absPath: string): Finding[] {
       node.name
     ) {
       push("missing-return-type", node.name.getStart());
+    }
+
+    // 4b) unused imports — heuristic: an imported binding name that doesn't
+    // appear as an identifier elsewhere in the file (outside the import line).
+    // The in-memory typecheck gate is the safety net: if removing the import
+    // breaks anything, the fix is rejected before touching disk.
+    if (ts.isImportDeclaration(node) && node.importClause) {
+      const clause = node.importClause;
+      const importLineNo = lineOf(sf, node.getStart());
+      const bindings: { name: string; localName: string }[] = [];
+      // default import: `import X from "mod"`
+      if (clause.name) {
+        bindings.push({ name: clause.name.text, localName: clause.name.text });
+      }
+      // named imports: `import { A, B as C } from "mod"`
+      if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const el of clause.namedBindings.elements) {
+          bindings.push({
+            name: (el.propertyName ?? el.name).text,
+            localName: el.name.text, // the local binding is what we check
+          });
+        }
+      }
+      // namespace import: `import * as N from "mod"`
+      if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+        bindings.push({ name: clause.namedBindings.name.text, localName: clause.namedBindings.name.text });
+      }
+      for (const b of bindings) {
+        // Check if localName appears as an identifier outside this import line
+        const fileLines = text.split("\n");
+        const restOfFile = fileLines.filter((_, i) => i !== importLineNo - 1).join("\n");
+        const re = new RegExp(`\\b${b.localName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
+        if ((restOfFile.match(re) ?? []).length === 0) {
+          push("unused-import", node.getStart());
+          break; // one finding per import declaration (fixer removes the whole line)
+        }
+      }
     }
 
     // 5) magic numbers
@@ -339,7 +384,7 @@ export async function listTasks(status?: string, limit = 30) {
 export async function claimNextTask(onlyDeterministic = false) {
   const next = await db.selfTask.findFirst({
     where: onlyDeterministic
-      ? { status: "pending", kind: "missing-return-type" }
+      ? { status: "pending", kind: { in: ["missing-return-type", "unused-import"] } }
       : { status: "pending" },
     orderBy: [{ priority: "asc" }, { deferred: "asc" }, { createdAt: "asc" }],
   });

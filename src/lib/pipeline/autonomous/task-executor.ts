@@ -229,6 +229,133 @@ ${code}
 }
 
 /**
+ * DETERMINISTIC: remove an unused import at the task's line.
+ *
+ * The generator flagged this import because at least one of its bindings
+ * doesn't appear as an identifier elsewhere in the file. We:
+ *   - If ALL bindings in the import are unused → remove the whole import line
+ *   - If only SOME named bindings are unused → remove just those from the braces
+ *
+ * The in-memory typecheck gate is the safety net: if the heuristic was wrong
+ * (the name IS used somewhere we missed), the typecheck catches it and the
+ * fix is rejected before touching disk.
+ */
+function executeUnusedImport(task: TaskRow, code: string): TaskExecutionResult {
+  const absPath = join(PROJECT_ROOT, task.filePath);
+  const sf = ts.createSourceFile(absPath, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+
+  // Find the import declaration at the task's line
+  let target: ts.ImportDeclaration | null = null;
+  sf.forEachChild((node) => {
+    if (ts.isImportDeclaration(node)) {
+      const line = sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+      if (line === task.line) target = node;
+    }
+  });
+
+  if (!target) {
+    return { status: "no-op", method: "deterministic", summary: "import not found at line (already removed or moved)" };
+  }
+
+  const decl = target as ts.ImportDeclaration;
+  const clause = decl.importClause;
+  if (!clause) {
+    // `import "mod";` — side-effect import, remove the whole line
+    const newCode = removeImportLine(code, decl, sf);
+    return { status: "applied", method: "deterministic", newCode, summary: "removed side-effect-only import" };
+  }
+
+  // Collect all bindings and check which are unused
+  const lines = code.split("\n");
+  const importLine = sf.getLineAndCharacterOfPosition(decl.getStart()).line;
+  const restOfFile = lines.filter((_, i) => i !== importLine).join("\n");
+
+  const isUnused = (name: string): boolean => {
+    const re = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
+    return (restOfFile.match(re) ?? []).length === 0;
+  };
+
+  // Case 1: default import only — `import X from "mod"`
+  if (clause.name && !clause.namedBindings) {
+    if (isUnused(clause.name.text)) {
+      const newCode = removeImportLine(code, decl, sf);
+      return { status: "applied", method: "deterministic", newCode, summary: `removed unused default import "${clause.name.text}"` };
+    }
+    return { status: "no-op", method: "deterministic", summary: "default import is actually used (heuristic false positive)" };
+  }
+
+  // Case 2: namespace import — `import * as N from "mod"`
+  if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+    if (isUnused(clause.namedBindings.name.text)) {
+      const newCode = removeImportLine(code, decl, sf);
+      return { status: "applied", method: "deterministic", newCode, summary: `removed unused namespace import "${clause.namedBindings.name.text}"` };
+    }
+    return { status: "no-op", method: "deterministic", summary: "namespace import is actually used (heuristic false positive)" };
+  }
+
+  // Case 3: named imports — `import { A, B, C } from "mod"`
+  if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+    const elements = clause.namedBindings.elements;
+    const unusedElements = elements.filter((el) => isUnused(el.name.text));
+    const usedElements = elements.filter((el) => !isUnused(el.name.text));
+
+    if (usedElements.length === 0) {
+      // ALL named bindings unused → remove the whole import (including default if also unused)
+      if (clause.name && !isUnused(clause.name.text)) {
+        // default is used, only named are unused → keep default, drop named
+        // `import X, { A, B } from "mod"` → `import X from "mod"`
+        const moduleSpec = (decl.moduleSpecifier as ts.StringLiteral).text;
+        const newImport = `import ${clause.name.text} from "${moduleSpec}";`;
+        const newCode = replaceImportLine(code, decl, sf, newImport);
+        return { status: "applied", method: "deterministic", newCode, summary: `removed all unused named imports (kept default "${clause.name.text}")` };
+      }
+      const newCode = removeImportLine(code, decl, sf);
+      return { status: "applied", method: "deterministic", newCode, summary: `removed fully-unused import (all ${unusedElements.length} bindings)` };
+    }
+
+    if (unusedElements.length === 0) {
+      return { status: "no-op", method: "deterministic", summary: "all named imports are actually used (heuristic false positive)" };
+    }
+
+    // Remove just the unused named elements, keep the used ones
+    const moduleSpec = (decl.moduleSpecifier as ts.StringLiteral).text;
+    const keptNamed = usedElements.map((el) => (el.propertyName ? `${el.propertyName.text} as ${el.name.text}` : el.name.text)).join(", ");
+    let newImport: string;
+    if (clause.name) {
+      newImport = `import ${clause.name.text}, { ${keptNamed} } from "${moduleSpec}";`;
+    } else {
+      newImport = `import { ${keptNamed} } from "${moduleSpec}";`;
+    }
+    const newCode = replaceImportLine(code, decl, sf, newImport);
+    const removedNames = unusedElements.map((el) => el.name.text).join(", ");
+    return { status: "applied", method: "deterministic", newCode, summary: `removed unused named import(s): ${removedNames}` };
+  }
+
+  return { status: "no-op", method: "deterministic", summary: "import shape not handled" };
+}
+
+/** Remove the entire import declaration line(s) from the code. */
+function removeImportLine(code: string, decl: ts.ImportDeclaration, sf: ts.SourceFile): string {
+  const start = decl.getStart(sf);
+  const end = decl.getEnd();
+  // Extend to include the trailing newline if present
+  let newCode = code.slice(0, start) + code.slice(end);
+  // Remove the now-orphaned newline
+  if (newCode[start] === "\n") newCode = newCode.slice(0, start) + newCode.slice(start + 1);
+  else if (newCode[start - 1] === "\n" && newCode[start] !== "\n") {
+    // line started at start, keep the leading newline handling clean
+  }
+  return newCode;
+}
+
+/** Replace the import declaration with a new import statement string. */
+function replaceImportLine(code: string, decl: ts.ImportDeclaration, sf: ts.SourceFile, newImport: string): string {
+  const start = decl.getStart(sf);
+  const end = decl.getEnd();
+  return code.slice(0, start) + newImport + code.slice(end);
+}
+
+/**
  * Execute a task. Reads the file, runs the appropriate executor,
  * verifies the result IN MEMORY. Returns verified newCode (not written).
  */
@@ -244,15 +371,23 @@ export async function executeTask(task: TaskRow): Promise<TaskExecutionResult> {
 
   // Line still matches the evidence? (file may have shifted)
   const currentLine = code.split("\n")[task.line - 1] ?? "";
+  // Both deterministic kinds reference specific AST positions, not textual
+  // evidence, so skip the drift check for them.
   const lineDrifted =
     task.kind !== "missing-return-type" &&
+    task.kind !== "unused-import" &&
     !currentLine.includes(task.evidence.slice(0, 30).replace(/^[/*\s]+/, "").slice(0, 20));
 
   const method = getTaskMethod(task.kind);
   let result: TaskExecutionResult;
 
   if (method === "deterministic") {
-    result = executeMissingReturnType(task, code);
+    // Route to the right deterministic fixer by kind
+    if (task.kind === "unused-import") {
+      result = executeUnusedImport(task, code);
+    } else {
+      result = executeMissingReturnType(task, code);
+    }
   } else {
     result = await executeViaLlm(task, code);
     // If the file drifted, the evidence line may have moved — still let the

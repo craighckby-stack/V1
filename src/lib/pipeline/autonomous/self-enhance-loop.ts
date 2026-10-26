@@ -277,10 +277,11 @@ class SelfEnhanceLoop {
           break;
         }
 
-        // In deterministic-only mode, verify there IS a deterministic task left
+        // In deterministic-only mode, verify there IS a deterministic task left.
+        // Both missing-return-type and unused-import are deterministic (LLM-free).
         if (llmDeferred) {
           const detLeft = await db.selfTask.count({
-            where: { status: "pending", kind: "missing-return-type" },
+            where: { status: "pending", kind: { in: ["missing-return-type", "unused-import"] } },
           });
           if (detLeft === 0) {
             this.log("LLM rate-limited and no deterministic tasks left — ending cycle", "warn");
@@ -394,7 +395,7 @@ class SelfEnhanceLoop {
 
 // Singleton — version-guarded so hot-reloads replace instances whose class
 // shape changed (otherwise globalThis caches a stale instance missing new methods)
-const LOOP_VERSION = 6;
+const LOOP_VERSION = 7;
 const globalForSelfEnhance = globalThis as unknown as {
   __selfEnhanceLoop?: SelfEnhanceLoop;
   __selfEnhanceLoopVersion?: number;
