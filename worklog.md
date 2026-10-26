@@ -633,3 +633,28 @@ Stage Summary:
 - readme.bat now contains a permanent constraint on any future chat mode: it must prove it's interface, not input. Three compliant designs sketched; goal injection explicitly forbidden; three proof demonstrations required before shipping.
 - The section is a fixed guardrail (won't drift) vs DIRECTIONS.md's speculation about directions (will drift). Both point at each other appropriately.
 - readme.bat remains user-owned and system-untouchable (.bat extension outside the .ts-only scanner).
+
+---
+Task ID: loop-flag-collision-fix
+Agent: main (Z.ai Code)
+Task: User reported: "Check system its running. Maybe bug in it tho kind of frozen but not."
+
+Work Log:
+- Read dev.log tail. Symptom: the line "[SELF-ENHANCE] ⚠ Cycle already running, skipping / Waiting 8s before next cycle..." repeating forever, every cycle, with ZERO "Task claimed" lines. Web server and DB alive (status/push-target endpoints 200), but no task ever executed. User's "frozen but not" was exactly right: alive but doing zero work.
+- Root-caused in src/lib/pipeline/autonomous/self-enhance-loop.ts: a single `private running = false` field was overloaded for two unrelated purposes:
+    1. runCycle() line 230 used it as a per-CYCLE lock ("if already running, skip this cycle"; set true at 234; released in finally at 281).
+    2. runContinuous() line 290 used it as the keep-going signal for the outer loop (set true on entry, only false via stop()).
+  When runContinuous() started, it set running=true and never cleared it until stop(). So EVERY runCycle() call from line 292 hit the guard at line 230, saw running=true, and returned immediately. The loop logged "waiting 8s" forever between no-ops. No task was ever claimed.
+  Latent second layer: even if runCycle had been entered, its finally set running=false, which would have stopped the continuous loop after one cycle. Masked by layer 1.
+- Fix: split into two fields. `running` = keep-going signal for continuous mode (sole owner: runContinuous sets true on start, stop() sets false). `cycleInProgress` = per-cycle lock (sole owner: runCycle checks/sets/releases in finally). Added an explanatory comment so the next person (or the system itself reading its own source) understands why two flags. Bumped LOOP_VERSION 3->4 so the version-guarded singleton replaced the stale wedged instance on hot-reload (per the worklog's prior hard-won lesson about hot-reload staleness).
+- Note: self-enhance-loop.ts is a PROTECTED file (the gate refuses to let the autonomous loop modify it). This was a manual fix by the human-in-the-loop developer, not a self-enhancement. The protected-files gate correctly blocks the autonomous executor from touching this; the bug fix had to come from outside the loop. This is by design — the loop cannot rewrite its own control flow.
+- Lint clean. Hot-reload stopped the old wedged singleton (saw "Continuous loop stopped" in log). Hit POST /api/self-enhance/start to relaunch the new instance. Status after restart: running=true, queue 75 pending / 1 done / 1 skipped, inputMode=system-defined.
+- Verified loop now does REAL WORK each cycle: "Task claimed: [empty-catch] ... chat-task.ts:96" -> LLM 429 -> "Deferred" -> "Switching to deterministic-only" -> "LLM rate-limited and no deterministic tasks left — ending cycle" -> wait 8s -> repeat. tasksDeferred climbed 0->8 across ~8 cycles. Before the fix: zero tasks ever claimed. After: claims, probes, defers, cycles correctly.
+- Remaining state: all 75 pending tasks are LLM-required kinds (the single deterministic kind missing-return-type already completed as 9f77b9b). The LLM API is 429-throttled, so the loop is cycling but not producing commits until the rate limit clears. This is the documented "natural stop point" (DIRECTIONS.md, The Stop Point) — the API limit is the throttle. Not a bug.
+- Pushed the fix via scripts/push-now.ts. Commit c11f042. Verified: 0/0 sync, the fix is in the commit (self-enhance-loop.ts | 15 ++++++----), no token leak.
+
+Stage Summary:
+- BUG FIXED: flag collision in self-enhance-loop.ts that caused the continuous loop to skip every cycle and do zero work since the system-defined-input rebuild. Split `running` (keep-go signal) from `cycleInProgress` (cycle lock). Bumped LOOP_VERSION to 4 for clean singleton replacement.
+- This was the root cause of the user's "kind of frozen but not" — the loop was alive (polling, logging "waiting 8s") but never claimed or executed any task.
+- Loop is now actually running: claims tasks, probes the LLM, defers on 429, falls back to deterministic, cycles correctly. 75 LLM-required tasks pending; will drain when the 429 clears.
+- Important meta-note: this bug was INVISIBLE to the autonomous loop because (a) it was in a protected file the loop can't scan/fix, and (b) the loop's own success metric (typecheck pass) couldn't detect "I am doing zero work." This is exactly the signal problem DIRECTIONS.md flags — typecheck proves compilable, not working. A liveness signal ("at least one task claimed per N cycles") would have caught this immediately. Candidate future gate.
