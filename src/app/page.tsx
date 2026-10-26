@@ -128,12 +128,15 @@ export default function Home() {
     };
   }, []);
 
-  // Auto-scroll to bottom of log
+  // Auto-scroll to bottom of log when NEW COMMAND OUTPUT appears (terminalLines),
+  // not when server logs update (which would yank the view away from what the
+  // user just typed).
+  const terminalLineCount = terminalLines.length;
   useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
-  }, [status?.logs]);
+  }, [terminalLineCount]);
 
   // Focus input on click anywhere — but NOT while the config modal is open
   useEffect(() => {
@@ -655,7 +658,18 @@ export default function Home() {
           paddingRight: "4px",
         }}
       >
-        {/* Terminal lines (boot sequence + command output) */}
+        {/* Server logs (top — scrolling history of loop activity) */}
+        {logs.map((log, idx) => (
+          <div key={`log-${idx}`} style={{ color: COLOR_MAP[log.type], whiteSpace: "pre-wrap" }}>
+            <span style={{ color: DIM_COLOR }}>[{log.timestamp}]</span>{" "}
+            {log.message}
+          </div>
+        ))}
+
+        {/* Terminal lines (bottom — boot sequence + command output) */}
+        {/* Rendered AFTER logs so command output stays at the bottom and is
+            always visible after auto-scroll. New server logs push older
+            terminal lines up, but the latest command output stays visible. */}
         {terminalLines.map((line, idx) => (
           <div
             key={`term-${idx}`}
@@ -670,14 +684,6 @@ export default function Home() {
             }}
           >
             {line.type === "command" ? `> ${line.text}` : line.text || "\u00a0"}
-          </div>
-        ))}
-
-        {/* Server logs */}
-        {logs.map((log, idx) => (
-          <div key={`log-${idx}`} style={{ color: COLOR_MAP[log.type], whiteSpace: "pre-wrap" }}>
-            <span style={{ color: DIM_COLOR }}>[{log.timestamp}]</span>{" "}
-            {log.message}
           </div>
         ))}
       </div>
