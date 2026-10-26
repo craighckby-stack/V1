@@ -291,7 +291,8 @@ export async function executeCleanRoomEngine(
 
   const vfs = new ToolSandboxVFSEngine();
   const session = new SessionTreeTokenBudgetEngine();
-  const reactLoop = new ReactLoopEngine(5);
+  const MAX_DEFAULT_STEPS = 8;
+  const reactLoop = new ReactLoopEngine(MAX_DEFAULT_STEPS);
 
   const originalCode = options?.originalCode ?? "";
   const filePath = options?.filePath ?? "workspace/target.ts";
