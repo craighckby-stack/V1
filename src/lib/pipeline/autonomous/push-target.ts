@@ -264,21 +264,22 @@ export async function pushCurrentState(opts?: {
   try {
     // 0. Self-heal: ensure `origin` points at the configured repo
     const remoteUrl = `https://github.com/${target.repo}.git`;
+    const GIT_COMMAND_TIMEOUT = 5000;
     try {
       const current = execSync("git remote get-url origin", {
         cwd: PROJECT_ROOT,
         encoding: "utf-8",
-        timeout: 5000,
+        timeout: GIT_COMMAND_TIMEOUT,
         stdio: "pipe",
       }).trim();
       if (current !== remoteUrl) throw new Error("mismatch");
     } catch {
       try {
-        execSync("git remote remove origin", { cwd: PROJECT_ROOT, timeout: 5000, stdio: "pipe" });
+        execSync("git remote remove origin", { cwd: PROJECT_ROOT, timeout: GIT_COMMAND_TIMEOUT, stdio: "pipe" });
       } catch {
         // No origin to remove or failed to remove — non-critical
       }
-      execSync(`git remote add origin ${remoteUrl}`, { cwd: PROJECT_ROOT, timeout: 5000 });
+      execSync(`git remote add origin ${remoteUrl}`, { cwd: PROJECT_ROOT, timeout: GIT_COMMAND_TIMEOUT });
     }
 
     // 1. Commit if there are changes
@@ -286,7 +287,7 @@ export async function pushCurrentState(opts?: {
     const status = execSync("git status --porcelain", {
       cwd: PROJECT_ROOT,
       encoding: "utf-8",
-      timeout: 5000,
+      timeout: GIT_COMMAND_TIMEOUT,
     });
     if (status.trim()) {
       const message = (opts?.message ?? "Self-enhancement: current live state").replace(/"/g, '\\"').slice(0, 300);
@@ -303,7 +304,7 @@ export async function pushCurrentState(opts?: {
       commitSha = execSync("git rev-parse HEAD", {
         cwd: PROJECT_ROOT,
         encoding: "utf-8",
-        timeout: 5000,
+        timeout: GIT_COMMAND_TIMEOUT,
       }).trim().slice(0, 7);
     }
 
@@ -340,7 +341,7 @@ export async function pushCurrentState(opts?: {
     // 3. Success
     const headSha =
       commitSha ??
-      execSync("git rev-parse HEAD", { cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 5000 })
+      execSync("git rev-parse HEAD", { cwd: PROJECT_ROOT, encoding: "utf-8", timeout: GIT_COMMAND_TIMEOUT })
         .trim()
         .slice(0, 7);
     await record({ lastPushSha: headSha, lastPushError: null });
