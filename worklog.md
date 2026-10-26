@@ -547,3 +547,28 @@ Stage Summary:
 - Weaknesses: signal problem unsolved (typecheck proves compilable, not better), flagship chat mode never completed one full cycle (429-blocked), rate limit throttles pace not direction, token leak was a design consequence of automation+credentials, safety record is "clean so far" not "clean" (rea's 7,000 garbage commits)
 - Key insight: the constrained-mutation-with-audit framework is the asset; self-enhancement was just the first customer. Point it at tests (Direction 4) or a real repo (Direction 3) to make it a tool
 - Next milestones: (1) first full chat cycle once 429 clears, (2) then Direction 4's test-as-finish-line gate
+
+---
+Task ID: system-defined-input
+Agent: main (Z.ai Code)
+Task: Rebuild input layer — "the system must define its input, not user" (user's correction after chat mode failed)
+
+Work Log:
+- User verdict: chat mode (Direction 1) was wrong — it made the USER the input source, violating the core principle. Also it was dead in practice (LLM 429 on every propose).
+- Built self-task-generator.ts (THE INPUT LAYER): TS-AST static analysis of src/lib/pipeline (own source) → prioritized SelfTask queue in SQLite. Kinds: todo-comment (P1), empty-catch (P2), any-usage (P3), missing-return-type (P4, DETERMINISTIC), magic-number (P5), non-null-assertion (P6). Dedup via unique(kind,filePath,line). Works with ZERO LLM and ZERO user input.
+- Built task-executor.ts: two paths — deterministic (checker-inferred return types: ask the TS checker what the type IS, insert it textually) and LLM (focused single-issue prompt, whole-file output, brace-balance truncation guard, in-memory verify). 429 → defer (never burn a cycle).
+- Rewrote self-enhance-loop.ts: task-driven cycle — ensureQueue (rescan when empty = system re-defines input) → claim → execute → in-memory verify → write live → pushCurrentState (token-safe) → mark done/postmortem. After first LLM defer, switches to deterministic-only claiming so the loop keeps working through rate limits. User power = 'skip' veto only.
+- LOOP_VERSION-guarded singleton (hot-reload was serving a stale instance with old methods — root cause of "rescan is not a function").
+- Fixed critical gate bug: typecheck program included examples/ + skills/ reference folders with 3 pre-existing errors → EVERY fix was rejected. Scoped loadTsConfig + buildProgram to project code. This was likely why the old loop "wasn't working."
+- Fixed status bug: `no-op || !result.newCode` swallowed failed results into "done" (failed results carry no newCode) — now strictly no-op.
+- Terminal UI v4.4: removed chat-mode; free text → "INPUT IS SYSTEM-DEFINED: this system does not take goals from users"; new commands tasks/rescan/skip/trigger; header shows queue stats.
+- Verified end-to-end during live 429: rescan → 77 findings queued → cycle → empty-catch DEFERRED (429) → deterministic task claimed → checker inferred Promise<void> → in-memory verified → written live → PUSHED to GitHub (9f77b9b). Zero LLM calls for the fix.
+- Browser-verified: boot screen, tasks command renders queue with P/method tags, free text rejected with explanation, skip veto works, no console errors.
+- "[m" character-eating mystery solved: the tool display layer interprets [m as ANSI reset — data was correct everywhere all along (hex-verified).
+- Pushed v4.4 rebuild (42ca801). Continuous loop running.
+
+Stage Summary:
+- The system now DEFINES ITS OWN INPUT: static self-scan → persistent task queue → autonomous execution. No user goals, no LLM needed to define work.
+- Proven working during a live rate limit: one deterministic self-enhancement completed and pushed with zero LLM calls.
+- 75 self-defined tasks pending; the loop probes the 429 once per cycle and will drain the LLM queue automatically when it clears.
+- Root causes of "not working" found and fixed: (1) user-as-input architecture removed, (2) typecheck gate poisoned by reference-folder errors, (3) hot-reload singleton staleness, (4) failed-swallowed-as-done status bug.
