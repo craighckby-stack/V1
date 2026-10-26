@@ -12,6 +12,9 @@ const SECURITY_THRESHOLD = 96;
 const AGENT_THRESHOLD = 94;
 const DEFAULT_THRESHOLD = 92;
 
+const SECURITY_KEYWORDS = ["crypto", "auth", "token", "key"];
+const AGENT_KEYWORDS = ["agent", "loop", "engine", "prompt"];
+
 export const SIPHON_SOURCES: readonly SiphonSource[] = [
   {
     id: "pattern-optimizer-helper",
@@ -95,26 +98,19 @@ export interface ArchitecturalVote {
   recommendedPattern: string;
 }
 
+function containsKeyword(text: string, keywords: string[]): boolean {
+  const lowerText = text.toLowerCase();
+  return keywords.some(keyword => lowerText.includes(keyword));
+}
+
 function isSecurityRelated(fileName: string, codeSnippet: string): boolean {
-  const lowerName = fileName.toLowerCase();
-  const lowerSnippet = codeSnippet.toLowerCase();
-  
-  const securityKeywords = ["crypto", "auth", "token", "key"];
-  
-  return securityKeywords.some(keyword => 
-    lowerName.includes(keyword) || lowerSnippet.includes(keyword)
-  );
+  return containsKeyword(fileName, SECURITY_KEYWORDS) || 
+         containsKeyword(codeSnippet, SECURITY_KEYWORDS);
 }
 
 function isAgentRelated(fileName: string, codeSnippet: string): boolean {
-  const lowerName = fileName.toLowerCase();
-  const lowerSnippet = codeSnippet.toLowerCase();
-  
-  const agentKeywords = ["agent", "loop", "engine", "prompt"];
-  
-  return agentKeywords.some(keyword => 
-    lowerName.includes(keyword) || lowerSnippet.includes(keyword)
-  );
+  return containsKeyword(fileName, AGENT_KEYWORDS) || 
+         containsKeyword(codeSnippet, AGENT_KEYWORDS);
 }
 
 export function performArchitecturalVote(fileName: string, codeSnippet: string): ArchitecturalVote {
