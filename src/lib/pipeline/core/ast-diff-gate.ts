@@ -373,7 +373,8 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
   const cleanProp = stripSyntheticDecorations(proposedCode);
   const origLen = cleanOrig.length || originalCode.length;
   const propLen = cleanProp.length || proposedCode.length;
-  const lengthRatio = origLen === 0 ? 0 : Math.abs(propLen - origLen) / Math.max(origLen, 400);
+  const LENGTH_THRESHOLD = 400;
+  const lengthRatio = origLen === 0 ? 0 : Math.abs(propLen - origLen) / Math.max(origLen, LENGTH_THRESHOLD);
 
   let driftRatio = lengthRatio;
   if (originalSymbols.length > 0) {
