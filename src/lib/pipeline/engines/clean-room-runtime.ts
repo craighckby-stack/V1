@@ -191,6 +191,7 @@ export class SessionTreeTokenBudgetEngine {
   private readonly tokenCap: number;
 
   constructor(tokenCap = 8192) {
+    const DEFAULT_TOKEN_CAP = 8192;
     this.tokenCap = tokenCap;
   }
 
