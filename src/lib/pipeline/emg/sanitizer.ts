@@ -40,7 +40,7 @@ export function calculateShannonEntropy(str: string): number {
   if (!str || str.length === 0) return 0;
   const frequencies = new Map<string, number>();
   for (let i = 0; i < str.length; i++) {
-    const char = str[i]!;
+    const char = str[i];
     frequencies.set(char, (frequencies.get(char) || 0) + 1);
   }
   let entropy = 0;
