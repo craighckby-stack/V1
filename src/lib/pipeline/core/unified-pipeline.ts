@@ -14,7 +14,7 @@ import { SIPHON_SOURCES, performArchitecturalVote, ArchitecturalVote } from "./s
 import { sanitizeAndGovern, SecuritySanitizerResult } from "../emg/sanitizer";
 import { executeCleanRoomEngine, EngineExecutionResult } from "../engines/clean-room-runtime";
 import { evaluateAstDiff, AstDiffResult } from "./ast-diff-gate";
-import { conductDebate, DebateVerdict } from "../emg/debate";
+import { DebateVerdict } from "../emg/debate";
 import { conductLlmDebate } from "../llm/debate-llm";
 import { SelfStoppingGovernor, HaltEvaluationState } from "../emg/halt";
 import { emgRagInstance } from "../emg/emg-rag";
