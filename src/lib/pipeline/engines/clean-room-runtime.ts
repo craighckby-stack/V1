@@ -1,21 +1,3 @@
-/**
- * 5-Pillar Modular Agent Runtime Helper (server-safe, LLM-driven)
- *
- *   1. Lifecycle Kernel
- *   2. ReAct Loop Engine — calls the real LLM at each step (z-ai-web-dev-sdk)
- *   3. Unified Model Stream Adapter
- *   4. Tool Sandbox VFS Engine
- *   5. Non-Linear Session Tree & Token Budget Engine
- *
- * The ReAct loop now asks the LLM to (a) inspect the target file in the VFS
- * sandbox, (b) propose a refactoring plan, (c) produce the refactored code.
- * The final answer is the LLM-proposed evolved code, which is then verified
- * by the AST diff gate.
- *
- * If the LLM is unavailable, the loop degrades to a deterministic stub so
- * the pipeline still completes (and downstream gates will catch any drift).
- */
-
 import { llmComplete, extractCodeBlock } from "../llm/agent-llm";
 
 export type LifecycleState =
@@ -272,6 +254,10 @@ const PLAN_SYSTEM = `You are the planning step inside a bounded ReAct agent loop
 
 const REFACTOR_SYSTEM = `You are the execution step inside a bounded ReAct agent loop. You receive a refactor plan and the original code. Output ONLY the refactored code in a single fenced code block. Preserve every public symbol name exactly. Apply the plan faithfully without changing public API.`;
 
+const MAX_CODE_LENGTH = 6000;
+const MAX_FALLBACK_PLAN_LENGTH = 240;
+const DEFAULT_MAX_STEPS = 5;
+
 /**
  * Real LLM-driven clean-room engine. Step 1 plans, step 2 produces the
  * refactored code, step 3 is terminal. The refactored code is returned as
@@ -291,7 +277,7 @@ export async function executeCleanRoomEngine(
 
   const vfs = new ToolSandboxVFSEngine();
   const session = new SessionTreeTokenBudgetEngine();
-  const reactLoop = new ReactLoopEngine(5);
+  const reactLoop = new ReactLoopEngine(DEFAULT_MAX_STEPS);
 
   const originalCode = options?.originalCode ?? "";
   const filePath = options?.filePath ?? "workspace/target.ts";
@@ -311,7 +297,7 @@ export async function executeCleanRoomEngine(
 
 File contents:
 \`\`\`
-${originalCode.slice(0, 6000)}${originalCode.length > 6000 ? "\n// ... (truncated)" : ""}
+${originalCode.slice(0, MAX_CODE_LENGTH)}${originalCode.length > MAX_CODE_LENGTH ? "\n// ... (truncated)" : ""}
 \`\`\`
 
 Output a 3-5 bullet refactor plan only.`;
@@ -329,7 +315,7 @@ Output a 3-5 bullet refactor plan only.`;
           thought: `[Pillar 1/2] Inspected ${filePath} in VFS sandbox (${originalCode.length} bytes). Asked LLM for a refactor plan.`,
           actionName: "plan",
           actionPayload: { filePath },
-          observation: planRes.content.slice(0, 240),
+          observation: planRes.content.slice(0, MAX_FALLBACK_PLAN_LENGTH),
           isTerminal: false,
           llmUsed: true,
           llmLatencyMs: planRes.latencyMs,
@@ -364,7 +350,7 @@ ${postmortemBlock}
 
 Original code (\`${lang}\`):
 \`\`\`${lang}
-${originalCode.slice(0, 6000)}${originalCode.length > 6000 ? "\n// ... (truncated)" : ""}
+${originalCode.slice(0, MAX_CODE_LENGTH)}${originalCode.length > MAX_CODE_LENGTH ? "\n// ... (truncated)" : ""}
 \`\`\`
 
 Output ONLY the refactored code in a single \`\`\`${lang} fenced block. Preserve every public symbol name exactly.`;
