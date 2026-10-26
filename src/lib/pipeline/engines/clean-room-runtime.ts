@@ -309,6 +309,7 @@ export async function executeCleanRoomEngine(
 
   const CODE_TRUNCATION_LIMIT = 6000;
   const REFACTOR_TEMPERATURE = 0.2;
+  const OBSERVATION_TRUNCATION_LIMIT = 240;
   let proposedEvolvedCode = "";
   let llmUsed = false;
   let llmTotalLatencyMs = 0;
@@ -339,7 +340,7 @@ Output a 3-5 bullet refactor plan only.`;
           thought: `[Pillar 1/2] Inspected ${filePath} in VFS sandbox (${originalCode.length} bytes). Asked LLM for a refactor plan.`,
           actionName: "plan",
           actionPayload: { filePath },
-          observation: planRes.content.slice(0, 240),
+          observation: planRes.content.slice(0, OBSERVATION_TRUNCATION_LIMIT),
           isTerminal: false,
           llmUsed: true,
           llmLatencyMs: planRes.latencyMs,
