@@ -314,8 +314,9 @@ class EmgRagMemory {
       )
     );
 
+    const FAILURE_SCORE_THRESHOLD = 0.05;
     let ruling = "EPISTEMIC_HARMONY: Mutation aligns with validated clean-room patterns.";
-    if (maxFailureScore > maxFixScore && maxFailureScore > 0.05) {
+    if (maxFailureScore > maxFixScore && maxFailureScore > FAILURE_SCORE_THRESHOLD) {
       ruling = "COGNITIVE_FRICTION_ELEVATED: Known failure patterns dominate the query signal.";
     } else if (friction > 0.6) {
       ruling = "CONTRADICTION_UNRESOLVED: Conflicting architectural constraints detected.";
