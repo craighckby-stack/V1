@@ -138,7 +138,8 @@ export class SelfStoppingGovernor {
 
   public setMaxCycles(max: number): void {
     if (typeof max === "number" && max > 0) {
-      this.maxCycles = Math.min(1000, max);
+      const MAX_CYCLES_HARD_LIMIT = 1000;
+      this.maxCycles = Math.min(MAX_CYCLES_HARD_LIMIT, max);
     }
   }
 
