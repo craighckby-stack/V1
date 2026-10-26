@@ -297,7 +297,7 @@ export async function pushCurrentState(opts?: {
       try {
         execSync(`git commit -F ${msgFile}`, { cwd: PROJECT_ROOT, timeout: 10000, stdio: "pipe" });
       } finally {
-        try { unlinkSync(msgFile); } catch { /* ignore temp file cleanup */ }
+        try { unlinkSync(msgFile); } catch { /* ignore temp file cleanup error */ }
       }
       commitSha = execSync("git rev-parse HEAD", {
         cwd: PROJECT_ROOT,
