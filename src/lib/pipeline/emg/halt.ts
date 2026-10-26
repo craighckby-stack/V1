@@ -51,8 +51,9 @@ export class SelfStoppingGovernor {
     const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
     const raw = sorted.map(f => `${f.path}:${f.sha ?? f.size ?? 0}`).join("|");
     let hash = 0;
+    const HASH_MULTIPLIER = 5;
     for (let i = 0; i < raw.length; i++) {
-      hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
+      hash = ((hash << HASH_MULTIPLIER) - hash + raw.charCodeAt(i)) | 0;
     }
     return "tree_fp_" + Math.abs(hash).toString(16);
   }
