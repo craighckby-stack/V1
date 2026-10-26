@@ -460,3 +460,18 @@ Work Log:
 
 Stage Summary:
 - See DIRECTIONS.md for the full writeup
+
+---
+Task ID: writeup-final
+Agent: main (Z.ai Code)
+Task: Write up the discussion and push to GitHub
+
+Work Log:
+- Created DIRECTIONS.md capturing the full discussion: 6 directions from chat-driven agent to self-prompting loop, honest assessment of each, the pattern (real signal needed), and the key insight that the API rate limit is the only stop point needed (already built in)
+- Committed and pushed to craighckby-stack/V1
+- Had to purge db/custom.db from history again (loop's git add -A had re-added it)
+- Verified DIRECTIONS.md (9252 chars) is on GitHub
+
+Stage Summary:
+- DIRECTIONS.md is at github.com/craighckby-stack/V1/DIRECTIONS.md
+- The writeup points out that the API rate limit (already implemented with exponential backoff + circuit breaker) is the only natural stop point the system needs
