@@ -1,6 +1,0 @@
-{
-  "/api/self-enhance/push-target/route": "app/api/self-enhance/push-target/route.js",
-  "/api/self-enhance/start/route": "app/api/self-enhance/start/route.js",
-  "/api/self-enhance/status/route": "app/api/self-enhance/status/route.js",
-  "/page": "app/page.js"
-}
