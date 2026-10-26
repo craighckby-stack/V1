@@ -1,8 +1,3 @@
-/**
- * Architecture Template & Pattern Helper (siphon)
- * Curated architectural templates & pattern sources for the pipeline.
- */
-
 export interface SiphonSource {
   readonly id: string;
   readonly owner: string;
@@ -12,6 +7,10 @@ export interface SiphonSource {
   readonly category: "neural" | "orchestration" | "verification" | "runtime" | "cryptography";
   readonly patterns: string[];
 }
+
+const SECURITY_THRESHOLD = 96;
+const AGENT_THRESHOLD = 94;
+const DEFAULT_THRESHOLD = 92;
 
 export const SIPHON_SOURCES: readonly SiphonSource[] = [
   {
@@ -100,30 +99,32 @@ export function performArchitecturalVote(fileName: string, codeSnippet: string):
   const lowerName = fileName.toLowerCase();
   const lowerSnippet = codeSnippet.toLowerCase();
 
-  if (
+  const isSecurityRelated = 
     lowerName.includes("crypto") ||
     lowerName.includes("auth") ||
     lowerName.includes("token") ||
-    lowerSnippet.includes("key")
-  ) {
+    lowerSnippet.includes("key");
+
+  const isAgentRelated = 
+    lowerName.includes("agent") ||
+    lowerName.includes("loop") ||
+    lowerName.includes("engine") ||
+    lowerSnippet.includes("prompt");
+
+  if (isSecurityRelated) {
     return {
       source: SIPHON_SOURCES[1],
-      score: 96,
+      score: SECURITY_THRESHOLD,
       rationale:
         "Handles sensitive keys and security credentials; applied Shannon entropy sanitization and memory isolation.",
       recommendedPattern: "Shannon Entropy Secret Sanitizer",
     };
   }
 
-  if (
-    lowerName.includes("agent") ||
-    lowerName.includes("loop") ||
-    lowerName.includes("engine") ||
-    lowerSnippet.includes("prompt")
-  ) {
+  if (isAgentRelated) {
     return {
       source: SIPHON_SOURCES[2],
-      score: 94,
+      score: AGENT_THRESHOLD,
       rationale:
         "Implements execution cycles or agent workflows; mapped to 5-Pillar Modular Agent Architecture.",
       recommendedPattern: "Bounded ReAct Reasoning Loop & VFS Sandbox",
@@ -132,7 +133,7 @@ export function performArchitecturalVote(fileName: string, codeSnippet: string):
 
   return {
     source: SIPHON_SOURCES[0],
-    score: 92,
+    score: DEFAULT_THRESHOLD,
     rationale: "Standard code refactoring and AST verification baseline.",
     recommendedPattern: "AST Diff Gate Verification & Type Safety",
   };
