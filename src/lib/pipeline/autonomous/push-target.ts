@@ -366,3 +366,4 @@ export async function pushCurrentState(opts?: {
 
 const FORBIDDEN_STATUS = 403;
 const UNPROCESSABLE_ENTITY_STATUS = 422;
+const MAX_ERROR_LENGTH = 300;
