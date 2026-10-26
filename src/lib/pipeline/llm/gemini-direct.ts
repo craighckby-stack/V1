@@ -83,6 +83,7 @@ export async function geminiComplete(opts: {
   }
 
   const LOCATION_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+  const MAX_ERROR_LENGTH = 160;
 
   // SHORT-CIRCUIT for location-blocked keys: if the last call failed with a
   // location/region error, don't hammer Google again every cycle — it will
@@ -129,7 +130,7 @@ export async function geminiComplete(opts: {
       }
       const friendlyError = /location/i.test(errText)
         ? `Gemini location not supported (key is valid; cool-down 10min — will work from a supported region)`
-        : `Gemini ${res.status}: ${errText.slice(0, 160)}`;
+        : `Gemini ${res.status}: ${errText.slice(0, MAX_ERROR_LENGTH)}`;
       // Record the error for the UI but don't fail the whole call chain
       await db.llmConfig
         .update({
