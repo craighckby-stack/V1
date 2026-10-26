@@ -1,12 +1,3 @@
-/**
- * BinaryShield Cryptographic Helper Engine (server-safe)
- *
- * Node-native implementation using the built-in `crypto` module. The original
- * project relied on `window.crypto.subtle`; in the Next.js server runtime we
- * use `crypto.createHash` (SHA-256) and `crypto.randomBytes` (IV) so the
- * pipeline can run inside API routes and the autonomous loop service.
- */
-
 import { createHash, randomBytes, createCipheriv, createDecipheriv } from "crypto";
 
 export interface EncryptionPacket {
@@ -21,19 +12,24 @@ export interface DecryptionPacket {
   readonly iv: string;
 }
 
-const ALGO = "aes-256-gcm";
+const ALGORITHM = "aes-256-gcm";
 const SECRET_SEED = process.env.BINARY_SHIELD_SEED ?? "HELPER_SECURITY_KEY_2026";
+const KEY_DERIVATION_ALGORITHM = "sha256";
+const HASH_ALGORITHM = "sha256";
+const IV_LENGTH = 12;
+const AUTH_TAG_LENGTH = 16;
+const ALGORITHM_NAME = "AES-GCM-256";
 
 function getKeyBuffer(): Buffer {
   // Derive a 32-byte key from the seed using SHA-256.
-  return createHash("sha256").update(SECRET_SEED).digest();
+  return createHash(KEY_DERIVATION_ALGORITHM).update(SECRET_SEED).digest();
 }
 
 export class BinaryShield {
   public async encrypt(plainText: string): Promise<EncryptionPacket> {
     const key = getKeyBuffer();
-    const iv = randomBytes(12);
-    const cipher = createCipheriv(ALGO, key, iv);
+    const iv = randomBytes(IV_LENGTH);
+    const cipher = createCipheriv(ALGORITHM, key, iv);
     const enc = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
     const tag = cipher.getAuthTag();
     // Pack the GCM tag with the ciphertext so decryption can verify it.
@@ -42,7 +38,7 @@ export class BinaryShield {
       data: combined.toString("base64"),
       iv: iv.toString("base64"),
       timestamp: Date.now(),
-      algorithm: "AES-GCM-256",
+      algorithm: ALGORITHM_NAME,
     };
   }
 
@@ -50,17 +46,21 @@ export class BinaryShield {
     const key = getKeyBuffer();
     const iv = Buffer.from(packet.iv, "base64");
     const combined = Buffer.from(packet.data, "base64");
-    if (combined.length < 16) throw new Error("Ciphertext too short");
-    const tag = combined.subarray(combined.length - 16);
-    const enc = combined.subarray(0, combined.length - 16);
-    const decipher = createDecipheriv(ALGO, key, iv);
+    
+    if (combined.length < AUTH_TAG_LENGTH) {
+      throw new Error("Ciphertext too short");
+    }
+    
+    const tag = combined.subarray(combined.length - AUTH_TAG_LENGTH);
+    const enc = combined.subarray(0, combined.length - AUTH_TAG_LENGTH);
+    const decipher = createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(tag);
     const dec = Buffer.concat([decipher.update(enc), decipher.final()]);
     return dec.toString("utf8");
   }
 
   public async computeHash(data: string): Promise<string> {
-    return createHash("sha256").update(data).digest("hex");
+    return createHash(HASH_ALGORITHM).update(data).digest("hex");
   }
 }
 
