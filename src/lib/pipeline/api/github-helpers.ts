@@ -5,6 +5,16 @@
  * Server-only — never import from client components.
  */
 
+const MIN_TOKEN_LENGTH = 8;
+const USER_AGENT = "Architecture-Helper-Pipeline";
+const API_ACCEPT_HEADER = "application/vnd.github.v3+json";
+
+const INVALID_TOKEN_PREFIXES = ["MY_"] as const;
+const INVALID_TOKEN_VALUES = ["undefined", "[REDACTED]"] as const;
+
+type InvalidTokenPrefix = typeof INVALID_TOKEN_PREFIXES[number];
+type InvalidTokenValue = typeof INVALID_TOKEN_VALUES[number];
+
 /**
  * Resolve a usable GitHub token from a client-supplied value, falling back
  * to the GITHUB_TOKEN environment variable. Rejects obviously invalid
@@ -12,16 +22,23 @@
  */
 export function getUsableToken(clientToken?: string): string | null {
   const candidate = (clientToken ?? process.env.GITHUB_TOKEN ?? "").trim();
+  
   if (
     !candidate ||
-    candidate.startsWith("MY_") ||
-    candidate === "undefined" ||
-    candidate === "[REDACTED]" ||
-    candidate.length < 8
+    candidate.length < MIN_TOKEN_LENGTH ||
+    isInvalidToken(candidate)
   ) {
     return null;
   }
+  
   return candidate;
+}
+
+function isInvalidToken(token: string): boolean {
+  return (
+    INVALID_TOKEN_PREFIXES.some(prefix => token.startsWith(prefix)) ||
+    INVALID_TOKEN_VALUES.includes(token as InvalidTokenValue)
+  );
 }
 
 /**
@@ -30,11 +47,13 @@ export function getUsableToken(clientToken?: string): string | null {
  */
 export function githubHeaders(token: string | null): Record<string, string> {
   const headers: Record<string, string> = {
-    "User-Agent": "Architecture-Helper-Pipeline",
-    Accept: "application/vnd.github.v3+json",
+    "User-Agent": USER_AGENT,
+    Accept: API_ACCEPT_HEADER,
   };
+  
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
+  
   return headers;
 }
