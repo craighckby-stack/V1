@@ -47,7 +47,14 @@ export interface SelfEnhanceResult {
 }
 
 class SelfEnhanceLoop {
+  // `running` is the keep-going signal for continuous mode (set true on
+  // start, set false by stop()). `cycleInProgress` is the per-cycle lock
+  // (set true at cycle start, released in runCycle's finally). They MUST
+  // be separate fields — sharing one flag caused the loop to skip every
+  // cycle because runContinuous set `running=true` on entry, so runCycle's
+  // guard saw "already running" forever and did zero work.
   private running = false;
+  private cycleInProgress = false;
   private currentTask: { kind: string; filePath: string; line: number } | null = null;
   private stats = {
     tasksGenerated: 0,
@@ -227,11 +234,11 @@ class SelfEnhanceLoop {
     results: SelfEnhanceResult[];
     queueEmpty: boolean;
   }> {
-    if (this.running) {
+    if (this.cycleInProgress) {
       this.log("Cycle already running, skipping", "warn");
       return { processed: 0, results: [], queueEmpty: false };
     }
-    this.running = true;
+    this.cycleInProgress = true;
 
     try {
       const results: SelfEnhanceResult[] = [];
@@ -278,7 +285,7 @@ class SelfEnhanceLoop {
 
       return { processed: results.length, results, queueEmpty: results.length === 0 };
     } finally {
-      this.running = false;
+      this.cycleInProgress = false;
       this.currentTask = null;
     }
   }
@@ -344,7 +351,7 @@ class SelfEnhanceLoop {
 
 // Singleton — version-guarded so hot-reloads replace instances whose class
 // shape changed (otherwise globalThis caches a stale instance missing new methods)
-const LOOP_VERSION = 3;
+const LOOP_VERSION = 4;
 const globalForSelfEnhance = globalThis as unknown as {
   __selfEnhanceLoop?: SelfEnhanceLoop;
   __selfEnhanceLoopVersion?: number;
