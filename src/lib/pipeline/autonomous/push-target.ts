@@ -122,7 +122,8 @@ export async function setPushTarget(opts: {
 
   // 1. Verify the token
   const userRes = await ghFetch("/user", token);
-  if (userRes.status === 401) {
+  const UNAUTHORIZED_STATUS = 401;
+  if (userRes.status === UNAUTHORIZED_STATUS) {
     throw new Error("Token rejected by GitHub (401) — check it's a valid, non-expired PAT");
   }
   if (!userRes.ok) {
