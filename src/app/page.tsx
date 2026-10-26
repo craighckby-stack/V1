@@ -41,6 +41,8 @@ interface SelfEnhanceStatus {
     totalPushed: number;
     lastEnhancementAt: string | null;
     startedAt: string | null;
+    cyclesSinceClaim: number;
+    lastClaimAt: string | null;
   };
   logs: LogEntry[];
   currentTask: { kind: string; filePath: string; line: number } | null;
@@ -435,6 +437,7 @@ export default function Home() {
           `Deferred (429):  ${s.stats.tasksDeferred}`,
           `Pushes to git:   ${s.stats.totalPushed}`,
           `Last fix:        ${s.stats.lastEnhancementAt ?? "never"}`,
+          `Liveness:        ${s.stats.cyclesSinceClaim ?? 0} idle cycle(s) since last claim (${s.stats.lastClaimAt ?? "never"})${(s.stats.cyclesSinceClaim ?? 0) >= 5 ? " — WARN: possible stall" : ""}`,
         ];
       }
 

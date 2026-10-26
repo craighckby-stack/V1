@@ -328,7 +328,12 @@ export async function listTasks(status?: string, limit = 30) {
   });
 }
 
-/** Pull the next pending task (priority, then oldest). Marks it in_progress.
+/** Pull the next pending task. Ordering: priority asc, then `deferred` asc,
+ * then createdAt asc. The `deferred` ordering is the DEFER-ROTATION fix:
+ * when a task is deferred (LLM 429), its `deferred` counter increments and
+ * it sinks to the BACK of its priority bucket. Next cycle, a fresh task
+ * with `deferred: 0` wins instead — the loop rotates through the queue
+ * rather than hammering the same task against the same 429 every cycle.
  * `onlyDeterministic` restricts claiming to checker-inferred fix kinds — used
  * when the LLM is rate-limited so the loop still has executable work. */
 export async function claimNextTask(onlyDeterministic = false) {
@@ -336,7 +341,7 @@ export async function claimNextTask(onlyDeterministic = false) {
     where: onlyDeterministic
       ? { status: "pending", kind: "missing-return-type" }
       : { status: "pending" },
-    orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
+    orderBy: [{ priority: "asc" }, { deferred: "asc" }, { createdAt: "asc" }],
   });
   if (!next) return null;
   return db.selfTask.update({

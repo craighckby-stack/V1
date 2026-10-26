@@ -56,6 +56,15 @@ class SelfEnhanceLoop {
   private running = false;
   private cycleInProgress = false;
   private currentTask: { kind: string; filePath: string; line: number } | null = null;
+  // LIVENESS SIGNAL — the loop's own health check. The flag-collision bug
+  // (fixed) was invisible for the entire post-rebuild period because the
+  // loop's only gate (typecheck) cannot detect "I am doing zero work."
+  // These counters track claimed-task frequency. If cyclesSinceClaim
+  // crosses LIVENESS_WARN_THRESHOLD while the loop is "running", we log a
+  // loud error — the system is alive but not producing. This is the
+  // candidate future gate from the worklog (Task ID: loop-flag-collision-fix).
+  private cyclesSinceClaim = 0;
+  private lastClaimAt: string | null = null;
   private stats = {
     tasksGenerated: 0,
     tasksDone: 0,
@@ -65,6 +74,8 @@ class SelfEnhanceLoop {
     totalPushed: 0,
     lastEnhancementAt: null as string | null,
     startedAt: null as string | null,
+    cyclesSinceClaim: 0,
+    lastClaimAt: null as string | null,
   };
   private logs: Array<{
     timestamp: string;
@@ -124,6 +135,11 @@ class SelfEnhanceLoop {
 
     this.currentTask = { kind: task.kind, filePath: task.filePath, line: task.line };
     this.log(`Task claimed: [${task.kind}] ${task.filePath}:${task.line} — "${task.evidence.slice(0, 60)}"`, "info");
+    // LIVENESS: a task was claimed — reset the idle counter.
+    this.cyclesSinceClaim = 0;
+    this.lastClaimAt = new Date().toISOString();
+    this.stats.lastClaimAt = this.lastClaimAt;
+    this.stats.cyclesSinceClaim = 0;
 
     const base = {
       taskId: task.id,
@@ -240,6 +256,11 @@ class SelfEnhanceLoop {
     }
     this.cycleInProgress = true;
 
+    // Hoisted out of `try` so the `finally` block can read it — `let` inside
+    // try is not visible to finally (separate scope). This counter drives
+    // the liveness signal in the finally below.
+    let claimedThisCycle = 0;
+
     try {
       const results: SelfEnhanceResult[] = [];
       let applied = 0;
@@ -267,6 +288,7 @@ class SelfEnhanceLoop {
 
         const result = await this.processOneTask(llmDeferred);
         if (result.status === "none") break;
+        if (result.status !== "deferred") claimedThisCycle++;
         results.push(result);
 
         if (result.status === "deferred") {
@@ -287,6 +309,23 @@ class SelfEnhanceLoop {
     } finally {
       this.cycleInProgress = false;
       this.currentTask = null;
+      // LIVENESS: if this cycle claimed no tasks, bump the idle counter.
+      // A long enough streak with the loop "running" but never claiming is
+      // the exact failure mode the flag-collision bug caused — silent zero
+      // work. The warn makes it loud instead of invisible.
+      if (claimedThisCycle === 0) {
+        this.cyclesSinceClaim++;
+        this.stats.cyclesSinceClaim = this.cyclesSinceClaim;
+        const THRESHOLD = 5; // ~5 idle cycles = ~40s+ of no claims
+        if (this.cyclesSinceClaim === THRESHOLD) {
+          this.log(
+            `LIVENESS WARN: ${this.cyclesSinceClaim} cycles with no task claimed. Loop is "running" but doing zero work — possible stall. Check protected-file logic, defer rotation, or queue state.`,
+            "error"
+          );
+        } else if (this.cyclesSinceClaim > THRESHOLD && this.cyclesSinceClaim % 10 === 0) {
+          this.log(`LIVENESS: still no claims after ${this.cyclesSinceClaim} cycles (last claim: ${this.lastClaimAt ?? "never"})`, "warn");
+        }
+      }
     }
   }
 
@@ -336,11 +375,13 @@ class SelfEnhanceLoop {
     return scan;
   }
 
-  /** Skip the next pending task (the one user veto available on system input). */
+  /** Skip the next pending task (the one user veto available on system input).
+   * Uses the same defer-rotation ordering as claimNextTask so the veto
+   * targets the same task the loop would have claimed next. */
   async skipNext(): Promise<{ skipped: boolean; kind?: string; filePath?: string; line?: number }> {
     const next = await db.selfTask.findFirst({
       where: { status: "pending" },
-      orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
+      orderBy: [{ priority: "asc" }, { deferred: "asc" }, { createdAt: "asc" }],
     });
     if (!next) return { skipped: false };
     await this.updateTask(next.id, { status: "skipped", lastError: "user veto" });
@@ -351,7 +392,7 @@ class SelfEnhanceLoop {
 
 // Singleton — version-guarded so hot-reloads replace instances whose class
 // shape changed (otherwise globalThis caches a stale instance missing new methods)
-const LOOP_VERSION = 4;
+const LOOP_VERSION = 5;
 const globalForSelfEnhance = globalThis as unknown as {
   __selfEnhanceLoop?: SelfEnhanceLoop;
   __selfEnhanceLoopVersion?: number;
