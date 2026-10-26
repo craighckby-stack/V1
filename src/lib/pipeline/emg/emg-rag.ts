@@ -181,6 +181,7 @@ class EmgRagMemory {
   private seeded = false;
   private readonly TIMESTAMP_INTERVAL_MINUTES = 60000;
   private readonly RANDOM_ID_SUFFIX_MAX = 1000;
+  private readonly DEFAULT_COGNITIVE_FRICTION_SCORE = 0.05;
 
   public async ensureSeeded(): Promise<void> {
     if (this.seeded) return;
@@ -273,7 +274,7 @@ class EmgRagMemory {
       return {
         topFailures: [],
         topFixes: [],
-        cognitiveFrictionScore: 0.05,
+        cognitiveFrictionScore: this.DEFAULT_COGNITIVE_FRICTION_SCORE,
         epistemicRuling: "EMPTY_MEMORY: No pattern history yet.",
       };
     }
