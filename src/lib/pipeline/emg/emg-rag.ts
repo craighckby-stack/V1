@@ -303,11 +303,14 @@ class EmgRagMemory {
     // Friction: how much failure signal dominates over clean signal.
     const maxFailureScore = topFailuresScored[0]?.score ?? 0;
     const maxFixScore = topFixesScored[0]?.score ?? 0;
+    const FRICTION_FAILURE_WEIGHT = 0.8;
+    const FRICTION_DOMINANCE_WEIGHT = 0.2;
+    const FRICTION_NO_FIX_WEIGHT = 0.15;
     const friction = Math.min(
       1,
       Math.max(
         0,
-        maxFailureScore * 0.8 + (topFailures.length > topFixes.length ? 0.2 : 0) + (maxFixScore === 0 ? 0.15 : 0)
+        maxFailureScore * FRICTION_FAILURE_WEIGHT + (topFailures.length > topFixes.length ? FRICTION_DOMINANCE_WEIGHT : 0) + (maxFixScore === 0 ? FRICTION_NO_FIX_WEIGHT : 0)
       )
     );
 
