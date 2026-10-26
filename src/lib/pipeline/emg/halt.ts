@@ -55,7 +55,8 @@ export class SelfStoppingGovernor {
     for (let i = 0; i < raw.length; i++) {
       hash = ((hash << HASH_MULTIPLIER) - hash + raw.charCodeAt(i)) | 0;
     }
-    return "tree_fp_" + Math.abs(hash).toString(16);
+    const HASH_RADIX = 16;
+    return "tree_fp_" + Math.abs(hash).toString(HASH_RADIX);
   }
 
   public checkTreeSaturation(currentTreeFingerprint: string): HaltEvaluationState | null {
