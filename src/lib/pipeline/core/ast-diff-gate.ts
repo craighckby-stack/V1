@@ -383,10 +383,11 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
   }
   
   const MAX_DRIFT_THRESHOLD = 0.65;
+  const PERCENTAGE_MULTIPLIER = 100;
   if (driftRatio > MAX_DRIFT_THRESHOLD) {
     violations.push({
       code: "AST_STRUCTURAL_DRIFT",
-      message: `Structural drift exceeds safe threshold (${Math.round(driftRatio * 100)}%)`,
+      message: `Structural drift exceeds safe threshold (${Math.round(driftRatio * PERCENTAGE_MULTIPLIER)}%)`,
       severity: "high",
     });
   }
