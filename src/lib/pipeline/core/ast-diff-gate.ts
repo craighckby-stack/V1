@@ -1,17 +1,3 @@
-/**
- * AST Verification & Syntax Gate Helper (real AST)
- *
- * Uses the TypeScript Compiler API (`ts.createSourceFile`) to parse both
- * the original and proposed code into proper ASTs and walk them. This
- * catches nested function scopes, arrow functions, re-exports, methods,
- * enum members, and namespace declarations — none of which the previous
- * regex-based extractor could see.
- *
- * For non-TS/JS files (Python, Go, etc.) where the TS parser would emit
- * a near-empty tree, we fall back to a line-based regex extractor so the
- * gate still produces a sensible answer.
- */
-
 import * as ts from "typescript";
 
 export interface AstSymbol {
@@ -67,6 +53,15 @@ const SYSTEM_PERSONA_BRANDING_TERMS: readonly string[] = [
   "nexus neural network",
 ];
 
+const HIGH_SEVERITY_THRESHOLD = 2;
+const DRIFT_THRESHOLD = 0.65;
+const MIN_PASSING_SCORE = 50;
+const BASE_RETENTION_WEIGHT = 60;
+const BASE_QUALITY_WEIGHT = 40;
+const BRANDING_PENALTY = 20;
+const HIGH_VIOLATION_PENALTY = 25;
+const MAX_SCORE = 100;
+
 function isExported(node: ts.Node): boolean {
   return (
     ts.canHaveModifiers(node) &&
@@ -89,10 +84,6 @@ function symbolKindFromDeclaration(node: ts.Node): AstSymbol["type"] | null {
     case ts.SyntaxKind.ModuleDeclaration:
       return "namespace";
     case ts.SyntaxKind.VariableDeclaration:
-      // Could be a const arrow function or a regular const
-      if (node.parent && ts.isVariableStatement(node.parent)) {
-        // Check if initializer is arrow/function expression by walking — handled by extractor
-      }
       return "const";
     case ts.SyntaxKind.ArrowFunction:
     case ts.SyntaxKind.FunctionExpression:
@@ -119,12 +110,6 @@ function declarationName(node: ts.Node): string | null {
   return null;
 }
 
-/**
- * Walk a TypeScript AST and collect every named declaration we can find.
- * Includes: top-level functions, classes, interfaces, types, enums,
- * namespaces, exported const declarations, arrow functions assigned to
- * const, class methods, and export specifiers.
- */
 function extractSymbolsFromTs(sourceFile: ts.SourceFile): AstSymbol[] {
   const symbols: AstSymbol[] = [];
   const visit = (node: ts.Node) => {
@@ -146,7 +131,6 @@ function extractSymbolsFromTs(sourceFile: ts.SourceFile): AstSymbol[] {
       for (const decl of node.declarationList.declarations) {
         const declName = ts.isIdentifier(decl.name) ? decl.name.text : null;
         if (!declName) continue;
-        // If initializer is an arrow/function expression, mark as arrow
         let varKind: AstSymbol["type"] = "const";
         if (decl.initializer && (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))) {
           varKind = "arrow";
@@ -158,7 +142,6 @@ function extractSymbolsFromTs(sourceFile: ts.SourceFile): AstSymbol[] {
           exported,
         });
       }
-      // Continue walking for nested declarations inside initializers
       ts.forEachChild(node, visit);
       return;
     } else if (ts.isExportDeclaration(node) && node.exportClause && ts.isNamedExports(node.exportClause)) {
@@ -194,30 +177,21 @@ function extractSymbolsFromTs(sourceFile: ts.SourceFile): AstSymbol[] {
   return symbols;
 }
 
-/**
- * Fallback line-based extractor for non-TS/JS files. Now language-aware:
- * extracts top-level declarations AND class methods for Java, Python, Go,
- * Rust, Ruby, PHP, C/C++, Kotlin, and C#. This catches method-level
- * regressions that the previous top-level-only regex missed (e.g. dropping
- * 5 methods from a Java class while keeping the class itself).
- */
 function extractSymbolsRegex(code: string, filePath?: string): AstSymbol[] {
   const symbols: AstSymbol[] = [];
   const lines = code.split("\n");
   const ext = (filePath ?? "").toLowerCase().split(".").pop() ?? "";
 
-  // Common top-level patterns (all languages)
   const topLevelPatterns: Array<[RegExp, AstSymbol["type"]]> = [
     [/(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)/, "function"],
     [/(?:export\s+)?class\s+([A-Za-z0-9_$]+)/, "class"],
     [/(?:export\s+)?interface\s+([A-Za-z0-9_$]+)/, "interface"],
     [/(?:export\s+)?type\s+([A-Za-z0-9_$]+)\s*=/, "type"],
     [/(?:export\s+)?const\s+([A-Za-z0-9_$]+)\s*[:=]/, "const"],
-    [/^\s*def\s+([A-Za-z0-9_]+)/, "function"], // Python top-level
-    [/^func\s+([A-Za-z0-9_]+)/, "function"], // Go top-level (no receiver)
+    [/^\s*def\s+([A-Za-z0-9_]+)/, "function"],
+    [/^func\s+([A-Za-z0-9_]+)/, "function"],
   ];
 
-  // Language-specific method patterns (inside classes)
   const methodPatterns: Array<[RegExp, AstSymbol["type"]]> = [];
   if (ext === "java" || ext === "kt" || ext === "cs") {
     methodPatterns.push([
@@ -253,7 +227,6 @@ function extractSymbolsRegex(code: string, filePath?: string): AstSymbol[] {
     const line = lines[idx]!;
     let matched = false;
 
-    // Try top-level patterns first
     for (const [pat, type] of topLevelPatterns) {
       const m = line.match(pat);
       if (m && m[1]) {
@@ -272,7 +245,6 @@ function extractSymbolsRegex(code: string, filePath?: string): AstSymbol[] {
     }
     if (matched) continue;
 
-    // Try method patterns (language-specific)
     for (const [pat, type] of methodPatterns) {
       const m = line.match(pat);
       if (m && m[1]) {
@@ -311,9 +283,52 @@ export function extractSymbols(code: string, filePath?: string): AstSymbol[] {
     );
     return extractSymbolsFromTs(sourceFile);
   } catch {
-    // If TS parsing fails for some reason, fall back to regex.
     return extractSymbolsRegex(code);
   }
+}
+
+function stripSyntheticDecorations(code: string): string {
+  return code
+    .replace(/\/\*\*[\s\S]*?\*\/\n?/g, "")
+    .replace(/\/\/[^\n\r]*\n?/g, "")
+    .replace(/^#[^\n\r]*\n?/gm, "")
+    .replace(/<!--[\s\S]*?-->\n?/g, "")
+    .replace(/export\s+interface\s+ExecutionContract\s*\{[\s\S]*?\}\n*/g, "")
+    .trim();
+}
+
+function calculateAstScore(
+  originalCount: number,
+  retainedCount: number,
+  brandingInjections: string[],
+  violations: AstDiffViolation[]
+): number {
+  const retentionScore =
+    originalCount === 0 ? 100 : (retainedCount / originalCount) * BASE_RETENTION_WEIGHT;
+  const penalty =
+    brandingInjections.length * BRANDING_PENALTY +
+    violations.filter((v) => v.severity === "high").length * HIGH_VIOLATION_PENALTY;
+  return Math.max(0, Math.min(MAX_SCORE, Math.round(retentionScore + BASE_QUALITY_WEIGHT - penalty)));
+}
+
+function calculateDriftRatio(
+  originalCode: string,
+  proposedCode: string,
+  originalSymbols: AstSymbol[],
+  missingSymbols: AstSymbol[]
+): number {
+  const cleanOrig = stripSyntheticDecorations(originalCode);
+  const cleanProp = stripSyntheticDecorations(proposedCode);
+  const origLen = cleanOrig.length || originalCode.length;
+  const propLen = cleanProp.length || proposedCode.length;
+  const lengthRatio = origLen === 0 ? 0 : Math.abs(propLen - origLen) / Math.max(origLen, 400);
+
+  let driftRatio = lengthRatio;
+  if (originalSymbols.length > 0) {
+    const symbolDrift = missingSymbols.length / originalSymbols.length;
+    driftRatio = Math.max(driftRatio, symbolDrift);
+  }
+  return Math.min(1, driftRatio);
 }
 
 export function evaluateAstDiff(originalCode: string, proposedCode: string, filePath?: string): AstDiffResult {
@@ -324,7 +339,6 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
     ? "typescript"
     : "regex-fallback";
 
-  // Match on name + exported-ness (a renamed export counts as dropped).
   const proposedKey = (s: AstSymbol) => `${s.name}:${s.exported ? "exp" : "loc"}`;
   const proposedNames = new Set(proposedSymbols.map(proposedKey));
   const missingSymbols = originalSymbols.filter((s) => !proposedNames.has(proposedKey(s)));
@@ -339,7 +353,7 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
         .map((s) => s.name)
         .slice(0, 5)
         .join(", ")}`,
-      severity: missingSymbols.length > 2 ? "high" : "medium",
+      severity: missingSymbols.length > HIGH_SEVERITY_THRESHOLD ? "high" : "medium",
     });
   }
 
@@ -358,28 +372,8 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
     });
   }
 
-  const stripSyntheticDecorations = (code: string) => {
-    return code
-      .replace(/\/\*\*[\s\S]*?\*\/\n?/g, "")
-      .replace(/\/\/[^\n\r]*\n?/g, "")
-      .replace(/^#[^\n\r]*\n?/gm, "")
-      .replace(/<!--[\s\S]*?-->\n?/g, "")
-      .replace(/export\s+interface\s+ExecutionContract\s*\{[\s\S]*?\}\n*/g, "")
-      .trim();
-  };
-
-  const cleanOrig = stripSyntheticDecorations(originalCode);
-  const cleanProp = stripSyntheticDecorations(proposedCode);
-  const origLen = cleanOrig.length || originalCode.length;
-  const propLen = cleanProp.length || proposedCode.length;
-  const lengthRatio = origLen === 0 ? 0 : Math.abs(propLen - origLen) / Math.max(origLen, 400);
-
-  let driftRatio = lengthRatio;
-  if (originalSymbols.length > 0) {
-    const symbolDrift = missingSymbols.length / originalSymbols.length;
-    driftRatio = Math.max(driftRatio, symbolDrift);
-  }
-  if (driftRatio > 0.65) {
+  const driftRatio = calculateDriftRatio(originalCode, proposedCode, originalSymbols, missingSymbols);
+  if (driftRatio > DRIFT_THRESHOLD) {
     violations.push({
       code: "AST_STRUCTURAL_DRIFT",
       message: `Structural drift exceeds safe threshold (${Math.round(driftRatio * 100)}%)`,
@@ -387,14 +381,8 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
     });
   }
 
-  const retentionScore =
-    originalSymbols.length === 0 ? 100 : (retainedCount / originalSymbols.length) * 60;
-  const penalty =
-    brandingInjections.length * 20 + violations.filter((v) => v.severity === "high").length * 25;
-  const astScore = Math.max(0, Math.min(100, Math.round(retentionScore + 40 - penalty)));
-
-  const passed =
-    violations.filter((v) => v.severity === "high").length === 0 && astScore >= 50;
+  const astScore = calculateAstScore(originalSymbols.length, retainedCount, brandingInjections, violations);
+  const passed = violations.filter((v) => v.severity === "high").length === 0 && astScore >= MIN_PASSING_SCORE;
 
   return {
     passed,
@@ -406,7 +394,7 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
       missingSymbols,
     },
     brandingInjections,
-    structuralDriftRatio: Math.min(1, driftRatio),
+    structuralDriftRatio: driftRatio,
     violations,
     parserUsed,
   };
