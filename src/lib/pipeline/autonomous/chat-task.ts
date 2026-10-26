@@ -159,10 +159,11 @@ ${userGoal}
 
 Propose a plan to achieve this goal.`;
 
+  const LLM_TEMPERATURE = 0.3;
   const result = await llmComplete({
     systemPrompt,
     userPrompt,
-    temperature: 0.3,
+    temperature: LLM_TEMPERATURE,
   });
 
   if (!result.ok) {
@@ -271,10 +272,11 @@ ${originalCode}
 
 Output the COMPLETE new content for this file that achieves the goal.`;
 
+    const LLM_TEMPERATURE = 0.2;
     const llmResult = await llmComplete({
       systemPrompt,
       userPrompt,
-      temperature: 0.2,
+      temperature: LLM_TEMPERATURE,
     });
 
     if (!llmResult.ok) {
