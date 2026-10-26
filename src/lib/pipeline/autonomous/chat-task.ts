@@ -351,7 +351,7 @@ Output the COMPLETE new content for this file that achieves the goal.`;
     try {
       execSync("git checkout -- .", { cwd: PROJECT_ROOT, timeout: 5000, stdio: "pipe" });
     } catch {
-      // ignore - git checkout failed but we can't recover
+      // ignore git failure - can't recover
     }
     return {
       ok: false,
