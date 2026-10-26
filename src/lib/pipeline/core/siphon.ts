@@ -12,8 +12,8 @@ const SECURITY_THRESHOLD = 96;
 const AGENT_THRESHOLD = 94;
 const DEFAULT_THRESHOLD = 92;
 
-const SECURITY_KEYWORDS = ["crypto", "auth", "token", "key"];
-const AGENT_KEYWORDS = ["agent", "loop", "engine", "prompt"];
+const SECURITY_KEYWORDS = ["crypto", "auth", "token", "key"] as const;
+const AGENT_KEYWORDS = ["agent", "loop", "engine", "prompt"] as const;
 
 export const SIPHON_SOURCES: readonly SiphonSource[] = [
   {
@@ -98,7 +98,7 @@ export interface ArchitecturalVote {
   recommendedPattern: string;
 }
 
-function containsKeyword(text: string, keywords: string[]): boolean {
+function containsKeyword(text: string, keywords: readonly string[]): boolean {
   const lowerText = text.toLowerCase();
   return keywords.some(keyword => lowerText.includes(keyword));
 }
