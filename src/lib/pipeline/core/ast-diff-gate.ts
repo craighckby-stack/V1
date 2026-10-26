@@ -404,7 +404,8 @@ export function evaluateAstDiff(originalCode: string, proposedCode: string, file
   const HIGH_SEVERITY_PENALTY = 25;
   const penalty =
     brandingInjections.length * BRANDING_PENALTY_PER_INJECTION + violations.filter((v) => v.severity === "high").length * HIGH_SEVERITY_PENALTY;
-  const astScore = Math.max(0, Math.min(100, Math.round(retentionScore + BASE_SCORE_BONUS - penalty)));
+  const MAXIMUM_AST_SCORE = 100;
+  const astScore = Math.max(0, Math.min(MAXIMUM_AST_SCORE, Math.round(retentionScore + BASE_SCORE_BONUS - penalty)));
 
   const passed =
     violations.filter((v) => v.severity === "high").length === 0 && astScore >= MINIMUM_AST_SCORE;
