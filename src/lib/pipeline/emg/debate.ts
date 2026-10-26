@@ -1,8 +1,3 @@
-/**
- * Code Review & Verification Helper
- * Dual-perspective analysis: Security Reviewer vs Architecture Reviewer.
- */
-
 const SECRET_PATTERN = /\b(AIzaSy[A-Za-z0-9_-]{28,40}|sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{36}|AKIA[0-9A-Z]{16})\b/;
 const EVAL_PATTERN = /\beval\s*\(|\bnew\s+Function\s*\(/;
 const TYPE_ANNOTATION_PATTERN = /:\s*(string|number|boolean|Promise<|void|Record<)/;
@@ -30,15 +25,12 @@ export interface DebateVerdict {
   arguments: DebateArgument[];
 }
 
-export function conductDebate(topic: string, candidateCode: string, filePath: string): DebateVerdict {
+function analyzeCodeSecurity(candidateCode: string): { securityPoints: string[]; hasCriticalFlaws: boolean } {
   const containsSecrets = SECRET_PATTERN.test(candidateCode);
   const containsEval = EVAL_PATTERN.test(candidateCode);
-  const hasTypeAnnotations = TYPE_ANNOTATION_PATTERN.test(candidateCode);
   const isLarge = candidateCode.length > LARGE_CODE_THRESHOLD;
 
   const securityPoints: string[] = [];
-  const architecturePoints: string[] = [];
-  const args: DebateArgument[] = [];
 
   if (containsSecrets) {
     securityPoints.push("Potential authentication token or credential identified.");
@@ -53,13 +45,27 @@ export function conductDebate(topic: string, candidateCode: string, filePath: st
     securityPoints.push("Code passed static security patterns with zero credential exposure.");
   }
 
+  return {
+    securityPoints,
+    hasCriticalFlaws: containsSecrets || containsEval,
+  };
+}
+
+function analyzeCodeArchitecture(candidateCode: string): string[] {
+  const hasTypeAnnotations = TYPE_ANNOTATION_PATTERN.test(candidateCode);
+  const architecturePoints: string[] = [];
+
   if (hasTypeAnnotations) {
     architecturePoints.push("Strong TypeScript typing and interface contracts are maintained.");
   }
-  architecturePoints.push(`Public export contracts for '${filePath}' remain backwards-compatible.`);
+  architecturePoints.push("Public export contracts remain backwards-compatible.");
   architecturePoints.push("Enhancements maintain maintainability and clean structure.");
 
-  args.push({
+  return architecturePoints;
+}
+
+function createSecurityArgument(securityPoints: string[], filePath: string): DebateArgument {
+  return {
     speaker: "security",
     speakerName: "Security Reviewer",
     avatar: "🛡️",
@@ -67,9 +73,11 @@ export function conductDebate(topic: string, candidateCode: string, filePath: st
     statement: `Reviewing candidate file ${filePath}: ${securityPoints.join(" ")}`,
     citations: ["Security Guideline: Credential Sanitization", "AST Diff Retention Protocol"],
     cognitiveFriction: securityPoints.length > 1 ? 0.65 : 0.15,
-  });
+  };
+}
 
-  args.push({
+function createArchitectureArgument(architecturePoints: string[]): DebateArgument {
+  return {
     speaker: "architecture",
     speakerName: "Architecture Reviewer",
     avatar: "📐",
@@ -77,29 +85,41 @@ export function conductDebate(topic: string, candidateCode: string, filePath: st
     statement: `Structural assessment: ${architecturePoints.join(" ")}`,
     citations: ["Clean Code Standards", "Type Safety & Modularity Guidelines"],
     cognitiveFriction: 0.15,
-  });
+  };
+}
 
-  const criticalFlaws = containsSecrets || containsEval;
-  let consensus: DebateVerdict["consensus"] = "APPROVED";
-  let consensusCoefficient = 0.92;
-  let cognitiveFriction = 0.18;
-  let leadSummary = "Review summary: Candidate changes satisfy both security and architectural standards.";
-
-  if (criticalFlaws) {
-    consensus = "REQUIRES_REWRITE";
-    consensusCoefficient = 0.3;
-    cognitiveFriction = 0.8;
-    leadSummary =
-      "Review summary: Security concerns identified. Redact credentials and remove dynamic execution before merge.";
-  } else if (securityPoints.length > 1) {
-    consensus = "CONDITIONAL_APPROVAL";
-    consensusCoefficient = 0.72;
-    cognitiveFriction = 0.4;
-    leadSummary =
-      "Review summary: Conditional approval. Verify AST symbol retention before finalizing merge.";
+function determineConsensus(
+  hasCriticalFlaws: boolean,
+  securityPoints: string[],
+): { consensus: DebateVerdict["consensus"]; consensusCoefficient: number; cognitiveFriction: number; leadSummary: string } {
+  if (hasCriticalFlaws) {
+    return {
+      consensus: "REQUIRES_REWRITE",
+      consensusCoefficient: 0.3,
+      cognitiveFriction: 0.8,
+      leadSummary: "Review summary: Security concerns identified. Redact credentials and remove dynamic execution before merge.",
+    };
   }
 
-  args.push({
+  if (securityPoints.length > 1) {
+    return {
+      consensus: "CONDITIONAL_APPROVAL",
+      consensusCoefficient: 0.72,
+      cognitiveFriction: 0.4,
+      leadSummary: "Review summary: Conditional approval. Verify AST symbol retention before finalizing merge.",
+    };
+  }
+
+  return {
+    consensus: "APPROVED",
+    consensusCoefficient: 0.92,
+    cognitiveFriction: 0.18,
+    leadSummary: "Review summary: Candidate changes satisfy both security and architectural standards.",
+  };
+}
+
+function createLeadArgument(leadSummary: string, cognitiveFriction: number): DebateArgument {
+  return {
     speaker: "lead",
     speakerName: "Lead Reviewer",
     avatar: "✓",
@@ -107,7 +127,21 @@ export function conductDebate(topic: string, candidateCode: string, filePath: st
     statement: leadSummary,
     citations: ["Verification Consensus Checklist"],
     cognitiveFriction,
-  });
+  };
+}
+
+export function conductDebate(topic: string, candidateCode: string, filePath: string): DebateVerdict {
+  const { securityPoints, hasCriticalFlaws } = analyzeCodeSecurity(candidateCode);
+  const architecturePoints = analyzeCodeArchitecture(candidateCode);
+
+  const args: DebateArgument[] = [
+    createSecurityArgument(securityPoints, filePath),
+    createArchitectureArgument(architecturePoints),
+  ];
+
+  const { consensus, consensusCoefficient, cognitiveFriction, leadSummary } = determineConsensus(hasCriticalFlaws, securityPoints);
+
+  args.push(createLeadArgument(leadSummary, cognitiveFriction));
 
   return {
     currentTopic: topic,
