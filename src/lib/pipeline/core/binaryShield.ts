@@ -21,7 +21,6 @@ const AUTH_TAG_LENGTH = 16;
 const ALGORITHM_NAME = "AES-GCM-256";
 
 function getKeyBuffer(): Buffer {
-  // Derive a 32-byte key from the seed using SHA-256.
   return createHash(KEY_DERIVATION_ALGORITHM).update(SECRET_SEED).digest();
 }
 
@@ -32,8 +31,8 @@ export class BinaryShield {
     const cipher = createCipheriv(ALGORITHM, key, iv);
     const enc = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
     const tag = cipher.getAuthTag();
-    // Pack the GCM tag with the ciphertext so decryption can verify it.
     const combined = Buffer.concat([enc, tag]);
+    
     return {
       data: combined.toString("base64"),
       iv: iv.toString("base64"),
@@ -56,6 +55,7 @@ export class BinaryShield {
     const decipher = createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(tag);
     const dec = Buffer.concat([decipher.update(enc), decipher.final()]);
+    
     return dec.toString("utf8");
   }
 
