@@ -658,3 +658,41 @@ Stage Summary:
 - This was the root cause of the user's "kind of frozen but not" — the loop was alive (polling, logging "waiting 8s") but never claimed or executed any task.
 - Loop is now actually running: claims tasks, probes the LLM, defers on 429, falls back to deterministic, cycles correctly. 75 LLM-required tasks pending; will drain when the 429 clears.
 - Important meta-note: this bug was INVISIBLE to the autonomous loop because (a) it was in a protected file the loop can't scan/fix, and (b) the loop's own success metric (typecheck pass) couldn't detect "I am doing zero work." This is exactly the signal problem DIRECTIONS.md flags — typecheck proves compilable, not working. A liveness signal ("at least one task claimed per N cycles") would have caught this immediately. Candidate future gate.
+
+---
+Task ID: fix-all-liveness-and-rotation
+Agent: main (Z.ai Code)
+Task: User: "Fix all" — interpreted as: implement the candidate future gate (liveness signal) flagged in the previous task, plus other concrete bugs found in the current state.
+
+Work Log:
+- Inventory of concrete fixable issues found by reading self-enhance-loop.ts + self-task-generator.ts + task-executor.ts + status route + page.tsx:
+  1. LIVENESS SIGNAL MISSING — the flag-collision bug (previous task) was invisible because the loop's only gate (typecheck) cannot detect "I am doing zero work." The loop could silently idle forever. (The meta-point flagged as "candidate future gate".)
+  2. DEFER-ROTATION MISSING — claimNextTask orderBy was [{priority asc}, {createdAt asc}]. When a task deferred (LLM 429), it went back to pending with deferred++ but the orderBy didn't include `deferred`, so the same task (lowest createdAt in its priority bucket) won EVERY next cycle. Dev log proof: chat-task.ts:96 was claimed 45+ times in a row while 9 other P2 empty-catch tasks sat untouched with deferred=0.
+  3. SCOPE BUG IN OWN FIX — first version of the liveness code declared `let claimedThisCycle = 0` inside the `try` block and referenced it in the `finally` block. JS block scoping: `let` in try is NOT visible in finally. The continuous loop crashed on the first cycle (ReferenceError: claimedThisCycle is not defined), causing another silent stall. Fixed by hoisting the declaration above `try`.
+
+- FIX 1 (liveness signal, in self-enhance-loop.ts): added `cyclesSinceClaim` + `lastClaimAt` tracking. processOneTask resets them on every claim. runCycle's finally bumps the counter if a cycle claimed nothing; at threshold (5 idle cycles) logs a loud LIVENESS WARN; repeats every 10 cycles after. Exposed in getStats() and the /api/self-enhance/status response. Bumped LOOP_VERSION 4->5 for clean singleton replacement.
+
+- FIX 2 (defer rotation, in self-task-generator.ts): changed claimNextTask orderBy to [{priority asc}, {deferred asc}, {createdAt asc}]. A deferred task (deferred>0) now sinks behind fresh tasks (deferred=0) in its priority bucket. Also applied the same orderBy to skipNext() so the user veto targets the same task the loop would claim next.
+
+- FIX 3 (scope bug in fix 1): hoisted `let claimedThisCycle = 0` out of `try` so `finally` can read it.
+
+- FIX 4 (UI surfacing, in page.tsx): added `cyclesSinceClaim` + `lastClaimAt` to the SelfEnhanceStatus type and a new `Liveness:` line in the `status` command output that shows idle cycles + last claim time, with a "WARN: possible stall" suffix at threshold.
+
+- VERIFICATION (this is the important part — multiple hot-reload traps were hit):
+  * First restart attempt: the loop kept claiming chat-task.ts:96 even after the fix was on disk. Root cause: the running runContinuous() promise held a closure over the OLD module's claimNextTask — Next.js hot-reload swaps the module but the already-running async loop captured the old import binding. The LOOP_VERSION guard handles the singleton class, but claimNextTask is a free function with no such guard.
+  * Second attempt (touch + status route to force reload): same — the old next-server child process (PID 8555) from 11:40 was STILL RUNNING and owned port 3000. My earlier `kill 8539` only killed the parent bun, not the next-server child. ALL my "restarts" since 11:40 had been hitting the original server with the original buggy claimNextTask.
+  * Third attempt (pkill -f "next-server" + fresh start): server kept dying across Bash tool calls — the sandbox kills detached background processes when the shell session ends.
+  * Fourth attempt (subshell with `&` + `disown`): server persists across shell calls. Started loop, waited 90s.
+  * VERIFIED BOTH FIXES LIVE: the loop now claims a DIFFERENT task each cycle — chat-task.ts:109 -> :344 -> push-target.ts:223 -> :272 -> :295 -> clean-room-runtime.ts:50 -> postmortem-store.ts:212 -> :242 -> :510 -> back to :109 -> :344. The old hammered chat-task.ts:96 (deferred=48) stays at the back and is never claimed. 11 cycles in 90s (~8s each as designed). cyclesSinceClaim=1 (claiming every cycle), lastClaimAt tracking correctly. The [claimNextTask] debug line confirmed winners had deferred=0.
+  * Removed the debug line after verification.
+
+- FIX 5 (build-artifact churn): noticed every push included .next/ cache churn (187 .next files were tracked in git). .gitignore has `.next/` but the files were added by the autonomous loop's `git add -A` before gitignore was effective (likely during the stash incident). Once tracked, gitignore doesn't apply. `git rm -r --cached .next/` untracked them (kept on disk), committed as 4641403. Future pushes will be clean source-only commits.
+
+- Lint clean throughout. Pushed: b793dc9 (the fixes) + 4641403 (the untrack). 0/0 sync, working tree clean. Token scan: 4 `ghp_` matches in .next build artifacts — confirmed to be the literal string `ghp_...` in push-target.ts's error message ("expected a GitHub PAT (ghp_...)"), NOT an actual token. Safe.
+
+Stage Summary:
+- THREE bugs fixed: (1) liveness signal added so silent zero-work stalls become loud (the meta-gate that would have caught the flag-collision bug), (2) defer-rotation so the loop cycles through the queue instead of hammering one task against a 429, (3) a scope bug in my own fix that re-stalled the loop.
+- ONE hygiene fix: .next/ build artifacts untracked from git — future pushes are clean source commits, not cache churn.
+- All fixes verified LIVE on a persistent dev server: loop rotates through 10+ different tasks, liveness counter tracks correctly, no crashes across 11+ cycles.
+- HARD-WON LESSON (re-learned): in this sandbox, (a) `kill <parent-pid>` does NOT kill the next-server child — must `pkill -f next-server`; (b) detached background processes die across Bash tool calls unless started with `(cmd &) && disown`; (c) Next.js hot-reload does NOT reload functions imported by an already-running async loop — the loop holds the old module binding. The LOOP_VERSION pattern works for the singleton class but free functions imported by the loop need a server restart. Documented here so the next person doesn't lose 30 minutes to each.
+- Loop is now genuinely running, rotating through 75 pending tasks, probing the LLM once per cycle, deferring on 429, and will drain automatically when the rate limit clears. The liveness signal will catch any future stall within ~40s instead of silently idling for the entire session.
