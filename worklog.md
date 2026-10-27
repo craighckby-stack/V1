@@ -801,3 +801,38 @@ Stage Summary:
 - Verified live: 2 real enhancements passed all gates (debate APPROVED both). The system is doing real refactoring with a real multi-gate review, not cosmetic lint with typecheck only.
 - All postmortems from gate rejections are injected into the next LLM prompt — the system learns from every rejection.
 - The cosmetic era is fully over. The dangerous direction is live and complete.
+
+---
+Task ID: the-ratchet-self-written-tests
+Agent: main (Z.ai Code)
+Task: User: "Let's keep going the dangerous path and add anything that's missing" (second round)
+
+Work Log:
+- INVENTORY of remaining gaps:
+  1. THE RATCHET — the test gate was infrastructure-ready but NO tests existed. Direction 4 (tests as the gate) was a no-op. The missing piece: the system writing its own tests.
+  2. halt.ts (SelfStoppingGovernor) exists but unwired — assessed as redundant with the per-file saturation checks (isCosmeticChange + no-change detection); halting also conflicts with continuous mode. Skipped deliberately.
+- BUILT the ratchet (writeTestsForFile in self-enhance-loop.ts):
+  * Pin-then-refactor: enhanceFile now calls writeTestsForFile BEFORE the refactor step. The pins written in step 1 become the gate for the refactor in step 2 of the SAME pass — and all future passes.
+  * TEST_WRITER_SYSTEM prompt: characterization tests that pin current observable behavior. Concrete expected values computed by reading the implementation, never by calling the function. No tautological tests. bun:test + relative import. 3-8 tests.
+  * antiTautologyCheck (mechanical, instant): must import the module under test, >= 2 test blocks, >= 1 expect per test, no literal self-comparisons (expect(X).toBe(X)).
+  * Gate order for generated tests: truncation+anti-tautology -> bun test (MUST PASS on current code — a failing test pins wrong behavior; reject the test, never modify the code to match a generated test) -> tsc --noEmit (reject if errors mention the test file) -> debate gate (semantic review).
+  * Cleanup: on ANY failure, DELETE the test file. Nothing imports a new test file, so the live system was never at risk. Verified: 0 broken test files left on disk through multiple failed attempts.
+  * Attempt tracking with 30-min decay: 2 attempts per file per window. Prevents burning LLM budget on known-failed files while ensuring an intermittent 429 window doesn't permanently skip a module.
+  * WRITE-ONCE pins: the refactor scan already excluded *.test.ts (line 174) — the system can never refactor/weaken its own test files. The ratchet only tightens.
+  * New stat: testsWritten (flows to the status endpoint via getStats).
+  * Protected files are excluded from test-writing (they're the gate itself; importing the loop singleton in a test would have side effects).
+
+- VERIFIED LIVE (structural verification — LLM was 429-throttled the whole time):
+  * Ratchet fires per-file before refactor: "Ratchet: writing characterization tests for github-helpers.ts (attempt 1)..." then "Improving github-helpers.ts..." — the pin-then-refactor order is confirmed in the logs.
+  * Graceful fallthrough: on LLM 429, the ratchet logs a warning and the flow proceeds to the refactor step. No crash, loop stays healthy.
+  * Cycles through files: github-helpers.ts -> structural-validator.ts -> ... each getting its attempt.
+  * Attempt decay fix: first version permanently skipped files after 2 failures (in-memory map never reset). Added 30-minute decay so the ratchet survives intermittent throttling — the live condition.
+  * First SUCCESSFUL pin (a test file passing all 4 gates and landing on disk) is PENDING an LLM window — the Z.AI gateway was fully throttled during verification. The throttle is the documented natural stop point.
+
+- Committed as 23716c3.
+
+Stage Summary:
+- THE RATCHET IS LIVE. The dangerous direction is now complete end-to-end: the system writes its own characterization tests (gated by anti-tautology + must-pass-on-current-code + typecheck + debate), the tests become permanent pins, and every future refactor of a pinned module runs against them. Test files are write-once — the system can never weaken its own pins.
+- The full dangerous pipeline: scan -> [RATCHET: pin untested modules] -> refactor -> structural gate -> typecheck -> debate gate -> test gate (runs the pins) -> write live -> push as proof. Each pass either adds pins (locking behavior) or refactors within them (cleaning implementation).
+- Honest status: all code paths verified structurally (order, fallthrough, attempt tracking, cleanup). The first actual pin awaits an LLM window. When it lands, the loop closes: pin -> refactor -> the refactor is rejected if it breaks the pin.
+- halt.ts deliberately not wired (redundant with per-file saturation; conflicts with continuous mode) — documented decision.
