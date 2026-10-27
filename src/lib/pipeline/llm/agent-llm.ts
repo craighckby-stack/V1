@@ -74,13 +74,27 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const zai = await getZai();
-      const completion = await zai.chat.completions.create({
+      // Pass through temperature/maxTokens so callers can actually control
+      // generation. Previously these were accepted by LlmCallOptions but
+      // silently dropped here, leaving every call at the provider default.
+      // We build the body as `any` because the SDK's CreateChatCompletionBody
+      // type doesn't list max_tokens (but the upstream provider accepts it),
+      // and we don't want to model the full OpenAI-compatible surface here.
+      const createParams: Parameters<typeof zai.chat.completions.create>[0] = {
         messages: [
           { role: "assistant", content: opts.systemPrompt },
           { role: "user", content: opts.userPrompt },
         ],
         thinking: { type: "disabled" },
-      });
+      } as Parameters<typeof zai.chat.completions.create>[0];
+      if (opts.temperature !== undefined) {
+        (createParams as Record<string, unknown>).temperature = opts.temperature;
+      }
+      if (opts.maxTokens !== undefined) {
+        // OpenAI-style field name; the SDK forwards to the provider as-is.
+        (createParams as Record<string, unknown>).max_tokens = opts.maxTokens;
+      }
+      const completion = await zai.chat.completions.create(createParams);
       const content = completion.choices?.[0]?.message?.content ?? "";
       if (!content.trim()) {
         throw new Error("Empty LLM response");
@@ -97,11 +111,35 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
       const isRateLimit = /429|Too many requests|rate limit/i.test(lastError);
 
       if (attempt < maxAttempts) {
-        // For 429s: exponential backoff — 10s, 20s, 40s, 80s
-        // For other errors: quick retry — 400ms, 800ms
-        const delay = isRateLimit
+        // For 429s: exponential backoff — 10s, 20s, 40s, 80s as a BASE,
+        // then ±20% jitter so multiple callers retrying in lockstep don't
+        // synchronise and re-trigger the limit together.
+        // For other errors: quick retry — 400ms, 800ms (also jittered).
+        const baseDelay = isRateLimit
           ? 10000 * Math.pow(2, attempt - 1) // 10s, 20s, 40s, 80s
-          : 400 * attempt; // 400ms, 800ms, 1200ms, 1600ms
+          : 400 * attempt;                  // 400ms, 800ms, 1200ms, 1600ms
+        // Best-effort Retry-After: if the SDK surfaces response headers,
+        // honour the server's hint instead of our own backoff.
+        const errAny = err as unknown as {
+          headers?: Record<string, string>;
+          response?: { headers?: Record<string, string> };
+        };
+        const retryAfterHeader =
+          errAny?.headers?.["retry-after"] ??
+          errAny?.response?.headers?.["retry-after"];
+        let delay: number;
+        if (retryAfterHeader) {
+          const secs = Number(retryAfterHeader);
+          // Cap Retry-After at the same ceiling as our own backoff so a
+          // misbehaving server can't pin us for an hour.
+          if (Number.isFinite(secs) && secs > 0 && secs <= 120) {
+            delay = secs * 1000;
+          } else {
+            delay = baseDelay * (0.8 + Math.random() * 0.4);
+          }
+        } else {
+          delay = baseDelay * (0.8 + Math.random() * 0.4); // ±20% jitter
+        }
         // Surface the retry to the caller before the backoff sleep —
         // without this, the live view goes silent for the whole ~150s
         // 429 backoff window and the user can't tell if the system is

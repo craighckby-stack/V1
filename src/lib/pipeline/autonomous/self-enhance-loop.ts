@@ -147,6 +147,16 @@ class SelfEnhanceLoop {
   private currentCycleBranch: string | null = null;
   // Circuit breaker: track consecutive 429s to back off the whole cycle
   private consecutiveRateLimits = 0;
+  // Run-token (generation counter). Incremented by stop(). Each runCycle /
+  // enhanceFile captures the value at start; if it changes mid-run (because
+  // the user stopped and possibly started again), the in-flight work breaks
+  // out of its for-loop / returns early instead of running to completion
+  // against a stale `running` flag. This is the fix for the stop-then-start
+  // race: previously stop() set running=false, which (a) didn't break the
+  // for-loop in runCycle (it kept iterating files for ~6min), and (b) defeated
+  // the `if (this.running) return` guard so a new start could spawn a second
+  // concurrent cycle sharing currentCycleBranch / currentFile / consecutiveRateLimits.
+  private runId = 0;
   // Ratchet: per-file test-writing attempt tracking. After 2 failed attempts
   // (bad tests, untestable module, LLM trouble), stop retrying — but forget
   // failures older than 30 minutes, so an intermittent 429 window doesn't
@@ -565,12 +575,19 @@ class SelfEnhanceLoop {
 
     if (existsSync(testPath)) return false; // already pinned
     const now = Date.now();
-    const rec = this.testWriteAttempts.get(relPath);
+    // `let`, not `const`: when the decay branch fires we must forget the
+    // stale record, otherwise the (rec?.attempts ?? 0) + 1 below would still
+    // read the pre-decay counter and the 30-min forget window would be a
+    // no-op. Bug surfaced by the audit: a file first tried at 12:40 showed
+    // "attempt 2" at 1:38 — the decay didn't reset it.
+    let rec = this.testWriteAttempts.get(relPath);
     // Decay: forget failures older than 30 minutes — intermittent 429 windows
     // shouldn't permanently skip a module
     if (rec && now - rec.at > 30 * 60 * 1000) {
       this.testWriteAttempts.delete(relPath);
-    } else if (rec && rec.attempts >= 2) {
+      rec = undefined;
+    }
+    if (rec && rec.attempts >= 2) {
       return false; // known-failed recently — don't burn LLM budget retrying
     }
     this.testWriteAttempts.set(relPath, { attempts: (rec?.attempts ?? 0) + 1, at: now });
@@ -589,7 +606,7 @@ class SelfEnhanceLoop {
         temperature: 0.2,
         onRetry: (info) => {
           const backoff = info.isRateLimit ? `${Math.round(info.delayMs / 1000)}s` : `${info.delayMs}ms`;
-          this.log(`LLM retry attempt ${info.attempt}/${info.maxAttempts} (429 — backing off ${backoff}) for ratchet/${relPath}`, "info");
+          this.log(`LLM retry attempt ${info.attempt}/${info.maxAttempts} (${info.isRateLimit ? "429" : "err"} — backing off ${backoff}) for ratchet/${relPath}`, "info");
         },
       });
       if (!llmResult.ok) {
@@ -685,6 +702,11 @@ class SelfEnhanceLoop {
     const relPath = relative(PROJECT_ROOT, filePath);
     this.currentFile = relPath;
     const startTime = Date.now();
+    // Capture the current run generation. If stop() fires during this
+    // enhanceFile (incrementing runId), we abort at the next checkpoint
+    // (after the ratchet, before the LLM enhance call) instead of running
+    // the full ~150s backoff + typecheck + push against a stale run.
+    const myRun = this.runId;
 
     // Compute this enhancement's branch: loop-{N+1} where N is the last
     // successful enhancement's number. Stored on the instance so every
@@ -733,6 +755,16 @@ class SelfEnhanceLoop {
       // loop singleton in a test would have side effects).
       if (!PROTECTED_FILES.has(relPath)) {
         await this.writeTestsForFile(filePath);
+      }
+
+      // Run-token checkpoint: if stop() fired during the ratchet (which can
+      // take up to ~150s on a 429'd call), bail before the LLM enhance call —
+      // otherwise we'd burn another ~150s of backoff on a run the user has
+      // already asked to end.
+      if (!this.continuous || myRun !== this.runId) {
+        result.reason = "Stopped during ratchet";
+        this.log(`Aborting enhance for ${relPath} — stop requested`, "warn");
+        return result;
       }
 
       // 2. Check for postmortem constraints
@@ -785,7 +817,7 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         temperature: 0.2,
         onRetry: (info) => {
           const backoff = info.isRateLimit ? `${Math.round(info.delayMs / 1000)}s` : `${info.delayMs}ms`;
-          this.log(`LLM retry attempt ${info.attempt}/${info.maxAttempts} (429 — backing off ${backoff}) for enhance/${relPath}`, "info");
+          this.log(`LLM retry attempt ${info.attempt}/${info.maxAttempts} (${info.isRateLimit ? "429" : "err"} — backing off ${backoff}) for enhance/${relPath}`, "info");
         },
       });
 
@@ -1003,6 +1035,9 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
     }
     this.running = true;
     this.currentFile = null;
+    // Capture this cycle's generation. stop() increments runId; if it fires
+    // mid-cycle, the for-loop below sees `myRun !== this.runId` and breaks.
+    const myRun = this.runId;
 
     try {
       const files = this.scanFiles();
@@ -1015,6 +1050,15 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       let enhanced = 0;
 
       for (const file of files) {
+        // Run-token + continuous check inside the for-loop. Previously this
+        // loop only checked `this.running` (set false by stop()), which never
+        // broke the loop — it just defeated the re-entry guard above, letting
+        // a new start spawn a second concurrent cycle. Now we break out as
+        // soon as stop() fires, instead of iterating the remaining ~15 files.
+        if (!this.continuous || myRun !== this.runId) {
+          this.log("Stop requested — breaking out of cycle", "warn");
+          break;
+        }
         const result = await this.enhanceFile(file);
         results.push(result);
         if (result.enhanced) enhanced++;
@@ -1051,9 +1095,17 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
   }
 
   stop() {
-    this.running = false;
+    // Bump the run token so any in-flight runCycle / enhanceFile sees a
+    // generation change at its next checkpoint and bails. We deliberately
+    // do NOT touch `this.running` here — that flag is owned by runCycle's
+    // `finally` block and represents "a cycle is currently executing".
+    // Setting it false here would (a) not break the for-loop in runCycle
+    // (it doesn't check `running`), and (b) defeat the re-entry guard at
+    // the top of runCycle, letting a new start spawn a second concurrent
+    // cycle sharing currentCycleBranch / currentFile / consecutiveRateLimits.
     this.continuous = false;
-    this.log("Self-enhance loop stopped", "warn");
+    this.runId++;
+    this.log("Self-enhance loop stop requested", "warn");
   }
 
   isRunning(): boolean {
