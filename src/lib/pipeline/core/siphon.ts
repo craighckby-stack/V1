@@ -99,6 +99,9 @@ export interface ArchitecturalVote {
 }
 
 function containsKeyword(text: string, keywords: readonly string[]): boolean {
+  if (!text || typeof text !== 'string') {
+    return false;
+  }
   const lowerText = text.toLowerCase();
   return keywords.some(keyword => lowerText.includes(keyword));
 }
