@@ -67,54 +67,43 @@ export class BinaryShield {
       throw new Error("Decryption packet must contain string data and iv fields");
     }
     
-    if (packet.data === null || packet.data === undefined || packet.iv === null || packet.iv === undefined) {
-      throw new Error("Decryption packet data and iv cannot be null or undefined");
-    }
+    const key = getKeyBuffer();
+    let iv: Buffer;
     
     try {
-      const key = getKeyBuffer();
-      let iv: Buffer;
-      
-      try {
-        iv = Buffer.from(packet.iv, "base64");
-      } catch (error) {
-        throw new Error("Invalid IV format - must be valid base64");
-      }
-      
-      if (iv.length !== IV_LENGTH) {
-        throw new Error(`Invalid IV length for ${ALGORITHM_NAME}. Expected ${IV_LENGTH} bytes, got ${iv.length}`);
-      }
-      
-      let combinedData: Buffer;
-      
-      try {
-        combinedData = Buffer.from(packet.data, "base64");
-      } catch (error) {
-        throw new Error("Invalid ciphertext format - must be valid base64");
-      }
-      
-      if (combinedData.length < AUTH_TAG_LENGTH) {
-        throw new Error(`Ciphertext too short for ${ALGORITHM_NAME} - must include ${AUTH_TAG_LENGTH}-byte authentication tag`);
-      }
-      
-      const authTag = combinedData.subarray(combinedData.length - AUTH_TAG_LENGTH);
-      const encryptedData = combinedData.subarray(0, combinedData.length - AUTH_TAG_LENGTH);
-      const decipher = createDecipheriv(ALGORITHM, key, iv);
-      
-      try {
-        decipher.setAuthTag(authTag);
-        const decryptedData = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
-        decipher.destroy(); // Properly close the decipher handle
-        return decryptedData.toString("utf8");
-      } catch (error) {
-        decipher.destroy(); // Ensure decipher is closed even if an error occurs
-        throw new Error(`Decryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
-      }
+      iv = Buffer.from(packet.iv, "base64");
     } catch (error) {
-      if (error instanceof Error && (error.message.includes("Invalid base64") || error.message.includes("non-base64"))) {
-        throw new Error("Invalid base64 format in packet data or iv");
-      }
-      throw error;
+      throw new Error("Invalid IV format - must be valid base64");
+    }
+    
+    if (iv.length !== IV_LENGTH) {
+      throw new Error(`Invalid IV length for ${ALGORITHM_NAME}. Expected ${IV_LENGTH} bytes, got ${iv.length}`);
+    }
+    
+    let combinedData: Buffer;
+    
+    try {
+      combinedData = Buffer.from(packet.data, "base64");
+    } catch (error) {
+      throw new Error("Invalid ciphertext format - must be valid base64");
+    }
+    
+    if (combinedData.length < AUTH_TAG_LENGTH) {
+      throw new Error(`Ciphertext too short for ${ALGORITHM_NAME} - must include ${AUTH_TAG_LENGTH}-byte authentication tag`);
+    }
+    
+    const authTag = combinedData.subarray(combinedData.length - AUTH_TAG_LENGTH);
+    const encryptedData = combinedData.subarray(0, combinedData.length - AUTH_TAG_LENGTH);
+    const decipher = createDecipheriv(ALGORITHM, key, iv);
+    
+    try {
+      decipher.setAuthTag(authTag);
+      const decryptedData = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+      decipher.destroy(); // Properly close the decipher handle
+      return decryptedData.toString("utf8");
+    } catch (error) {
+      decipher.destroy(); // Ensure decipher is closed even if an error occurs
+      throw new Error(`Decryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }
 
