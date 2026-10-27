@@ -254,18 +254,17 @@ export async function applyTaskPlan(plan: ChatTaskPlan): Promise<ChatTaskApplyRe
     const fullPath = join(PROJECT_ROOT, file.path);
     let originalCode = "";
     try {
-      originalCode = readFileSync(fullPath, "utf-8");
-    } catch {
       if (file.action === "modify") {
-        results.push({
-          path: file.path,
-          applied: false,
-          reason: "File not found (action was 'modify')",
-          diffBytes: 0,
-        });
-        continue;
+        originalCode = readFileSync(fullPath, "utf-8");
       }
-      // create — start from empty
+    } catch (err) {
+      results.push({
+        path: file.path,
+        applied: false,
+        reason: `Failed to read file: ${(err as Error).message}`,
+        diffBytes: 0,
+      });
+      continue;
     }
 
     // Ask the LLM to generate the new file content
