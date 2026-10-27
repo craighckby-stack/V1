@@ -64,8 +64,16 @@ export class BinaryShield {
       throw new Error("Decryption packet must be a valid object");
     }
     
+    if (packet.data === null || packet.data === undefined || packet.iv === null || packet.iv === undefined) {
+      throw new Error("Decryption packet must contain non-null data and iv fields");
+    }
+    
     if (typeof packet.data !== "string" || typeof packet.iv !== "string") {
       throw new Error("Decryption packet must contain string data and iv fields");
+    }
+    
+    if (packet.data.length === 0 || packet.iv.length === 0) {
+      throw new Error("Decryption packet data and iv fields cannot be empty");
     }
     
     const key = getKeyBuffer();
