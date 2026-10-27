@@ -1235,3 +1235,39 @@ Stage Summary:
   Every 10/20/40/80 seconds, a new line appears. The user can watch the countdown in real time. No more "is it working or stuck?" ambiguity.
 - The fix is generic: any future caller of llmComplete can pass onRetry to get the same real-time visibility. The two existing call sites (ratchet + enhancement) both use it now.
 - Honest note: needed a full dev server restart to pick up the change (Next.js hot-reload missed the deep singleton edit). Documented in the work log for future reference.
+
+---
+Task ID: readme-update
+Agent: main (Z.ai Code)
+Task: User: "We need to update readme tad outdated." — sync the README with the current state of the project.
+
+Work Log:
+- AUDITED the existing README against current code. Found 6 outdated claims:
+  1. Title said "LOOP v5.0" — app header is now just "LOOP" (decluttered 2 sessions ago)
+  2. Config command description listed "LLM keys, push settings, scan scope, ratchet settings" — modal only has git push target (token, repo, public, auto-create)
+  3. No mention of per-cycle branches (loop-01, loop-02, ...) — major architectural feature added 2 sessions ago
+  4. No mention of the alive UI (status pip ●/○ pulsing at 1.6s)
+  5. "logs `429 — backing off`" was vague — now logs each retry attempt in real time (added last session)
+  6. GitHub push description said "every refactor lands as a commit" — now each lands on its own loop-NN branch
+
+- REWRITES (kept voice + structure, updated content):
+  * Title: "LOOP v5.0 — Autonomous Self-Improvement" → "LOOP"
+  * Step 7 of "What It Actually Does": "commit to git, push" → "commit, push to a fresh loop-NN branch (see The Branch Model below)"
+  * NEW SECTION "The Branch Model — every mutation gets its own branch" added between "The Two Safety Mechanisms" and "The Boundary". Explains the linear chain (loop-01 → loop-02 → ...), why each branch = one win, git-native rollback, git-native diff, branch list = changelog. Notes the configured branch is the seed (loop-00).
+  * "What You See" section: added the header visualization (LOOP ● [STOP] [CLEAR] [CONFIG]), explained the pip + 1.6s pulse. Fixed the config command description to "git config modal (push target only: token, repo, public toggle, auto-create)". Replaced the example log block with a real captured session showing the new retry logs.
+  * "The Plumbing": updated GitHub push line to "Each successful mutation lands on its own loop-NN branch; the configured branch is the seed." Added "the per-cycle branch counter" to the Prisma line.
+  * "The Name": dropped the v5.0 reference. Added a note that the app dropped the version from the header entirely — "The version exists in git history (each loop-NN branch is a version), not in the UI."
+  * "Configuration" section: completely rewritten to be honest. Lists exactly what the modal contains (GitHub token, Repository owner/name, Branch as seed, Public toggle, Auto-create toggle). Added a note that LLM settings / scan scope / ratchet behaviour are code-level constants in self-enhance-loop.ts, not exposed in the modal — and that the modal is in the protected control surface so the loop can't rewrite it to expose more.
+  * "Honest Limitations": expanded from 3 to 4 items. Updated the LLM 429 bullet to mention the real-time retry log lines. Added a new bullet: "Push target has to be configured to see branches on GitHub" — without a PAT+repo, the loop falls back to commit-only and the branches never materialize on a remote.
+
+- VERIFIED every claim against the actual code:
+  * Header: agent-browser confirmed "LOOP | ○ | [START] | [CLEAR] | [CONFIG]" — just LOOP + pip + 3 buttons ✓
+  * Config modal fields: grep confirmed only GitHub Token, Repository, Public repo, Auto-create — no LLM/scan/ratchet settings ✓
+  * lastBranchNumber in prisma/schema.prisma ✓
+  * Retry log format matches: "LLM retry attempt N/5 (429 — backing off Xs) for ratchet/..." ✓
+  * Status command shows "next will be loop-NN" ✓
+
+Stage Summary:
+- README is now sync'd with the current state. 6 outdated claims fixed, 1 new section added (The Branch Model), voice and structure preserved.
+- All factual claims verified against the code or live browser. No aspirational descriptions — everything in the README is something you can actually see or do in the app right now.
+- The README now tells the same story top to bottom: a program that fails, remembers why, never repeats the mistake — and the architecture that makes that safe (ratchet + postmortem + boundary + per-cycle branches).

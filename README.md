@@ -1,4 +1,4 @@
-# LOOP v5.0 — Autonomous Self-Improvement
+# LOOP
 
 > A program that rewrites its own code, by itself, forever — and **remembers every failure** so it never makes the same mistake twice.
 
@@ -32,7 +32,7 @@ A continuous loop runs in the background. Every cycle:
 5. **Gate** — runs the safety gates: AST diff (no symbols dropped), sanitizer (no branding stripped), typecheck, debate tribunal.
 6. **Test** — runs characterization tests (the ratchet — see below).
 7. **Verdict**:
-   - **Pass** → commit to git, push, mark any postmortem as resolved.
+   - **Pass** → commit, push to a fresh `loop-NN` branch (see The Branch Model below), mark any postmortem as resolved.
    - **Fail** → revert the change, **record a postmortem**, try again next cycle.
 8. Goto 1. Forever.
 
@@ -75,6 +75,30 @@ So the loop isn't just spinning — it's getting **wiser about its own codebase*
 
 ---
 
+## The Branch Model — every mutation gets its own branch
+
+Each successful enhancement pushes to its own git branch, not to a single evolving branch:
+
+```
+loop-01  ← first full mutation (test pin + enhancement both committed)
+  └─ loop-02  ← second, built on loop-01's tip
+       └─ loop-03  ← third
+            └─ loop-04  ← current live state
+```
+
+Branches chain linearly — each `loop-NN` builds on `loop-(NN-1)`'s tip, so the latest branch is always the live state of the server. Checkout `loop-04` and you're seeing exactly what the system is running right now.
+
+Why this shape:
+
+- **Each branch = one successful mutation.** Failed attempts don't get a branch — they go to the postmortem DB instead. So `loop-NN` counts wins only.
+- **Git-native rollback.** If `loop-23` was a bad cycle that slipped through, `git checkout loop-22` gives you the pre-bad state. One command. No DB rollback, no postmortem archaeology.
+- **Git-native diff.** `git diff loop-22..loop-23` shows exactly what one cycle did: one file, one enhancement, its test pin. That's the audit trail, for free.
+- **The branch list IS the changelog.** `git branch | grep loop-` is a chronology of every successful mutation.
+
+The configured branch in the config modal is the **seed** (`loop-00` semantically — usually `main`). Each cycle forks a new `loop-NN` off the advancing HEAD. The counter lives in the database and only bumps after a successful push, so failed attempts don't consume a number.
+
+---
+
 ## The Boundary — what it can and can't touch
 
 A self-improving system that could rewrite its own safety gates could lobotomize itself. So the codebase is split:
@@ -92,18 +116,35 @@ The system can change **how** things look (colors, layout, visualizations). It c
 
 ## What You See
 
-A terminal. Black background, white text. Red appears only when something breaks.
+A terminal. Black background, white text. Red appears only when something breaks. The header is one word and three buttons:
+
+```
+LOOP  ●  [STOP] [CLEAR] [CONFIG]
+```
+
+The `●` next to `LOOP` is the heartbeat — it pulses at 1.6s when the loop is running, sits dim (`○`) when stopped. One character that tells you the system is alive without adding any clutter.
 
 Type commands:
 
-- `start` — kick off the loop. The command renders a live activity snapshot: running state, cycles completed, files scanned, files enhanced, tests pinned, reverts by gate, pushes to git, current target, task queue, recent log entries. Then the live stream takes over.
+- `start` — kick off the loop. Renders a live activity snapshot (running state, cycles completed, files scanned, files enhanced, tests pinned, reverts, pushes, current target, task queue), then the live stream takes over.
 - `stop` — halt the loop.
-- `status` — current snapshot.
+- `status` — current snapshot, including the next branch number that will be created.
 - `about` — the elevator pitch.
 - `clear` — wipe the console.
-- `config` — open the config modal (LLM keys, push settings, scan scope, ratchet settings).
+- `config` — open the git config modal (push target only: token, repo, public toggle, auto-create).
 
-Below your command, a live stream scrolls: *“Scanned 17 files… Ratchet: writing characterization tests for github-helpers.ts… Improving github-helpers.ts… AST gate: 0 violations… Pushed commit abc1234…”* — you can literally watch it think and work in real time.
+Below your command, a live stream scrolls by in real time:
+
+```
+[8:49:08] Starting continuous self-enhancement loop
+[8:49:08] Scanned 17 files in src/lib/pipeline/
+[8:49:08] Branch for this mutation: loop-01
+[8:49:08] Ratchet: writing characterization tests for github-helpers.ts (attempt 1)...
+[8:49:08] LLM retry attempt 1/5 (429 — backing off 10s) for ratchet/github-helpers.ts
+[8:49:18] LLM retry attempt 2/5 (429 — backing off 20s) for ratchet/github-helpers.ts
+```
+
+Every event — scan, ratchet, gate, push, retry, backoff — appears as it happens. Even when the LLM is rate-limiting and a single call takes ~150s of retries, you see each retry fire in real time. No silent gaps where you can't tell if the system is working or stuck.
 
 ---
 
@@ -111,19 +152,21 @@ Below your command, a live stream scrolls: *“Scanned 17 files… Ratchet: writ
 
 - **Next.js 16 + TypeScript + Tailwind + shadcn/ui** — the terminal UI on port 3000.
 - **WebSocket mini-service** on port 3003 — the real-time activity stream.
-- **Prisma + SQLite** — tasks, runs, postmortems.
-- **GitHub push** — real commits to real git history as the system improves. Every pinned test and every successful refactor lands as a commit.
+- **Prisma + SQLite** — tasks, runs, postmortems, the per-cycle branch counter.
+- **GitHub push** — real commits to real git history. Each successful mutation lands on its own `loop-NN` branch; the configured branch is the seed.
 - **`scripts/dev-daemon.py`** — double-fork daemon that keeps the dev server alive across sandbox session cleanups. Start with `python3 scripts/dev-daemon.py start`.
 
 ---
 
 ## The Name
 
-The old name was *“Architecture Helper Pipeline v4.x”* — it described what the system used to do (help refactor external GitHub repos). The new name describes what the system **is**:
+The old name was *"Architecture Helper Pipeline v4.x"* — it described what the system used to do (help refactor external GitHub repos). The new name describes what the system **is**:
 
 > **LOOP** — four characters, terminal-native, honest. The system is one continuous loop: scan → improve → test → push → repeat. That's the whole shape of it.
 
-Alternate name we considered: **RATCHET** — named after the defining safety mechanism. If “LOOP” ever feels too generic, “RATCHET” is the runner-up.
+The app dropped the version number from the header entirely — it just says `LOOP`. The version exists in git history (each `loop-NN` branch is a version), not in the UI.
+
+Alternate name we considered: **RATCHET** — named after the defining safety mechanism. If "LOOP" ever feels too generic, "RATCHET" is the runner-up.
 
 ---
 
@@ -149,22 +192,24 @@ Open the preview panel. Type `start`. Watch it work.
 
 ## Configuration
 
-The `config` command opens a modal covering:
+The `config` command (or the `[CONFIG]` button) opens the **git push target** modal:
 
-- **LLM settings** — API keys, model selection, temperature, max tokens.
-- **Push settings** — enable/disable git push, repo URL, branch.
-- **Scan scope** — which directories the loop is allowed to mutate (default: `src/lib/pipeline/` + `src/app/display/`).
-- **Ratchet settings** — enable/disable characterization test writing, max tests per file.
+- **GitHub token** — classic PAT (repo scope) or fine-grained PAT. Stored locally only, never in git config, remotes, or the pushed repo.
+- **Repository** (`owner/name`) — auto-creates the repo if missing (private by default).
+- **Branch** — the seed branch (`main` by default). Each successful enhancement forks a new `loop-NN` off the advancing HEAD; this field is the starting point, not the perpetual target.
+- **Public toggle** — private unless checked.
+- **Auto-create toggle** — creates the repo under the token's account if it doesn't exist.
 
-All config is stored in the database and read by the loop on next cycle.
+LLM settings, scan scope, and ratchet behaviour are code-level constants in `src/lib/pipeline/autonomous/self-enhance-loop.ts` — not exposed in the modal. The system could expose them later by adding fields to the config modal (which is in the protected control surface, so the loop can't rewrite it).
 
 ---
 
 ## Honest Limitations
 
-- The loop depends on an external LLM. When the LLM endpoint returns 429s (rate limit), the loop backs off honestly — it logs `429 — backing off` rather than pretending to work. No fake progress.
-- The first cycle on a fresh file has no postmortem to consult. The postmortem is written only after the first failure. So the *first* attempt at any file is the system at its dumbest; every subsequent attempt is informed.
-- The sandbox environment reaps processes spawned by a tool session. `scripts/dev-daemon.py` works around this with double-fork daemonization — the grandchild is orphaned to PID 1 before the session cleanup kills the tree. Without this, the dev server dies within minutes.
+- **The LLM has to be reachable.** The loop depends on an external LLM endpoint. When it returns 429s (rate limit), the loop backs off honestly — each retry fires a log line in real time (`LLM retry attempt 2/5 (429 — backing off 20s)`) rather than going silent or pretending to work. No fake progress. If the endpoint is hard-down, every cycle completes structurally (scan → attempt → fail → next) but produces zero mutations.
+- **The first attempt at any file is the dumbest.** The postmortem is written only after the first failure. So the first attempt has no scar log to consult; every subsequent attempt is informed.
+- **Push target has to be configured to see branches on GitHub.** Without a configured PAT + repo, the loop falls back to commit-only (local commits, no `loop-NN` branches on a remote). The branch logic still runs internally — the counter still bumps, the names still compute — but the branches only materialize when there's a remote to push to.
+- **The sandbox reaps session-spawned processes.** `scripts/dev-daemon.py` works around this with double-fork daemonization — the grandchild is orphaned to PID 1 before session cleanup kills the tree. Without this, the dev server dies within minutes.
 
 ---
 
