@@ -155,6 +155,9 @@ class EmgRagMemory {
     this.seeded = true;
 
     try {
+      if (!db.memoryEntry) {
+        throw new Error("Database connection not available");
+      }
       const rows = await db.memoryEntry.findMany({ orderBy: { createdAt: "asc" } });
       if (rows && rows.length > 0) {
         this.entries = rows.map((r) => ({
@@ -222,21 +225,23 @@ class EmgRagMemory {
     this.entries.push(newEntry);
     this.recomputeVectors();
     
-    db.memoryEntry
-      .create({
-        data: {
-          provenance: entry.provenance,
-          trust: entry.trust,
-          filePath: entry.filePath ?? null,
-          ruleToAvoid: entry.ruleToAvoid ?? null,
-          diagnosis: entry.diagnosis ?? null,
-          cleanSnippet: entry.cleanSnippet ?? null,
-          content: entry.content,
-        },
-      })
-      .catch((error) => {
-        console.error("Failed to save memory entry to database:", error);
-      });
+    if (db.memoryEntry) {
+      db.memoryEntry
+        .create({
+          data: {
+            provenance: entry.provenance,
+            trust: entry.trust,
+            filePath: entry.filePath ?? null,
+            ruleToAvoid: entry.ruleToAvoid ?? null,
+            diagnosis: entry.diagnosis ?? null,
+            cleanSnippet: entry.cleanSnippet ?? null,
+            content: entry.content,
+          },
+        })
+        .catch((error) => {
+          console.error("Failed to save memory entry to database:", error);
+        });
+    }
     
     return newEntry;
   }
@@ -332,9 +337,11 @@ class EmgRagMemory {
     this.idf.clear();
     this.vectors.clear();
     
-    db.memoryEntry.deleteMany({}).catch((error) => {
-      console.error("Failed to clear memory entries from database:", error);
-    });
+    if (db.memoryEntry) {
+      db.memoryEntry.deleteMany({}).catch((error) => {
+        console.error("Failed to clear memory entries from database:", error);
+      });
+    }
   }
 }
 
