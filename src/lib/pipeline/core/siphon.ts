@@ -98,7 +98,7 @@ export interface ArchitecturalVote {
   recommendedPattern: string;
 }
 
-function containsKeyword(text: string, keywords: readonly string[]): boolean {
+function containsKeyword(text: string | null | undefined, keywords: readonly string[]): boolean {
   if (!text || typeof text !== 'string' || text.trim() === '') {
     return false;
   }
@@ -106,7 +106,7 @@ function containsKeyword(text: string, keywords: readonly string[]): boolean {
   return keywords.some(keyword => lowerText.includes(keyword));
 }
 
-function isSecurityRelated(fileName: string, codeSnippet: string): boolean {
+function isSecurityRelated(fileName: string | null | undefined, codeSnippet: string | null | undefined): boolean {
   if (!fileName || typeof fileName !== 'string' || fileName.trim() === '' || 
       !codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
     return false;
@@ -115,7 +115,7 @@ function isSecurityRelated(fileName: string, codeSnippet: string): boolean {
          containsKeyword(codeSnippet, SECURITY_KEYWORDS);
 }
 
-function isAgentRelated(fileName: string, codeSnippet: string): boolean {
+function isAgentRelated(fileName: string | null | undefined, codeSnippet: string | null | undefined): boolean {
   if (!fileName || typeof fileName !== 'string' || fileName.trim() === '' || 
       !codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
     return false;
