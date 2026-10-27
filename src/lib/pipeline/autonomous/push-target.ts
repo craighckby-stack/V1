@@ -23,11 +23,12 @@ const SINGLETON_ID = "singleton";
 export interface PushTargetPublic {
   configured: boolean;
   repo?: string;
-  branch?: string;
+  branch?: string;          // configured seed branch (e.g. "main")
   createdRepo?: boolean;
   lastPushAt?: string | null;
   lastPushSha?: string | null;
   lastPushError?: string | null;
+  lastBranchNumber?: number; // successful enhancements pushed so far (loop-NN)
 }
 
 export interface PushOutcome {
@@ -100,6 +101,7 @@ export async function getPushTargetPublic(): Promise<PushTargetPublic> {
     lastPushAt: row.lastPushAt?.toISOString() ?? null,
     lastPushSha: row.lastPushSha,
     lastPushError: row.lastPushError,
+    lastBranchNumber: row.lastBranchNumber,
   };
 }
 
@@ -258,6 +260,12 @@ export async function clearPushTarget(): Promise<{ cleared: boolean }> {
 export async function pushCurrentState(opts?: {
   message?: string;
   force?: boolean;
+  /**
+   * Override the configured seed branch. Used by the self-enhance loop to
+   * push each successful mutation to its own `loop-NN` branch (per-cycle
+   * branching). When omitted, pushes to `target.branch` (the seed — main).
+   */
+  branchOverride?: string;
 }): Promise<PushOutcome> {
   const target = await getStoredTarget();
   if (!target) {
@@ -368,7 +376,8 @@ export async function pushCurrentState(opts?: {
 
     // 2. Push with auth injected via env (token never on the command line)
     const auth = `Authorization: Basic ${Buffer.from(`x-access-token:${target.token}`).toString("base64")}`;
-    const refspec = `HEAD:refs/heads/${target.branch}`;
+    const pushBranch = opts?.branchOverride ?? target.branch;
+    const refspec = `HEAD:refs/heads/${pushBranch}`;
     const forceArg = opts?.force ? " --force" : "";
     const pushEnv = {
       ...process.env,
@@ -459,4 +468,40 @@ export async function pushCurrentState(opts?: {
   } finally {
     pushInProgress = false;
   }
+}
+
+/**
+ * Read the last successful enhancement's branch number from the DB.
+ * Returns 0 when no push target is configured or the counter has never
+ * been bumped (i.e. no enhancement has fully succeeded yet).
+ *
+ * The next enhancement will push to `loop-{N+1}` (zero-padded to 2).
+ */
+export async function getLastBranchNumber(): Promise<number> {
+  const row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
+  return row?.lastBranchNumber ?? 0;
+}
+
+/**
+ * Atomically bump the per-cycle branch counter. Called by the loop after
+ * a successful enhancement push. `next` must be strictly greater than the
+ * current value (the loop computes it as `current + 1`); the upsert guards
+ * against accidentally going backwards.
+ */
+export async function setLastBranchNumber(next: number): Promise<void> {
+  const current = await getLastBranchNumber();
+  if (next <= current) return; // never go backwards
+  await db.gitPushTarget.update({
+    where: { id: SINGLETON_ID },
+    data: { lastBranchNumber: next },
+  }).catch(() => { /* non-fatal — counter is best-effort audit */ });
+}
+
+/**
+ * Format a cycle number as a loop branch name: 1 → "loop-01", 99 → "loop-99",
+ * 100 → "loop-100". Zero-padded to 2 digits so `git branch` listing sorts
+ * lexicographically in cycle order up to 99, then unpadded from 100 on.
+ */
+export function formatLoopBranch(cycleNumber: number): string {
+  return `loop-${String(cycleNumber).padStart(2, "0")}`;
 }

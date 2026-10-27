@@ -1152,3 +1152,44 @@ Work Log:
 
 Stage Summary:
 - Attribution fixed. Boot line, author metadata all read craighckby-stack. SDK package name in README's tech stack stays (it's a real npm dep, not branding). Browser-verified clean.
+
+---
+Task ID: alive-ui-and-per-cycle-branches
+Agent: main (Z.ai Code)
+Task: User: "Yes defiantly 100% alive. And we need to make sure each new full mutation is created in a different branch each time. Maybe loop 01 then loop v2 ? Thoughts" — make the UI feel alive + per-cycle git branches.
+
+Work Log:
+- THOUGHTS first (per the established pattern): the minimalism was the right call but "minimal" ≠ "alive". Two touches to bridge the gap: a status pip next to LOOP (●/○), and an idle prompt at the bottom. On branches: recommended `loop-01` over `loop-v1` (kebab-case, zero-padded, git-conventional), and CHAINING not forking — each loop-NN builds on loop-NN-1's tip, so the latest branch IS the live state. Failed attempts don't get a branch number (counter only bumps on successful enhancement push), so loop-NN counts WINS only, matching "full mutation" exactly.
+
+- SCHEMA: added `lastBranchNumber Int @default(0)` to GitPushTarget. Documented inline: counter is N after N successful enhancements; next push targets loop-{N+1}; failed attempts don't increment (so the next attempt reuses the same number — fast-forward works because HEAD only advances). db:push ran clean.
+
+- push-target.ts:
+  * Added `branchOverride?: string` to pushCurrentState opts. When provided, the refspec becomes `HEAD:refs/heads/{branchOverride}` instead of `HEAD:refs/heads/{target.branch}`. The configured `branch` field is now the SEED (loop-00 semantically) — it's where the initial commit lives; each successful enhancement forks a new loop-NN off the advancing HEAD.
+  * Added 3 helpers: getLastBranchNumber() reads the counter from DB (0 if no target configured); setLastBranchNumber(next) atomically bumps it (guards against going backwards — best-effort, non-fatal on failure); formatLoopBranch(n) formats as `loop-NN` (zero-padded to 2 → loop-01..loop-99, then loop-100).
+  * Exposed lastBranchNumber in PushTargetPublic + populated in getPushTargetPublic so the UI can show it.
+
+- self-enhance-loop.ts:
+  * Added instance var `currentCycleBranch: string | null` — set at the start of each enhanceFile from `formatLoopBranch(getLastBranchNumber() + 1)`. Cleared in the enhanceFile's finally block (success or fail).
+  * gitPush() now passes `branchOverride: this.currentCycleBranch` to pushCurrentState — so the test pin push AND the enhancement push both go to the same loop-NN branch. One full mutation = one branch.
+  * After a successful enhancement push, calls `setLastBranchNumber(thisN)` to bump the counter. The log message confirms: "Mutation #N pinned to branch loop-NN".
+  * Failed enhancements (gate rejected, postmortem recorded): the counter is NOT bumped. The test pin push (if it happened) created loop-{N+1} on the remote with just the test pin — the next enhanceFile will try loop-{N+1} again, and since HEAD advanced, it fast-forwards cleanly. This is intentional: failed attempts don't consume a branch number; the audit trail shows "this number was attempted, eventually succeeded with this content".
+
+- page.tsx (the alive UI):
+  * Added status pip next to LOOP: `●` (filled circle, white) when running with a 1.6s ease-in-out pulse animation (opacity 1 → 0.35 → 1); `○` (empty circle, dim) when stopped, no animation. One character, communicates "I'm alive and working" vs "I'm waiting". The pulse is the heartbeat — it's what makes the difference between "minimal" and "alive".
+  * The idle prompt at the bottom was already there (`> <input>` with autofocus). No change needed — the focus is already on the input on load, so the caret blinks at you the moment the page opens. The terminal is already saying "I'm waiting for you" — I just hadn't noticed it was already there.
+  * Updated the status command: "Push target: github.com/{repo} (seed: {branch})" + new "Mutations: N pushed — next will be loop-{N+1}" line. Replaces the old "branch {main}" wording which was now misleading.
+  * Updated config modal footer: "Each successful enhancement pushes to its own branch loop-01, loop-02, ... — the branch above is the seed (loop-00)." So the user understands the configured branch field is the seed, not the perpetual target.
+
+- VERIFIED LIVE (agent-browser):
+  * Header renders: "LOOP | ○ | [START] | [CLEAR] | [CONFIG]" — pip present, correct character for stopped state.
+  * Pip has title="Stopped" / title="Running" for accessibility + aria-label.
+  * Status command output: shows "Push target: NOT CONFIGURED" (correct — no target set up in this sandbox); the new Mutations/seed lines only appear once configured (matches the code path).
+  * Config modal: footer shows the new loop-01/loop-02 note + seed mention. Title still "GIT CONFIG", no box chars.
+  * Mobile 390px: no horizontal scroll, header fits.
+  * tsc --noEmit: 0 errors. eslint: clean.
+
+Stage Summary:
+- Two things delivered:
+  1. ALIVE UI: LOOP now has a pulse. ● beats at 1.6s when running, ○ sits dim when stopped. The idle prompt was already at the bottom waiting. Header is still just `LOOP ● [START] [CLEAR] [CONFIG]` — minimal AND alive. Zero clutter added; one character + one animation.
+  2. PER-CYCLE BRANCHES: each successful enhancement now pushes to its own `loop-NN` branch (loop-01, loop-02, ...). Branches chain linearly (loop-NN builds on loop-NN-1's tip — the latest branch is always the live state). Failed attempts don't consume a number. The configured branch becomes the seed (loop-00). The audit trail on GitHub is now a chronology of every successful mutation, individually inspectable, individually rollback-able.
+- One honest note: I didn't run a full enhancement cycle to verify the actual branch appears on a real GitHub remote — that requires a configured push target + a successful LLM enhancement (which has historically hit 429s in this sandbox). The branch logic is typechecked, linted, and the helper functions are unit-traceable. The first real successful enhancement will push to loop-01.

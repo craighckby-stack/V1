@@ -117,16 +117,21 @@ model Postmortem {
 /// git pushes of the system's own evolving source. The token is NEVER
 /// returned to the client — API routes redact it.
 model GitPushTarget {
-  id            String    @id @default("singleton")
-  repo          String    // "owner/name" on github.com
-  token         String    // classic PAT (ghp_...) or fine-grained PAT (github_pat_...)
-  branch        String    @default("main") // remote branch to push to
-  createdRepo   Boolean   @default(false) // true if we auto-created the repo
-  lastPushAt    DateTime?
-  lastPushSha   String?   // short sha of last successful push
-  lastPushError String?   // last push failure message (token-free)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                String    @id @default("singleton")
+  repo              String    // "owner/name" on github.com
+  token             String    // classic PAT (ghp_...) or fine-grained PAT (github_pat_...)
+  branch            String    @default("main") // seed branch — the configured home; each successful enhancement forks a new loop-NN branch off it
+  createdRepo       Boolean   @default(false) // true if we auto-created the repo
+  lastPushAt        DateTime?
+  lastPushSha       String?   // short sha of last successful push
+  lastPushError     String?   // last push failure message (token-free)
+  // Per-cycle branch counter. After the Nth successful enhancement, this is N
+  // and the next enhancement will push to loop-{N+1} (zero-padded to 2 digits
+  // → loop-01 .. loop-99, then loop-100). Failed attempts do NOT increment —
+  // only full mutations (test pin + enhancement both committed) get a branch.
+  lastBranchNumber  Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }
 
 /// On-demand chat/task engine (restored from the Original-branch lineage).

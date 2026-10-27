@@ -18,7 +18,7 @@ import { join, relative, resolve, basename, dirname } from "path";
 import { llmComplete, extractSummaryAndCode } from "../llm/agent-llm";
 import { conductLlmDebate } from "../llm/debate-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
-import { pushCurrentState } from "./push-target";
+import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopBranch } from "./push-target";
 import { db } from "@/lib/db";
 import { generateTasks } from "./self-task-generator";
 
@@ -138,6 +138,13 @@ class SelfEnhanceLoop {
   private running = false;
   private continuous = false;
   private currentFile: string | null = null;
+  // Per-enhancement branch: when set, ALL gitPush calls in this enhanceFile
+  // (test pin + enhancement) push to this branch instead of the configured
+  // seed branch. Computed at enhanceFile start from lastBranchNumber + 1.
+  // Cleared at enhanceFile end (success or fail). The counter is bumped in
+  // the DB only after the enhancement push succeeds — failed attempts don't
+  // consume a branch number.
+  private currentCycleBranch: string | null = null;
   // Circuit breaker: track consecutive 429s to back off the whole cycle
   private consecutiveRateLimits = 0;
   // Ratchet: per-file test-writing attempt tracking. After 2 failed attempts
@@ -302,7 +309,10 @@ class SelfEnhanceLoop {
    */
   private async gitPush(message: string): Promise<{ pushed: boolean; commitSha?: string }> {
     try {
-      const outcome = await pushCurrentState({ message });
+      const outcome = await pushCurrentState({
+        message,
+        ...(this.currentCycleBranch ? { branchOverride: this.currentCycleBranch } : {}),
+      });
       if (outcome.pushed) {
         this.log(`Pushed to GitHub: ${outcome.commitSha} (${outcome.repo})`, "success");
         return { pushed: true, commitSha: outcome.commitSha };
@@ -672,6 +682,15 @@ class SelfEnhanceLoop {
     this.currentFile = relPath;
     const startTime = Date.now();
 
+    // Compute this enhancement's branch: loop-{N+1} where N is the last
+    // successful enhancement's number. Stored on the instance so every
+    // gitPush in this enhanceFile (test pin + enhancement) targets the
+    // same branch — one full mutation = one branch.
+    const lastN = await getLastBranchNumber();
+    const thisN = lastN + 1;
+    this.currentCycleBranch = formatLoopBranch(thisN);
+    this.log(`Branch for this mutation: ${this.currentCycleBranch}`, "info");
+
     const result: SelfEnhanceResult = {
       filePath: relPath,
       enhanced: false,
@@ -942,6 +961,12 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       result.commitSha = pushResult.commitSha;
       if (pushResult.pushed) {
         this.stats.totalPushed++;
+        // Bump the per-cycle branch counter — this mutation now lives on
+        // `loop-{thisN}` on the remote. The next enhanceFile will compute
+        // `loop-{thisN+1}`. Failed attempts (this block not reached) leave
+        // the counter untouched, so the next attempt reuses the same number.
+        await setLastBranchNumber(thisN);
+        this.log(`Mutation #${thisN} pinned to branch ${this.currentCycleBranch}`, "success");
       }
 
       // 11. Resolve any postmortem for this file
@@ -952,6 +977,11 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       result.reason = `Error: ${(err as Error).message}`;
       this.log(`Error enhancing ${relPath}: ${(err as Error).message}`, "error");
       return result;
+    } finally {
+      // Whether the enhancement succeeded, failed at a gate, or threw: clear
+      // the per-mutation branch. The next enhanceFile computes a fresh one
+      // from the (possibly incremented) counter.
+      this.currentCycleBranch = null;
     }
   }
 

@@ -32,6 +32,7 @@ interface PushTargetInfo {
   lastPushAt?: string | null;
   lastPushSha?: string | null;
   lastPushError?: string | null;
+  lastBranchNumber?: number;
 }
 
 /** One row of the system's self-generated task queue (static analysis finding). */
@@ -596,8 +597,11 @@ export default function Home() {
         }
         const t = pushTarget;
         if (t?.configured) {
+          const nextN = (t.lastBranchNumber ?? 0) + 1;
+          const nextBranch = `loop-${String(nextN).padStart(2, "0")}`;
           lines.push(
-            `Push target:    github.com/${t.repo} (branch ${t.branch}${t.createdRepo ? ", auto-created" : ""})`,
+            `Push target:    github.com/${t.repo} (seed: ${t.branch})`,
+            `Mutations:      ${t.lastBranchNumber ?? 0} pushed — next will be ${nextBranch}`,
             `Last push:      ${t.lastPushSha ? `commit ${t.lastPushSha}` : "never"}${t.lastPushAt ? ` at ${t.lastPushAt}` : ""}`
           );
           if (t.lastPushError) lines.push(`Last error:     ${t.lastPushError}`);
@@ -1051,9 +1055,27 @@ export default function Home() {
           gap: "8px",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
           <span style={{ color: PROMPT_COLOR, fontWeight: "bold" }}>LOOP</span>
+          <span
+            aria-label={running ? "Loop running" : "Loop stopped"}
+            title={running ? "Running" : "Stopped"}
+            style={{
+              color: running ? PROMPT_COLOR : DIM_COLOR,
+              fontSize: "16px",
+              lineHeight: 1,
+              animation: running ? "loopPulse 1.6s ease-in-out infinite" : "none",
+            }}
+          >
+            {running ? "●" : "○"}
+          </span>
         </div>
+        <style>{`
+          @keyframes loopPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.35; }
+          }
+        `}</style>
         <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
           <button
             type="button"
@@ -1349,8 +1371,11 @@ export default function Home() {
             )}
 
             {/* Footer hint */}
-            <div style={{ color: DIM_COLOR, marginTop: "12px", fontSize: "12px", lineHeight: 1.3 }}>
-              Token stored locally only.
+            <div style={{ color: DIM_COLOR, marginTop: "12px", fontSize: "12px", lineHeight: 1.4 }}>
+              Token stored locally only. Each successful enhancement pushes to its
+              own branch <span style={{ color: PROMPT_COLOR }}>loop-01</span>,{" "}
+              <span style={{ color: PROMPT_COLOR }}>loop-02</span>, ... — the branch
+              above is the seed (loop-00).
             </div>
           </div>
         </div>
