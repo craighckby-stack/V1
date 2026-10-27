@@ -1119,3 +1119,22 @@ Stage Summary:
 - "Not working" = the dev server was dead. Root cause: sandbox reaps session-spawned processes; `bun run dev`'s pipeline was additionally fragile.
 - Fix: scripts/dev-daemon.py — double-fork daemonization (grandchild orphaned to init before cleanup), execs next dev directly. Start with: `python3 scripts/dev-daemon.py start`.
 - The server now survives session transitions AND the loop running. Everything from the previous sessions (rich start output, counters, expanded scope) is now verified working in the browser.
+
+---
+Task ID: declutter-header-just-loop
+Agent: main (Z.ai Code)
+Task: User: "Can you remove LOOP v5.0 — AUTONOMOUS SELF-IMPROVEMENT and just have Loop. Also the writing around it and config tabs git on is all cluttard" — declutter the header to just "LOOP".
+
+Work Log:
+- HEADER stripped to the minimum. Before: box-drawing chars (┌─ ─┐ │) + "LOOP v5.0 — AUTONOMOUS SELF-IMPROVEMENT" + [ENHANCING]/[IDLE] + stats line (scanned= enhanced= pinned= reverted= pushed= tasks=) + [GIT: ON/OFF]. After: **LOOP** on the left, [STOP]/[START] [CLEAR] [CONFIG] on the right. Nothing else. The STOP/START button flip already communicates running state; stats live in the `status` command; git state lives in `status`/`config`.
+- BOOT SEQUENCE trimmed from 11 lines to 4: "(c) 2026 Z.ai Code" / blank / "Type 'help' for commands." / blank. The walls of text (Target/Mode/Input/Verification/Proof) are gone — details live in `about`. The boot no longer repeats the title (header owns the name now).
+- `about` command rewritten from 10 lines to 5, all detail preserved in compressed form: LOOP / rewrites own code + verifies / postmortems + ratchet / "you are the feedback". No more "v5.0".
+- CONFIG MODAL decluttered: title "┌─ GIT CONFIG ───┐" → "GIT CONFIG"; auto-create subtext 3 lines → 1 ("Needs a classic PAT with repo scope."); footer hint paragraph → "Token stored locally only." Also fixed a leftover GREEN glow on the modal (boxShadow rgba(0,255,0,.15) → rgba(255,255,255,.08)) — green is forbidden in this UI.
+- layout.tsx metadata: title "LOOP · Autonomous Self-Improving System" → "LOOP"; description → one line: "A program that rewrites its own code, fails, remembers why, and never makes the same mistake twice."
+- Removed now-unused vars: `const s = status?.stats` and `const connected = pushTarget?.configured` (header was their only render consumer).
+- TOOLING NOTE: the Edit/MultiEdit tools failed on strings containing the em-dash/box-drawing chars (encoding mismatch between tool transport and file bytes) — same old_str succeeded via python3 str.replace. Python is the reliable path for this file's unicode-heavy strings.
+
+Stage Summary:
+- Header is now exactly: LOOP · [STOP]/[START] [CLEAR] [CONFIG]. Verified via DOM extraction: "LOOP | [START] | [CLEAR] | [CONFIG]".
+- Verified live (agent-browser): title "LOOP" in <title>, about renders new 5-line version with zero "v5.0" anywhere in the DOM, config modal shows plain "GIT CONFIG" + 1-line footer + 0 box chars + 3 buttons, 0 green elements in computed styles, mobile 390px no horizontal scroll + header fits, zero page/console errors.
+- tsc --noEmit: 0 errors. eslint: clean. All information removed from the header is still available via `status` (running/scanned/enhanced/pinned/pushed/queue + push target) and `about` (philosophy).

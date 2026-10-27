@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LOOP · Autonomous Self-Improving System",
+  title: "LOOP",
   description:
-    "LOOP — an autonomous self-improving system that defines its own input, refactors its own source code, verifies every change through structural + typecheck + debate + test gates, and pushes to GitHub as immutable proof. The user is the feedback signal.",
+    "A program that rewrites its own code, fails, remembers why, and never makes the same mistake twice.",
   keywords: [
     "autonomous self-improvement",
     "self-enhancing loop",
