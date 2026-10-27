@@ -124,15 +124,15 @@ export function performArchitecturalVote(fileName: string, codeSnippet: string):
     throw new Error("fileName and codeSnippet must be non-empty strings");
   }
   
-  const securitySource = SIPHON_SOURCES[1];
-  const agentSource = SIPHON_SOURCES[2];
+  const securitySource = SIPHON_SOURCES.find(source => source.category === "verification");
+  const agentSource = SIPHON_SOURCES.find(source => source.category === "runtime");
   
   if (!securitySource) {
-    throw new Error("Internal configuration error: Security siphon source is missing from SIPHON_SOURCES array. Please check array integrity at index 1.");
+    throw new Error("Internal configuration error: Security siphon source is missing from SIPHON_SOURCES array. Please check array integrity for verification category.");
   }
   
   if (!agentSource) {
-    throw new Error("Internal configuration error: Agent siphon source is missing from SIPHON_SOURCES array. Please check array integrity at index 2.");
+    throw new Error("Internal configuration error: Agent siphon source is missing from SIPHON_SOURCES array. Please check array integrity for runtime category.");
   }
   
   if (isSecurityRelated(fileName, codeSnippet)) {
@@ -155,9 +155,9 @@ export function performArchitecturalVote(fileName: string, codeSnippet: string):
     };
   }
 
-  const defaultSource = SIPHON_SOURCES[0];
+  const defaultSource = SIPHON_SOURCES.find(source => source.category === "orchestration");
   if (!defaultSource) {
-    throw new Error("Internal configuration error: Default siphon source is missing from SIPHON_SOURCES array. Please check array integrity at index 0.");
+    throw new Error("Internal configuration error: Default siphon source is missing from SIPHON_SOURCES array. Please check array integrity for orchestration category.");
   }
 
   return {
