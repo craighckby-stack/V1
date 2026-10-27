@@ -261,6 +261,17 @@ export async function applyTaskPlan(plan: ChatTaskPlan): Promise<ChatTaskApplyRe
       continue;
     }
 
+    // Validate file path to prevent directory traversal
+    if (file.path.includes("..") || file.path.startsWith("/") || file.path.includes("//")) {
+      results.push({
+        path: file.path,
+        applied: false,
+        reason: "Invalid file path: directory traversal not allowed",
+        diffBytes: 0,
+      });
+      continue;
+    }
+
     const fullPath = join(PROJECT_ROOT, file.path);
     let originalCode = "";
     try {
@@ -283,7 +294,7 @@ export async function applyTaskPlan(plan: ChatTaskPlan): Promise<ChatTaskApplyRe
 Rules:
 - Preserve every existing export (function, class, interface, type, const) — do not rename or remove
 - Only make the changes needed for the task
-- Output ONLY the complete file content in a single fenced \`\`\`typescript code block
+- Output ONLY the complete file content in a single fenced \`typescript\` code block
 - Do NOT add header comments, banners, or branding
 - If modifying, keep all existing code that isn't part of the change`;
 
@@ -293,7 +304,10 @@ FILE: ${file.path}
 ACTION: ${file.action}
 REASON: ${file.reason}
 
-${file.action === "modify" ? `CURRENT CONTENT:\n\`\`\`typescript\n${originalCode}\n\`\`\`` : "(new file)"}
+${file.action === "modify" ? `CURRENT CONTENT:
+\`\`\`typescript
+${originalCode}
+\`\`\`` : "(new file)"}
 
 Output the COMPLETE new content for this file that achieves the goal.`;
 
@@ -366,16 +380,22 @@ Output the COMPLETE new content for this file that achieves the goal.`;
       stdio: "pipe",
     });
     compiled = true;
-  } catch {
+  } catch (err) {
     compiled = false;
   }
 
   if (!compiled) {
     // Revert all changes
     try {
-      execSync("git checkout -- .", { cwd: PROJECT_ROOT, timeout: 5000, stdio: "pipe" });
-    } catch {
-      // ignore
+      execSync("git checkout -- .", { 
+        cwd: PROJECT_ROOT, 
+        timeout: 5000, 
+        stdio: "pipe",
+        killSignal: "SIGTERM"
+      });
+    } catch (err) {
+      // ignore but log for debugging
+      console.error("Error reverting changes:", (err as Error).message);
     }
     return {
       ok: false,
