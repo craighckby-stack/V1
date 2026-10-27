@@ -29,6 +29,41 @@ async function getZai(): Promise<ZAIType> {
   return zaiPromise;
 }
 
+// ── Fix A: shared rate-limit gate ──────────────────────────────────────────
+// Module-level state shared by EVERY llmComplete caller (ratchet, enhance,
+// debate tribunal, task-executor, chat-task). When the provider returns a
+// sustained 429, we set `blockedUntil` to now + an escalating cooldown. All
+// callers see the same gate, so two parallel debate-llm calls (Promise.all at
+// debate-llm.ts:116) don't both hammer the API — the second sees the gate
+// the first just set and returns immediately.
+//
+// `strikes` is the escalation counter. Each gate-set uses strikes (capped at
+// 3) to pick a cooldown from COOLDOWNS_MS, then increments strikes. A single
+// success resets strikes to 0 — so one good call after a 2min cooldown
+// de-escalates instead of staying at 30min forever.
+let blockedUntil = 0;
+let strikes = 0;
+const COOLDOWNS_MS = [2, 5, 15, 30].map((m) => m * 60_000); // 2min, 5min, 15min, 30min
+
+/** Milliseconds until the gate opens. 0 means clear. Callers (the loop) can
+ *  poll this to decide whether to attempt a call or sleep until it clears. */
+export function llmCooldownMs(): number {
+  return Math.max(0, blockedUntil - Date.now());
+}
+
+/** True iff the gate is currently blocking all calls. Convenience wrapper. */
+export function llmIsCoolingDown(): boolean {
+  return blockedUntil > Date.now();
+}
+
+/** Reset the gate. Exposed for tests and for the loop's "force resume" path
+ *  (e.g. when the user clears the terminal or manually starts after a long
+ *  outage). Does NOT reset strikes — if the provider is still down, the next
+ *  call will re-set the gate at the same escalation level. */
+export function llmClearGate(): void {
+  blockedUntil = 0;
+}
+
 export interface LlmCallOptions {
   systemPrompt: string;
   userPrompt: string;
@@ -53,6 +88,14 @@ export interface LlmCallResult {
   error?: string;
   attempts: number;
   latencyMs: number;
+  /** True iff the call did NOT succeed because of rate limiting — either the
+   *  gate was already active when llmComplete was entered (returned
+   *  immediately, 0 attempts), or the in-call retries exhausted on a 429
+   *  and the gate was just set by this call. Distinct from a generic
+   *  `ok:false` (network error, empty response, parse failure) which does
+   *  NOT set the gate. Callers should treat rateLimited as "defer, don't
+   *  burn an attempt" rather than "fail this file permanently". */
+  rateLimited?: boolean;
   /** Which model actually served the call (from the API response —
    *  honest provenance for the task engine's records; undefined only
    *  if the provider omits the field). */
@@ -67,9 +110,32 @@ export interface LlmCallResult {
 export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> {
   const started = performance.now();
   let lastError: string | undefined;
-  // More attempts for rate-limited (429) responses so we can back off
-  // properly instead of giving up after 2 quick tries.
-  const maxAttempts = 5;
+
+  // Fix A: gate check. If a previous call (in this process, by any caller)
+  // set the gate, return immediately — no in-call retries, no backoff sleep.
+  // The caller sees rateLimited:true and defers. This is what stops the
+  // ~150s-per-file 429 backoff spiral: instead of each call site doing its
+  // own 5× retry, the FIRST 429 sets a 2min gate and all subsequent calls
+  // (ratchet, enhance, debate, task-executor, chat-task) return instantly.
+  const cooldownMs = llmCooldownMs();
+  if (cooldownMs > 0) {
+    return {
+      ok: false,
+      content: "",
+      error: `429 cooldown active — ${Math.round(cooldownMs / 1000)}s remaining`,
+      rateLimited: true,
+      attempts: 0,
+      latencyMs: Math.round(performance.now() - started),
+    };
+  }
+
+  // Fix A: cut in-call retries from 5 to 2. The gate handles the long wait
+  // (2min → 30min escalating); in-call only needs to cover transient blips
+  // (a single 429 that clears in 10s, or a momentary network hiccup). With
+  // maxAttempts=2, onRetry fires at most once per call — the live view is
+  // less noisy AND the gate's cooldown replaces the 80s max in-call backoff.
+  const maxAttempts = 2;
+  let sawRateLimit = false;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -99,6 +165,9 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
       if (!content.trim()) {
         throw new Error("Empty LLM response");
       }
+      // Success — reset the escalation counter. One good call after a
+      // cooldown de-escalates (next 429 starts at 2min again, not 30min).
+      strikes = 0;
       return {
         ok: true,
         content,
@@ -109,17 +178,18 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
     } catch (err) {
       lastError = (err as Error).message;
       const isRateLimit = /429|Too many requests|rate limit/i.test(lastError);
+      if (isRateLimit) sawRateLimit = true;
 
       if (attempt < maxAttempts) {
-        // For 429s: exponential backoff — 10s, 20s, 40s, 80s as a BASE,
-        // then ±20% jitter so multiple callers retrying in lockstep don't
-        // synchronise and re-trigger the limit together.
+        // For 429s: short backoff (was 10s base; now just 2-4s with jitter)
+        // — the gate will handle the long wait if this retry also fails.
         // For other errors: quick retry — 400ms, 800ms (also jittered).
         const baseDelay = isRateLimit
-          ? 10000 * Math.pow(2, attempt - 1) // 10s, 20s, 40s, 80s
-          : 400 * attempt;                  // 400ms, 800ms, 1200ms, 1600ms
+          ? 2000 // 2s base; the gate (set below if this also 429s) does the long wait
+          : 400 * attempt; // 400ms, 800ms
         // Best-effort Retry-After: if the SDK surfaces response headers,
-        // honour the server's hint instead of our own backoff.
+        // honour the server's hint (capped at the in-call ceiling, not the
+        // gate ceiling — the gate's own escalation is separate).
         const errAny = err as unknown as {
           headers?: Record<string, string>;
           response?: { headers?: Record<string, string> };
@@ -130,9 +200,7 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
         let delay: number;
         if (retryAfterHeader) {
           const secs = Number(retryAfterHeader);
-          // Cap Retry-After at the same ceiling as our own backoff so a
-          // misbehaving server can't pin us for an hour.
-          if (Number.isFinite(secs) && secs > 0 && secs <= 120) {
+          if (Number.isFinite(secs) && secs > 0 && secs <= 10) {
             delay = secs * 1000;
           } else {
             delay = baseDelay * (0.8 + Math.random() * 0.4);
@@ -140,10 +208,6 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
         } else {
           delay = baseDelay * (0.8 + Math.random() * 0.4); // ±20% jitter
         }
-        // Surface the retry to the caller before the backoff sleep —
-        // without this, the live view goes silent for the whole ~150s
-        // 429 backoff window and the user can't tell if the system is
-        // working or stuck.
         if (opts.onRetry) {
           opts.onRetry({
             attempt,
@@ -158,10 +222,20 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
     }
   }
 
+  // In-call retries exhausted. If the failure was a 429, set the gate so
+  // all callers (this one included, on its next invocation) defer
+  // immediately. Escalating cooldown: 2min, 5min, 15min, 30min (±20% jitter).
+  if (sawRateLimit) {
+    const cooldown = COOLDOWNS_MS[Math.min(strikes, 3)] * (0.8 + Math.random() * 0.4);
+    blockedUntil = Date.now() + cooldown;
+    strikes++; // post-increment: first 429 → 2min, second → 5min, etc.
+  }
+
   return {
     ok: false,
     content: "",
     error: lastError ?? "LLM unavailable",
+    rateLimited: sawRateLimit,
     attempts: maxAttempts,
     latencyMs: Math.round(performance.now() - started),
   };

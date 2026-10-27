@@ -15,7 +15,7 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync, rmSync } from "fs";
 import { spawnSync } from "child_process";
 import { join, relative, resolve, basename, dirname } from "path";
-import { llmComplete, extractSummaryAndCode } from "../llm/agent-llm";
+import { llmComplete, extractSummaryAndCode, llmCooldownMs } from "../llm/agent-llm";
 import { conductLlmDebate } from "../llm/debate-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
 import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopBranch } from "./push-target";
@@ -147,6 +147,14 @@ class SelfEnhanceLoop {
   private currentCycleBranch: string | null = null;
   // Circuit breaker: track consecutive 429s to back off the whole cycle
   private consecutiveRateLimits = 0;
+  // Fix B: count consecutive cycles where every file was deferred due to the
+  // shared LLM rate-limit gate. After 3 such cycles, log a loud "LLM quota
+  // exhausted" message so the user knows the loop is alive but blocked (not
+  // hung, not crashed — just waiting for the gate to open). The loop does NOT
+  // auto-stop: when the gate clears, it resumes automatically. Reset on any
+  // file that actually attempts an LLM call (success or non-cooldown failure).
+  private consecutiveCooldownCycles = 0;
+  private quotaExhaustedLogged = false;
   // Run-token (generation counter). Incremented by stop(). Each runCycle /
   // enhanceFile captures the value at start; if it changes mid-run (because
   // the user stopped and possibly started again), the in-flight work breaks
@@ -757,13 +765,23 @@ class SelfEnhanceLoop {
         await this.writeTestsForFile(filePath);
       }
 
-      // Run-token checkpoint: if stop() fired during the ratchet (which can
-      // take up to ~150s on a 429'd call), bail before the LLM enhance call —
-      // otherwise we'd burn another ~150s of backoff on a run the user has
-      // already asked to end.
+      // Run-token checkpoint (Fix C): if stop() fired during the ratchet,
+      // bail before the LLM enhance call.
       if (!this.continuous || myRun !== this.runId) {
         result.reason = "Stopped during ratchet";
         this.log(`Aborting enhance for ${relPath} — stop requested`, "warn");
+        return result;
+      }
+
+      // Fix B: gate checkpoint. If the ratchet just set the gate (or it was
+      // already active), defer the enhance call — don't burn a 2-attempt LLM
+      // call that will immediately 429 and re-set the gate at a higher
+      // escalation level. The for-loop in runCycle will sleep until the gate
+      // opens before attempting the next file.
+      const cooldownAfterRatchet = llmCooldownMs();
+      if (cooldownAfterRatchet > 0) {
+        result.reason = `Deferred (LLM cooldown — ${Math.round(cooldownAfterRatchet / 1000)}s)`;
+        this.log(`Deferring enhance for ${relPath} — LLM on cooldown (${Math.round(cooldownAfterRatchet / 1000)}s remaining)`, "warn");
         return result;
       }
 
@@ -824,19 +842,19 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       result.llmLatencyMs = llmResult.latencyMs;
 
       if (!llmResult.ok) {
-        const isRateLimit = /429|Too many requests|rate limit/i.test(llmResult.error ?? "");
-        if (isRateLimit) {
-          // Circuit breaker: track consecutive 429s and back off the whole cycle
-          this.consecutiveRateLimits++;
-          const backoffMs = Math.min(60000, 15000 * this.consecutiveRateLimits);
-          result.reason = `LLM rate-limited (429) — pausing ${backoffMs / 1000}s`;
-          this.log(
-            `LLM rate-limited (429) for ${relPath} — pausing ${backoffMs / 1000}s (consecutive #${this.consecutiveRateLimits})`,
-            "warn"
-          );
-          // Pause before returning so the next file doesn't immediately hit the API
-          await new Promise((r) => setTimeout(r, backoffMs));
+        // Fix A+B: the shared gate in agent-llm.ts handles 429 backoff. If
+        // rateLimited is true, the call either returned instantly (gate was
+        // already active) or just set the gate after 2 in-call retries. Either
+        // way, DON'T do an additional per-file pause — the gate's cooldown is
+        // the pause. Just defer and let the for-loop's gate check handle the
+        // next file.
+        if (llmResult.rateLimited) {
+          const cd = llmCooldownMs();
+          result.reason = `Deferred (LLM cooldown — ${Math.round(cd / 1000)}s)`;
+          this.log(`Deferring enhance for ${relPath} — LLM on cooldown (${Math.round(cd / 1000)}s)`, "warn");
         } else {
+          // Non-rate-limit failure (network, parse, empty response). Reset
+          // the old per-call breaker — the gate doesn't cover these.
           this.consecutiveRateLimits = 0;
           result.reason = `LLM unavailable: ${llmResult.error}`;
           this.log(`LLM unavailable for ${relPath}: ${llmResult.error}`, "warn");
@@ -844,7 +862,7 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         return result;
       }
 
-      // LLM succeeded — reset the circuit breaker
+      // LLM succeeded — reset the old per-call breaker (kept for non-429 use)
       this.consecutiveRateLimits = 0;
 
       // Extract the summary (what changed + why) AND the code from the response
@@ -1026,6 +1044,22 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
   }
 
   /**
+   * Fix B: stoppable sleep until the shared LLM rate-limit gate opens. Polls
+   * every 1s so stop() (which bumps runId) is noticed within 1s instead of
+   * blocking for the full cooldown (up to 30min). Returns true if the gate
+   * cleared, false if stop was requested during the wait.
+   */
+  private async waitForCooldown(myRun: number): Promise<boolean> {
+    while (this.continuous && myRun === this.runId) {
+      const ms = llmCooldownMs();
+      if (ms <= 0) return true; // gate clear
+      const chunk = Math.min(ms, 1000);
+      await new Promise((r) => setTimeout(r, chunk));
+    }
+    return false; // stop requested
+  }
+
+  /**
    * Run one cycle: scan files, enhance each one sequentially.
    */
   async runCycle(): Promise<{ filesScanned: number; filesEnhanced: number; results: SelfEnhanceResult[] }> {
@@ -1048,6 +1082,7 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
 
       const results: SelfEnhanceResult[] = [];
       let enhanced = 0;
+      let deferredThisCycle = 0;
 
       for (const file of files) {
         // Run-token + continuous check inside the for-loop. Previously this
@@ -1059,13 +1094,46 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
           this.log("Stop requested — breaking out of cycle", "warn");
           break;
         }
+        // Fix B: gate check before each file. If the shared LLM gate is
+        // active (set by a 429 in a previous file's ratchet/enhance, or by a
+        // parallel debate-llm call), sleep until it opens instead of calling
+        // llmComplete (which would return instantly with rateLimited:true
+        // anyway). The wait is stoppable — stop() breaks it within 1s.
+        const cdBefore = llmCooldownMs();
+        if (cdBefore > 0) {
+          this.log(`LLM cooldown active — pausing ${Math.round(cdBefore / 1000)}s before next file`, "warn");
+          const cleared = await this.waitForCooldown(myRun);
+          if (!cleared) {
+            this.log("Stop during cooldown wait — breaking out of cycle", "warn");
+            break;
+          }
+        }
         const result = await this.enhanceFile(file);
         results.push(result);
         if (result.enhanced) enhanced++;
         if (result.reason.startsWith("Rejected")) this.stats.totalReverted++;
+        if (result.reason.startsWith("Deferred")) deferredThisCycle++;
 
         // Brief pause between files to avoid hammering the LLM API
         await new Promise((r) => setTimeout(r, 2000));
+      }
+
+      // Fix B: track consecutive cycles where every file was deferred due
+      // to the gate. After 3, log a loud "quota exhausted" message (once).
+      // The loop does NOT auto-stop — when the gate clears, it resumes.
+      if (files.length > 0 && deferredThisCycle === files.length) {
+        this.consecutiveCooldownCycles++;
+        if (this.consecutiveCooldownCycles >= 3 && !this.quotaExhaustedLogged) {
+          this.log("LLM quota exhausted — loop alive but blocked on rate-limit gate (will resume when cooldown clears)", "error");
+          this.quotaExhaustedLogged = true;
+        } else {
+          this.log(`Cycle all-deferred (${this.consecutiveCooldownCycles} consecutive) — waiting on LLM gate`, "warn");
+        }
+      } else {
+        // At least one file attempted LLM — reset the counter and the
+        // "quota exhausted" message so it can fire again next outage.
+        this.consecutiveCooldownCycles = 0;
+        this.quotaExhaustedLogged = false;
       }
 
       this.stats.cyclesCompleted++;
