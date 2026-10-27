@@ -42,7 +42,7 @@ export function githubHeaders(token: string | null): Record<string, string> {
   }
 
   if (typeof token !== 'string' || !token.trim()) {
-    throw new Error("Invalid token provided: must be a non-empty string");
+    throw new Error(`Invalid token provided: must be a non-empty string. Received: ${token}`);
   }
 
   const headers: Record<string, string> = {
