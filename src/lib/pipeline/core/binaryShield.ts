@@ -26,6 +26,10 @@ function getKeyBuffer(): Buffer {
 
 export class BinaryShield {
   public async encrypt(plainText: string): Promise<EncryptionPacket> {
+    if (plainText === null || plainText === undefined) {
+      throw new Error("Input text cannot be null or undefined");
+    }
+    
     const key = getKeyBuffer();
     const iv = randomBytes(IV_LENGTH);
     const cipher = createCipheriv(ALGORITHM, key, iv);
@@ -42,12 +46,25 @@ export class BinaryShield {
   }
 
   public async decrypt(packet: DecryptionPacket): Promise<string> {
+    if (packet === null || packet === undefined) {
+      throw new Error("Decryption packet cannot be null or undefined");
+    }
+    
+    if (!packet.data || !packet.iv) {
+      throw new Error("Decryption packet must contain both data and iv fields");
+    }
+    
     const key = getKeyBuffer();
     const iv = Buffer.from(packet.iv, "base64");
+    
+    if (iv.length !== IV_LENGTH) {
+      throw new Error(`Invalid IV length. Expected ${IV_LENGTH} bytes, got ${iv.length}`);
+    }
+    
     const combinedData = Buffer.from(packet.data, "base64");
     
     if (combinedData.length < AUTH_TAG_LENGTH) {
-      throw new Error("Ciphertext too short");
+      throw new Error("Ciphertext too short - must include authentication tag");
     }
     
     const authTag = combinedData.subarray(combinedData.length - AUTH_TAG_LENGTH);
@@ -60,6 +77,10 @@ export class BinaryShield {
   }
 
   public async computeHash(data: string): Promise<string> {
+    if (data === null || data === undefined) {
+      throw new Error("Input data cannot be null or undefined");
+    }
+    
     return createHash(HASH_ALGORITHM).update(data).digest("hex");
   }
 }

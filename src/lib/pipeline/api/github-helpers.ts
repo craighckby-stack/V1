@@ -9,6 +9,8 @@ type InvalidTokenPrefix = typeof INVALID_TOKEN_PREFIXES[number];
 type InvalidTokenValue = typeof INVALID_TOKEN_VALUES[number];
 
 function isInvalidToken(token: string): boolean {
+  if (typeof token !== 'string') return true;
+  
   return (
     INVALID_TOKEN_PREFIXES.some(prefix => token.startsWith(prefix)) ||
     INVALID_TOKEN_VALUES.includes(token as InvalidTokenValue)
@@ -35,7 +37,7 @@ export function githubHeaders(token: string | null): Record<string, string> {
     Accept: API_ACCEPT_HEADER,
   };
   
-  if (token) {
+  if (token && typeof token === 'string') {
     headers["Authorization"] = `Bearer ${token}`;
   }
   
