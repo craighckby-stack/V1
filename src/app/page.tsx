@@ -362,6 +362,7 @@ export default function Home() {
           `Files scanned: ${s.stats.totalScanned}`,
           `Files enhanced: ${s.stats.totalEnhanced}`,
           `Files reverted: ${s.stats.totalReverted}`,
+          `Tests pinned:   ${s.stats.testsWritten}`,
           `Pushes to git:  ${s.stats.totalPushed}`,
           `Last enhanced:  ${s.stats.lastEnhancementAt ?? "never"}`,
           `Current file:   ${s.currentFile ?? "idle"}`,
@@ -624,7 +625,7 @@ export default function Home() {
           </span>
           {s && (
             <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>
-              scanned={s.totalScanned} enhanced={s.totalEnhanced} reverted={s.totalReverted} pushed={s.totalPushed}
+              scanned={s.totalScanned} enhanced={s.totalEnhanced} pinned={s.testsWritten} reverted={s.totalReverted} pushed={s.totalPushed}
             </span>
           )}
         </div>
