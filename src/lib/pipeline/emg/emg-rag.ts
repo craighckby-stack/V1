@@ -199,6 +199,18 @@ class EmgRagMemory {
       throw new Error("Invalid entry: entry cannot be null or undefined");
     }
 
+    if (!entry.content || !entry.content.trim()) {
+      throw new Error("Invalid entry: content cannot be empty or whitespace");
+    }
+
+    if (!entry.provenance || !["clean", "failure", "synthesis", "contradicted"].includes(entry.provenance)) {
+      throw new Error("Invalid entry: provenance must be one of 'clean', 'failure', 'synthesis', or 'contradicted'");
+    }
+
+    if (!entry.trust || !["high", "medium", "low", "revoked"].includes(entry.trust)) {
+      throw new Error("Invalid entry: trust must be one of 'high', 'medium', 'low', or 'revoked'");
+    }
+
     const newEntry: VectorEntry = {
       ...entry,
       id: `vec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -248,7 +260,7 @@ class EmgRagMemory {
     }
     
     const queryVec = tfidfVector(queryText, this.idf);
-    if (!queryVec) {
+    if (queryVec.size === 0) {
       return {
         topFailures: [],
         topFixes: [],
