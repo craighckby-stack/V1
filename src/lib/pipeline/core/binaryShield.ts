@@ -41,10 +41,11 @@ export class BinaryShield {
     
     try {
       encryptedData = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
-      cipher.destroy(); // Properly close the cipher handle
     } catch (error) {
-      cipher.destroy(); // Ensure cipher is closed even if an error occurs
+      cipher.destroy();
       throw new Error(`Encryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      cipher.destroy();
     }
     
     const authTag = cipher.getAuthTag();
@@ -99,11 +100,11 @@ export class BinaryShield {
     try {
       decipher.setAuthTag(authTag);
       const decryptedData = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
-      decipher.destroy(); // Properly close the decipher handle
       return decryptedData.toString("utf8");
     } catch (error) {
-      decipher.destroy(); // Ensure decipher is closed even if an error occurs
       throw new Error(`Decryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      decipher.destroy();
     }
   }
 
