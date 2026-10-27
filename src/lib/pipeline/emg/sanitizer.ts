@@ -71,12 +71,13 @@ export function calculateShannonEntropy(str: string): number {
   if (!str || str.length === 0) return 0;
   
   const frequencies = new Map<string, number>();
+  const len = str.length;
+  
   for (const char of str) {
     frequencies.set(char, (frequencies.get(char) || 0) + 1);
   }
   
   let entropy = 0;
-  const len = str.length;
   for (const count of frequencies.values()) {
     const p = count / len;
     entropy -= p * Math.log2(p);
@@ -150,9 +151,21 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
     };
   }
 
+  // Validate filePath if provided
+  if (filePath !== undefined && typeof filePath !== 'string') {
+    return {
+      clean: false,
+      sanitizedCode: inputCode,
+      errorClass: "SECRET_LEAKAGE",
+      violations: ["filePath must be a string if provided"],
+      highEntropyTokensFound: 0
+    };
+  }
+
   const violations: string[] = [];
   let sanitized = inputCode;
   let highEntropyTokensFound = 0;
+  const MAX_ITERATIONS = 1000; // Prevent potential infinite loops
 
   // Fixture detection: if this file is a test/fixture/experiment file, treat
   // high-entropy strings as deterministic test data, not secrets.
@@ -167,7 +180,7 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
           violations.push(
             `Detected known secret signature: ${match.slice(0, 6)}... (length: ${match.length})`
           );
-          sanitized = sanitized.split(match).join(`[REDACTED_SECRET_${match.slice(0, 4)}]`);
+          sanitized = sanitized.replace(match, `[REDACTED_SECRET_${match.slice(0, 4)}]`);
         }
       }
     }
@@ -178,7 +191,7 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
       if (matches) {
         for (const match of matches) {
           violations.push(`Detected PII leak: ${match.slice(0, 3)}***`);
-          sanitized = sanitized.split(match).join("[REDACTED_PII]");
+          sanitized = sanitized.replace(match, "[REDACTED_PII]");
         }
       }
     }
@@ -186,7 +199,14 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
     // Check for high entropy strings
     const stringLiterals = inputCode.match(/["']([A-Za-z0-9_\-+/=]{24,})["']/g);
     if (stringLiterals) {
+      let iterations = 0;
       for (const literal of stringLiterals) {
+        iterations++;
+        if (iterations > MAX_ITERATIONS) {
+          violations.push("High entropy check exceeded maximum iterations - potential infinite loop prevented");
+          break;
+        }
+
         const inner = literal.slice(1, -1);
         const entropy = calculateShannonEntropy(inner);
 
@@ -203,7 +223,7 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
           violations.push(
             `Detected high-entropy string (entropy: ${entropy.toFixed(2)}): ${inner.slice(0, 6)}...`
           );
-          sanitized = sanitized.split(inner).join("[REDACTED_HIGH_ENTROPY_KEY]");
+          sanitized = sanitized.replace(inner, "[REDACTED_HIGH_ENTROPY_KEY]");
         }
       }
     }
@@ -211,7 +231,7 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
     violations.push(`Error during sanitization: ${error instanceof Error ? error.message : String(error)}`);
     return {
       clean: false,
-      sanitizedCode: sanitized,
+      sanitizedCode: inputCode, // Return original code on error
       errorClass: "AST_PARSE",
       violations,
       highEntropyTokensFound

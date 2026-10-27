@@ -124,9 +124,20 @@ export function performArchitecturalVote(fileName: string, codeSnippet: string):
     throw new Error("fileName and codeSnippet must be non-empty strings");
   }
   
+  const securitySource = SIPHON_SOURCES[1];
+  const agentSource = SIPHON_SOURCES[2];
+  
+  if (!securitySource) {
+    throw new Error("Internal configuration error: Security siphon source is missing from SIPHON_SOURCES array. Please check array integrity at index 1.");
+  }
+  
+  if (!agentSource) {
+    throw new Error("Internal configuration error: Agent siphon source is missing from SIPHON_SOURCES array. Please check array integrity at index 2.");
+  }
+  
   if (isSecurityRelated(fileName, codeSnippet)) {
     return {
-      source: SIPHON_SOURCES[1],
+      source: securitySource,
       score: SECURITY_THRESHOLD,
       rationale:
         "Handles sensitive keys and security credentials; applied Shannon entropy sanitization and memory isolation.",
@@ -136,7 +147,7 @@ export function performArchitecturalVote(fileName: string, codeSnippet: string):
 
   if (isAgentRelated(fileName, codeSnippet)) {
     return {
-      source: SIPHON_SOURCES[2],
+      source: agentSource,
       score: AGENT_THRESHOLD,
       rationale:
         "Implements execution cycles or agent workflows; mapped to 5-Pillar Modular Agent Architecture.",
@@ -144,8 +155,13 @@ export function performArchitecturalVote(fileName: string, codeSnippet: string):
     };
   }
 
+  const defaultSource = SIPHON_SOURCES[0];
+  if (!defaultSource) {
+    throw new Error("Internal configuration error: Default siphon source is missing from SIPHON_SOURCES array. Please check array integrity at index 0.");
+  }
+
   return {
-    source: SIPHON_SOURCES[0],
+    source: defaultSource,
     score: DEFAULT_THRESHOLD,
     rationale: "Standard code refactoring and AST verification baseline.",
     recommendedPattern: "AST Diff Gate Verification & Type Safety",

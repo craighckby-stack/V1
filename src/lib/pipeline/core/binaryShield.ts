@@ -37,7 +37,14 @@ export class BinaryShield {
     const key = getKeyBuffer();
     const iv = randomBytes(IV_LENGTH);
     const cipher = createCipheriv(ALGORITHM, key, iv);
-    const encryptedData = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
+    let encryptedData: Buffer;
+    
+    try {
+      encryptedData = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
+    } catch (error) {
+      throw new Error(`Encryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+    
     const authTag = cipher.getAuthTag();
     const combinedData = Buffer.concat([encryptedData, authTag]);
     
@@ -50,43 +57,66 @@ export class BinaryShield {
   }
 
   public async decrypt(packet: DecryptionPacket): Promise<string> {
-    if (packet === null || packet === undefined) {
-      throw new Error("Decryption packet cannot be null or undefined");
+    if (!packet || typeof packet !== "object") {
+      throw new Error("Decryption packet must be a valid object");
     }
     
-    if (!packet.data || !packet.iv) {
-      throw new Error("Decryption packet must contain both data and iv fields");
+    if (typeof packet.data !== "string" || typeof packet.iv !== "string") {
+      throw new Error("Decryption packet must contain string data and iv fields");
     }
-    
-    const key = getKeyBuffer();
-    const iv = Buffer.from(packet.iv, "base64");
-    
-    if (iv.length !== IV_LENGTH) {
-      throw new Error(`Invalid IV length for ${ALGORITHM_NAME}. Expected ${IV_LENGTH} bytes, got ${iv.length}`);
-    }
-    
-    const combinedData = Buffer.from(packet.data, "base64");
-    
-    if (combinedData.length < AUTH_TAG_LENGTH) {
-      throw new Error(`Ciphertext too short for ${ALGORITHM_NAME} - must include ${AUTH_TAG_LENGTH}-byte authentication tag`);
-    }
-    
-    const authTag = combinedData.subarray(combinedData.length - AUTH_TAG_LENGTH);
-    const encryptedData = combinedData.subarray(0, combinedData.length - AUTH_TAG_LENGTH);
-    const decipher = createDecipheriv(ALGORITHM, key, iv);
-    decipher.setAuthTag(authTag);
     
     try {
-      const decryptedData = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
-      return decryptedData.toString("utf8");
+      const key = getKeyBuffer();
+      let iv: Buffer;
+      
+      try {
+        iv = Buffer.from(packet.iv, "base64");
+      } catch (error) {
+        throw new Error("Invalid IV format - must be valid base64");
+      }
+      
+      if (iv.length !== IV_LENGTH) {
+        throw new Error(`Invalid IV length for ${ALGORITHM_NAME}. Expected ${IV_LENGTH} bytes, got ${iv.length}`);
+      }
+      
+      let combinedData: Buffer;
+      
+      try {
+        combinedData = Buffer.from(packet.data, "base64");
+      } catch (error) {
+        throw new Error("Invalid ciphertext format - must be valid base64");
+      }
+      
+      if (combinedData.length < AUTH_TAG_LENGTH) {
+        throw new Error(`Ciphertext too short for ${ALGORITHM_NAME} - must include ${AUTH_TAG_LENGTH}-byte authentication tag`);
+      }
+      
+      const authTag = combinedData.subarray(combinedData.length - AUTH_TAG_LENGTH);
+      const encryptedData = combinedData.subarray(0, combinedData.length - AUTH_TAG_LENGTH);
+      const decipher = createDecipheriv(ALGORITHM, key, iv);
+      
+      try {
+        decipher.setAuthTag(authTag);
+        const decryptedData = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+        return decryptedData.toString("utf8");
+      } catch (error) {
+        throw new Error(`Decryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+      }
     } catch (error) {
-      throw new Error(`Decryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+      if (error instanceof Error && (error.message.includes("Invalid base64") || error.message.includes("non-base64"))) {
+        throw new Error("Invalid base64 format in packet data or iv");
+      }
+      throw error;
     }
   }
 
   public async computeHash(data: string): Promise<string> {
     if (data === null || data === undefined) {
       throw new Error("Input data cannot be null or undefined");
+    }
+    
+    if (typeof data !== "string") {
+      throw new Error("Input data must be a string");
     }
     
     if (data.length === 0) {

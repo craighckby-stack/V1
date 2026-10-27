@@ -127,6 +127,10 @@ function determineConsensus(
 }
 
 function createLeadArgument(leadSummary: string, cognitiveFriction: number): DebateArgument {
+  if (typeof cognitiveFriction !== 'number' || cognitiveFriction < 0 || cognitiveFriction > 1) {
+    throw new Error('Invalid input: cognitiveFriction must be a number between 0 and 1');
+  }
+  
   return {
     speaker: "lead",
     speakerName: "Lead Reviewer",
@@ -169,7 +173,7 @@ export function conductDebate(topic: string, candidateCode: string, filePath: st
     securityPoints,
     architecturePoints,
     leadSummary,
-    judgeSummary: leadSummary,
+    judgeSummary: leadSummary ? leadSummary : undefined,
     arguments: args,
   };
 }

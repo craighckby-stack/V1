@@ -9,11 +9,13 @@ type InvalidTokenPrefix = typeof INVALID_TOKEN_PREFIXES[number];
 type InvalidTokenValue = typeof INVALID_TOKEN_VALUES[number];
 
 function isInvalidToken(token: string): boolean {
-  if (typeof token !== 'string' || !token) return true;
+  if (typeof token !== 'string' || !token) {
+    return true;
+  }
   
   return (
     INVALID_TOKEN_PREFIXES.some(prefix => token.startsWith(prefix)) ||
-    INVALID_TOKEN_VALUES.includes(token as InvalidTokenValue)
+    INVALID_TOKEN_VALUES.some(value => token.includes(value))
   );
 }
 
@@ -32,12 +34,16 @@ export function getUsableToken(clientToken?: string): string | null {
 }
 
 export function githubHeaders(token: string | null): Record<string, string> {
+  if (token !== null && (typeof token !== 'string' || !token.trim())) {
+    throw new Error("Invalid token provided: must be a non-empty string or null");
+  }
+
   const headers: Record<string, string> = {
     "User-Agent": USER_AGENT,
     Accept: API_ACCEPT_HEADER,
   };
   
-  if (token && typeof token === 'string') {
+  if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
   

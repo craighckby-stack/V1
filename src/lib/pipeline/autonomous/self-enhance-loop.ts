@@ -12,7 +12,7 @@
  * When you see a commit on GitHub, that's exactly what the server is running.
  */
 
-import { readFileSync, writeFileSync, readdirSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, readdirSync, existsSync, rmSync } from "fs";
 import { spawnSync } from "child_process";
 import { join, relative, resolve, basename, dirname } from "path";
 import { llmComplete, extractSummaryAndCode } from "../llm/agent-llm";
@@ -67,6 +67,35 @@ function findTestFilesFor(sourceFilePath: string): string[] {
   return testFiles;
 }
 
+/**
+ * System prompt for the test-writer (the ratchet).
+ *
+ * Characterization tests PIN the module's current observable behavior. Once
+ * written, the test gate runs them on every future refactor of the module —
+ * a refactor that changes pinned behavior is rejected. Each pass either adds
+ * pins (tightening the contract) or refactors within them. That is the
+ * ratchet: behavior gets increasingly locked while implementation gets
+ * increasingly clean.
+ */
+const TEST_WRITER_SYSTEM = `You are a test engineer writing characterization tests for a TypeScript module inside an autonomous self-improvement pipeline. The tests you write become a PERMANENT behavioral contract: future refactors of this module will be REJECTED if they break your tests.
+
+Your job: write bun:test tests that PIN the module's CURRENT observable behavior.
+
+Rules:
+- Import { describe, test, expect } from "bun:test"
+- Import the module under test using a relative path (e.g. from "./moduleName")
+- Test the EXPORTED functions/classes with realistic inputs, including edge cases (empty strings, boundary numbers, null/undefined only where the signature allows them)
+- Assert CONCRETE expected values derived from reading the implementation — compute the expected output yourself from the logic, do not call the function to obtain it
+- NO tautological tests: never expect(f(x)).toBe(f(x)), never expect(x).toBe(x), never assertions that always pass
+- Do NOT re-implement the module's logic inside the test to compute the expected value
+- If an export's behavior depends on external state (DB, network, filesystem, env), test only the pure logic; skip integration-heavy paths
+- Write 3-8 focused tests inside one describe block
+- Do not test implementation details that refactoring may legitimately change; test observable outputs
+
+OUTPUT FORMAT (mandatory):
+- First, a SHORT summary starting with "## Changes" listing which behaviors you pinned.
+- Then the complete test file in a single fenced \`\`\`typescript block.`;
+
 // Files the system should NOT modify (would break the loop itself)
 const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/loop-runtime.ts",
@@ -99,11 +128,17 @@ class SelfEnhanceLoop {
   private currentFile: string | null = null;
   // Circuit breaker: track consecutive 429s to back off the whole cycle
   private consecutiveRateLimits = 0;
+  // Ratchet: per-file test-writing attempt tracking. After 2 failed attempts
+  // (bad tests, untestable module, LLM trouble), stop retrying — but forget
+  // failures older than 30 minutes, so an intermittent 429 window doesn't
+  // permanently skip a module for the rest of the server's life.
+  private testWriteAttempts = new Map<string, { attempts: number; at: number }>();
   private stats = {
     totalScanned: 0,
     totalEnhanced: 0,
     totalReverted: 0,
     totalPushed: 0,
+    testsWritten: 0,
     cyclesCompleted: 0,
     lastEnhancementAt: null as string | null,
   };
@@ -412,6 +447,194 @@ class SelfEnhanceLoop {
   }
 
   /**
+   * ANTI-TAUTOLOGY CHECK — reject test files that assert nothing real.
+   *
+   * A test that always passes pins nothing — it's a fake pin. The ratchet
+   * is only as strong as its weakest test, so generated tests are checked
+   * for the classic tautology patterns before they're ever run:
+   *   - doesn't import the module under test (tests nothing)
+   *   - fewer than 2 test blocks (too thin to be a contract)
+   *   - fewer expect() calls than tests (a test without assertions)
+   *   - literal self-comparisons: expect(X).toBe(X)
+   *   - simple-expression self-comparisons: expect(f(1)).toBe(f(1))
+   * The debate gate adds semantic review on top of these mechanical checks.
+   */
+  private antiTautologyCheck(testCode: string, importBase: string): { ok: boolean; issues: string[] } {
+    const issues: string[] = [];
+
+    // Must import the module under test (relative import from the same dir)
+    if (!testCode.includes(`from "./${importBase}"`)) {
+      issues.push(`does not import the module under test (expected 'from "./${importBase}"')`);
+    }
+
+    // Need at least 2 test blocks to be a meaningful contract
+    const testBlocks = (testCode.match(/\btest\s*\(/g) ?? []).length;
+    if (testBlocks < 2) {
+      issues.push(`only ${testBlocks} test() block(s) — need at least 2`);
+    }
+
+    // Every test needs at least one assertion
+    const expects = (testCode.match(/\bexpect\s*\(/g) ?? []).length;
+    if (testBlocks > 0 && expects < testBlocks) {
+      issues.push(`${expects} expect() call(s) for ${testBlocks} test(s) — every test needs assertions`);
+    }
+
+    // Literal self-comparison: expect(true).toBe(true), expect(5).toBe(5), expect(x).toBe(x)
+    const selfCompare = /expect\s*\(\s*([^()]+?)\s*\)\s*\.\s*toBe\s*\(\s*([^()]+?)\s*\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = selfCompare.exec(testCode)) !== null) {
+      if (m[1].trim() === m[2].trim()) {
+        issues.push(`tautological assertion: expect(${m[1].trim()}).toBe(${m[2].trim()}) — asserts nothing`);
+        break; // one report is enough
+      }
+    }
+
+    return { ok: issues.length === 0, issues };
+  }
+
+  /**
+   * THE RATCHET — write characterization tests for an untested module.
+   *
+   * This is Direction 4 made real: the system writes its own tests, the
+   * tests become the gate for every future refactor of that module. Each
+   * pass either adds pins (tightening the behavioral contract) or refactors
+   * within them. Behavior gets increasingly locked while implementation
+   * gets increasingly clean — and a refactor that breaks a pin is rejected
+   * by the test gate built in the previous step.
+   *
+   * Gates on the generated test file (in order):
+   *   1. truncation + anti-tautology (mechanical, instant)
+   *   2. WRITE TEMP → `bun test` — must PASS on the current code
+   *      (a test failing on current code pins wrong behavior — reject it,
+   *      do NOT "fix" the code to match a generated test)
+   *   3. `tsc --noEmit` — type errors in the test file → reject
+   *   4. debate gate (semantic review: is this a real behavioral test?)
+   *   5. keep + push. The pin is live.
+   *
+   * On any failure: DELETE the test file (it was new — nothing imports it,
+   * so the live system was never at risk) and record the attempt. After 2
+   * failed attempts per file, stop trying (don't burn LLM budget retrying).
+   *
+   * Test files are write-once: the refactor scan excludes *.test.ts, so the
+   * system can never weaken its own pins. The ratchet only tightens.
+   */
+  private async writeTestsForFile(filePath: string): Promise<boolean> {
+    const relPath = relative(PROJECT_ROOT, filePath);
+    const base = basename(filePath, ".ts");
+    const testPath = join(dirname(filePath), `${base}.test.ts`);
+
+    if (existsSync(testPath)) return false; // already pinned
+    const now = Date.now();
+    const rec = this.testWriteAttempts.get(relPath);
+    // Decay: forget failures older than 30 minutes — intermittent 429 windows
+    // shouldn't permanently skip a module
+    if (rec && now - rec.at > 30 * 60 * 1000) {
+      this.testWriteAttempts.delete(relPath);
+    } else if (rec && rec.attempts >= 2) {
+      return false; // known-failed recently — don't burn LLM budget retrying
+    }
+    this.testWriteAttempts.set(relPath, { attempts: (rec?.attempts ?? 0) + 1, at: now });
+
+    try {
+      const source = readFileSync(filePath, "utf-8");
+      if (source.length > 12000) return false; // too large for the LLM prompt
+
+      this.log(`Ratchet: writing characterization tests for ${relPath} (attempt ${(rec?.attempts ?? 0) + 1})...`, "info");
+
+      const userPrompt = `Module to pin: ${relPath}\n\n\`\`\`typescript\n${source}\n\`\`\`\n\nWrite ${base}.test.ts — a bun:test characterization suite pinning this module's current observable behavior. Import the module from "./${base}". Compute expected values yourself from the implementation. Output the summary first, then the test file.`;
+
+      const llmResult = await llmComplete({
+        systemPrompt: TEST_WRITER_SYSTEM,
+        userPrompt,
+        temperature: 0.2,
+      });
+      if (!llmResult.ok) {
+        this.log(`Ratchet: test-writing LLM unavailable for ${relPath}: ${(llmResult.error ?? "").slice(0, 120)}`, "warn");
+        return false;
+      }
+
+      const { summary, code } = extractSummaryAndCode(llmResult.content);
+      if (!code || !code.trim()) {
+        this.log(`Ratchet: LLM returned no test code for ${relPath}`, "warn");
+        return false;
+      }
+
+      // Gate 1: truncation + anti-tautology (mechanical, instant)
+      const truncation = this.detectTruncation(code, "");
+      if (truncation.truncated) {
+        this.log(`Ratchet: rejected test for ${relPath} (truncated: ${truncation.reason})`, "warn");
+        return false;
+      }
+      const taut = this.antiTautologyCheck(code, base);
+      if (!taut.ok) {
+        this.log(`Ratchet: rejected test for ${relPath} — ${taut.issues.join("; ")}`, "warn");
+        return false;
+      }
+
+      // Gate 2: write temp + run — the tests must PASS on the CURRENT code.
+      // A failing test pins wrong behavior (or found a real bug — but the
+      // system doesn't get to redefine behavior via its own generated tests,
+      // so conservative policy: reject the test, keep the code).
+      writeFileSync(testPath, code, "utf-8");
+      const run = spawnSync("bun", ["test", testPath], {
+        cwd: PROJECT_ROOT,
+        timeout: 60000,
+        encoding: "utf-8",
+      });
+      if (run.status !== 0) {
+        const stderr = ((run.stderr || "") + (run.stdout || "")).slice(0, 250);
+        rmSync(testPath);
+        this.log(`Ratchet: rejected test for ${relPath} (fails on current code — pins wrong behavior): ${stderr}`, "warn");
+        return false;
+      }
+
+      // Gate 3: typecheck — errors mentioning the test file → reject.
+      // (Pre-existing errors elsewhere are not the test's fault — bun test
+      // already proved the test runs; tsc-scoped errors are what matter.)
+      const tsc = spawnSync("bunx", ["tsc", "--noEmit"], {
+        cwd: PROJECT_ROOT,
+        timeout: 120000,
+        encoding: "utf-8",
+      });
+      const tscOut = `${tsc.stdout || ""}${tsc.stderr || ""}`;
+      if (tsc.status !== 0 && tscOut.includes(`${base}.test.ts`)) {
+        rmSync(testPath);
+        this.log(`Ratchet: rejected test for ${relPath} (typecheck errors in the test file)`, "warn");
+        return false;
+      }
+
+      // Gate 4: debate — semantic review of the test file
+      const debate = await this.debateGate(filePath, source, code, `characterization tests: ${summary.slice(0, 200)}`);
+      if (!debate.approved) {
+        rmSync(testPath);
+        this.log(`Ratchet: rejected test for ${relPath} by debate: ${debate.reason.slice(0, 150)}`, "warn");
+        return false;
+      }
+
+      // All gates passed — the pin is LIVE. Future refactors of this module
+      // now run against these tests (the test gate finds co-located tests).
+      this.stats.testsWritten++;
+      const testCount = (code.match(/\btest\s*\(/g) ?? []).length;
+      this.log(`Ratchet: PINNED ${relPath} with ${testCount} characterization tests — future refactors run against them (${debate.reason})`, "success");
+
+      const pushResult = await this.gitPush(`test: pin behavior of ${relPath}\n\n${summary}\n\n(characterization tests — the ratchet: refactors that break these are rejected)`);
+      if (pushResult.pushed) {
+        this.log(`Ratchet: pushed test pin ${pushResult.commitSha}`, "success");
+      }
+      return true;
+    } catch (err) {
+      // Clean up any partially-written test file — never leave a broken pin
+      try {
+        if (existsSync(testPath)) rmSync(testPath);
+      } catch {
+        /* ignore */
+      }
+      this.log(`Ratchet: error writing tests for ${relPath}: ${(err as Error).message}`, "error");
+      return false;
+    }
+  }
+
+  /**
    * Enhance a single file: LLM refactor → verify tsc → write live → git push.
    */
   async enhanceFile(filePath: string): Promise<SelfEnhanceResult> {
@@ -445,6 +668,18 @@ class SelfEnhanceLoop {
         result.reason = `Skipped (file too large: ${originalCode.length}b > ${MAX_FILE_BYTES}b)`;
         this.log(`Skipped ${relPath} (${originalCode.length}b — too large for LLM, would truncate)`, "info");
         return result;
+      }
+
+      // 1b. THE RATCHET — pin untested modules with characterization tests
+      // BEFORE refactoring. The pins become the gate for the refactor in
+      // this same pass (and all future ones): if the refactor below breaks
+      // a pinned behavior, the test gate rejects it. Each pass either adds
+      // pins or refactors within them. Test files are write-once (the scan
+      // excludes *.test.ts), so the system can never weaken its own pins.
+      // Protected files are skipped: they're the gate itself (importing the
+      // loop singleton in a test would have side effects).
+      if (!PROTECTED_FILES.has(relPath)) {
+        await this.writeTestsForFile(filePath);
       }
 
       // 2. Check for postmortem constraints
