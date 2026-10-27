@@ -20,7 +20,7 @@ function isInvalidToken(token: string): boolean {
 }
 
 export function getUsableToken(clientToken?: string): string | null {
-  const candidate = (clientToken ?? process.env.GITHUB_TOKEN ?? "").trim();
+  const candidate = (clientToken ?? (process.env?.GITHUB_TOKEN ?? "")).trim();
   
   if (
     !candidate ||
@@ -41,8 +41,8 @@ export function githubHeaders(token: string | null): Record<string, string> {
     };
   }
 
-  if (typeof token !== 'string' || !token.trim()) {
-    throw new Error(`Invalid token provided: must be a non-empty string. Received: ${token}`);
+  if (typeof token !== 'string' || !token.trim() || token.trim().length < MIN_TOKEN_LENGTH) {
+    throw new Error(`Invalid token provided: must be a non-empty string with at least ${MIN_TOKEN_LENGTH} characters. Received: ${token}`);
   }
 
   const headers: Record<string, string> = {
