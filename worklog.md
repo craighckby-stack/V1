@@ -947,3 +947,16 @@ Stage Summary:
 - The task engine is now user-drivable from the terminal: view the self-generated queue (tasks), veto items (skip), force re-analysis (rescan), and assign goals in plain English (task <goal> -> task apply/deny). You are the feedback signal — Direction 1 complete.
 - Two real backend defects fixed on the way: the chat-agent's unauthenticated push + shell-string commit (both replaced by the loop's own hardened push path), and the missing commit-only fallback that silently left verified work uncommitted whenever no PAT was configured (root cause of restart-time work loss).
 - Honest limits: the propose->apply happy path awaits an LLM window (sustained gateway 429 — plumbing verified end-to-end, only the model response is pending). Pushes still blocked until the PAT is re-pasted via [CONFIG]; commits now land locally regardless.
+
+---
+Task ID: wire-task-engine-ui (addendum)
+Agent: main (Z.ai Code)
+Task: Live verification of the push-target commit-only fallback (tested after the main commit landed).
+
+Work Log:
+- Confirmed the manual /api/self-enhance/push route intentionally short-circuits with needsConfig (the 'push' command means push-to-GitHub; configure first) — the fallback serves the loop's and chat-task's DIRECT pushCurrentState() calls.
+- Direct module test: untracked temp file + pushCurrentState() -> { pushed: false, commitSha: "202ddc5", hadChanges: true, error: "No push target configured..." } — the local commit WAS created, the outcome stayed honest.
+- Cleanly undone: git reset --hard HEAD~1 back to d7b2c9f, temp files removed, tree clean.
+
+Stage Summary:
+- Commit-only fallback verified live end-to-end. With no PAT, every verified loop enhancement and chat-task apply now lands as a local commit instead of silently-uncommitted disk state. The restart-loss root cause is closed.
