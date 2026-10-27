@@ -80,6 +80,112 @@ function findTestFilesFor(sourceFilePath: string): string[] {
  * ratchet: behavior gets increasingly locked while implementation gets
  * increasingly clean.
  */
+
+/**
+ * Extract the actual exported symbols from a TypeScript source string.
+ * Used by the ratchet to inject the REAL export list into the test-writer
+ * prompt, killing the #1 failure mode: the LLM hallucinating export names
+ * that don't exist in the module (e.g. inventing `extractTopLevelExports`
+ * when the file has `extractTopLevelFunctions`, or `SECURITY_THRESHOLD` when
+ * the file has `SECURITY_LIMIT`). With the real list in the prompt, the LLM
+ * is told "import ONLY these names" and the SyntaxError-on-import failures
+ * stop.
+ *
+ * Regex-based (not a full AST) — fast, no dependency, good enough for a
+ * prompt HINT. Strips comments + string/template literals first so the
+ * regexes don't match inside them. Misses destructuring exports
+ * (`export const { a, b } = obj`) and wildcard re-exports (`export * from`)
+ * — both are rare in this codebase and the LLM seeing 90% of the real list
+ * is enough to stop the hallucination pattern.
+ *
+ * Returns the export names + a "kind" label per name (function, class,
+ * const, interface, type, enum, value, default). Kinds matter because:
+ *   - interface/type exports are TYPE-ONLY — the prompt tells the LLM to
+ *     `import type` them, never as runtime values (avoids "imported as a
+ *     value but is a type" typecheck errors).
+ *   - default exports need `import X from './base'` (no braces).
+ */
+function extractExports(source: string): { names: string[]; kinds: Record<string, string> } {
+  const names: string[] = [];
+  const kinds: Record<string, string> = {};
+  const seen = new Set<string>();
+  const add = (name: string, kind: string) => {
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      names.push(name);
+      kinds[name] = kind;
+    }
+  };
+
+  // Strip block comments, line comments, and string/template literals so the
+  // regexes below don't match inside them. Replace with empty/sentinel
+  // strings of the same rough shape (keeps line numbers stable for any
+  // future error reporting, though we don't use them here).
+  const stripped = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/[^\n]*/g, "")
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+    .replace(/'(?:[^'\\]|\\.)*'/g, "''")
+    .replace(/`(?:[^`\\]|\\.)*`/g, "``");
+
+  let m: RegExpExecArray | null;
+  // export [async] function foo
+  const funcRe = /export\s+(?:async\s+)?function\s*(?:\*)?\s+(\w+)/g;
+  while ((m = funcRe.exec(stripped))) add(m[1], "function");
+  // export class Foo
+  const classRe = /export\s+class\s+(\w+)/g;
+  while ((m = classRe.exec(stripped))) add(m[1], "class");
+  // export const foo / export let foo
+  const constRe = /export\s+(?:const|let)\s+(\w+)/g;
+  while ((m = constRe.exec(stripped))) add(m[1], "const");
+  // export interface Foo
+  const ifaceRe = /export\s+interface\s+(\w+)/g;
+  while ((m = ifaceRe.exec(stripped))) add(m[1], "interface");
+  // export type Foo
+  const typeRe = /export\s+type\s+(\w+)/g;
+  while ((m = typeRe.exec(stripped))) add(m[1], "type");
+  // export enum Foo
+  const enumRe = /export\s+enum\s+(\w+)/g;
+  while ((m = enumRe.exec(stripped))) add(m[1], "enum");
+  // export { foo, bar as baz, qux } — re-exports. Use the ALIAS (baz), not the
+  // local name (bar), since that's what the importing test will use.
+  const reexportRe = /export\s*\{([^}]+)\}/g;
+  while ((m = reexportRe.exec(stripped))) {
+    const list = m[1].split(",").map((s) => s.trim()).filter(Boolean);
+    for (const item of list) {
+      const asMatch = item.match(/^(\w+)\s+as\s+(\w+)$/);
+      const name = asMatch ? asMatch[2] : item.split(/\s+as\s+/)[0].trim();
+      if (/^\w+$/.test(name)) add(name, "value");
+    }
+  }
+  // export default — note it separately; tests import it without braces.
+  if (/export\s+default\b/.test(stripped)) add("__default", "default");
+
+  return { names, kinds };
+}
+
+/** Format the export list for injection into the ratchet prompt. Returns a
+ *  human-readable bulleted list like:
+ *    - foo (function)
+ *    - Bar (class)
+ *    - baz (const)
+ *    - Qux (interface — import type)
+ *    - default (import without braces)
+ *  Returns "" if the module has no exports (the prompt then says "no
+ *  exports — write only smoke tests that import the module doesn't crash"). */
+function formatExportList(exps: { names: string[]; kinds: Record<string, string> }): string {
+  if (exps.names.length === 0) return "(none — this module has no named exports)";
+  return exps.names
+    .map((n) => {
+      const k = exps.kinds[n];
+      if (k === "default") return `- default (import WITHOUT braces: \`import X from "./base"\`)`;
+      if (k === "interface" || k === "type")
+        return `- ${n} (${k} — TYPE-ONLY: use \`import type { ${n} }\`)`;
+      return `- ${n} (${k})`;
+    })
+    .join("\n");
+}
+
 const TEST_WRITER_SYSTEM = `You are a test engineer writing characterization tests for a TypeScript module inside an autonomous self-improvement pipeline. The tests you write become a PERMANENT behavioral contract: future refactors of this module will be REJECTED if they break your tests.
 
 Your job: write bun:test tests that PIN the module's CURRENT observable behavior.
@@ -87,13 +193,48 @@ Your job: write bun:test tests that PIN the module's CURRENT observable behavior
 Rules:
 - Import { describe, test, expect } from "bun:test"
 - Import the module under test using a relative path (e.g. from "./moduleName")
+- The user prompt will give you the EXACT list of exports this module provides. Import ONLY those names — do NOT invent exports. If the prompt says the module exports \`foo\` and \`Bar\`, you may import \`foo\` and \`Bar\` and NOTHING ELSE from this module. Inventing export names like \`extractTopLevelExports\` when the real export is \`extractTopLevelFunctions\` causes a SyntaxError at import time and rejects your test.
+- For interface and type exports, use \`import type { X }\` — they are TYPE-ONLY and cannot be imported as runtime values.
+- For default exports, use \`import X from "./base"\` (no braces).
 - Test the EXPORTED functions/classes with realistic inputs, including edge cases (empty strings, boundary numbers, null/undefined only where the signature allows them)
 - Assert CONCRETE expected values derived from reading the implementation — compute the expected output yourself from the logic, do not call the function to obtain it
+- EVERY test() callback MUST contain at least one expect() call. A test with no assertions is rejected. Do not write skeleton tests like \`test('does X', () => {})\` — always assert.
 - NO tautological tests: never expect(f(x)).toBe(f(x)), never expect(x).toBe(x), never assertions that always pass
 - Do NOT re-implement the module's logic inside the test to compute the expected value
 - If an export's behavior depends on external state (DB, network, filesystem, env), test only the pure logic; skip integration-heavy paths
 - Write 3-8 focused tests inside one describe block
 - Do not test implementation details that refactoring may legitimately change; test observable outputs
+
+Worked example (the pattern to follow):
+Given a source file \`./add.ts\`:
+\`\`\`typescript
+export function add(a: number, b: number): number { return a + b; }
+export const ZERO = 0;
+export interface AddResult { sum: number; }
+\`\`\`
+The prompt would tell you: "exports: - add (function), - ZERO (const), - AddResult (interface — TYPE-ONLY)".
+A CORRECT test:
+\`\`\`typescript
+import { describe, test, expect } from "bun:test";
+import { add, ZERO, type AddResult } from "./add";
+
+describe("add", () => {
+  test("returns the sum of two positive numbers", () => {
+    expect(add(2, 3)).toBe(5);  // computed from the implementation: 2+3=5
+  });
+  test("returns ZERO when both inputs are 0", () => {
+    expect(add(ZERO, ZERO)).toBe(0);
+  });
+});
+\`\`\`
+A WRONG test (do NOT do this):
+\`\`\`typescript
+import { add, extractSum } from "./add";  // WRONG: extractSum does not exist
+describe("add", () => {
+  test("adds numbers", () => {});  // WRONG: no expect()
+  test("adds", () => { expect(add(2, 3)).toBe(7); });  // WRONG: 2+3 is 5, not 7
+});
+\`\`\`
 
 OUTPUT FORMAT (mandatory):
 - First, a SHORT summary starting with "## Changes" listing which behaviors you pinned.
@@ -606,7 +747,26 @@ class SelfEnhanceLoop {
 
       this.log(`Ratchet: writing characterization tests for ${relPath} (attempt ${(rec?.attempts ?? 0) + 1})...`, "info");
 
-      const userPrompt = `Module to pin: ${relPath}\n\n\`\`\`typescript\n${source}\n\`\`\`\n\nWrite ${base}.test.ts — a bun:test characterization suite pinning this module's current observable behavior. Import the module from "./${base}". Compute expected values yourself from the implementation. Output the summary first, then the test file.`;
+      // Inject the REAL export list so the LLM can't hallucinate names. This
+      // is the #1 ratchet failure mode: without the list, the LLM invents
+      // exports like `extractTopLevelExports` (when the real one is
+      // `extractTopLevelFunctions`) and the test fails at import time with
+      // `SyntaxError: Export named 'X' not found`. With the list, the LLM
+      // is told exactly what it can import.
+      const exps = extractExports(source);
+      const exportList = formatExportList(exps);
+
+      const userPrompt = `Module to pin: ${relPath}
+
+This module exports EXACTLY these symbols (import ONLY from "./${base}", do NOT invent any other export names):
+${exportList}
+
+Source:
+\`\`\`typescript
+${source}
+\`\`\`
+
+Write ${base}.test.ts — a bun:test characterization suite pinning this module's current observable behavior. Compute expected values yourself from the implementation (read the logic, work out the output, assert that exact value). Every test() must contain at least one expect(). Output the summary first, then the test file.`;
 
       const llmResult = await llmComplete({
         systemPrompt: TEST_WRITER_SYSTEM,
