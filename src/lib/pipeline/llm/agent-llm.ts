@@ -34,6 +34,17 @@ export interface LlmCallOptions {
   userPrompt: string;
   maxTokens?: number;
   temperature?: number;
+  /** Fired before each retry backoff. Lets callers surface the retry in
+   *  real time instead of going silent for the full ~150s 429 backoff
+   *  window (10s + 20s + 40s + 80s). The live view stays honest about
+   *  what's happening during the quiet gaps. */
+  onRetry?: (info: {
+    attempt: number;      // which attempt just failed (1..maxAttempts-1)
+    maxAttempts: number;  // total attempts the caller will make
+    isRateLimit: boolean; // true if the error looks like a 429
+    delayMs: number;      // how long we'll wait before the next attempt
+    error: string;        // the error from the failed attempt
+  }) => void;
 }
 
 export interface LlmCallResult {
@@ -91,6 +102,19 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
         const delay = isRateLimit
           ? 10000 * Math.pow(2, attempt - 1) // 10s, 20s, 40s, 80s
           : 400 * attempt; // 400ms, 800ms, 1200ms, 1600ms
+        // Surface the retry to the caller before the backoff sleep —
+        // without this, the live view goes silent for the whole ~150s
+        // 429 backoff window and the user can't tell if the system is
+        // working or stuck.
+        if (opts.onRetry) {
+          opts.onRetry({
+            attempt,
+            maxAttempts,
+            isRateLimit,
+            delayMs: delay,
+            error: lastError ?? "unknown error",
+          });
+        }
         await new Promise((r) => setTimeout(r, delay));
       }
     }

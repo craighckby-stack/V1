@@ -11,3 +11,4 @@ $ bun --hot index.ts
 
       at serve (unknown:1:1)
       at n[LOOP-WS] state changed -> status=idle mode=scheduled totalRuns=0
+[LOOP-WS] poll failed (#1): Unable to connect. Is the computer able to access the url?

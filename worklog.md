@@ -1193,3 +1193,45 @@ Stage Summary:
   1. ALIVE UI: LOOP now has a pulse. ● beats at 1.6s when running, ○ sits dim when stopped. The idle prompt was already at the bottom waiting. Header is still just `LOOP ● [START] [CLEAR] [CONFIG]` — minimal AND alive. Zero clutter added; one character + one animation.
   2. PER-CYCLE BRANCHES: each successful enhancement now pushes to its own `loop-NN` branch (loop-01, loop-02, ...). Branches chain linearly (loop-NN builds on loop-NN-1's tip — the latest branch is always the live state). Failed attempts don't consume a number. The configured branch becomes the seed (loop-00). The audit trail on GitHub is now a chronology of every successful mutation, individually inspectable, individually rollback-able.
 - One honest note: I didn't run a full enhancement cycle to verify the actual branch appears on a real GitHub remote — that requires a configured push target + a successful LLM enhancement (which has historically hit 429s in this sandbox). The branch logic is typechecked, linted, and the helper functions are unit-traceable. The first real successful enhancement will push to loop-01.
+
+---
+Task ID: live-retry-logging
+Agent: main (Z.ai Code)
+Task: User: "Definitely do that." — referring to my suggestion to add interim retry log lines so the live view shows the LLM retrying instead of going silent for ~150s during 429 backoff.
+
+Work Log:
+- THE PROBLEM: llmComplete() retries 5 times with exponential backoff (10s, 20s, 40s, 80s for 429s = ~150s total) but the retries happen SILENTLY inside the function. The caller only sees the result after all 5 attempts fail. During the ~150s window, the live view shows the pulsing pip but NO new log lines — the user can't tell if the system is working or stuck. The silent gaps look identical to "the LLM is thinking".
+
+- THE FIX: added an `onRetry` callback to LlmCallOptions. Before each backoff sleep, llmComplete calls opts.onRetry({ attempt, maxAttempts, isRateLimit, delayMs, error }). The caller can log this in real time. The callback is optional — existing callers that don't pass it are unaffected.
+
+- agent-llm.ts: added `onRetry?: (info: { attempt, maxAttempts, isRateLimit, delayMs, error }) => void` to LlmCallOptions. In the retry loop, after computing `delay` and before `await new Promise(r => setTimeout(r, delay))`, fires `opts.onRetry?.(...)` if provided. The callback receives the attempt that just failed (1..4), the total attempts (5), whether it's a 429, the backoff duration, and the error string.
+
+- self-enhance-loop.ts: wired onRetry into both LLM call sites:
+  1. Ratchet test-writer (line ~586): onRetry logs `LLM retry attempt N/5 (429 — backing off Xs) for ratchet/{relPath}` at "info" level.
+  2. Enhancement refactor (line ~778): onRetry logs `LLM retry attempt N/5 (429 — backing off Xs) for enhance/{relPath}` at "info" level.
+  Both use arrow functions so `this.log` is bound correctly. The "ratchet/" vs "enhance/" prefix disambiguates which of the two LLM calls per file is retrying.
+
+- DISCOVERY during verification: the first test run showed no retry logs. Root cause: the dev server was using a stale module cache — my file edits weren't picked up by the running server (the old singleton with pre-onRetry code was still serving the API routes). Fix: `python3 scripts/dev-daemon.py stop` + `start` to force a clean compile. After the restart, the retry logs appeared immediately. This is a known dev-mode hazard: Next.js hot-reload sometimes misses deep module changes in server-side singleton instances; a full server restart is the reliable fix.
+
+- VERIFIED LIVE (agent-browser + curl):
+  * Started loop on fresh server. Within 15 seconds, 2 retry logs appeared:
+    - [8:49:08] LLM retry attempt 1/5 (429 — backing off 10s) for ratchet/github-helpers.ts
+    - [8:49:18] LLM retry attempt 2/5 (429 — backing off 20s) for ratchet/github-helpers.ts
+  * The 10s gap between attempt 1 and attempt 2 is exactly the backoff duration — the log fires BEFORE the sleep, so the user sees "backing off 10s" immediately, then 10s later the next retry log appears.
+  * Also confirmed: "Branch for this mutation: loop-01" log appears at the start of the first enhanceFile (the per-cycle branch logic from the previous task is live).
+  * Browser: retry lines visible in the DOM text, pip pulsing (●), zero console errors.
+  * tsc --noEmit: 0 errors. eslint: clean.
+
+Stage Summary:
+- The live view is now honest during LLM retries. Instead of a 2-minute silent gap, the user sees:
+  ```
+  [8:49:08] Ratchet: writing tests for github-helpers.ts (attempt 1)...
+  [8:49:08] LLM retry attempt 1/5 (429 — backing off 10s) for ratchet/github-helpers.ts
+  [8:49:18] LLM retry attempt 2/5 (429 — backing off 20s) for ratchet/github-helpers.ts
+  [8:49:38] LLM retry attempt 3/5 (429 — backing off 40s) for ratchet/github-helpers.ts
+  [8:50:18] LLM retry attempt 4/5 (429 — backing off 80s) for ratchet/github-helpers.ts
+  [8:51:38] Ratchet: test-writing LLM unavailable for github-helpers.ts: API request failed with status 429
+  ```
+  Every 10/20/40/80 seconds, a new line appears. The user can watch the countdown in real time. No more "is it working or stuck?" ambiguity.
+- The fix is generic: any future caller of llmComplete can pass onRetry to get the same real-time visibility. The two existing call sites (ratchet + enhancement) both use it now.
+- Honest note: needed a full dev server restart to pick up the change (Next.js hot-reload missed the deep singleton edit). Documented in the work log for future reference.

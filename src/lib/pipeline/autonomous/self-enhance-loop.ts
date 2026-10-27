@@ -587,6 +587,10 @@ class SelfEnhanceLoop {
         systemPrompt: TEST_WRITER_SYSTEM,
         userPrompt,
         temperature: 0.2,
+        onRetry: (info) => {
+          const backoff = info.isRateLimit ? `${Math.round(info.delayMs / 1000)}s` : `${info.delayMs}ms`;
+          this.log(`LLM retry attempt ${info.attempt}/${info.maxAttempts} (429 — backing off ${backoff}) for ratchet/${relPath}`, "info");
+        },
       });
       if (!llmResult.ok) {
         this.log(`Ratchet: test-writing LLM unavailable for ${relPath}: ${(llmResult.error ?? "").slice(0, 120)}`, "warn");
@@ -779,6 +783,10 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         systemPrompt: refactorSystem,
         userPrompt: refactorUser,
         temperature: 0.2,
+        onRetry: (info) => {
+          const backoff = info.isRateLimit ? `${Math.round(info.delayMs / 1000)}s` : `${info.delayMs}ms`;
+          this.log(`LLM retry attempt ${info.attempt}/${info.maxAttempts} (429 — backing off ${backoff}) for enhance/${relPath}`, "info");
+        },
       });
 
       result.llmLatencyMs = llmResult.latencyMs;
