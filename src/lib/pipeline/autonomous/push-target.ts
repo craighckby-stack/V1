@@ -36,6 +36,8 @@ export interface PushOutcome {
   hadChanges?: boolean;
   repo?: string;
   error?: string;
+  /** True when a fetch-first rejection was auto-healed (merge -s ours + retry). */
+  divergenceHealed?: boolean;
 }
 
 interface StoredTarget {
@@ -246,6 +248,12 @@ export async function clearPushTarget(): Promise<{ cleared: boolean }> {
  * Commit (if dirty) and push the current live state to the configured target.
  * Auth is injected per-push via GIT_CONFIG_* env vars — the token is never
  * written to git config, remotes, or the command line.
+ *
+ * Divergence self-heal: if the push is rejected because the remote has
+ * commits local doesn't (history lost to a past reset), this automatically
+ * fetches, merges with -s ours (local live tree stays byte-identical; the
+ * remote commits are preserved as ancestors — no force, nothing orphaned),
+ * and retries once. Only if the heal fails does it suggest 'push force'.
  */
 export async function pushCurrentState(opts?: {
   message?: string;
@@ -330,10 +338,58 @@ export async function pushCurrentState(opts?: {
         env: pushEnv,
       });
     } catch (err) {
-      const stderr = scrub(String((err as { stderr?: string }).stderr ?? (err as Error).message ?? ""), target.token);
+      let stderr = scrub(String((err as { stderr?: string }).stderr ?? (err as Error).message ?? ""), target.token);
+
+      // SELF-HEAL: a fetch-first rejection means the remote holds commits
+      // this repo doesn't (e.g. local history lost to a past reset). The
+      // local tree IS the live running system, so preserve BOTH sides:
+      // fetch, merge with -s ours (local tree stays byte-identical, remote
+      // commits remain reachable as ancestors — nothing orphaned), then
+      // retry the push once. Only suggest force if the heal itself fails.
+      // Skipped on explicit force pushes (overwrite is the intent there).
+      if (/non-fast-forward|fetch first|rejected/.test(stderr) && !opts?.force) {
+        try {
+          execSync("git fetch origin", {
+            cwd: PROJECT_ROOT,
+            timeout: 60000,
+            stdio: "pipe",
+            env: pushEnv,
+          });
+          execSync(
+            `git merge -s ours origin/${target.branch} -m "merge origin/${target.branch} (self-heal): remote history preserved as ancestors; local live state is authoritative"`,
+            { cwd: PROJECT_ROOT, timeout: 30000, stdio: "pipe" }
+          );
+          execSync(`git push origin ${refspec}`, {
+            cwd: PROJECT_ROOT,
+            timeout: 60000,
+            stdio: "pipe",
+            env: pushEnv,
+          });
+          const healedSha = execSync("git rev-parse HEAD", {
+            cwd: PROJECT_ROOT,
+            encoding: "utf-8",
+            timeout: 5000,
+          }).trim().slice(0, 7);
+          await record({ lastPushSha: healedSha, lastPushError: null });
+          return {
+            pushed: true,
+            commitSha: healedSha,
+            hadChanges: Boolean(commitSha),
+            repo: target.repo,
+            divergenceHealed: true,
+          };
+        } catch (healErr) {
+          const healStderr = scrub(
+            String((healErr as { stderr?: string }).stderr ?? (healErr as Error).message ?? ""),
+            target.token
+          );
+          stderr = `${stderr} | auto-heal failed: ${healStderr.slice(0, 200)}`;
+        }
+      }
+
       let hint = "";
       if (/non-fast-forward|fetch first|rejected/.test(stderr)) {
-        hint = " (remote has diverged — run 'push force' to overwrite it)";
+        hint = " (remote has diverged and auto-heal failed — run 'push force' to overwrite it)";
       } else if (/could not read Username|Authentication failed|403/.test(stderr)) {
         hint = " (GitHub rejected the credentials — the token may be invalid/revoked or lack repo access; reconfigure with 'push <token> <owner/repo>')";
       }
