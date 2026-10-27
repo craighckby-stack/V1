@@ -113,7 +113,7 @@ function isLikelyEnvVarOrPath(s: string): boolean {
   return false;
 }
 
-function isLikelyFixtureFile(filePath: string | undefined, code: string): boolean {
+function isLikelyFixtureFile(filePath: string | null | undefined, code: string): boolean {
   // 1. Path-based detection
   if (filePath) {
     const lower = filePath.toLowerCase();
@@ -200,11 +200,12 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
     const stringLiterals = inputCode.match(/["']([A-Za-z0-9_\-+/=]{24,})["']/g);
     if (stringLiterals) {
       let iterations = 0;
-      let index = 0;
-      while (index < stringLiterals.length && iterations <= MAX_ITERATIONS) {
-        const literal = stringLiterals[index];
+      for (const literal of stringLiterals) {
         iterations++;
-        index++;
+        if (iterations > MAX_ITERATIONS) {
+          violations.push("High entropy check exceeded maximum iterations - potential infinite loop prevented");
+          break;
+        }
 
         if (!literal) continue; // Skip null/undefined literals
 
@@ -226,10 +227,6 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
           );
           sanitized = sanitized.replace(literal, `"[REDACTED_HIGH_ENTROPY_KEY]"`);
         }
-      }
-      
-      if (iterations > MAX_ITERATIONS) {
-        violations.push("High entropy check exceeded maximum iterations - potential infinite loop prevented");
       }
     }
   } catch (error) {
