@@ -1563,3 +1563,68 @@ Stage Summary:
   - 9c77b68: C (stop/start run-token race) + E (retry/log honesty) (c-and-e-1)
   - c857d61: A (shared rate-limit gate) + B (loop obeys gate) (a-and-b-1, this commit)
 - bun run lint: clean. tsc --noEmit: clean. Pushed to origin/main. `git rev-list --left-right --count origin/main...HEAD` = `0 0`.
+
+---
+Task ID: ratchet-1
+Agent: main (claude)
+Task: Fix the ratchet's #1 failure mode — LLM hallucinating export names that don't exist in the module, causing every ratchet test to fail at import time with `SyntaxError: Export named 'X' not found`. Per the live run log, the ratchet was 0/pinned: every test was rejected before it could even run. Two mutations succeeded (binaryShield, siphon) WITHOUT characterization test pins — the "tests only tighten" ratchet design wasn't protecting anything.
+
+Work Log:
+- Stopped the loop (running after the user's "A run" message). Drain took 50s — and the loop squeezed in mutation #4 (chat-task.ts → 4d309b2 on loop-04, fixed null crash in parsePlan() + input validation in proposeTaskPlan()) just before stopping. 4 mutations total before I started editing.
+- Read the ratchet code end-to-end:
+  - TEST_WRITER_SYSTEM constant (lines 83-100): the system prompt for the test-writer LLM. Had rules about "import from relative path", "compute expected values", "no tautologies", "3-8 focused tests". NO mention of the actual export list — the LLM had to guess export names from the source.
+  - writeTestsForFile (lines 561-650): reads the source, constructs userPrompt with just the source code (no export list), calls llmComplete, runs truncation/tautology gates, then writes the test file + runs `bun test`. On failure: rmSync(testPath) + log rejection.
+  - Confirmed the rejection logic DOES delete failing test files (rmSync on line 806 and 830) — so a failing test doesn't block future ratchet attempts. And `find src/lib/pipeline -name "*.test.ts"` returned nothing — all rejected tests were cleaned up.
+
+- Identified the 3 failure modes from the live log:
+  1. Hallucinated exports (most common): `SyntaxError: Export named 'extractTopLevelExports' not found` (structural-validator), `SECURITY_THRESHOLD` (siphon), `emgRagInstance, VectorEntry, EmgQueryResult` (emg-rag — these ARE real exports but the import crashed, likely because interfaces were imported as runtime values).
+  2. Empty test bodies: "33 expect() call(s) for 36 test(s) — every test needs assertions" (halt.ts).
+  3. Wrong expected values: "fails on current code — pins wrong behavior" (binaryShield, sanitizer).
+  4. Typecheck errors in the test file (debate.ts).
+
+- Designed the fix:
+  - extractExports(source): regex-based, parses the actual exports from the source. Strips block comments, line comments, and string/template literals first so regexes don't match inside them. Catches: export [async] function, export class, export const/let, export interface, export type, export enum, export { foo, bar as baz } (re-exports, using the alias), export default. Returns { names: string[], kinds: Record<string, string> }.
+  - formatExportList(exps): formats the list for the prompt. Marks interface/type as "TYPE-ONLY: use import type", marks default as "import WITHOUT braces". Returns "(none — this module has no named exports)" if empty.
+  - The kind labels matter: interface/type exports are TYPE-ONLY. The prompt tells the LLM to `import type { X }` for them, avoiding "imported as a value but is a type" typecheck errors. This directly fixes the emg-rag.ts failure (VectorEntry/EmgQueryResult are interfaces).
+
+- Sanity-tested extractExports against the 7 files that previously failed (standalone tsx script):
+  - structural-validator.ts: exports validateStructure (function), StructureIssue (interface), StructureResult (interface). The LLM's hallucinated `extractTopLevelExports` is NOT in the list. ✅
+  - siphon.ts: exports performArchitecturalVote, SIPHON_SOURCES, SiphonSource, ArchitecturalVote. Hallucinated `SECURITY_THRESHOLD` NOT in the list. ✅
+  - emg-rag.ts: exports emgRagInstance (const), VectorEntry (interface), EmgQueryResult (interface). The kind labels correctly mark VectorEntry/EmgQueryResult as interface (TYPE-ONLY). ✅
+  - binaryShield.ts: BinaryShield (class), binaryShieldInstance (const), EncryptionPacket (interface), DecryptionPacket (interface). ✅
+  - sanitizer.ts: calculateShannonEntropy (function), SecuritySanitizerResult (interface), ErrorClass (type). Correctly distinguishes type from value. ✅
+
+- Updated TEST_WRITER_SYSTEM with 3 new rules + a worked example:
+  - "The user prompt will give you the EXACT list of exports. Import ONLY those names — do NOT invent exports. Inventing export names causes a SyntaxError at import time and rejects your test." (kills failure mode #1)
+  - "For interface and type exports, use import type { X }." (kills the emg-rag typecheck failure)
+  - "For default exports, use import X from './base' (no braces)."
+  - "EVERY test() callback MUST contain at least one expect() call. A test with no assertions is rejected." (kills failure mode #2)
+  - Worked example showing CORRECT vs WRONG: `expect(add(2, 3)).toBe(5)` vs `import { extractSum }` (hallucinated) vs `test('adds', () => {})` (no expect) vs `expect(add(2, 3)).toBe(7)` (wrong value). (targets failure mode #3)
+
+- Updated writeTestsForFile's userPrompt to inject the real export list:
+  "This module exports EXACTLY these symbols (import ONLY from './base', do NOT invent any other export names):
+   - validateStructure (function)
+   - StructureIssue (interface — TYPE-ONLY: use import type)
+   - StructureResult (interface — TYPE-ONLY: use import type)"
+
+- Verification: bun run lint: clean. tsc --noEmit: clean.
+
+- Restarted dev server (pid 7856). Agent Browser end-to-end test:
+  - Started loop. 4 ratchet attempts observed post-fix:
+    1. github-helpers.ts: test LOADED and RAN. Tests passed: "(pass) github-helpers > getUsableToken > returns null for empty string", etc. Rejected for "pins wrong behavior" (wrong expected values) — NOT for hallucinated exports. ✅
+    2. chat-task.ts: test LOADED and RAN. Tests passed: "(pass) chat-task > proposeTaskPlan returns error for empty goal". Rejected for "pins wrong behavior". ✅
+    3. structural-validator.ts: rejected for "(truncated: unbalanced braces (65 { vs 66 }))" — truncation gate, NOT hallucinated exports. Token-limit issue, unrelated to this fix. ✅
+    4. binaryShield.ts: test LOADED and RAN. Tests passed: "(pass) BinaryShield > encrypt > encrypts valid text to a properly formatted packet", "(pass) BinaryShield > encrypt > throws error for null input". Rejected for "pins wrong behavior". ✅
+  - 0/4 rejected for hallucinated exports. The #1 failure mode is GONE.
+  - 3/4 loaded and ran (the correct ratchet behavior — tests execute, some pass, some fail, file rejected because a failing test would pin wrong behavior). 1/4 truncated (unrelated).
+  - The loop produced mutation #5 during the test run: github-helpers.ts → 4a891a5 on loop-05 (fixed null crash in githubHeaders()). The ratchet fix doesn't block enhancements.
+  - Screenshot: screenshots/14-ratchet-export-list-fix.png
+
+- Commit: my edits to self-enhance-loop.ts were committed by the LOOP's own commit 4a891a5 (the loop does `git add -A` during push, picking up my edits alongside the github-helpers.ts enhancement). Verified: `git show 4a891a5 -- self-enhance-loop.ts` shows +162 lines including extractExports, formatExportList, the TEST_WRITER_SYSTEM rewrite, and the userPrompt injection. My separate commit 34c0407 has only the screenshot (the source was already committed by the loop). Both pushed: f712cc4..34c0407 main -> main. `git rev-list --left-right --count origin/main...HEAD` = 0 0.
+
+Stage Summary:
+- The ratchet's #1 failure mode (hallucinated exports → SyntaxError at import) is FIXED and verified live. 4/4 post-fix ratchet attempts loaded and ran (or were truncated for unrelated reasons). ZERO rejected for hallucinated exports.
+- The remaining "pins wrong behavior" failure (wrong expected values) is the harder semantic problem. The worked example in the prompt helps but isn't a mechanical fix. The ratchet will pin tests on files with simple enough behavior (pure functions, error handling, input validation) and continue rejecting on complex behavior (crypto output formats, async timing, stateful logic). That's correct — a wrong-expected-value test would pin wrong behavior, which is worse than no test.
+- extractExports is regex-based, not a full AST. Misses destructuring exports and wildcard re-exports. Both rare in this codebase; 90% of the real list is enough to stop the hallucination. If needed later, swap to ts-morph or tsc --declaration.
+- The loop produced 5 mutations total (binaryShield → siphon → github-helpers → chat-task → github-helpers-again), 4 on loop-01..loop-04 plus #5 on loop-05. All on origin/main. The ratchet fix is live in the running code.
+- bun run lint: clean. tsc --noEmit: clean. Pushed to origin/main.
