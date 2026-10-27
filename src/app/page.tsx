@@ -99,15 +99,19 @@ function renderPlan(p: ChatTaskPlan): string[] {
   ];
 }
 
+// Body text is soft-white for readability (was green — hard on the eyes on
+// black). Green is kept only for accents: the prompt symbol, the header
+// title, and genuine "success" log lines. Warn stays yellow, error stays red.
 const COLOR_MAP: Record<LogEntry["type"], string> = {
-  info: "#00ff00",
+  info: "#e0e0e0",
   success: "#00ff00",
   warn: "#ffff00",
   error: "#ff4444",
 };
 
 const PROMPT_COLOR = "#00ff00";
-const DIM_COLOR = "#008800";
+const TEXT_COLOR = "#e0e0e0";
+const DIM_COLOR = "#777777";
 const USER_INPUT_COLOR = "#ffffff";
 const ERROR_COLOR = "#ff4444";
 
@@ -139,25 +143,40 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
-  const [terminalLines, setTerminalLines] = useState<
-    Array<{ type: "system" | "command" | "output"; text: string }>
-  >([
-    { type: "system", text: "ARCHITECTURE HELPER PIPELINE v4.4 — SELF-ENHANCE MODE" },
-    { type: "system", text: "(c) 2026 Z.ai Code — Autonomous Self-Modifying System" },
-    { type: "system", text: "" },
-    { type: "system", text: "Target: src/lib/pipeline/ (self-enhancement)" },
-    { type: "system", text: "Mode: continuous autonomous refactoring" },
-    { type: "system", text: "Input: self-generated task queue + chat goals ('task <goal>')" },
-    { type: "system", text: "Verification: tsc --noEmit before every write" },
-    { type: "system", text: "Proof: git push of current live state on each enhancement" },
-    { type: "system", text: "" },
-    { type: "system", text: "Type 'help' for commands, or click [CONFIG] to set up GitHub push." },
-    { type: "system", text: "" },
+  // Unified console stream — boot, commands, output, and live server logs
+  // all flow in ONE chronological timeline. This fixes the "logs generate in
+  // the middle" issue: previously logs rendered as a separate block ABOVE
+  // the terminal section, so streaming logs appeared in the middle of the
+  // screen. Now everything is one stream — new activity (command output OR
+  // loop logs) always appears at the bottom near the prompt, like a real
+  // terminal with a background process.
+  type ConsoleLine = {
+    id: string;
+    type: "system" | "command" | "output" | "log";
+    text: string;
+    ts?: string;
+    logType?: LogEntry["type"];
+  };
+  const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([
+    { id: "boot-0", type: "system", text: "ARCHITECTURE HELPER PIPELINE v4.4 — SELF-ENHANCE MODE" },
+    { id: "boot-1", type: "system", text: "(c) 2026 Z.ai Code — Autonomous Self-Modifying System" },
+    { id: "boot-2", type: "system", text: "" },
+    { id: "boot-3", type: "system", text: "Target: src/lib/pipeline/ (self-enhancement)" },
+    { id: "boot-4", type: "system", text: "Mode: continuous autonomous refactoring" },
+    { id: "boot-5", type: "system", text: "Input: self-generated task queue + chat goals ('task <goal>')" },
+    { id: "boot-6", type: "system", text: "Verification: tsc --noEmit before every write" },
+    { id: "boot-7", type: "system", text: "Proof: git push of current live state on each enhancement" },
+    { id: "boot-8", type: "system", text: "" },
+    { id: "boot-9", type: "system", text: "Type 'help' for commands. Header: [STOP]/[START] loop, [CLEAR] screen, [CONFIG] GitHub." },
+    { id: "boot-10", type: "system", text: "" },
   ]);
 
   // Task engine state — queue counts (polled) + pending chat-task plan
   const [queue, setQueue] = useState<QueueCounts | null>(null);
   const [pendingPlan, setPendingPlan] = useState<ChatTaskPlan | null>(null);
+
+  // Loop start/stop busy state (for the [STOP]/[START] header button)
+  const [loopBusy, setLoopBusy] = useState(false);
 
   // Config panel state
   const [configOpen, setConfigOpen] = useState(false);
@@ -174,6 +193,12 @@ export default function Home() {
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const cfgTokenRef = useRef<HTMLInputElement>(null);
+  // Dedup set for server logs — once a log (timestamp|message) is in the
+  // unified stream, it's never re-added even if it reappears in a later poll
+  // (the server sends a fixed-size log buffer on every poll).
+  const seenLogKeys = useRef(new Set<string>());
+  const lineIdCounter = useRef(0);
+  const nextId = () => `cl-${++lineIdCounter.current}`;
 
   // Poll for status + push target every 2 seconds
   useEffect(() => {
@@ -185,7 +210,30 @@ export default function Home() {
           fetch("/api/self-enhance/status"),
           fetch("/api/self-enhance/push-target"),
         ]);
-        if (mounted && statusRes.ok) setStatus(await statusRes.json());
+        if (mounted && statusRes.ok) {
+          const s = (await statusRes.json()) as SelfEnhanceStatus;
+          setStatus(s);
+          // Diff incoming logs against what's already in the unified stream.
+          // Only genuinely new logs (timestamp|message not yet seen) are
+          // appended — prevents duplicates when the server re-sends its
+          // fixed-size log buffer on every poll.
+          const newLogs = (s.logs ?? []).filter(
+            (l) => !seenLogKeys.current.has(`${l.timestamp}|${l.message}`)
+          );
+          if (newLogs.length > 0) {
+            for (const l of newLogs) seenLogKeys.current.add(`${l.timestamp}|${l.message}`);
+            setConsoleLines((prev) => [
+              ...prev,
+              ...newLogs.map((l) => ({
+                id: nextId(),
+                type: "log" as const,
+                text: l.message,
+                ts: l.timestamp,
+                logType: l.type,
+              })),
+            ]);
+          }
+        }
         if (mounted && targetRes.ok) setPushTarget(await targetRes.json());
       } catch {
         // ignore
@@ -227,15 +275,14 @@ export default function Home() {
     };
   }, []);
 
-  // Auto-scroll to bottom of log when NEW COMMAND OUTPUT appears (terminalLines),
-  // not when server logs update (which would yank the view away from what the
-  // user just typed).
-  const terminalLineCount = terminalLines.length;
+  // Auto-scroll to bottom whenever the unified stream grows — whether from a
+  // new command, command output, or a new server log. One stream, one scroll.
+  const consoleLineCount = consoleLines.length;
   useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
-  }, [terminalLineCount]);
+  }, [consoleLineCount]);
 
   // Focus input on click anywhere — but NOT while the config modal is open
   useEffect(() => {
@@ -259,12 +306,43 @@ export default function Home() {
     return () => document.removeEventListener("keydown", handler);
   }, [configOpen]);
 
-  /** Append output lines to the terminal (used by the config flow). */
+  /** Append output lines to the unified console stream. */
   function emitOutput(lines: string[]) {
-    setTerminalLines((prev) => [
+    if (lines.length === 0) return;
+    setConsoleLines((prev) => [
       ...prev,
-      ...lines.map((l) => ({ type: "output" as const, text: l })),
+      ...lines.map((l) => ({ id: nextId(), type: "output" as const, text: l })),
     ]);
+  }
+
+  /** Clear the entire console (boot + commands + output + logs). Seen-log
+   *  keys are preserved so only genuinely NEW logs reappear after clearing
+   *  (the loop keeps running and its future logs still show up). */
+  function clearConsole() {
+    setConsoleLines([]);
+    inputRef.current?.focus();
+  }
+
+  /** Start or stop the loop from the header [STOP]/[START] button. */
+  async function toggleLoop() {
+    setLoopBusy(true);
+    try {
+      const endpoint = running ? "/api/self-enhance/stop" : "/api/self-enhance/start";
+      const res = await fetch(endpoint, { method: "POST" });
+      const data = await res.json();
+      // Refresh status immediately so the button label + ENHANCING/IDLE flip
+      const sres = await fetch("/api/self-enhance/status");
+      if (sres.ok) setStatus(await sres.json());
+      emitOutput([
+        running
+          ? `[LOOP] Stopped — ${data.message ?? "self-enhancement halted"}`
+          : `[LOOP] Started — ${data.message ?? "continuous self-enhancement running"}`,
+      ]);
+    } catch (e) {
+      emitOutput([`[LOOP] Error: ${(e as Error).message}`]);
+    } finally {
+      setLoopBusy(false);
+    }
   }
 
   async function openConfig() {
@@ -831,8 +909,8 @@ export default function Home() {
 
       case "clear":
       case "cls":
-        setStatus(null);
-        return [""];
+        clearConsole();
+        return ["Terminal cleared."];
 
       case "exit":
       case "quit":
@@ -869,14 +947,14 @@ export default function Home() {
       /\b(ghp_|github_pat_|gho_|ghu_|ghr_|ghs_)[A-Za-z0-9_]+/g,
       "$1****"
     );
-    setTerminalLines((prev) => [...prev, { type: "command", text: masked }]);
+    setConsoleLines((prev) => [...prev, { id: nextId(), type: "command", text: masked }]);
 
     // Execute and show output
     const output = await executeCommand(cmd);
     if (output && output.length > 0) {
-      setTerminalLines((prev) => [
+      setConsoleLines((prev) => [
         ...prev,
-        ...output.map((line) => ({ type: "output" as const, text: line })),
+        ...output.map((line) => ({ id: nextId(), type: "output" as const, text: line })),
       ]);
     }
 
@@ -914,7 +992,6 @@ export default function Home() {
     }
   }
 
-  const logs = status?.logs ?? [];
   const s = status?.stats;
   const running = status?.running ?? false;
   const connected = pushTarget?.configured ?? false;
@@ -925,7 +1002,7 @@ export default function Home() {
         position: "fixed",
         inset: 0,
         background: "#000",
-        color: PROMPT_COLOR,
+        color: TEXT_COLOR,
         fontFamily: "'Courier New', 'Lucida Console', monospace",
         fontSize: "14px",
         lineHeight: "1.4",
@@ -965,13 +1042,41 @@ export default function Home() {
             </span>
           )}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
           <span
             style={{ color: connected ? PROMPT_COLOR : DIM_COLOR }}
             aria-label={connected ? "Git push target connected" : "Git push target not configured"}
           >
             [GIT: {connected ? "ON" : "OFF"}]
           </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleLoop();
+            }}
+            disabled={loopBusy}
+            aria-label={running ? "Stop the self-enhancement loop" : "Start the self-enhancement loop"}
+            style={{
+              ...cfgBtnStyle,
+              opacity: loopBusy ? 0.5 : 1,
+              cursor: loopBusy ? "wait" : "pointer",
+              color: running ? ERROR_COLOR : PROMPT_COLOR,
+            }}
+          >
+            [{running ? "STOP" : "START"}]
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              clearConsole();
+            }}
+            aria-label="Clear the terminal"
+            style={cfgBtnStyle}
+          >
+            [CLEAR]
+          </button>
           <button
             type="button"
             onClick={(e) => {
@@ -986,7 +1091,9 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Log area */}
+      {/* Unified console — boot, commands, output, and live server logs all
+          in one chronological stream. New activity always appears at the
+          bottom near the prompt — no more "logs in the middle". */}
       <div
         ref={logRef}
         style={{
@@ -995,34 +1102,24 @@ export default function Home() {
           paddingRight: "4px",
         }}
       >
-        {/* Server logs (top — scrolling history of loop activity) */}
-        {logs.map((log, idx) => (
-          <div key={`log-${idx}`} style={{ color: COLOR_MAP[log.type], whiteSpace: "pre-wrap" }}>
-            <span style={{ color: DIM_COLOR }}>[{log.timestamp}]</span>{" "}
-            {log.message}
-          </div>
-        ))}
+        {consoleLines.map((line) => {
+          const color =
+            line.type === "command"
+              ? USER_INPUT_COLOR
+              : line.type === "log"
+              ? COLOR_MAP[line.logType ?? "info"]
+              : TEXT_COLOR;
 
-        {/* Terminal lines (bottom — boot sequence + command output) */}
-        {/* Rendered AFTER logs so command output stays at the bottom and is
-            always visible after auto-scroll. New server logs push older
-            terminal lines up, but the latest command output stays visible. */}
-        {terminalLines.map((line, idx) => (
-          <div
-            key={`term-${idx}`}
-            style={{
-              color:
-                line.type === "command"
-                  ? "#ffffff"
-                  : line.type === "output"
-                  ? "#00ff00"
-                  : "#008800",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {line.type === "command" ? `> ${line.text}` : line.text || "\u00a0"}
-          </div>
-        ))}
+          return (
+            <div key={line.id} style={{ color, whiteSpace: "pre-wrap" }}>
+              {line.type === "command" && "> "}
+              {line.type === "log" && line.ts && (
+                <span style={{ color: DIM_COLOR }}>[{line.ts}] </span>
+              )}
+              {line.text || "\u00a0"}
+            </div>
+          );
+        })}
       </div>
 
       {/* Prompt */}

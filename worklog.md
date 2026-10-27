@@ -960,3 +960,36 @@ Work Log:
 
 Stage Summary:
 - Commit-only fallback verified live end-to-end. With no PAT, every verified loop enhancement and chat-task apply now lands as a local commit instead of silently-uncommitted disk state. The restart-loss root cause is closed.
+
+---
+Task ID: stop-button-clear-white-stream
+Agent: main (Z.ai Code)
+Task: User: "add a stop button and clear all for user. Also thinking I should replace the green writing to white to make it better to view. Also notice the logs output is confusing static bottom part logs generate in the middle of the output"
+
+Work Log:
+- UNDERSTOOD the "logs in the middle" issue: previously server logs rendered as a block ABOVE the terminal section (boot + commands + output pinned at bottom). As the loop streamed new logs every 5s, they appeared in the MIDDLE of the screen — between old log history and the command/output area. Confusing, not how a terminal should flow.
+- FIX: unified the two separate render sections (logs + terminal) into ONE chronological ConsoleLine stream. Boot, commands, command output, and live server logs now all flow top-to-bottom in a single timeline. New activity always appears at the bottom near the prompt — exactly like a real terminal with a background process.
+  * ConsoleLine type: {id, type: "system"|"command"|"output"|"log", text, ts?, logType?}
+  * seenLogKeys ref (Set<string>): dedup by `${timestamp}|${message}` — the server sends a fixed-size log buffer on every 2s poll; without dedup, every poll would re-append the entire buffer. Now only genuinely NEW logs are appended.
+  * Status poll now diffs incoming logs against seenLogKeys and appends only new ones. On page load, the first poll dumps recent history (gives context), then live activity appends as it happens.
+  * Auto-scroll triggers on consoleLines.length change (was terminalLines.length) — one stream, one scroll.
+- ADDED [STOP]/[START] header button (toggleLoop): calls /stop or /start depending on `running`, refreshes status immediately so the label flips, emits "[LOOP] Stopped" / "[LOOP] Started" to the stream. Red when STOP, green when START. Busy state disables the button during the request.
+- ADDED [CLEAR] header button (clearConsole): wipes the entire console (boot + commands + output + logs). seenLogKeys is PRESERVED so only genuinely new logs reappear after clearing — the loop keeps running and its future logs still show up, but old ones don't flood back.
+- UPDATED `clear`/`cls` command: calls clearConsole() + returns "Terminal cleared." (was setStatus(null) which only cleared the server-logs display, not the local terminal lines).
+- GREEN → WHITE text: body text changed from #00ff00 (green, hard on black) to #e0e0e0 (soft white). DIM_COLOR from #008800 (dark green) to #777777 (gray). Green kept ONLY for accents: the ">" prompt symbol, the header title, genuine "success" log lines, and the [CONFIG]/[CLEAR] button labels. [STOP] button uses red (#ff4444). Warn logs stay yellow, error logs stay red.
+- VERIFIED LIVE (agent-browser, zero page/console errors throughout):
+  * Header: [GIT: ON] [STOP] [CLEAR] [CONFIG] — all three buttons present and labeled
+  * [STOP] click → button flips to [START], header flips to [IDLE], "[LOOP] Stopped" appears in stream
+  * [START] click → flips back to [STOP], header to [ENHANCING], "[LOOP] Started" in stream
+  * [CLEAR] click → body text 16959→169 chars (just header+prompt). After 12s, only 1 NEW log appeared (dedup prevented the old ~30 logs from re-flooding)
+  * `clear` command → "Terminal cleared." shown, output wiped
+  * `help` command → output renders in soft white (#e0e0e0), not green
+  * Unified stream: boot sequence, then live logs chronologically (newest at bottom), command output interleaved by time — no more "logs in the middle"
+  * Mobile 390px: no horizontal scroll
+  * lint clean, tsc clean
+- NOTED: [GIT: ON] appeared during testing — the PAT was reconnected (by the user or the loop). Pushes are now live again.
+
+Stage Summary:
+- Three UX issues resolved: (1) [STOP]/[START] button in the header for one-click loop control, (2) [CLEAR] button + `clear` command for wiping the screen (seen-log dedup means old logs don't flood back), (3) green body text → soft white for readability.
+- The "logs in the middle" issue is fixed by architecture, not workaround: one unified chronological stream replaces the two-section split. New activity (command output OR loop logs) always appears at the bottom near the prompt — natural terminal behavior.
+- Green is now an accent, not the default — the terminal still feels like a terminal (green prompt, green header, green success logs) but the body text is readable white.
