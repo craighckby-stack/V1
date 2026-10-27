@@ -30,6 +30,10 @@ export class BinaryShield {
       throw new Error("Input text cannot be null or undefined");
     }
     
+    if (typeof plainText !== "string") {
+      throw new Error("Input text must be a string");
+    }
+    
     if (plainText.length === 0) {
       throw new Error("Input text cannot be empty");
     }
