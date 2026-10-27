@@ -1416,3 +1416,76 @@ Stage Summary:
   - Fix A: shared rate-limit gate in agent-llm.ts (currently each call site has its own 5-attempt in-call retry with 10s→80s backoff; no cross-call cooldown)
   - Fix B: loop obeys gate + auto-pause (not auto-stop) after N consecutive cooldowns
   - Fix D: deferred — real provider interface only if user wants a second endpoint
+
+---
+Task ID: c-and-e-1
+Agent: main (claude)
+Task: Implement Fix C (stop/start run-token race + for-loop break + enhanceFile checkpoint + writeTestsForFile decay-branch bug) and Fix E (temperature/maxTokens passthrough, jitter, Retry-After, retry-log real status) as a single commit. Per audit and per user direction: "C + dead-code removal check + E as a single commit ... Then A + B as a second commit once the first is verified running." Dead-code removal was already its own commit (ca47150, see cleanup-1 entry above), so this commit is just C + E.
+
+Work Log:
+- Read the relevant sections of both files end-to-end before editing:
+  - self-enhance-loop.ts: class fields (140-164), writeTestsForFile (555-625), enhanceFile (680-829), runCycle (999-1034), runContinuous (1036-1051), stop() (1053-1057).
+  - agent-llm.ts: getZai (22-30), LlmCallOptions (32-48), llmComplete (67-129) with the SDK call at 77-83 and retry/backoff at 99-118.
+- Verified the audit's specific claims against live line numbers:
+  - stop() at 1053-1055 sets both running=false and continuous=false → defeats the if(this.running) re-entry guard at 1000-1003.
+  - for (const file of files) at 1017-1025 never checks this.continuous or any run token.
+  - enhanceFile at 684-994 has no checkpoint between ratchet (writeTestsForFile at 735) and the LLM enhance call at 782.
+  - writeTestsForFile decay branch at 571-572 deletes the map entry but `const rec` still holds the stale object → (rec?.attempts ?? 0) + 1 at 576 reads the pre-decay counter.
+  - Retry logs at 592 and 788 hardcode "429" regardless of info.isRateLimit.
+  - zai.chat.completions.create at 77-83 only receives messages + thinking — temperature and maxTokens from LlmCallOptions are silently dropped.
+  - No jitter: delay = 10000 * Math.pow(2, attempt - 1) at 103. No Retry-After handling.
+
+- agent-llm.ts edits (Fix E):
+  - Replaced the inline zai.chat.completions.create({...}) call with a typed createParams object built via Parameters<typeof zai.chat.completions.create>[0]. Initial attempt used Record<string, unknown> — tsc rejected it ("Property 'messages' is missing in type 'Record<string, unknown>' but required in type 'CreateChatCompletionBody'"). Fixed by typing the object as the SDK's parameter type and casting through Record<string, unknown> only for the optional temperature/max_tokens assignments.
+  - temperature passed as `temperature` when opts.temperature !== undefined.
+  - maxTokens passed as `max_tokens` (OpenAI convention) when opts.maxTokens !== undefined.
+  - baseDelay = isRateLimit ? 10000 * Math.pow(2, attempt - 1) : 400 * attempt (unchanged).
+  - Added ±20% jitter: delay = baseDelay * (0.8 + Math.random() * 0.4). Visible in the live log as 10s→10s, 20s→24s, 40s→35s, 80s→81s.
+  - Best-effort Retry-After parsing: errAny.headers?.["retry-after"] ?? errAny.response?.headers?.["retry-after"]. If parseable as a finite number in (0, 120] seconds, use that. Otherwise fall back to jittered backoff. Capped at 120s so a misbehaving server can't pin us for an hour.
+
+- self-enhance-loop.ts edits (Fix C):
+  - Added `private runId = 0` field with a 9-line comment explaining what it fixes (the stop-then-start race and the specific failure modes (a) and (b) the audit identified).
+  - stop() rewritten: NO LONGER touches this.running. Now only sets this.continuous=false and this.runId++. Log message changed from "Self-enhance loop stopped" to "Self-enhance loop stop requested" (more honest — the in-flight ratchet is still running until its own retries exhaust). Added a 7-line comment explaining why we don't touch running.
+  - runCycle() captures `const myRun = this.runId` after the running=true line. Inside for (const file of files), added a check at the top of each iteration: `if (!this.continuous || myRun !== this.runId) { this.log("Stop requested — breaking out of cycle", "warn"); break; }`. Comment explains the previous bug (loop only checked this.running, which stop() set false, which never broke the loop).
+  - enhanceFile() captures `const myRun = this.runId` near the top (after this.currentFile = relPath). After writeTestsForFile (line 753-755), added a checkpoint: `if (!this.continuous || myRun !== this.runId) { result.reason = "Stopped during ratchet"; this.log(\`Aborting enhance for ${relPath} — stop requested\`, "warn"); return result; }`. This catches the case where stop() fires during the ratchet's ~150s 429 backoff — without it, we'd burn another ~150s on the enhance call.
+  - writeTestsForFile decay-branch fix: changed `const rec = this.testWriteAttempts.get(relPath);` to `let rec = ...`. After `this.testWriteAttempts.delete(relPath)`, added `rec = undefined;`. Removed the `else` from `} else if (rec && rec.attempts >= 2)` so the attempts check fires regardless. This makes the 30-min decay window actually reset the counter. Audit evidence: file first tried at 12:40 showed "attempt 2" at 1:38 — decay was a no-op. Now it resets.
+  - Retry log lines (ratchet at 609, enhance at 820): changed `(429 — backing off ${backoff})` to `(${info.isRateLimit ? "429" : "err"} — backing off ${backoff})`. Now non-429 errors show "(err — backing off Xms)" instead of being mislabelled as 429s.
+
+- Two edits went wrong on first pass:
+  - For the ratchet retry log (edit #3 of 7 in the MultiEdit), the old_str included the `});` closing the llmComplete call and the `if (!llmResult.ok) { this.log(...) }` block. The new_str dropped those lines. Result: lines 610-612 had `},\n        return false;\n      }` — a syntax error.
+  - Same issue for the enhance retry log (edit #4 of 7): old_str included `});\n\n      result.llmLatencyMs = llmResult.latencyMs;\n\n      if (!llmResult.ok) {`, new_str dropped them. Result: lines 818-820 had `},\n\n      if (!llmResult.ok) {` — also a syntax error.
+  - Both caught by reading the file immediately after the MultiEdit. Fixed with two precise Edit calls that restored the `});` and the surrounding lines. Verified by re-reading.
+  - Then ran `bunx tsc --noEmit` which caught the agent-llm.ts typing issue (Record<string, unknown> vs CreateChatCompletionBody). Fixed by typing as Parameters<typeof zai.chat.completions.create>[0] with a Record<string, unknown> cast only for the optional assignments.
+
+- Verification: bun run lint: clean. bunx tsc --noEmit: clean. bunx prisma generate (no schema change in this commit, but re-ran to be safe): no change.
+
+- Restarted dev server cleanly: dev-daemon.py stop (pid 3609), pkill -9 -f next-server, dev-daemon.py start (pid 4924). Port 3000 → HTTP 200, no errors in dev.log. The hot-reload cache from the previous run was holding the old SelfEnhanceLoop singleton with the old stop(); a full restart ensures the new runId field and rewritten stop() are live.
+
+- Agent Browser end-to-end test (the actual fix-C verification):
+  - Opened /, page renders, no console errors, no hydration warnings. Three buttons [START][CLEAR][CONFIG], status pip ○.
+  - Clicked START. Browser log: "[LOOP] Started", "Starting continuous self-enhancement loop", "Scanned 16 files in src/lib/pipeline/" (was 17 before — gemini-direct.ts removal confirmed in scan count), "Branch for this mutation: loop-01" (per-cycle branch model intact), "Ratchet: writing characterization tests for src/lib/pipeline/api/github-helpers.ts (attempt 1)...".
+  - Waited 8s, then clicked STOP. Browser log: "[LOOP] Stopped", "Self-enhance loop stop requested" (NEW message — was "Self-enhance loop stopped" before).
+  - Watched the ratchet's 5-attempt 429 backoff play out with jitter visible:
+    - attempt 1/5 (429 — backing off 10s) at 2:42:53
+    - attempt 2/5 (429 — backing off 24s) at 2:43:04 (was 20s — jitter)
+    - attempt 3/5 (429 — backing off 35s) at 2:43:27 (was 40s — jitter)
+    - attempt 4/5 (429 — backing off 81s) at 2:44:03 (was 80s — jitter)
+  - After attempt 5 exhausted: "Ratchet: test-writing LLM unavailable for src/lib/pipeline/api/github-helpers.ts" (the ratchet's own failure log), then immediately my new checkpoint: "Aborting enhance for src/lib/pipeline/api/github-helpers.ts — stop requested" at 2:45:24.
+  - For-loop check fired next: "Stop requested — breaking out of cycle" at 2:45:26, then "Cycle complete: 0/16 files enhanced", then "Continuous self-enhancement loop exited". Total drain time: 2:43:03 → 2:45:26 = 2min 23s.
+  - OLD behavior per the audit + user's earlier log: stop at 12:44:42, files kept processing until 1:38 (54 min). After 1:38:13 start, both streams ran concurrently, interleaving logs. After 1:40:04 stop, both streams kept going.
+  - NEW behavior: stop at 2:43:03, clean exit at 2:45:26 (2.4 min). NO second concurrent cycle spawned, NO log interleaving, NO currentCycleBranch race. The residual 2.4min is the ratchet's own in-call 5-attempt backoff (150s) — Fix A in the next commit will cut this to ~30s by reducing in-call retries to 2 and moving the long wait into a shared gate.
+  - Status pip correctly shows ○ (stopped). Screenshot saved: screenshots/12-c-and-e-stop-race-fixed.png.
+
+- Commit 9c77b68: "fix stop/start race (C) + retry/log honesty (E)" — 3 files changed, 102 insertions(+), 12 deletions(-).
+
+- PUSH BLOCKER RESOLVED. Previous attempts with `credential.helper='!f() { echo username=x-access-token; echo password="$GH_PAT"; }; f'` failed with "Invalid username or token" — turns out the token IS valid, the auth METHOD was wrong. The LOOP's own push-target.ts (line 378) uses `http.https://github.com/.extraheader` set to `Authorization: Basic base64(x-access-token:<token>)` via GIT_CONFIG_COUNT env vars. Replicating that method: `git -c http.https://github.com/.extraheader="Authorization: Basic <base64>" push origin main` succeeded. Pushed: `0bd0d74..9c77b68  main -> main`. Both this commit (9c77b68) and the earlier cleanup (ca47150) and the loop's own commit (0bd0d74) are now on origin/main. `git rev-list --left-right --count origin/main...HEAD` returns `0	0` — fully in sync.
+
+Stage Summary:
+- Fix C (stop/start race) is live and verified via Agent Browser. The run-token (runId) pattern works: stop() bumps the generation counter, runCycle's for-loop checks it and breaks, enhanceFile has a checkpoint between ratchet and enhance. Total drain after stop went from 54min (old) to 2.4min (new); the residual is the ratchet's in-call retry budget which Fix A will address.
+- Fix C also fixed the writeTestsForFile decay-branch bug (`const rec` → `let rec`, `rec = undefined` after delete) — the 30-min forget window now actually resets the counter.
+- Fix E (agent-llm.ts + retry log): temperature/maxTokens now passed through to zai.chat.completions.create; ±20% jitter on backoff; best-effort Retry-After header parsing (capped at 120s); retry log shows real isRateLimit status instead of hardcoded "429". Jitter verified live: backoffs 10s/24s/35s/81s vs. fixed 10/20/40/80.
+- bun run lint: clean. tsc --noEmit: clean.
+- Committed as 9c77b68, pushed to origin/main via http.extraheader auth method (the credential.helper method doesn't work for this PAT type — note for future pushes).
+- All three session commits now on origin/main: ca47150 (dead code), 0bd0d74 (loop's own UUID commit — was already on remote, just my auth method was wrong so I thought it was local-only), 9c77b68 (C + E).
+
+Next slice (per user direction): "Then A + B as a second commit once the first is verified running." A = shared rate-limit gate in agent-llm.ts (cross-call cooldown, cut in-call retries from 5 to 2). B = loop obeys the gate + auto-pause (not auto-stop) after N consecutive cooldowns. Will verify C+E is solid before starting A+B.
