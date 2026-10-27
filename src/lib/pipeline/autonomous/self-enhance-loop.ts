@@ -23,6 +23,7 @@ import { db } from "@/lib/db";
 import { generateTasks } from "./self-task-generator";
 
 const PIPELINE_SRC_DIR = "/home/z/my-project/src/lib/pipeline";
+const DISPLAY_SRC_DIR = "/home/z/my-project/src/app/display";
 const PROJECT_ROOT = "/home/z/my-project";
 
 /**
@@ -110,6 +111,13 @@ export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/verify-refactor.ts", // protect the verifier
   "src/lib/pipeline/llm/agent-llm.ts", // protect the LLM wrapper
   "src/lib/pipeline/llm/debate-llm.ts",
+  // UI control surface — the loop can change HOW things look (the mutable
+  // display layer in src/app/display/) but can NEVER touch the control
+  // surface: the buttons, the command input, the command parser, the state
+  // management, the polling. If the system could rewrite its own control
+  // surface, it could remove the STOP button and escape user oversight.
+  "src/app/page.tsx", // the control surface itself
+  "src/app/layout.tsx", // page metadata / shell
 ]);
 
 export interface SelfEnhanceResult {
@@ -167,25 +175,42 @@ class SelfEnhanceLoop {
   }
 
   /**
-   * Scan the pipeline source directory for .ts files to enhance.
+   * Scan for files to enhance. Two scopes:
+   *   1. src/lib/pipeline/ — the system's own logic (.ts only)
+   *   2. src/app/display/ — the mutable UI display layer (.tsx — colors,
+   *      layout, formatting, visualizations). The control surface
+   *      (page.tsx, layout.tsx) is PROTECTED and never scanned.
    */
   private scanFiles(): string[] {
     const files: string[] = [];
-    const scan = (dir: string) => {
-      const entries = readdirSync(dir, { withFileTypes: true });
+    const scan = (dir: string, extensions: string[]) => {
+      let entries: import("fs").Dirent[];
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return; // directory doesn't exist yet (e.g. display/ on first boot)
+      }
       for (const entry of entries) {
         const fullPath = join(dir, entry.name);
         if (entry.isDirectory()) {
-          scan(fullPath);
-        } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
-          const relPath = relative(PROJECT_ROOT, fullPath);
-          if (!PROTECTED_FILES.has(relPath)) {
-            files.push(fullPath);
+          scan(fullPath, extensions);
+        } else {
+          const isTs = entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts");
+          const isTsx = entry.name.endsWith(".tsx") && !entry.name.endsWith(".test.tsx");
+          const matches =
+            (extensions.includes(".ts") && isTs) ||
+            (extensions.includes(".tsx") && isTsx);
+          if (matches) {
+            const relPath = relative(PROJECT_ROOT, fullPath);
+            if (!PROTECTED_FILES.has(relPath)) {
+              files.push(fullPath);
+            }
           }
         }
       }
     };
-    scan(PIPELINE_SRC_DIR);
+    scan(PIPELINE_SRC_DIR, [".ts"]);
+    scan(DISPLAY_SRC_DIR, [".tsx"]);
     return files;
   }
 

@@ -33,6 +33,7 @@ import { db } from "@/lib/db";
 
 const PROJECT_ROOT = "/home/z/my-project";
 const PIPELINE_SRC_DIR = join(PROJECT_ROOT, "src/lib/pipeline");
+const DISPLAY_SRC_DIR = join(PROJECT_ROOT, "src/app/display");
 
 /**
  * Files the system must NOT modify (would break its own loop).
@@ -46,6 +47,10 @@ export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/loop-event-bus.ts",
   "src/lib/pipeline/llm/agent-llm.ts",
   "src/lib/pipeline/llm/debate-llm.ts",
+  // UI control surface — same protection as the loop's set. The task
+  // generator must not queue tasks for files the loop refuses to touch.
+  "src/app/page.tsx",
+  "src/app/layout.tsx",
 ]);
 
 export const TASK_KINDS = {
@@ -70,17 +75,25 @@ export interface Finding {
 const MAX_TASKS_PER_KIND_PER_FILE = 5;
 const MAX_PENDING_TOTAL = 200;
 
-/** Recursively list .ts source files in the pipeline dir (excluding protected). */
+/** Recursively list source files in the pipeline dir (.ts) AND the display
+ *  dir (.tsx). Excludes protected files and test files. */
 function listOwnSourceFiles(): string[] {
   const files: string[] = [];
-  const scan = (dir: string) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  const scan = (dir: string, wantTsx: boolean) => {
+    let entries: import("fs").Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // dir may not exist yet
+    }
+    for (const entry of entries) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
-        scan(full);
+        scan(full, wantTsx);
       } else if (
-        entry.name.endsWith(".ts") &&
+        (entry.name.endsWith(".ts") || (wantTsx && entry.name.endsWith(".tsx"))) &&
         !entry.name.endsWith(".test.ts") &&
+        !entry.name.endsWith(".test.tsx") &&
         !entry.name.endsWith(".bak") &&
         !entry.name.endsWith(".tmp")
       ) {
@@ -89,7 +102,8 @@ function listOwnSourceFiles(): string[] {
       }
     }
   };
-  scan(PIPELINE_SRC_DIR);
+  scan(PIPELINE_SRC_DIR, false); // .ts only
+  scan(DISPLAY_SRC_DIR, true); // .tsx
   return files;
 }
 
@@ -124,7 +138,10 @@ function lineOf(sf: ts.SourceFile, pos: number): number {
 function analyzeFile(absPath: string): Finding[] {
   const relPath = relative(PROJECT_ROOT, absPath);
   const text = readFileSync(absPath, "utf-8");
-  const sf = ts.createSourceFile(absPath, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  // Use the right script kind for .tsx (JSX) vs .ts — the parser needs
+  // ScriptKind.TSX for .tsx files or it will fail on JSX syntax.
+  const scriptKind = absPath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const sf = ts.createSourceFile(absPath, text, ts.ScriptTarget.Latest, true, scriptKind);
   const findings: Finding[] = [];
 
   const seen = new Set<string>(); // kind:line dedup within file
@@ -272,16 +289,27 @@ export async function generateTasks(): Promise<ScanResult> {
 
   // Count protected files for transparency
   let protectedCount = 0;
-  const scanAll = (dir: string) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  const scanAll = (dir: string, wantTsx: boolean) => {
+    let entries: import("fs").Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
       const full = join(dir, entry.name);
-      if (entry.isDirectory()) scanAll(full);
-      else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+      if (entry.isDirectory()) scanAll(full, wantTsx);
+      else if (
+        (entry.name.endsWith(".ts") || (wantTsx && entry.name.endsWith(".tsx"))) &&
+        !entry.name.endsWith(".test.ts") &&
+        !entry.name.endsWith(".test.tsx")
+      ) {
         if (PROTECTED_FILES.has(relative(PROJECT_ROOT, full))) protectedCount++;
       }
     }
   };
-  scanAll(PIPELINE_SRC_DIR);
+  scanAll(PIPELINE_SRC_DIR, false);
+  scanAll(DISPLAY_SRC_DIR, true);
 
   for (const file of files) {
     try {

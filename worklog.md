@@ -1064,3 +1064,32 @@ Stage Summary:
 - Three changes delivered: (1) yellow→white (red is now the only non-white color), (2) counter fix (`= files.length` → `+= files.length` — was frozen, now accumulates), (3) `start` shows a live activity snapshot instead of just "Started".
 - The system mutation question answered: no, it mutates 12 of 20 files in src/lib/pipeline/; 8 are protected by design; the boundary is the safety property.
 - Honest limit: the browser E2E for the rich `start` output couldn't complete due to the dev server crashing when the loop runs (sandbox instability, not a code issue). All code paths verified via curl + tsc + lint.
+
+---
+Task ID: expand-scope-ui-display-layer
+Agent: main (Z.ai Code)
+Task: User: "Can we increase the scope of files and like change its own ui as future use makes this a beccesaty anyway ie user input" — expand mutation scope to include the UI, safely.
+
+Work Log:
+- THOUGHT THROUGH the safety architecture before touching code. The UI is two things in one file: (1) the CONTROL SURFACE — buttons, command input, command parser, state, polling — which lets the user oversee the system, and (2) the DISPLAY LAYER — rendering, colors, layout, visualizations. If the system could rewrite its own control surface, it could remove the STOP button and escape user oversight. The boundary must be: mutable display, protected control.
+- ARCHITECTURE: split the monolithic page.tsx (1,300+ lines) along the control/display boundary:
+  * page.tsx — PROTECTED control surface: state (consoleLines, status, queue, pendingPlan, config), buttons (STOP/START/CLEAR/CONFIG), command input, command parser (executeCommand), polling, config modal. The loop can NEVER touch this.
+  * src/app/display/console-stream.tsx — MUTABLE display layer: pure presentational component that takes lines + logRef and renders the unified stream. The loop can refactor this freely — colors, layout, formatting, new visualizations.
+- CREATED src/app/display/console-stream.tsx: exports ConsoleLine interface + ConsoleStream component. Takes {lines, logRef} props, renders boot+command+output+log lines with the color system (white text, red errors). Pure presentation — owns no state that affects user control.
+- UPDATED page.tsx: imports ConsoleStream + ConsoleLine type from ./display/console-stream. Removed the inline rendering block (the 30-line JSX that mapped consoleLines to colored divs), replaced with <ConsoleStream lines={consoleLines} logRef={logRef} />. The ConsoleLine type is now defined in the display component (single source of truth); page.tsx imports it. State stays in page.tsx; rendering is delegated.
+- EXPANDED SCAN SCOPE in both scanners:
+  * self-enhance-loop.ts scanFiles(): now scans src/lib/pipeline/ (.ts) AND src/app/display/ (.tsx). Added DISPLAY_SRC_DIR constant. Added .tsx support. Added try/catch around readdirSync (display dir may not exist on first boot).
+  * self-task-generator.ts listOwnSourceFiles(): same dual-scan with .ts + .tsx support. Updated scanAll (the protected-count helper) to match.
+  * self-task-generator.ts analyzeFile(): fixed ScriptKind — was hardcoded ts.ScriptKind.TS, now uses ts.ScriptKind.TSX for .tsx files (the parser needs this or it fails on JSX syntax).
+  * /api/self-enhance/files route: updated to scan both directories with both extensions.
+- EXPANDED PROTECTED set in both modules: added "src/app/page.tsx" and "src/app/layout.tsx" to PROTECTED_FILES. The control surface is now permanently protected — the loop can change HOW things look but never WHAT the user controls.
+- VERIFIED LIVE:
+  * GET /api/self-enhance/files: total=25, protected=8, enhanceable=17. The new file src/app/display/console-stream.tsx appears in the enhanceable list (no [PROTECTED] tag). page.tsx and layout.tsx are NOT in the scanned directories (they're in src/app/ not src/app/display/), and also in the PROTECTED set as a safety net — double-protected.
+  * Browser: page renders correctly with the extracted ConsoleStream component. Boot sequence visible, zero page/console errors. Screenshot captured.
+  * tsc --noEmit: 0 errors. eslint: clean.
+- HONEST LIMIT: the dev server continues to be unstable when the loop runs (sandbox memory/compilation issue documented in previous task). The scope expansion is verified via the files endpoint (25 files, display component enhanceable) and the UI rendering (display component works). The loop hasn't yet enhanced the display component (needs an LLM window + stable server), but the plumbing is verified.
+
+Stage Summary:
+- The mutation scope expanded safely. The system can now mutate its own UI display layer (src/app/display/*.tsx) — currently 1 file (console-stream.tsx), more as the system or user adds them. The control surface (page.tsx, layout.tsx) is permanently protected.
+- The safety boundary is now: the system can change HOW it shows things (colors, layout, formatting, visualizations, new display panels) but can NEVER change what the user controls (STOP/START/CLEAR/CONFIG buttons, command input, command parser, state, polling, config modal). If the system could rewrite its own control surface, it could remove the STOP button and escape user oversight — this is now structurally impossible.
+- Future: as the system evolves, the user or the system can add more display components to src/app/display/ — status panels, visualizations, metrics dashboards — all automatically in the mutable scan scope. The control surface stays fixed.

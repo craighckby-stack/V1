@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ConsoleStream, type ConsoleLine } from "./display/console-stream";
 
 interface LogEntry {
   timestamp: string;
@@ -151,13 +152,11 @@ export default function Home() {
   // screen. Now everything is one stream — new activity (command output OR
   // loop logs) always appears at the bottom near the prompt, like a real
   // terminal with a background process.
-  type ConsoleLine = {
-    id: string;
-    type: "system" | "command" | "output" | "log";
-    text: string;
-    ts?: string;
-    logType?: LogEntry["type"];
-  };
+  // NOTE: ConsoleLine type is imported from ./display/console-stream (the
+  // mutable display layer). page.tsx owns the STATE (consoleLines) but the
+  // RENDERING is delegated to the display component, which the loop can
+  // refactor freely. The boundary: page.tsx = control surface (protected),
+  // display/ = presentation (mutable).
   const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([
     { id: "boot-0", type: "system", text: "LOOP v5.0 — AUTONOMOUS SELF-IMPROVEMENT" },
     { id: "boot-1", type: "system", text: "(c) 2026 Z.ai Code — Self-Modifying System" },
@@ -1133,35 +1132,12 @@ export default function Home() {
       </div>
 
       {/* Unified console — boot, commands, output, and live server logs all
-          in one chronological stream. New activity always appears at the
-          bottom near the prompt — no more "logs in the middle". */}
-      <div
-        ref={logRef}
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          paddingRight: "4px",
-        }}
-      >
-        {consoleLines.map((line) => {
-          const color =
-            line.type === "command"
-              ? USER_INPUT_COLOR
-              : line.type === "log"
-              ? COLOR_MAP[line.logType ?? "info"]
-              : TEXT_COLOR;
-
-          return (
-            <div key={line.id} style={{ color, whiteSpace: "pre-wrap" }}>
-              {line.type === "command" && "> "}
-              {line.type === "log" && line.ts && (
-                <span style={{ color: DIM_COLOR }}>[{line.ts}] </span>
-              )}
-              {line.text || "\u00a0"}
-            </div>
-          );
-        })}
-      </div>
+          in one chronological stream. Rendered by the mutable display layer
+          (src/app/display/console-stream.tsx). The loop can refactor the
+          display component freely — colors, layout, formatting, new panels.
+          page.tsx owns the state (consoleLines) and the control surface; the
+          display layer only renders what it's given. */}
+      <ConsoleStream lines={consoleLines} logRef={logRef} />
 
       {/* Prompt */}
       <div
