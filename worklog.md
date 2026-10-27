@@ -910,3 +910,40 @@ Work Log:
 Stage Summary:
 - Mutation scope answer (verified live): the loop scans src/lib/pipeline/ = 20 files; 16 mutable (including the 4 restored chat-agent files — automatically in scope because the scan is filesystem-based), 4? no — 8 PROTECTED by design (loop runtime, loop, event bus, push auth, typecheck, verifier, LLM wrapper, debate). Everything outside src/lib/pipeline/ (UI, routes, components, schema) is never mutated. There is no option to mutate the protected 8 — the gate cannot gate itself; that boundary is the safety architecture, not a missing feature.
 - The system now has TWO engines sharing one gated pipeline: the continuous whole-file ratchet loop (autonomous) and the on-demand task engine (Direction 1: user-driven, 62 real tasks queued). Both are real; no mocks anywhere.
+
+---
+Task ID: wire-task-engine-ui
+Agent: main (Z.ai Code)
+Task: User: "Yes wire that in" — wire the restored Direction-1 task engine (task queue + chat agent) into the current terminal UI. It was backend-live with 0 references in page.tsx.
+
+Work Log:
+- READ prior context (worklog tail): task engine restored + integrated (e7463c0), 62 real tasks queued, UI wiring was the explicit honest-limit gap.
+- SURVEYED the engine before wiring: /api/self-enhance/{tasks,rescan,skip,chat-task/propose,chat-task/apply} all live; queue holds real SelfTask rows (static analysis via TypeScript compiler API, deterministic, no LLM); llm-config route exists but gemini-direct.ts has ZERO references — deliberately NOT wired (a config panel for an unused module would be a dishonest UI).
+- FIXED chat-task.ts apply flow (real defects found during wiring):
+  * Raw `git push origin main` had no credentials — would fail on any auth-required remote. Replaced with pushCurrentState() — the same authenticated path the loop uses (token via GIT_CONFIG_* env, remote self-heal, divergence merge -s ours, honest errors).
+  * Shell-string `git commit -m "..."` let LLM-generated plan text reach a shell (command-substitution surface). Gone with the pushCurrentState route (which now uses execFileSync arg arrays).
+- OPERATOR EDIT to PROTECTED push-target.ts (2 fixes):
+  * COMMIT-ONLY FALLBACK: with no push target, pushCurrentState now still commits locally (gitPush's comment always claimed this fallback; it didn't exist — and uncommitted files were exactly what the machine restart lost). Outcome stays honest: pushed:false + configure hint + commitSha.
+  * Shell-injection hardening: commit now uses execFileSync with arg arrays — no shell, so LLM-generated change summaries in commit messages can never execute.
+- WIRED THE UI (page.tsx, v4.3 -> v4.4):
+  * `tasks [status] [limit]` — real queue render: counts + aligned task rows (priority, kind, file:line, evidence)
+  * `rescan` — re-runs the static analysis, reports findings/new/queued/protected
+  * `skip` (alias `veto`) — user override: marks the next pending task skipped in the DB
+  * `task <goal>` — chat agent: proposes a plan (LLM reads codebase context), renders understanding/files/summary, holds it as a pending plan
+  * `task apply` / `task deny` / `task show` — execute (LLM rewrite per file -> brace gate -> tsc gate -> commit -> push), discard, redisplay
+  * Subcommand disambiguation: single-token "task apply" is a command; "task apply the fix to X" is a goal
+  * Queue counts polled every 5s (limit=1 payload); header now shows `tasks=N`; `status` shows the queue line + pending-plan line; `help`/`about`/boot sequence updated
+- VERIFIED LIVE in the browser (agent-browser), zero page/console errors throughout:
+  * help renders all 7 new command entries
+  * tasks: real data — 62 pending, aligned columns (p2 empty-catch autonomous/chat-task.ts:79 ...)
+  * skip: REAL DB mutation — "Vetoed: empty-catch at autonomous/chat-task.ts:79 (marked skipped)"
+  * rescan: REAL re-analysis — "18 files, 62 findings, 10 new tasks, 52 already queued, 6 protected" (new line positions from this session's edits)
+  * status: "Task queue: 71 pending / 0 done / 0 failed / 1 skipped" (62+10-1, arithmetic checks out)
+  * task <goal>: progress lines emitted, real endpoint called, honest 429 rendered when the gateway is throttled (tried twice, incl. once with the loop stopped — sustained gateway throttle, the documented natural stop point). No fabricated plans.
+  * Header live counter + [ENHANCING]/[GIT: OFF] honest states; mobile 390px no horizontal scroll; loop stopped+restarted during verification, restored RUNNING.
+- lint clean, tsc --noEmit clean.
+
+Stage Summary:
+- The task engine is now user-drivable from the terminal: view the self-generated queue (tasks), veto items (skip), force re-analysis (rescan), and assign goals in plain English (task <goal> -> task apply/deny). You are the feedback signal — Direction 1 complete.
+- Two real backend defects fixed on the way: the chat-agent's unauthenticated push + shell-string commit (both replaced by the loop's own hardened push path), and the missing commit-only fallback that silently left verified work uncommitted whenever no PAT was configured (root cause of restart-time work loss).
+- Honest limits: the propose->apply happy path awaits an LLM window (sustained gateway 429 — plumbing verified end-to-end, only the model response is pending). Pushes still blocked until the PAT is re-pasted via [CONFIG]; commits now land locally regardless.

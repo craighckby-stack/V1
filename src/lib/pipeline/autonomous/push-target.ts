@@ -14,7 +14,7 @@
  * to the client. All error messages are scrubbed of the token.
  */
 
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
 import { db } from "@/lib/db";
 
 const PROJECT_ROOT = "/home/z/my-project";
@@ -261,7 +261,47 @@ export async function pushCurrentState(opts?: {
 }): Promise<PushOutcome> {
   const target = await getStoredTarget();
   if (!target) {
-    return { pushed: false, error: "No push target configured. Run: push <token> <owner/repo>" };
+    // COMMIT-ONLY FALLBACK (operator edit): no push target, but verified work
+    // must still be committed locally — uncommitted files were exactly what
+    // the machine restart lost. The loop's gitPush() has always documented
+    // this fallback; now it actually exists. The push outcome stays honestly
+    // `pushed: false` with the configure hint.
+    if (pushInProgress) {
+      return { pushed: false, error: "A push is already in progress" };
+    }
+    pushInProgress = true;
+    try {
+      const status = execSync("git status --porcelain", {
+        cwd: PROJECT_ROOT,
+        encoding: "utf-8",
+        timeout: 5000,
+      });
+      if (status.trim()) {
+        const message = opts?.message ?? "Self-enhancement: current live state";
+        execFileSync("git", ["add", "-A"], { cwd: PROJECT_ROOT, timeout: 10000 });
+        execFileSync("git", ["commit", "-m", message], {
+          cwd: PROJECT_ROOT,
+          timeout: 10000,
+          stdio: "pipe",
+        });
+        const sha = execSync("git rev-parse HEAD", {
+          cwd: PROJECT_ROOT,
+          encoding: "utf-8",
+          timeout: 5000,
+        }).trim().slice(0, 7);
+        return {
+          pushed: false,
+          commitSha: sha,
+          hadChanges: true,
+          error: "No push target configured. Run: push <token> <owner/repo>",
+        };
+      }
+      return { pushed: false, error: "No push target configured. Run: push <token> <owner/repo>" };
+    } catch (err) {
+      return { pushed: false, error: `Local commit failed: ${(err as Error).message.slice(0, 300)}` };
+    } finally {
+      pushInProgress = false;
+    }
   }
   if (pushInProgress) {
     return { pushed: false, error: "A push is already in progress", repo: target.repo };
@@ -309,9 +349,16 @@ export async function pushCurrentState(opts?: {
       timeout: 5000,
     });
     if (status.trim()) {
-      const message = (opts?.message ?? "Self-enhancement: current live state").replace(/"/g, '\\"');
-      execSync("git add -A", { cwd: PROJECT_ROOT, timeout: 10000 });
-      execSync(`git commit -m "${message}"`, { cwd: PROJECT_ROOT, timeout: 10000, stdio: "pipe" });
+      // execFileSync with arg arrays — NO shell, so commit messages (which
+      // contain LLM-generated change summaries) can never be a command-
+      // injection surface. Backticks/quotes/$() are just characters.
+      const message = opts?.message ?? "Self-enhancement: current live state";
+      execFileSync("git", ["add", "-A"], { cwd: PROJECT_ROOT, timeout: 10000 });
+      execFileSync("git", ["commit", "-m", message], {
+        cwd: PROJECT_ROOT,
+        timeout: 10000,
+        stdio: "pipe",
+      });
       commitSha = execSync("git rev-parse HEAD", {
         cwd: PROJECT_ROOT,
         encoding: "utf-8",

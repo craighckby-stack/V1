@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync, readdirSync, statSync } from "fs";
 import { execSync } from "child_process";
 import { join, relative } from "path";
 import { llmComplete, extractCodeBlock } from "../llm/agent-llm";
+import { pushCurrentState } from "./push-target";
 
 const PROJECT_ROOT = "/home/z/my-project";
 
@@ -352,64 +353,32 @@ Output the COMPLETE new content for this file that achieves the goal.`;
     };
   }
 
-  // Commit and push
-  let pushed = false;
-  let commitSha: string | undefined;
-  try {
-    const status = execSync("git status --porcelain", {
-      cwd: PROJECT_ROOT,
-      encoding: "utf-8",
-      timeout: 5000,
-    });
-    if (status.trim()) {
-      execSync("git add -A", { cwd: PROJECT_ROOT, timeout: 5000 });
-      const commitMsg = `Chat task: ${plan.userGoal.slice(0, 60)}\n\n${plan.summary}`;
-      execSync(`git commit -m "${commitMsg.replace(/"/g, '\\"').slice(0, 200)}"`, {
-        cwd: PROJECT_ROOT,
-        timeout: 5000,
-        stdio: "pipe",
-      });
-      commitSha = execSync("git rev-parse HEAD", {
-        cwd: PROJECT_ROOT,
-        encoding: "utf-8",
-        timeout: 5000,
-      }).trim().slice(0, 7);
+  // Commit and push through the SAME authenticated path the loop uses
+  // (push-target.ts): remote self-heal, token injected via GIT_CONFIG_* env
+  // (never on the command line or in the remote URL), divergence auto-heal,
+  // honest errors. The old raw `git push origin main` had no credentials and
+  // would fail on any auth-required remote; the old shell-string commit let
+  // LLM-generated text reach a shell — both gone.
+  const outcome = await pushCurrentState({
+    message: `Chat task: ${plan.userGoal.slice(0, 60)}\n\n${plan.summary}`,
+  });
 
-      // Try to push using the configured remote (auth via env if available)
-      try {
-        // Check if origin is configured
-        const remote = execSync("git remote", {
-          cwd: PROJECT_ROOT,
-          encoding: "utf-8",
-          timeout: 5000,
-          stdio: "pipe",
-        }).trim();
-        if (remote.includes("origin")) {
-          execSync("git push origin main 2>&1", {
-            cwd: PROJECT_ROOT,
-            timeout: 15000,
-            stdio: "pipe",
-          });
-          pushed = true;
-        }
-      } catch {
-        pushed = false;
-      }
-    }
-  } catch (err) {
+  if (!outcome.pushed) {
     return {
       ok: true,
       results,
       pushed: false,
-      commitSha,
-      error: `Changes applied but git failed: ${(err as Error).message}`,
+      commitSha: outcome.commitSha,
+      error: outcome.error
+        ? `Changes applied but push failed: ${outcome.error}`
+        : undefined,
     };
   }
 
   return {
     ok: true,
     results,
-    pushed,
-    commitSha,
+    pushed: true,
+    commitSha: outcome.commitSha,
   };
 }

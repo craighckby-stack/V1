@@ -33,6 +33,72 @@ interface PushTargetInfo {
   lastPushError?: string | null;
 }
 
+/** One row of the system's self-generated task queue (static analysis finding). */
+interface SelfTask {
+  id: string;
+  kind: string;
+  filePath: string;
+  line: number;
+  evidence: string;
+  priority: number;
+  status: string;
+  attempts: number;
+  deferred: number;
+  lastError: string | null;
+  fixSummary: string | null;
+  commitSha: string | null;
+  createdAt: string;
+  updatedAt: string;
+  doneAt: string | null;
+}
+
+interface QueueCounts {
+  pending: number;
+  in_progress: number;
+  done: number;
+  failed: number;
+  skipped: number;
+  lastScanAt: string | null;
+}
+
+/** A proposed plan from the chat agent — nothing changes until 'task apply'. */
+interface ChatTaskPlan {
+  ok: boolean;
+  userGoal: string;
+  understanding: string;
+  files: Array<{ path: string; action: "modify" | "create"; reason: string }>;
+  summary: string;
+  error?: string;
+}
+
+interface ChatTaskApplyResult {
+  ok: boolean;
+  results: Array<{
+    path: string;
+    applied: boolean;
+    reason: string;
+    diffBytes: number;
+  }>;
+  pushed: boolean;
+  commitSha?: string;
+  error?: string;
+}
+
+/** Render a proposed plan as terminal lines (shared by 'task <goal>' and 'task show'). */
+function renderPlan(p: ChatTaskPlan): string[] {
+  return [
+    "PROPOSED PLAN (nothing has changed yet):",
+    `  goal:          ${p.userGoal}`,
+    `  understanding: ${p.understanding}`,
+    "  files:",
+    ...p.files.map((f) => `    ${f.action.padEnd(7)} ${f.path} — ${f.reason}`),
+    `  summary:       ${p.summary}`,
+    "",
+    "Type 'task apply' to execute (each file LLM-rewritten, tsc-gated,",
+    "committed and pushed as proof), or 'task deny' to discard.",
+  ];
+}
+
 const COLOR_MAP: Record<LogEntry["type"], string> = {
   info: "#00ff00",
   success: "#00ff00",
@@ -76,17 +142,22 @@ export default function Home() {
   const [terminalLines, setTerminalLines] = useState<
     Array<{ type: "system" | "command" | "output"; text: string }>
   >([
-    { type: "system", text: "ARCHITECTURE HELPER PIPELINE v4.3 — SELF-ENHANCE MODE" },
+    { type: "system", text: "ARCHITECTURE HELPER PIPELINE v4.4 — SELF-ENHANCE MODE" },
     { type: "system", text: "(c) 2026 Z.ai Code — Autonomous Self-Modifying System" },
     { type: "system", text: "" },
     { type: "system", text: "Target: src/lib/pipeline/ (self-enhancement)" },
     { type: "system", text: "Mode: continuous autonomous refactoring" },
+    { type: "system", text: "Input: self-generated task queue + chat goals ('task <goal>')" },
     { type: "system", text: "Verification: tsc --noEmit before every write" },
     { type: "system", text: "Proof: git push of current live state on each enhancement" },
     { type: "system", text: "" },
     { type: "system", text: "Type 'help' for commands, or click [CONFIG] to set up GitHub push." },
     { type: "system", text: "" },
   ]);
+
+  // Task engine state — queue counts (polled) + pending chat-task plan
+  const [queue, setQueue] = useState<QueueCounts | null>(null);
+  const [pendingPlan, setPendingPlan] = useState<ChatTaskPlan | null>(null);
 
   // Config panel state
   const [configOpen, setConfigOpen] = useState(false);
@@ -123,6 +194,32 @@ export default function Home() {
 
     poll();
     const interval = setInterval(poll, 2000);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Poll the task-queue counts every 5s (limit=1 keeps the payload tiny —
+  // the queue stats come back regardless of the limit).
+  useEffect(() => {
+    let mounted = true;
+
+    async function pollQueue() {
+      try {
+        const res = await fetch("/api/self-enhance/tasks?limit=1");
+        if (mounted && res.ok) {
+          const data = (await res.json()) as { queue: QueueCounts };
+          setQueue(data.queue);
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    pollQueue();
+    const interval = setInterval(pollQueue, 5000);
 
     return () => {
       mounted = false;
@@ -319,6 +416,12 @@ export default function Home() {
           "  config      — Open the Git config panel (or click [CONFIG] in header)",
           "  logs        — Show recent logs",
           "  files       — List files being enhanced",
+          "  tasks [status] — Self-generated task queue (system-defined input)",
+          "  rescan      — Re-analyze own source, queue new tasks",
+          "  skip        — Veto the next pending task (user override)",
+          "  task <goal> — Assign the agent a goal — it proposes a plan",
+          "  task apply  — Execute the pending plan (LLM + tsc gate + push)",
+          "  task deny   — Discard the pending plan",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
           "",
@@ -369,6 +472,16 @@ export default function Home() {
           `Last enhanced:  ${s.stats.lastEnhancementAt ?? "never"}`,
           `Current file:   ${s.currentFile ?? "idle"}`,
         ];
+        if (queue) {
+          lines.push(
+            `Task queue:     ${queue.pending} pending / ${queue.done} done / ${queue.failed} failed / ${queue.skipped} skipped`
+          );
+        }
+        if (pendingPlan) {
+          lines.push(
+            `Pending plan:   "${pendingPlan.userGoal.slice(0, 60)}" — 'task apply' or 'task deny'`
+          );
+        }
         const t = pushTarget;
         if (t?.configured) {
           lines.push(
@@ -525,6 +638,197 @@ export default function Home() {
         }
       }
 
+      case "tasks":
+      case "queue": {
+        try {
+          const arg1 = (parts[1] ?? "").toLowerCase();
+          const validStatuses = ["pending", "in_progress", "done", "failed", "skipped"];
+          const statusFilter = validStatuses.includes(arg1) ? arg1 : undefined;
+          const limitToken = parts.slice(1).find((p) => /^\d+$/.test(p));
+          const limit = limitToken ? Math.min(Math.max(Number(limitToken), 1), 50) : 15;
+          const params = new URLSearchParams({ limit: String(limit) });
+          if (statusFilter) params.set("status", statusFilter);
+          const res = await fetch(`/api/self-enhance/tasks?${params.toString()}`);
+          if (!res.ok) return [`Error: tasks endpoint returned ${res.status}`];
+          const data = (await res.json()) as { tasks: SelfTask[]; queue: QueueCounts };
+          const q = data.queue;
+          const lines = [
+            "TASK QUEUE — the system's self-defined input",
+            "(static analysis of src/lib/pipeline/ — deterministic, no LLM):",
+            `  pending=${q.pending} in_progress=${q.in_progress} done=${q.done} failed=${q.failed} skipped=${q.skipped}`,
+            "",
+          ];
+          if (data.tasks.length === 0) {
+            lines.push(
+              statusFilter
+                ? `No ${statusFilter} tasks right now.`
+                : "Queue is empty — run 'rescan' to analyze the source and queue tasks."
+            );
+          } else {
+            lines.push(`${statusFilter ?? "next"} tasks (showing ${data.tasks.length}):`);
+            for (const t of data.tasks) {
+              const loc = `${t.filePath.replace("src/lib/pipeline/", "")}:${t.line}`;
+              const ev = t.evidence.length > 58 ? `${t.evidence.slice(0, 57)}…` : t.evidence;
+              lines.push(`  p${t.priority}  ${t.kind.padEnd(19)} ${loc.padEnd(40)} ${ev}`);
+            }
+          }
+          lines.push(
+            "",
+            "Commands: 'rescan' re-analyzes the source, 'skip' vetoes the next",
+            "pending task, 'task <goal>' assigns the agent a goal of your own.",
+            ""
+          );
+          return lines;
+        } catch (e) {
+          return [`Error: ${(e as Error).message}`];
+        }
+      }
+
+      case "rescan":
+      case "scan": {
+        emitOutput(["[RESCAN] Analyzing src/lib/pipeline with the TypeScript compiler API..."]);
+        try {
+          const res = await fetch("/api/self-enhance/rescan", { method: "POST" });
+          const data = await res.json();
+          if (!data.ok) return [`Rescan failed: ${data.error ?? "unknown error"}`];
+          return [
+            "Rescan complete — the system re-defined its own input:",
+            `  files analyzed:   ${data.filesAnalyzed}`,
+            `  findings:         ${data.findings}`,
+            `  new tasks queued: ${data.newTasks}`,
+            `  already queued:   ${data.alreadyQueued}`,
+            `  protected files:  ${data.skippedProtected} (the gates — never self-modified)`,
+          ];
+        } catch (e) {
+          return [`Error: ${(e as Error).message}`];
+        }
+      }
+
+      case "skip":
+      case "veto": {
+        try {
+          const res = await fetch("/api/self-enhance/skip", { method: "POST" });
+          const data = (await res.json()) as {
+            skipped: boolean;
+            kind?: string;
+            filePath?: string;
+            line?: number;
+          };
+          if (!data.skipped) return ["No pending task to skip — the queue is empty."];
+          return [
+            `Vetoed: ${data.kind} at ${data.filePath?.replace("src/lib/pipeline/", "")}:${data.line} (marked skipped).`,
+            "The system defines its own input — you just overrode one item of it.",
+          ];
+        } catch (e) {
+          return [`Error: ${(e as Error).message}`];
+        }
+      }
+
+      case "task": {
+        // Single-token subcommands are reserved; anything longer is a goal
+        // (so "task apply" is a command, but "task apply the fix to X" is a goal).
+        const sub = (parts[1] ?? "").toLowerCase();
+        const isSub =
+          parts.length === 2 &&
+          ["apply", "run", "deny", "cancel", "discard", "show", "plan"].includes(sub);
+        const goal = trimmed.slice(parts[0].length).trim();
+
+        // task apply — execute the pending plan
+        if (isSub && (sub === "apply" || sub === "run")) {
+          if (!pendingPlan) {
+            return [
+              "No plan pending. Describe a goal first:",
+              "  task <what you want, in plain English>",
+            ];
+          }
+          emitOutput([
+            "[TASK] Applying the approved plan...",
+            "[TASK] (per file: LLM rewrite -> brace gate -> tsc gate -> commit -> push)",
+            "[TASK] (this can take a minute or two — the tsc gate alone runs ~10-30s)",
+          ]);
+          try {
+            const res = await fetch("/api/self-enhance/chat-task/apply", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(pendingPlan),
+            });
+            const data = (await res.json()) as ChatTaskApplyResult;
+            if (!res.ok || data.ok === false) {
+              return [`Apply failed: ${data.error ?? `HTTP ${res.status}`}`];
+            }
+            const lines = ["PLAN RESULTS:"];
+            for (const r of data.results) {
+              lines.push(`  ${r.applied ? "OK  " : "FAIL"} ${r.path} — ${r.reason}`);
+            }
+            if (data.commitSha) lines.push(`  committed: ${data.commitSha}`);
+            lines.push(`  pushed:    ${data.pushed ? "yes — GitHub holds the proof" : "no"}`);
+            if (data.error) lines.push(`  note:      ${data.error}`);
+            setPendingPlan(null);
+            return lines;
+          } catch (e) {
+            return [`Error: ${(e as Error).message}`];
+          }
+        }
+
+        // task deny — discard the pending plan
+        if (isSub && ["deny", "cancel", "discard"].includes(sub)) {
+          if (!pendingPlan) return ["No pending plan to discard."];
+          const discarded = pendingPlan.userGoal;
+          setPendingPlan(null);
+          return [`Plan discarded: "${discarded}" — nothing was changed.`];
+        }
+
+        // task show — redisplay the pending plan / usage
+        if (isSub && ["show", "plan"].includes(sub)) {
+          return pendingPlan ? renderPlan(pendingPlan) : [
+            "No plan pending. Usage:",
+            "  task <describe a goal in plain English>  — propose a plan",
+            "  task apply                               — execute the pending plan",
+            "  task deny                                — discard the pending plan",
+          ];
+        }
+
+        // bare 'task' — usage or pending plan
+        if (!goal) {
+          return pendingPlan
+            ? renderPlan(pendingPlan)
+            : [
+                "Usage:",
+                "  task <describe a goal in plain English>  — propose a plan",
+                "  task apply                               — execute the pending plan",
+                "  task deny                                — discard the pending plan",
+                "Example: task make the sanitizer log every redaction it makes",
+              ];
+        }
+
+        // task <goal> — propose a plan (the agent reads codebase context)
+        emitOutput([
+          `[TASK] Goal received: ${goal}`,
+          "[TASK] Gathering codebase context, asking the LLM to plan...",
+        ]);
+        try {
+          const res = await fetch("/api/self-enhance/chat-task/propose", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ goal }),
+          });
+          const plan = (await res.json()) as ChatTaskPlan;
+          if (!plan.ok) {
+            return [`Plan proposal failed: ${plan.error ?? "LLM unavailable"}`];
+          }
+          if (plan.files.length === 0) {
+            return [
+              `The LLM could not map the goal to files: ${plan.understanding}`,
+              "Try describing the goal more concretely (which module, what behavior).",
+            ];
+          }
+          setPendingPlan(plan);
+          return renderPlan(plan);
+        } catch (e) {
+          return [`Error: ${(e as Error).message}`];
+        }
+      }
+
       case "clear":
       case "cls":
         setStatus(null);
@@ -536,11 +840,15 @@ export default function Home() {
 
       case "about":
         return [
-          "Architecture Helper Pipeline v4.3",
+          "Architecture Helper Pipeline v4.4",
           "Self-enhancing autonomous refactoring system",
           "The system modifies its own source code in src/lib/pipeline/,",
           "verifies with tsc --noEmit, and pushes to GitHub as proof.",
           "What you see on GitHub IS the current live state of the server.",
+          "",
+          "It also defines its own input: a task queue generated by statically",
+          "analyzing its own source ('tasks'). You can veto items ('skip'),",
+          "or assign goals of your own ('task <goal>') — you are the feedback.",
           "",
           "Click [CONFIG] in the header to connect a GitHub push target.",
         ];
@@ -643,7 +951,7 @@ export default function Home() {
         <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
           <span style={{ color: DIM_COLOR }}>┌─ </span>
           <span style={{ color: PROMPT_COLOR, fontWeight: "bold" }}>
-            ARCHITECTURE HELPER PIPELINE v4.3 — SELF-ENHANCE MODE
+            ARCHITECTURE HELPER PIPELINE v4.4 — SELF-ENHANCE MODE
           </span>
           <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>─┐</span>
           <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>│</span>
@@ -653,6 +961,7 @@ export default function Home() {
           {s && (
             <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>
               scanned={s.totalScanned} enhanced={s.totalEnhanced} pinned={s.testsWritten} reverted={s.totalReverted} pushed={s.totalPushed}
+              {queue ? ` tasks=${queue.pending}` : ""}
             </span>
           )}
         </div>
