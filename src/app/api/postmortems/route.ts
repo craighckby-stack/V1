@@ -40,7 +40,15 @@ export async function DELETE(req: Request) {
         { status: 400 }
       );
     }
-    await postmortemStore.delete(id);
+    const deleted = await postmortemStore.delete(id);
+    if (!deleted) {
+      // Honest 404: reporting success for a no-op delete would be a
+      // fabricated result.
+      return NextResponse.json(
+        { error: `No postmortem found with id ${id}` },
+        { status: 404 }
+      );
+    }
     return NextResponse.json({ success: true, id });
   } catch (err) {
     return NextResponse.json(

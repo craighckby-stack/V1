@@ -8,3 +8,8 @@ dev.log
 .next/
 db/*.db
 *.db
+
+# runtime logs
+mini-services/*/service.log
+mini-services/*/ws.log
+tool-results/

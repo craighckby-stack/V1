@@ -836,3 +836,35 @@ Stage Summary:
 - The full dangerous pipeline: scan -> [RATCHET: pin untested modules] -> refactor -> structural gate -> typecheck -> debate gate -> test gate (runs the pins) -> write live -> push as proof. Each pass either adds pins (locking behavior) or refactors within them (cleaning implementation).
 - Honest status: all code paths verified structurally (order, fallthrough, attempt tracking, cleanup). The first actual pin awaits an LLM window. When it lands, the loop closes: pin -> refactor -> the refactor is rejected if it breaks the pin.
 - halt.ts deliberately not wired (redundant with per-file saturation; conflicts with continuous mode) — documented decision.
+
+---
+Task ID: audit-no-mock-no-simulation (items 4-6 of the audit)
+Agent: main (Z.ai Code)
+Task: User: "Completely debug system make sure no mock no simulation all factual all real and no errors" — complete the remaining three items: (1) finish honesty fixes, (2) live-verify every API route + browser E2E, (3) commit.
+
+Work Log:
+- VERIFIED DB is 100% real data: memoryEntry 0 rows (no synthetic seed), postmortem 6 REAL gate-rejection records (COMPILE_ERROR on github-helpers/structural-validator/binaryShield/siphon/debate/halt — matches documented live history), pipelineRun 1 real HALTED run, gitPushTarget 0 (PAT still missing).
+- FOUND + FIXED WS mini-service crash root cause (why port 3003 was down): the prependListener("request") /health hack does NOT stop engine.io's own request listener — Node fires ALL listeners, so after /health responded, engine.io's cors middleware called setHeader on the sent response -> ERR_HTTP_HEADERS_SENT -> uncaught -> process exit. Rewrote index.ts: capture engine.io's auto-attached listener, removeAllListeners, install ONE router that answers /health itself and delegates everything else. Removed dead express app. Added uncaughtException/unhandledRejection logging that keeps the telemetry relay alive.
+- STARTED WS service (port 3003): /health returns real JSON (nextJsReachable: true, cachedStateReady: true), survives repeated probes (crash fixed), real engine.io handshake verified (sid issued, websocket upgrade offered), polls /api/autonomous/status every 1s.
+- FOUND + FIXED dishonest DELETE: /api/postmortems?id=<nonexistent> returned success:true for a no-op delete (store swallowed the error with /* ignore */). Store delete() now returns boolean via deleteMany; route returns honest 404. Verified: fake id -> 404, missing id -> 400.
+- EXERCISED ALL 29 API ROUTE HANDLERS LIVE. Highlights of real behavior:
+  * GET memory/query -> "EMPTY_MEMORY: No pattern history yet." (honest empty, no fabricated entries)
+  * GET self-enhance/status -> running:true with live logs (loop actively improving files)
+  * GET self-enhance/files -> real inventory: 20 files, 8 protected, 12 enhanceable
+  * POST evolution/debate -> honest 500 "Debate tribunal unavailable — LLM call failed: 429" (NO fabricated verdict; gateway throttled because the loop itself is consuming quota)
+  * POST evolution/coherence-gate -> real math (|8-3|/3=1.667 -> EXCESSIVE_DRIFT)
+  * POST emg/sanitize -> real sanitizer run
+  * POST autonomous/trigger -> real cycle cycle_1793072461243_lffkb, honestly recorded status:"error" (no PAT -> GitHub refused; failure recorded, not faked)
+  * POST github/* (4 routes) -> honest 400 validation errors
+  * POST self-enhance/push -> honest needsConfig
+  * POST self-enhance/stop + start round-trip -> verified both; loop restored RUNNING with live ratchet logs at 3:41-3:42 AM
+  * POST self-enhance/trigger -> 0-scanned response is the documented re-entrancy guard (cycle already in progress), not a fake result
+  * POST postmortems/seed -> honest 400; route is a real markdown importer, not a synthetic-data generator
+- STATS DISCREPANCY RESOLVED: enhanced=0/scanned=12 in UI vs previously recorded totalEnhanced:2 — the loop's self-rewrite DB reset wiped stats; loop restarted fresh (cyclesCompleted:1). Not a bug: counters are per-process and the DB reset is documented.
+- BROWSER E2E (agent-browser): page renders with ZERO page errors and no console errors. Terminal `status` command returns real live data (Running: YES, Current file: src/lib/pipeline/emg/debate.ts — matching live ratchet activity). CONFIG modal opens with real form (token/repo/public/auto-create). Mobile 390px: no horizontal scroll. lint clean, tsc --noEmit clean.
+- Confirmed 8 local commits (including audit fixes) await push — remote still at a2ce957; user must re-paste PAT via CONFIG to unblock.
+
+Stage Summary:
+- The system is factually real end-to-end. Every external boundary behaves honestly: real LLM calls (429 surfaced as honest errors, never fabricated verdicts), real git operations (needsConfig when no PAT, never a fake push), real DB (0 synthetic rows; 6 real postmortems), real test execution, real WS infra (crash fixed, now live and probed by /api/health -> websocket:"live").
+- Two real bugs found and fixed during this audit: (1) WS service ERR_HTTP_HEADERS_SENT crash (root-caused to prependListener fall-through), (2) postmortem DELETE false-success (now honest 404).
+- Remaining user action: re-paste GitHub PAT via [CONFIG] to unblock pushes (8 commits queued locally).

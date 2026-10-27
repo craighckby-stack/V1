@@ -235,13 +235,12 @@ ${pm.constraints}
 
   /**
    * Delete a postmortem by ID (for the UI's "dismiss" button).
+   * Returns TRUE when a row was actually deleted, FALSE when the id
+   * does not exist — the caller reports a 404, never a false success.
    */
-  async delete(id: string): Promise<void> {
-    try {
-      await db.postmortem.delete({ where: { id } });
-    } catch {
-      /* ignore */
-    }
+  async delete(id: string): Promise<boolean> {
+    const result = await db.postmortem.deleteMany({ where: { id } });
+    return result.count > 0;
   }
 
   private mapRecord(r: any): PostmortemRecord {
