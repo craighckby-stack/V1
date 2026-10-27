@@ -99,17 +99,19 @@ function renderPlan(p: ChatTaskPlan): string[] {
   ];
 }
 
-// Body text is soft-white for readability (was green — hard on the eyes on
-// black). Green is kept only for accents: the prompt symbol, the header
-// title, and genuine "success" log lines. Warn stays yellow, error stays red.
+// Color system — simplified per user request:
+//   red    = errors only
+//   yellow = info/activity logs (info + success + warn all flow as "info")
+//   white  = everything else (boot, commands, output, header, buttons, prompt)
+// Green is gone. The terminal is white-on-black with red+yellow for signal.
 const COLOR_MAP: Record<LogEntry["type"], string> = {
-  info: "#e0e0e0",
-  success: "#00ff00",
+  info: "#ffff00",
+  success: "#ffff00",
   warn: "#ffff00",
   error: "#ff4444",
 };
 
-const PROMPT_COLOR = "#00ff00";
+const PROMPT_COLOR = "#e0e0e0";
 const TEXT_COLOR = "#e0e0e0";
 const DIM_COLOR = "#777777";
 const USER_INPUT_COLOR = "#ffffff";
@@ -158,8 +160,8 @@ export default function Home() {
     logType?: LogEntry["type"];
   };
   const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([
-    { id: "boot-0", type: "system", text: "ARCHITECTURE HELPER PIPELINE v4.4 — SELF-ENHANCE MODE" },
-    { id: "boot-1", type: "system", text: "(c) 2026 Z.ai Code — Autonomous Self-Modifying System" },
+    { id: "boot-0", type: "system", text: "LOOP v5.0 — AUTONOMOUS SELF-IMPROVEMENT" },
+    { id: "boot-1", type: "system", text: "(c) 2026 Z.ai Code — Self-Modifying System" },
     { id: "boot-2", type: "system", text: "" },
     { id: "boot-3", type: "system", text: "Target: src/lib/pipeline/ (self-enhancement)" },
     { id: "boot-4", type: "system", text: "Mode: continuous autonomous refactoring" },
@@ -918,8 +920,7 @@ export default function Home() {
 
       case "about":
         return [
-          "Architecture Helper Pipeline v4.4",
-          "Self-enhancing autonomous refactoring system",
+          "LOOP v5.0 — Autonomous self-improving system",
           "The system modifies its own source code in src/lib/pipeline/,",
           "verifies with tsc --noEmit, and pushes to GitHub as proof.",
           "What you see on GitHub IS the current live state of the server.",
@@ -1028,11 +1029,11 @@ export default function Home() {
         <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
           <span style={{ color: DIM_COLOR }}>┌─ </span>
           <span style={{ color: PROMPT_COLOR, fontWeight: "bold" }}>
-            ARCHITECTURE HELPER PIPELINE v4.4 — SELF-ENHANCE MODE
+            LOOP v5.0 — AUTONOMOUS SELF-IMPROVEMENT
           </span>
           <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>─┐</span>
           <span style={{ color: DIM_COLOR, marginLeft: "16px" }}>│</span>
-          <span style={{ marginLeft: "8px", color: running ? "#00ff00" : "#ff4444" }}>
+          <span style={{ marginLeft: "8px", color: running ? TEXT_COLOR : ERROR_COLOR }}>
             [{running ? "ENHANCING" : "IDLE"}]
           </span>
           {s && (

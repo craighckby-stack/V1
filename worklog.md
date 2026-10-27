@@ -993,3 +993,40 @@ Stage Summary:
 - Three UX issues resolved: (1) [STOP]/[START] button in the header for one-click loop control, (2) [CLEAR] button + `clear` command for wiping the screen (seen-log dedup means old logs don't flood back), (3) green body text → soft white for readability.
 - The "logs in the middle" issue is fixed by architecture, not workaround: one unified chronological stream replaces the two-section split. New activity (command output OR loop logs) always appears at the bottom near the prompt — natural terminal behavior.
 - Green is now an accent, not the default — the terminal still feels like a terminal (green prompt, green header, green success logs) but the body text is readable white.
+
+---
+Task ID: white-text-no-green-rename-loop
+Agent: main (Z.ai Code)
+Task: User: "The white goes well. Maybe remove the rest of the colour keep red for error yellow info the rest of the writing white. What name do you think it now fits best. Current name not fitting."
+
+Work Log:
+- COLOR CLEANUP: removed ALL remaining green (#00ff00) from the UI. The previous pass left green accents on the header title, the ">" prompt, button labels, [GIT: ON], and [ENHANCING]. Now everything is white:
+  * COLOR_MAP: info→yellow, success→yellow, warn→yellow, error→red (4 log types collapsed to 2 colors: yellow for activity, red for errors)
+  * PROMPT_COLOR: #00ff00 → #e0e0e0 (white). This cascaded to the header title, prompt >, [GIT: ON], button labels (CLEAR/CONFIG), caret color, and config modal text/borders — all became white automatically.
+  * [ENHANCING]/[IDLE] indicator: was green/red, now white/red. ENHANCING is the normal running state (white), IDLE is the halted state (red — flags that the system is stopped).
+  * [STOP] button stays red (semantic: a danger/halt action). [START] is white (neutral).
+  * DIM_COLOR kept as gray (#777777) for timestamps and borders — structural, not "writing".
+- RENAMED: "Architecture Helper Pipeline v4.4" → "LOOP v5.0"
+  * My recommendation, applied: the system IS a loop. Everything (ratchet, gates, push, task queue) serves the continuous self-improvement loop. "Architecture Helper Pipeline" described what it used to do (help refactor repos); "LOOP" describes what it is. 4 characters, terminal-native, honest. Version bumped to v5.0 — marks the clean break from the old identity.
+  * Runner-up I mentioned: RATCHET (named after the defining safety mechanism — the self-written tests that only tighten). If the user wants something more distinctive, RATCHET is the alternative.
+  * Updated in 4 places: boot sequence (boot-0), header title, `about` command output, layout.tsx page title + description + keywords.
+- VERIFIED LIVE (agent-browser, zero page/console errors):
+  * No #00ff00 green found anywhere in the DOM (computed styles scanned)
+  * Header title: rgb(224,224,224) = white ✓
+  * Prompt >: white ✓
+  * [ENHANCING]: white ✓
+  * [STOP] button: rgb(255,68,68) = red ✓
+  * [CLEAR] / [CONFIG] buttons: white ✓
+  * [GIT: ON]: white ✓
+  * Log lines: rgb(255,255,0) = yellow ✓ (info/activity)
+  * [IDLE] after STOP click: red ✓ (flags halted state)
+  * [STOP] → [START] button flip works, [LOOP] Started message in stream ✓
+  * Mobile 390px: no horizontal scroll ✓
+  * Page title: "LOOP · Autonomous Self-Improving System" ✓ (confirmed in HTML <title>)
+  * `about` command: "LOOP v5.0 — Autonomous self-improving system" ✓
+  * lint clean, tsc clean
+
+Stage Summary:
+- Color system is now exactly what the user asked for: red = errors, yellow = info/activity, white = everything else. No green, no other colors. The terminal is white-on-black with red+yellow for signal.
+- Renamed from "Architecture Helper Pipeline v4.4" to "LOOP v5.0 — AUTONOMOUS SELF-IMPROVEMENT". The name now matches what the system is: a continuous self-improvement loop. Old name described the past (helping with architecture); new name describes the present (the loop itself).
+- RATCHET mentioned as the alternative if the user wants a more distinctive name.

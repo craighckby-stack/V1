@@ -14,21 +14,19 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Architecture Helper Pipeline · LLM-Enhanced Autonomous Refactoring",
+  title: "LOOP · Autonomous Self-Improving System",
   description:
-    "Autonomous 6-stage code refactoring pipeline with real LLM reasoning, TypeScript Compiler API AST verification, TF-IDF RAG memory, and an LLM-driven dual-perspective review tribunal. Runs in scheduled, watch, or continuous mode.",
+    "LOOP — an autonomous self-improving system that defines its own input, refactors its own source code, verifies every change through structural + typecheck + debate + test gates, and pushes to GitHub as immutable proof. The user is the feedback signal.",
   keywords: [
-    "autonomous pipeline",
-    "self-enhancement",
+    "autonomous self-improvement",
+    "self-enhancing loop",
     "LLM refactoring",
+    "self-modifying system",
     "z-ai-web-dev-sdk",
     "TypeScript Compiler API",
-    "AST diff",
-    "Shannon entropy",
-    "TF-IDF RAG",
-    "GitHub refactoring",
-    "clean-room runtime",
-    "code review tribunal",
+    "characterization tests",
+    "ratchet",
+    "GitHub audit trail",
     "Next.js",
   ],
   authors: [{ name: "Z.ai Code" }],
