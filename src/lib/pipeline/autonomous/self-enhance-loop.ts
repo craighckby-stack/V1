@@ -12,15 +12,60 @@
  * When you see a commit on GitHub, that's exactly what the server is running.
  */
 
-import { readFileSync, writeFileSync, readdirSync } from "fs";
+import { readFileSync, writeFileSync, readdirSync, existsSync } from "fs";
 import { spawnSync } from "child_process";
-import { join, relative } from "path";
+import { join, relative, resolve, basename, dirname } from "path";
 import { llmComplete, extractSummaryAndCode } from "../llm/agent-llm";
+import { conductLlmDebate } from "../llm/debate-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
 import { pushCurrentState } from "./push-target";
 
 const PIPELINE_SRC_DIR = "/home/z/my-project/src/lib/pipeline";
 const PROJECT_ROOT = "/home/z/my-project";
+
+/**
+ * Find test files that cover the given source file.
+ *
+ * Looks for `*.test.ts` files that either:
+ *   - Sit next to the source file (same name, .test.ts suffix)
+ *   - Import the source file by its relative path
+ *
+ * This is the test-gate infrastructure for Direction 4 (tests as the gate).
+ * Right now no test files exist in the project, so this returns [] and the
+ * test gate is a no-op. The infrastructure is ready for when tests are added.
+ */
+function findTestFilesFor(sourceFilePath: string): string[] {
+  const dir = dirname(sourceFilePath);
+  const base = basename(sourceFilePath, ".ts");
+  const testFiles: string[] = [];
+
+  // 1. Co-located test file: foo.ts -> foo.test.ts
+  const coLocated = join(dir, `${base}.test.ts`);
+  if (existsSync(coLocated)) testFiles.push(coLocated);
+
+  // 2. Scan the directory for .test.ts files that import the source file
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".test.ts")) continue;
+      const testPath = join(dir, entry.name);
+      if (testPath === coLocated) continue; // already added
+      try {
+        const testContent = readFileSync(testPath, "utf-8");
+        // Check if it imports the source file by name
+        if (testContent.includes(`from "./${base}"`) || testContent.includes(`from './${base}'`)) {
+          testFiles.push(testPath);
+        }
+      } catch {
+        /* unreadable — skip */
+      }
+    }
+  } catch {
+    /* dir unreadable — skip */
+  }
+
+  return testFiles;
+}
 
 // Files the system should NOT modify (would break the loop itself)
 const PROTECTED_FILES = new Set([
@@ -252,6 +297,121 @@ class SelfEnhanceLoop {
   }
 
   /**
+   * DEBATE GATE — a second LLM reviews the proposed refactor before write.
+   *
+   * The typecheck gate proves "compiles". The structural validator proves
+   * "didn't drop exports / wasn't truncated". NEITHER proves "the change is
+   * semantically correct and safe." A second LLM (Security + Architecture +
+   * Lead tribunal from debate-llm.ts) evaluates the candidate code and can
+   * REJECT or REQUIRES_REWRITE it. This is the missing semantic gate — the
+   * typecheck can't catch "added a null check that breaks the happy path."
+   *
+   * If the debate LLM is unavailable, fall back to APPROVED (don't block
+   * the whole loop on the second-LLM being down — the first gate already
+   * passed typecheck + structural).
+   */
+  private async debateGate(
+    filePath: string,
+    originalCode: string,
+    refactoredCode: string,
+    changeSummary: string
+  ): Promise<{ approved: boolean; reason: string; verdict?: string }> {
+    try {
+      const topic = `Proposed refactor of ${relative(PROJECT_ROOT, filePath)}: ${changeSummary.slice(0, 200)}`;
+      const result = await conductLlmDebate(topic, refactoredCode, filePath);
+      const consensus = result.verdict.consensus;
+
+      if (consensus === "APPROVED" || consensus === "CONDITIONAL_APPROVAL") {
+        return { approved: true, reason: `Debate: ${consensus}`, verdict: consensus };
+      }
+      // REJECTED or REQUIRES_REWRITE
+      return {
+        approved: false,
+        reason: `Debate rejected (${consensus}): ${result.verdict.leadSummary ?? "no rationale"}`,
+        verdict: consensus,
+      };
+    } catch (err) {
+      // Debate unavailable — don't block the loop, the first gate passed
+      return { approved: true, reason: `Debate unavailable (skipped): ${(err as Error).message.slice(0, 100)}` };
+    }
+  }
+
+  /**
+   * TEST GATE — run any test files that cover the target file.
+   *
+   * This is THE real signal from DIRECTIONS.md (Direction 4: tests as the
+   * gate). Typecheck proves "compiles". Tests prove "behavior preserved."
+   *
+   * Finds test files that import the target file and runs them with `bun test`.
+   * If any test fails, REJECT the refactor (don't write, don't push).
+   * If no tests exist for the file, the gate passes (no signal = no block).
+   *
+   * The refactored code must be written to disk for the test runner to see
+   * it — BUT we only write if typecheck already passed, and we REVERT
+   * immediately if tests fail. The window is small and the typecheck gate
+   * already guaranteed it compiles.
+   */
+  private testGate(filePath: string, refactoredCode: string): { passed: boolean; reason: string; testCount: number } {
+    const relPath = relative(PROJECT_ROOT, filePath);
+    const testFiles = findTestFilesFor(filePath);
+    if (testFiles.length === 0) {
+      return { passed: true, reason: "no tests for this file", testCount: 0 };
+    }
+
+    // Write the refactored code so the test runner sees it
+    const originalOnDisk = readFileSync(filePath, "utf-8");
+    writeFileSync(filePath, refactoredCode, "utf-8");
+
+    try {
+      let failures = 0;
+      let totalTests = 0;
+      for (const testFile of testFiles) {
+        const result = spawnSync("bun", ["test", testFile], {
+          cwd: PROJECT_ROOT,
+          timeout: 30000,
+          encoding: "utf-8",
+        });
+        totalTests++;
+        if (result.status !== 0) {
+          failures++;
+          const stderr = (result.stderr || "").slice(0, 300);
+          // Revert immediately so the broken code isn't live
+          writeFileSync(filePath, originalOnDisk, "utf-8");
+          return {
+            passed: false,
+            reason: `test failed: ${testFile} — ${stderr.slice(0, 200)}`,
+            testCount: totalTests,
+          };
+        }
+      }
+      return { passed: true, reason: `${testFiles.length} test file(s) passed`, testCount: totalTests };
+    } catch (err) {
+      // Revert on any unexpected error
+      writeFileSync(filePath, originalOnDisk, "utf-8");
+      return { passed: false, reason: `test runner error: ${(err as Error).message}`, testCount: 0 };
+    }
+  }
+
+  /**
+   * SATURATION CHECK — is this refactor actually meaningful, or just churn?
+   *
+   * Strips comments and whitespace from both original and refactored code,
+   * then compares. If the only changes are comments/whitespace/renamed
+   * locals, it's cosmetic churn — skip the write+push+debate cycle entirely.
+   * EMG's "SATURATION EQUILIBRIUM PROTOCOL": if the code is already optimal,
+   * output NO_CHANGES_NEEDED. We detect the equivalent after the fact.
+   */
+  private isCosmeticChange(original: string, refactored: string): boolean {
+    // Strip // comments, /* */ comments, and all whitespace, then compare
+    const strip = (s: string) =>
+      s
+        .replace(/\/\*[\s\S]*?\*\//g, "") // block comments
+        .replace(/\/\/[^\n]*/g, "") // line comments
+        .replace(/\s+/g, ""); // all whitespace
+    return strip(original) === strip(refactored);
+  }
+
+  /**
    * Enhance a single file: LLM refactor → verify tsc → write live → git push.
    */
   async enhanceFile(filePath: string): Promise<SelfEnhanceResult> {
@@ -408,6 +568,15 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         return result;
       }
 
+      // 4a. SATURATION CHECK — if the only changes are comments/whitespace, it's
+      // cosmetic churn. Skip the expensive typecheck + debate + test gates.
+      // EMG's saturation protocol: "if already optimal, output NO_CHANGES_NEEDED."
+      if (this.isCosmeticChange(originalCode, cleanCode)) {
+        result.reason = "Skipped (only cosmetic changes — comments/whitespace)";
+        this.log(`Skipped ${relPath} (cosmetic-only change — no real improvement)`, "info");
+        return result;
+      }
+
       // 5. Verify the refactored code IN MEMORY — nothing is written to disk
       // until it passes typecheck. This prevents Turbopack from ever seeing
       // broken code (the root cause of the stale browser error).
@@ -435,8 +604,56 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         return result;
       }
 
+      // 5b. DEBATE GATE — a second LLM (Security + Architecture + Lead tribunal)
+      // reviews the proposed refactor for semantic correctness. The typecheck
+      // can't catch "added a null check that breaks the happy path." The debate
+      // can. If REJECTED or REQUIRES_REWRITE, don't write.
+      this.log(`Debating ${relPath} (second-LLM semantic review)...`, "info");
+      const debate = await this.debateGate(filePath, originalCode, cleanCode, changeSummary);
+      if (!debate.approved) {
+        this.log(`Rejected ${relPath} by debate: ${debate.reason}`, "warn");
+        await postmortemStore.recordFailure({
+          repo: "self",
+          branch: "main",
+          filePath: relPath,
+          failureType: "REVIEW_REJECTED",
+          symptom: `Debate rejected the refactor: ${debate.reason}`,
+          evidence: `Change summary: ${changeSummary.slice(0, 500)}`,
+          constraints: `The previous refactor of ${relPath} was rejected by the debate tribunal (${debate.verdict}). Address the review feedback before retrying.`,
+        });
+        result.reason = `Rejected by debate (${debate.verdict})`;
+        this.stats.totalReverted++;
+        return result;
+      }
+      this.log(`Debate approved ${relPath}: ${debate.reason}`, "success");
+
+      // 5c. TEST GATE — run any test files that cover this source file.
+      // This is THE real signal (Direction 4): tests prove behavior was preserved.
+      // No tests exist yet, so this is a no-op gate — but the infrastructure is
+      // ready. When tests are added, a refactor that breaks a test is rejected.
+      const testResult = this.testGate(filePath, cleanCode);
+      if (!testResult.passed) {
+        this.log(`Rejected ${relPath} by test gate: ${testResult.reason}`, "warn");
+        await postmortemStore.recordFailure({
+          repo: "self",
+          branch: "main",
+          filePath: relPath,
+          failureType: "OTHER",
+          symptom: `Test gate failed: ${testResult.reason}`,
+          evidence: `${testResult.testCount} test file(s) checked. The refactor broke existing behavior.`,
+          constraints: `The previous refactor of ${relPath} broke existing tests. Do not change observable behavior.`,
+        });
+        result.reason = `Rejected by test gate: ${testResult.reason}`;
+        this.stats.totalReverted++;
+        return result;
+      }
+      if (testResult.testCount > 0) {
+        this.log(`Test gate passed for ${relPath}: ${testResult.reason}`, "success");
+      }
+
       // 6. Typecheck passed — NOW it's safe to write the improved code to the live file.
       // Turbopack will hot-reload it and see only valid code.
+      // (If the test gate already wrote it, this is a no-op.)
       writeFileSync(filePath, cleanCode, "utf-8");
 
       // 9. Enhancement succeeded — the file is now LIVE (hot-reload will pick it up)

@@ -170,6 +170,11 @@ function tfidfVector(doc: string, idf: Map<string, number>): Map<string, number>
 }
 
 function cosine(a: Map<string, number>, b: Map<string, number>): number {
+  // Handle empty vectors to prevent division by zero
+  if (a.size === 0 || b.size === 0) {
+    return 0;
+  }
+  
   // a is unit-normalized; for efficiency we iterate over the smaller vector.
   const [small, large] = a.size < b.size ? [a, b] as const : [b, a] as const;
   let dot = 0;
@@ -220,7 +225,8 @@ class EmgRagMemory {
         content: r.content,
         timestamp: r.createdAt.getTime(),
       }));
-    } catch {
+    } catch (error) {
+      console.error("Failed to seed memory from database:", error);
       this.entries = INITIAL_MEMORY_ENTRIES.map((e, idx) => ({
         ...e,
         id: `seed-${idx}`,
@@ -271,14 +277,24 @@ class EmgRagMemory {
           content: entry.content,
         },
       })
-      .catch(() => {
-        /* ignore */
+      .catch((error) => {
+        console.error("Failed to save memory entry to database:", error);
       });
     
     return newEntry;
   }
 
   public query(queryText: string): EmgQueryResult {
+    // Validate input
+    if (!queryText || !queryText.trim()) {
+      return {
+        topFailures: [],
+        topFixes: [],
+        cognitiveFrictionScore: 0,
+        epistemicRuling: "INVALID_INPUT: Empty or whitespace-only query.",
+      };
+    }
+    
     if (this.entries.length === 0 || this.idf.size === 0) {
       return {
         topFailures: [],
@@ -349,8 +365,8 @@ class EmgRagMemory {
     this.idf.clear();
     this.vectors.clear();
     
-    db.memoryEntry.deleteMany({}).catch(() => {
-      /* ignore */
+    db.memoryEntry.deleteMany({}).catch((error) => {
+      console.error("Failed to clear memory entries from database:", error);
     });
   }
 }

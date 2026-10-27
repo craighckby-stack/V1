@@ -30,6 +30,10 @@ export class BinaryShield {
       throw new Error("Input text cannot be null or undefined");
     }
     
+    if (plainText.length === 0) {
+      throw new Error("Input text cannot be empty");
+    }
+    
     const key = getKeyBuffer();
     const iv = randomBytes(IV_LENGTH);
     const cipher = createCipheriv(ALGORITHM, key, iv);
@@ -58,27 +62,35 @@ export class BinaryShield {
     const iv = Buffer.from(packet.iv, "base64");
     
     if (iv.length !== IV_LENGTH) {
-      throw new Error(`Invalid IV length. Expected ${IV_LENGTH} bytes, got ${iv.length}`);
+      throw new Error(`Invalid IV length for ${ALGORITHM_NAME}. Expected ${IV_LENGTH} bytes, got ${iv.length}`);
     }
     
     const combinedData = Buffer.from(packet.data, "base64");
     
     if (combinedData.length < AUTH_TAG_LENGTH) {
-      throw new Error("Ciphertext too short - must include authentication tag");
+      throw new Error(`Ciphertext too short for ${ALGORITHM_NAME} - must include ${AUTH_TAG_LENGTH}-byte authentication tag`);
     }
     
     const authTag = combinedData.subarray(combinedData.length - AUTH_TAG_LENGTH);
     const encryptedData = combinedData.subarray(0, combinedData.length - AUTH_TAG_LENGTH);
     const decipher = createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(authTag);
-    const decryptedData = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
     
-    return decryptedData.toString("utf8");
+    try {
+      const decryptedData = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+      return decryptedData.toString("utf8");
+    } catch (error) {
+      throw new Error(`Decryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
   }
 
   public async computeHash(data: string): Promise<string> {
     if (data === null || data === undefined) {
       throw new Error("Input data cannot be null or undefined");
+    }
+    
+    if (data.length === 0) {
+      throw new Error("Input data cannot be empty");
     }
     
     return createHash(HASH_ALGORITHM).update(data).digest("hex");

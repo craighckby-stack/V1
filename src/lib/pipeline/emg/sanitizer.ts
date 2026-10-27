@@ -139,6 +139,17 @@ function isLikelyFixtureFile(filePath: string | undefined, code: string): boolea
 }
 
 export function sanitizeAndGovern(inputCode: string, filePath?: string): SecuritySanitizerResult {
+  // Input validation
+  if (typeof inputCode !== 'string' || inputCode.length === 0) {
+    return {
+      clean: false,
+      sanitizedCode: '',
+      errorClass: "SECRET_LEAKAGE",
+      violations: ["Input code must be a non-empty string"],
+      highEntropyTokensFound: 0
+    };
+  }
+
   const violations: string[] = [];
   let sanitized = inputCode;
   let highEntropyTokensFound = 0;
@@ -147,53 +158,64 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
   // high-entropy strings as deterministic test data, not secrets.
   const isFixtureFile = isLikelyFixtureFile(filePath, inputCode);
 
-  // Check for known secret patterns
-  for (const pattern of SECRET_PATTERNS) {
-    const matches = sanitized.match(pattern);
-    if (matches) {
-      for (const match of matches) {
-        violations.push(
-          `Detected known secret signature: ${match.slice(0, 6)}... (length: ${match.length})`
-        );
-        sanitized = sanitized.split(match).join(`[REDACTED_SECRET_${match.slice(0, 4)}]`);
+  try {
+    // Check for known secret patterns
+    for (const pattern of SECRET_PATTERNS) {
+      const matches = sanitized.match(pattern);
+      if (matches) {
+        for (const match of matches) {
+          violations.push(
+            `Detected known secret signature: ${match.slice(0, 6)}... (length: ${match.length})`
+          );
+          sanitized = sanitized.split(match).join(`[REDACTED_SECRET_${match.slice(0, 4)}]`);
+        }
       }
     }
-  }
 
-  // Check for PII patterns
-  for (const pii of PII_PATTERNS) {
-    const matches = sanitized.match(pii);
-    if (matches) {
-      for (const match of matches) {
-        violations.push(`Detected PII leak: ${match.slice(0, 3)}***`);
-        sanitized = sanitized.split(match).join("[REDACTED_PII]");
+    // Check for PII patterns
+    for (const pii of PII_PATTERNS) {
+      const matches = sanitized.match(pii);
+      if (matches) {
+        for (const match of matches) {
+          violations.push(`Detected PII leak: ${match.slice(0, 3)}***`);
+          sanitized = sanitized.split(match).join("[REDACTED_PII]");
+        }
       }
     }
-  }
 
-  // Check for high entropy strings
-  const stringLiterals = inputCode.match(/["']([A-Za-z0-9_\-+/=]{24,})["']/g);
-  if (stringLiterals) {
-    for (const literal of stringLiterals) {
-      const inner = literal.slice(1, -1);
-      const entropy = calculateShannonEntropy(inner);
+    // Check for high entropy strings
+    const stringLiterals = inputCode.match(/["']([A-Za-z0-9_\-+/=]{24,})["']/g);
+    if (stringLiterals) {
+      for (const literal of stringLiterals) {
+        const inner = literal.slice(1, -1);
+        const entropy = calculateShannonEntropy(inner);
 
-      // Skip redaction for fixture files — deterministic test data.
-      if (isFixtureFile) continue;
+        // Skip redaction for fixture files — deterministic test data.
+        if (isFixtureFile) continue;
 
-      // Skip env var names, file paths, URLs — not secrets even if high-entropy.
-      if (isLikelyEnvVarOrPath(inner)) continue;
+        // Skip env var names, file paths, URLs — not secrets even if high-entropy.
+        if (isLikelyEnvVarOrPath(inner)) continue;
 
-      // Raised threshold from 4.15 to 4.5 — 4.15 catches too many legitimate
-      // strings. Real secrets typically have entropy > 4.5.
-      if (entropy > HIGH_ENTROPY_THRESHOLD) {
-        highEntropyTokensFound++;
-        violations.push(
-          `Detected high-entropy string (entropy: ${entropy.toFixed(2)}): ${inner.slice(0, 6)}...`
-        );
-        sanitized = sanitized.split(inner).join("[REDACTED_HIGH_ENTROPY_KEY]");
+        // Raised threshold from 4.15 to 4.5 — 4.15 catches too many legitimate
+        // strings. Real secrets typically have entropy > 4.5.
+        if (entropy > HIGH_ENTROPY_THRESHOLD) {
+          highEntropyTokensFound++;
+          violations.push(
+            `Detected high-entropy string (entropy: ${entropy.toFixed(2)}): ${inner.slice(0, 6)}...`
+          );
+          sanitized = sanitized.split(inner).join("[REDACTED_HIGH_ENTROPY_KEY]");
+        }
       }
     }
+  } catch (error) {
+    violations.push(`Error during sanitization: ${error instanceof Error ? error.message : String(error)}`);
+    return {
+      clean: false,
+      sanitizedCode: sanitized,
+      errorClass: "AST_PARSE",
+      violations,
+      highEntropyTokensFound
+    };
   }
 
   const isClean = violations.length === 0;

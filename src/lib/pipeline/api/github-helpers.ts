@@ -9,7 +9,7 @@ type InvalidTokenPrefix = typeof INVALID_TOKEN_PREFIXES[number];
 type InvalidTokenValue = typeof INVALID_TOKEN_VALUES[number];
 
 function isInvalidToken(token: string): boolean {
-  if (typeof token !== 'string') return true;
+  if (typeof token !== 'string' || !token) return true;
   
   return (
     INVALID_TOKEN_PREFIXES.some(prefix => token.startsWith(prefix)) ||

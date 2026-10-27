@@ -104,19 +104,23 @@ function containsKeyword(text: string, keywords: readonly string[]): boolean {
 }
 
 function isSecurityRelated(fileName: string, codeSnippet: string): boolean {
-  if (!fileName || !codeSnippet) return false;
+  if (!fileName || typeof fileName !== 'string' || !codeSnippet || typeof codeSnippet !== 'string') {
+    return false;
+  }
   return containsKeyword(fileName, SECURITY_KEYWORDS) || 
          containsKeyword(codeSnippet, SECURITY_KEYWORDS);
 }
 
 function isAgentRelated(fileName: string, codeSnippet: string): boolean {
-  if (!fileName || !codeSnippet) return false;
+  if (!fileName || typeof fileName !== 'string' || !codeSnippet || typeof codeSnippet !== 'string') {
+    return false;
+  }
   return containsKeyword(fileName, AGENT_KEYWORDS) || 
          containsKeyword(codeSnippet, AGENT_KEYWORDS);
 }
 
 export function performArchitecturalVote(fileName: string, codeSnippet: string): ArchitecturalVote {
-  if (!fileName || !codeSnippet) {
+  if (!fileName || typeof fileName !== 'string' || !codeSnippet || typeof codeSnippet !== 'string') {
     throw new Error("fileName and codeSnippet must be non-empty strings");
   }
   
