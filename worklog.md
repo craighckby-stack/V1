@@ -1489,3 +1489,77 @@ Stage Summary:
 - All three session commits now on origin/main: ca47150 (dead code), 0bd0d74 (loop's own UUID commit — was already on remote, just my auth method was wrong so I thought it was local-only), 9c77b68 (C + E).
 
 Next slice (per user direction): "Then A + B as a second commit once the first is verified running." A = shared rate-limit gate in agent-llm.ts (cross-call cooldown, cut in-call retries from 5 to 2). B = loop obeys the gate + auto-pause (not auto-stop) after N consecutive cooldowns. Will verify C+E is solid before starting A+B.
+
+---
+Task ID: a-and-b-1
+Agent: main (claude)
+Task: Implement Fix A (shared rate-limit gate in agent-llm.ts — cross-call cooldown, cut in-call retries from 5 to 2) and Fix B (loop obeys the gate + auto-pause after N cooldowns, NOT auto-stop) as a single commit. Per user direction: "Then A + B as a second commit once the first is verified running." C+E was verified running in the previous task (c-and-e-1).
+
+Work Log:
+- Verified loop was stopped (running: True initially — user had restarted it). Called /api/self-enhance/stop. With C fix in place, drain took 70s (was ~54min before C). Confirmed via dev.log: "Self-enhance loop stop requested" → "Aborting enhance for X — stop requested" → "Stop requested — breaking out of cycle" → "Cycle complete: 0/16 files enhanced" → "Continuous self-enhancement loop exited".
+- Read current state of both files end-to-end:
+  - agent-llm.ts (post C+E): llmComplete at line 67-168 with maxAttempts=5, 10s/20s/40s/80s backoff, no gate, no rateLimited field.
+  - self-enhance-loop.ts (post C+E): runCycle for-loop at 1052-1069 (C's run-token break), enhanceFile's post-ratchet C checkpoint at 760-768, the old per-call breaker at 826-848 (consecutiveRateLimits++, min(60000, 15000*n), await sleep(backoffMs)).
+
+- agent-llm.ts edits (Fix A — the gate):
+  - Added module-level state after getZai(): `let blockedUntil = 0; let strikes = 0; const COOLDOWNS_MS = [2, 5, 15, 30].map((m) => m * 60_000);` with a 12-line comment explaining the shared-gate design and why it stops the ~150s-per-file 429 backoff spiral.
+  - Exported three helpers: `llmCooldownMs()` (ms until gate opens, 0 = clear), `llmIsCoolingDown()`, `llmClearGate()`.
+  - Added `rateLimited?: boolean` to LlmCallResult with a 6-line doc comment distinguishing it from generic ok:false.
+  - Top of llmComplete: gate check. If `llmCooldownMs() > 0`, return immediately with `{ok: false, content: "", error: "429 cooldown active — Xs remaining", rateLimited: true, attempts: 0, latencyMs: <1ms}`. No in-call retries, no backoff sleep. This is the core mechanism: the FIRST 429 sets the gate, all subsequent calls return instantly.
+  - Changed `maxAttempts = 5` → `maxAttempts = 2`. The gate handles the long wait; in-call only covers transient blips. onRetry now fires at most once per call (was 4 times) — live view is less noisy.
+  - Added `let sawRateLimit = false;` tracking. Set to true if any attempt's error matches /429|Too many requests|rate limit/i.
+  - On success: `strikes = 0` — one good call after a cooldown de-escalates (next 429 starts at 2min, not 30min).
+  - In-call 429 backoff base cut from 10000 * Math.pow(2, attempt-1) to 2000 (2s base). The gate does the long wait now.
+  - Retry-After cap cut from 120s to 10s (in-call ceiling, separate from the gate's own escalation).
+  - After the retry loop exhausts: if `sawRateLimit`, set gate at `COOLDOWNS_MS[Math.min(strikes, 3)] * (0.8 + Math.random() * 0.4)` then `strikes++`. Escalation: 1st 429 → 2min, 2nd → 5min, 3rd → 15min, 4th+ → 30min (capped at index 3).
+  - Return after exhaustion: `rateLimited: sawRateLimit` so callers can distinguish "defer" from "fail permanently".
+
+- self-enhance-loop.ts edits (Fix B — loop obeys gate):
+  - Import: added `llmCooldownMs` to the existing agent-llm import.
+  - New instance fields: `consecutiveCooldownCycles = 0`, `quotaExhaustedLogged = false` (with 6-line comment: after 3 all-deferred cycles, log "quota exhausted" once; loop does NOT auto-stop, resumes when gate clears).
+  - Kept `consecutiveRateLimits` field (still used for non-429 resets) but removed its role as a 429 backoff driver.
+  - New method `waitForCooldown(myRun)`: stoppable sleep (1s poll chunks) until `llmCooldownMs() <= 0`. Returns true if cleared, false if stop() fired during the wait (checks `this.continuous && myRun === this.runId` each iteration). Replaces the old hard `await new Promise((r) => setTimeout(r, backoffMs))` that blocked for up to 60s with no stop check.
+  - enhanceFile: kept C's run-token checkpoint (stop during ratchet). Added B's gate checkpoint right after it: if `llmCooldownMs() > 0`, return early with `reason = "Deferred (LLM cooldown — Xs)"`. Don't burn the 2-attempt enhance call that would immediately 429 and escalate the gate.
+  - enhanceFile's post-LLM failure handling: replaced the old per-call breaker block (consecutiveRateLimits++, min(60000, 15000*n), await sleep) with rateLimited handling. If `llmResult.rateLimited`, defer with reason "Deferred (LLM cooldown — Xs)" and NO additional pause (the gate IS the pause). If non-rate-limit failure, reset consecutiveRateLimits and log "LLM unavailable". On success, reset consecutiveRateLimits.
+  - runCycle for-loop: before each file, check `llmCooldownMs()`. If active, log "LLM cooldown active — pausing Xs before next file" and call `waitForCooldown(myRun)`. If it returns false (stop fired), break with "Stop during cooldown wait — breaking out of cycle". This replaces the old behavior of iterating 15 more files each doing 150s backoff.
+  - runCycle post-loop: track `deferredThisCycle` count. If `deferredThisCycle === files.length` (all deferred), increment `consecutiveCooldownCycles`. If >= 3 and not yet logged, log "LLM quota exhausted — loop alive but blocked on rate-limit gate (will resume when cooldown clears)" at error level. Else log "Cycle all-deferred (N consecutive) — waiting on LLM gate" at warn. If any file attempted LLM (not all deferred), reset consecutiveCooldownCycles and quotaExhaustedLogged.
+
+- Verification: bun run lint: clean. tsc --noEmit: clean. No syntax errors this time (the MultiEdit went cleanly — both files edited in one pass each).
+
+- Restarted dev server: dev-daemon.py stop (pid 4924), pkill -9 -f next-server, dev-daemon.py start (pid 6011). Port 3000 → HTTP 200, no errors in dev.log.
+
+- Agent Browser end-to-end test (start → observe gate → stop):
+  - Opened /, page renders, no console errors, no hydration warnings.
+  - Clicked START. Browser log: "Starting continuous self-enhancement loop", "Scanned 16 files in src/lib/pipeline/", "Branch for this mutation: loop-01", "Ratchet: writing characterization tests for src/lib/pipeline/api/github-helpers.ts (attempt 1)...".
+  - First file's ratchet (Fix A visible):
+    - "LLM retry attempt 1/2 (429 — backing off 2s)" — attempt count is /2 (was /5), backoff is 2s (was 10s).
+    - After 2 attempts (was 5): "Ratchet: test-writing LLM unavailable for github-helpers.ts" — ratchet done in ~4s (was ~150s).
+  - Gate set, enhance deferred (Fix B visible):
+    - "Deferring enhance for github-helpers.ts — LLM on cooldown (128s remaining)" — the enhance call was NOT burned. Old behavior: 5 more attempts × ~150s backoff = ~750s wasted.
+  - For-loop gate check (Fix B visible):
+    - "LLM cooldown active — pausing 126s before next file" — the loop is waiting on the gate, not iterating 15 more files.
+  - Gate expired after ~2min. Next file (chat-task.ts) at 3:01:08:
+    - "LLM retry attempt 1/2 (429 — backing off 2s)" — 2 attempts, 2s backoff.
+    - "Deferring enhance for chat-task.ts — LLM on cooldown (315s remaining)" — gate set at 315s (target 5min, jitter +5%). ESCALATION 2min→5min is live (strikes went 0→1→2).
+    - "LLM cooldown active — pausing 313s before next file" — waiting on the 5min gate.
+  - STOP during the 5min gate wait:
+    - "Self-enhance loop stop requested" at 3:04:41.
+    - Within 1s: "Stop during cooldown wait — breaking out of cycle" — waitForCooldown's polling loop saw the runId change and broke immediately. Old behavior: a hard 313s sleep with no stop check.
+    - "Cycle complete: 0/16 files enhanced", "Continuous self-enhancement loop exited". Total stop-to-exit: ~1s (was the in-flight gate's remaining 313s under a non-stoppable sleep).
+  - Did NOT observe the "LLM quota exhausted" message (would require 3 consecutive all-deferred cycles, which needs ~6min of gate time + 3 cycle boundaries; stopped early to free the session). The escalation 2min→5min→(would be 15min) was verified via the gate-set log lines showing 128s then 315s.
+  - bun run lint: clean. tsc --noEmit: clean.
+  - Screenshot: screenshots/13-a-and-b-gate-escalation.png.
+
+- Committed as c857d61: "shared rate-limit gate (A) + loop obeys gate (B)" — 3 files changed, 176 insertions(+), 34 deletions(-).
+
+- Push: fetched origin first (local was 2 ahead — c857d61 plus a loop-generated 3b8588b that I didn't make; also a 1d28633 "Manual push" commit the user made from elsewhere). Pushed via `git -c http.https://github.com/.extraheader="Authorization: Basic <base64>" push origin main`: `1d28633..c857d61 main -> main`. Verified `git rev-list --left-right --count origin/main...HEAD` = `0 0` — fully in sync.
+
+Stage Summary:
+- Fix A (shared rate-limit gate) is live and verified. The first 429 sets a 2min gate; all subsequent llmComplete calls (any caller — ratchet, enhance, debate, task-executor, chat-task) return instantly with rateLimited:true. In-call retries cut from 5 to 2; in-call 429 backoff cut from 10s base to 2s base. Escalation 2min→5min→15min→30min with strikes counter; de-escalates on any success. The ~150s-per-file 429 backoff spiral is eliminated.
+- Fix B (loop obeys gate) is live and verified. The for-loop checks llmCooldownMs() before each file and stoppable-waits on the gate (1s poll chunks, breaks within 1s on stop). enhanceFile defers the enhance call if the gate is active after the ratchet. The old per-call breaker (min(60000, 15000*n), hard sleep) is replaced by rateLimited-based deferral. After 3 all-deferred cycles, logs "LLM quota exhausted" once — loop does NOT auto-stop (auto-pause, resumes when gate clears).
+- Stop-during-cooldown verified: STOP at 3:04:41 → "Stop during cooldown wait — breaking out of cycle" within 1s (was: 313s hard sleep under the old code).
+- All four audit fixes now landed and on origin/main:
+  - ca47150: dead Gemini/LlmConfig code + scaffolding models removed (cleanup-1)
+  - 9c77b68: C (stop/start run-token race) + E (retry/log honesty) (c-and-e-1)
+  - c857d61: A (shared rate-limit gate) + B (loop obeys gate) (a-and-b-1, this commit)
+- bun run lint: clean. tsc --noEmit: clean. Pushed to origin/main. `git rev-list --left-right --count origin/main...HEAD` = `0 0`.
