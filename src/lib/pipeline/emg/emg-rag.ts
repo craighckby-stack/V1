@@ -260,7 +260,7 @@ class EmgRagMemory {
     }
     
     const queryVec = tfidfVector(queryText, this.idf);
-    if (queryVec.size === 0) {
+    if (!queryVec || queryVec.size === 0) {
       return {
         topFailures: [],
         topFixes: [],
