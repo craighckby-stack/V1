@@ -2,22 +2,42 @@
 
 > A program that rewrites its own code, by itself, forever — and **remembers every failure** so it never makes the same mistake twice.
 
-![LOOP — Live Terminal](./screenshots/08-full-page-live.png)
+![LOOP — Running](./screenshots/06-running.png)
 
 ---
 
-## The Point
+## What is this? (the dumb version)
 
-Most code-improvement tools fall into one of two camps:
+**LOOP is a website that edits its own code.**
 
-- **Copilot-style autocomplete** — guesses, breaks things, hopes you notice.
-- **One-shot refactor scripts** — run once, forget, leave you with the mess.
+That's it. You open it in your browser. You see a black terminal. You type `start`. The program starts reading its own source files, picking one, asking an AI to improve it, checking the change didn't break anything, and if it passed — saving it. Then it picks the next file. Forever.
 
-LOOP is neither. LOOP is a program that **fails, learns why, and carries the scar forward**. Every cycle makes it harder for the next cycle to repeat the same dumb mistake. That's the whole idea.
+While it does that, a live stream scrolls on your screen so you can watch it happen.
 
-In one sentence:
+## Why does it exist?
 
-> A program that fails, remembers why, and never makes the same mistake twice.
+Because every other "AI improves your code" tool is either:
+
+- **Copilot autocomplete** — guesses one line at a time, breaks things, hopes you notice.
+- **A one-shot refactor script** — runs once, forgets everything, leaves you with the mess.
+
+LOOP is different in one specific way: **when it fails, it remembers why.**
+
+Every time a change is rejected by a safety gate, LOOP writes a little case file (a "postmortem") against that exact file. The next time it tries to improve that file, it reads the postmortem out loud to the AI: *"last time you tried this, you deleted a function — don't do that again."* If the AI tries the same dumb thing, it gets caught again, the postmortem gets sharper. When the change finally succeeds, the postmortem is marked resolved.
+
+So the loop isn't just spinning — it's getting wiser about its own codebase as it runs. The 100th cycle is fundamentally smarter than the 1st, because it's carrying the lessons of the 99 failures before it.
+
+That's the whole point. Not "a program that edits its own code" (parlour trick). **A program that fails, remembers why, and never makes the same mistake twice.**
+
+## See it live
+
+The app runs in the preview panel on the right side of this interface. Click **"Open in New Tab"** above the preview panel to view LOOP in a separate browser tab, then type `start` and watch it work.
+
+| | |
+|---|---|
+| **Source on GitHub** | https://github.com/craighckby-stack/V1 |
+| **Stack** | Next.js 16 · TypeScript · Prisma + SQLite · z-ai-web-dev-sdk |
+| **Status** | Working. The LLM endpoint is currently rate-limiting (429s), so you'll see real retry log lines in the stream — the system is honest about it. |
 
 ---
 

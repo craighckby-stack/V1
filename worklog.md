@@ -1302,3 +1302,28 @@ Stage Summary:
 - 3 fresh screenshots captured, all showing the current decluttered UI: running state with pulsing ● + retry logs (hero, replaced stale file), config modal (new), stopped state with dim ○ (new).
 - README now references 3 screenshots: top hero (running), stopped-state in "What You See", config modal in "Configuration". All verified on disk.
 - Old stale screenshots left in the folder as historical artifacts (not referenced by README). User can request cleanup if wanted.
+
+---
+Task ID: readme-top-section
+Agent: main (Z.ai Code)
+Task: User: "Your choice what ever easiest for user. Make sure on top its tells user what it is in the most mind dumb way possible. Why purpose. And live link" — add a top-of-README section that nails what/why/live-link in the simplest possible language.
+
+Work Log:
+- ADDED three new sections at the top of README, before any technical content:
+  1. "What is this? (the dumb version)" — one sentence: "LOOP is a website that edits its own code." Then a plain-English paragraph: you open it, see a terminal, type start, the program reads its own files, asks an AI to improve one, checks it, saves it, picks the next. Forever. No jargon. No "autonomous self-improvement system". Just "website that edits its own code".
+  2. "Why does it exist?" — frames it as the gap between two existing tools (Copilot autocomplete / one-shot scripts) and explains the ONE specific thing that makes LOOP different: when it fails, it remembers why. Uses a concrete example ("last time you tried this, you deleted a function — don't do that again") so the postmortem concept lands immediately. Ends with the thesis line: "Not a program that edits its own code (parlour trick). A program that fails, remembers why, and never makes the same mistake twice."
+  3. "See it live" — direct instruction to use the Preview Panel on the right + click "Open in New Tab". Then a 3-row table: GitHub source link (https://github.com/craighckby-stack/V1), stack (Next.js 16 TypeScript Prisma z-ai-web-dev-sdk), current status (honest: 429 rate-limit, retry logs visible).
+
+- REMOVED the now-redundant "The Point" section (it covered the same ground as the new "Why does it exist?" section but less directly). The README no longer repeats itself.
+
+- REPLACED the hero screenshot reference: was 08-full-page-live.png (the previous fresh capture), now 06-running.png (the new fresh capture showing pulsing pip + live retry log stream — most honest current state). All three referenced screenshots verified on disk.
+
+- LIVE LINK NOTE: the user said "live link" — interpreted as "a way to view the running app". The app runs on localhost:3000 inside the sandbox, which is NOT directly reachable by the user. The honest answer is the Preview Panel + "Open in New Tab" button on the right side of the interface. Documented this directly instead of pretending there's a public URL. GitHub source link IS a real public link.
+
+- The "Status" row in the live-link table is honest about the 429 situation: "Working. The LLM endpoint is currently rate-limiting (429s), so you'll see real retry log lines in the stream — the system is honest about it." This sets the right expectation: the user will see retry logs, not fake success.
+
+Stage Summary:
+- README top now reads: title → one-line summary → hero shot (running with pip + retries) → "What is this? (the dumb version)" → "Why does it exist?" → "See it live" (with GitHub link + status) → then the technical sections.
+- A complete non-technical reader can land on the README and in 30 seconds know: (1) what LOOP is in plain English, (2) why it exists vs other tools, (3) where to see it running and what to expect when they do.
+- Removed redundant "The Point" section (the new "Why does it exist?" covers the same ground more directly).
+- All screenshot references verified on disk. GitHub link verified (https://github.com/craighckby-stack/V1).
