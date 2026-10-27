@@ -103,7 +103,7 @@ function containsKeyword(text: string | null | undefined, keywords: readonly str
     return false;
   }
   const lowerText = text.toLowerCase();
-  return keywords.some(keyword => lowerText.includes(keyword));
+  return keywords.some(keyword => keyword && lowerText.includes(keyword));
 }
 
 function isSecurityRelated(fileName: string | null | undefined, codeSnippet: string | null | undefined): boolean {
