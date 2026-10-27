@@ -99,7 +99,7 @@ export interface ArchitecturalVote {
 }
 
 function containsKeyword(text: string, keywords: readonly string[]): boolean {
-  if (!text || typeof text !== 'string') {
+  if (!text || typeof text !== 'string' || text.trim() === '') {
     return false;
   }
   const lowerText = text.toLowerCase();
@@ -107,7 +107,8 @@ function containsKeyword(text: string, keywords: readonly string[]): boolean {
 }
 
 function isSecurityRelated(fileName: string, codeSnippet: string): boolean {
-  if (!fileName || typeof fileName !== 'string' || !codeSnippet || typeof codeSnippet !== 'string') {
+  if (!fileName || typeof fileName !== 'string' || fileName.trim() === '' || 
+      !codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
     return false;
   }
   return containsKeyword(fileName, SECURITY_KEYWORDS) || 
@@ -115,7 +116,8 @@ function isSecurityRelated(fileName: string, codeSnippet: string): boolean {
 }
 
 function isAgentRelated(fileName: string, codeSnippet: string): boolean {
-  if (!fileName || typeof fileName !== 'string' || !codeSnippet || typeof codeSnippet !== 'string') {
+  if (!fileName || typeof fileName !== 'string' || fileName.trim() === '' || 
+      !codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
     return false;
   }
   return containsKeyword(fileName, AGENT_KEYWORDS) || 
@@ -123,8 +125,12 @@ function isAgentRelated(fileName: string, codeSnippet: string): boolean {
 }
 
 export function performArchitecturalVote(fileName: string, codeSnippet: string): ArchitecturalVote {
-  if (!fileName || typeof fileName !== 'string' || !codeSnippet || typeof codeSnippet !== 'string') {
-    throw new Error("fileName and codeSnippet must be non-empty strings");
+  if (!fileName || typeof fileName !== 'string' || fileName.trim() === '') {
+    throw new Error("fileName must be a non-empty string");
+  }
+  
+  if (!codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
+    throw new Error("codeSnippet must be a non-empty string");
   }
   
   const securitySource = SIPHON_SOURCES.find(source => source.category === "verification");
