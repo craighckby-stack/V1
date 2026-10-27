@@ -251,6 +251,16 @@ export async function applyTaskPlan(plan: ChatTaskPlan): Promise<ChatTaskApplyRe
   const results: ChatTaskApplyResult["results"] = [];
 
   for (const file of plan.files) {
+    if (!file.path || file.path.trim().length === 0) {
+      results.push({
+        path: file.path || "",
+        applied: false,
+        reason: "Invalid file path",
+        diffBytes: 0,
+      });
+      continue;
+    }
+
     const fullPath = join(PROJECT_ROOT, file.path);
     let originalCode = "";
     try {
