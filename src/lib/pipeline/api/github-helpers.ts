@@ -41,12 +41,18 @@ export function githubHeaders(token: string | null): Record<string, string> {
     };
   }
 
-  if (typeof token !== 'string' || !token.trim() || token.trim().length < MIN_TOKEN_LENGTH) {
-    throw new Error(`Invalid token provided: must be a non-empty string with at least ${MIN_TOKEN_LENGTH} characters. Received: ${token}`);
+  const trimmedToken = token.trim();
+  
+  if (typeof token !== 'string' || !trimmedToken) {
+    throw new Error(`Invalid token provided: must be a non-empty string. Received: ${token}`);
   }
 
   if (isInvalidToken(token)) {
     throw new Error(`Invalid token provided: contains invalid patterns. Received: ${token}`);
+  }
+
+  if (trimmedToken.length < MIN_TOKEN_LENGTH) {
+    throw new Error(`Invalid token provided: must be at least ${MIN_TOKEN_LENGTH} characters long. Received: ${trimmedToken.length} characters`);
   }
 
   const headers: Record<string, string> = {
@@ -54,7 +60,7 @@ export function githubHeaders(token: string | null): Record<string, string> {
     Accept: API_ACCEPT_HEADER,
   };
   
-  headers["Authorization"] = `Bearer ${token}`;
+  headers["Authorization"] = `Bearer ${trimmedToken}`;
   
   return headers;
 }
