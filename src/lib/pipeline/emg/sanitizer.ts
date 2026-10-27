@@ -200,12 +200,13 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
     const stringLiterals = inputCode.match(/["']([A-Za-z0-9_\-+/=]{24,})["']/g);
     if (stringLiterals) {
       let iterations = 0;
-      for (const literal of stringLiterals) {
+      let index = 0;
+      while (index < stringLiterals.length && iterations <= MAX_ITERATIONS) {
+        const literal = stringLiterals[index];
         iterations++;
-        if (iterations > MAX_ITERATIONS) {
-          violations.push("High entropy check exceeded maximum iterations - potential infinite loop prevented");
-          break;
-        }
+        index++;
+
+        if (!literal) continue; // Skip null/undefined literals
 
         const inner = literal.slice(1, -1);
         const entropy = calculateShannonEntropy(inner);
@@ -225,6 +226,10 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
           );
           sanitized = sanitized.replace(literal, `"[REDACTED_HIGH_ENTROPY_KEY]"`);
         }
+      }
+      
+      if (iterations > MAX_ITERATIONS) {
+        violations.push("High entropy check exceeded maximum iterations - potential infinite loop prevented");
       }
     }
   } catch (error) {
