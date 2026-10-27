@@ -41,7 +41,9 @@ export class BinaryShield {
     
     try {
       encryptedData = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
+      cipher.destroy(); // Properly close the cipher handle
     } catch (error) {
+      cipher.destroy(); // Ensure cipher is closed even if an error occurs
       throw new Error(`Encryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
     
@@ -63,6 +65,10 @@ export class BinaryShield {
     
     if (typeof packet.data !== "string" || typeof packet.iv !== "string") {
       throw new Error("Decryption packet must contain string data and iv fields");
+    }
+    
+    if (packet.data === null || packet.data === undefined || packet.iv === null || packet.iv === undefined) {
+      throw new Error("Decryption packet data and iv cannot be null or undefined");
     }
     
     try {
@@ -98,8 +104,10 @@ export class BinaryShield {
       try {
         decipher.setAuthTag(authTag);
         const decryptedData = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+        decipher.destroy(); // Properly close the decipher handle
         return decryptedData.toString("utf8");
       } catch (error) {
+        decipher.destroy(); // Ensure decipher is closed even if an error occurs
         throw new Error(`Decryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
       }
     } catch (error) {
