@@ -156,17 +156,19 @@ class EmgRagMemory {
 
     try {
       const rows = await db.memoryEntry.findMany({ orderBy: { createdAt: "asc" } });
-      this.entries = rows.map((r) => ({
-        id: r.id,
-        provenance: r.provenance as VectorEntry["provenance"],
-        trust: r.trust as VectorEntry["trust"],
-        filePath: r.filePath ?? undefined,
-        ruleToAvoid: r.ruleToAvoid ?? undefined,
-        diagnosis: r.diagnosis ?? undefined,
-        cleanSnippet: r.cleanSnippet ?? undefined,
-        content: r.content,
-        timestamp: r.createdAt.getTime(),
-      }));
+      if (rows && rows.length > 0) {
+        this.entries = rows.map((r) => ({
+          id: r.id,
+          provenance: r.provenance as VectorEntry["provenance"],
+          trust: r.trust as VectorEntry["trust"],
+          filePath: r.filePath ?? undefined,
+          ruleToAvoid: r.ruleToAvoid ?? undefined,
+          diagnosis: r.diagnosis ?? undefined,
+          cleanSnippet: r.cleanSnippet ?? undefined,
+          content: r.content,
+          timestamp: r.createdAt.getTime(),
+        }));
+      }
     } catch (error) {
       // DB unreachable — memory stays EMPTY (honest) rather than fabricated
       console.error("Failed to load memory entries from database:", error);
