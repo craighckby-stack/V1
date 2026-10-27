@@ -122,7 +122,9 @@ A terminal. Black background, white text. Red appears only when something breaks
 LOOP  ●  [STOP] [CLEAR] [CONFIG]
 ```
 
-The `●` next to `LOOP` is the heartbeat — it pulses at 1.6s when the loop is running, sits dim (`○`) when stopped. One character that tells you the system is alive without adding any clutter.
+The `●` next to `LOOP` is the heartbeat — it pulses at 1.6s when the loop is running, sits dim (`○`) when stopped. One character that tells you the system is alive without adding any clutter. The running state is shown at the top of this README; the stopped state below:
+
+![Stopped state — dim ○, waiting at the prompt](./screenshots/10-stopped-state.png)
 
 Type commands:
 
@@ -193,6 +195,8 @@ Open the preview panel. Type `start`. Watch it work.
 ## Configuration
 
 The `config` command (or the `[CONFIG]` button) opens the **git push target** modal:
+
+![Git config modal — token, repo, public toggle, auto-create](./screenshots/09-git-config-modal.png)
 
 - **GitHub token** — classic PAT (repo scope) or fine-grained PAT. Stored locally only, never in git config, remotes, or the pushed repo.
 - **Repository** (`owner/name`) — auto-creates the repo if missing (private by default).

@@ -1271,3 +1271,34 @@ Stage Summary:
 - README is now sync'd with the current state. 6 outdated claims fixed, 1 new section added (The Branch Model), voice and structure preserved.
 - All factual claims verified against the code or live browser. No aspirational descriptions — everything in the README is something you can actually see or do in the app right now.
 - The README now tells the same story top to bottom: a program that fails, remembers why, never repeats the mistake — and the architecture that makes that safe (ratchet + postmortem + boundary + per-cycle branches).
+
+---
+Task ID: update-screenshots
+Agent: main (Z.ai Code)
+Task: User: "Update screenshots" — the README's referenced screenshot (08-full-page-live.png from Oct 25) was stale, predating the decluttered header, alive pip, retry logs, and config modal changes.
+
+Work Log:
+- AUDITED existing screenshots: 20 PNG files in screenshots/, ranging from Oct 25 to Oct 27. The README only referenced ONE: screenshots/08-full-page-live.png (Oct 25, 1.1MB) — this was from the old "Architecture Helper Pipeline v4.x" era with the busy header (box-drawing chars, ENHANCING/IDLE, stats line, GIT:ON). Completely stale.
+
+- CAPTURED 3 fresh screenshots showing the current state:
+  1. screenshots/08-full-page-live.png (1280x800, 227KB) — REPLACED the stale one. Captured while the loop was running: shows the pulsing ● pip next to LOOP, [STOP] button, and the live retry log stream ("LLM retry attempt N/5 (429 — backing off Xs) for ratchet/..."). This is the honest current state of the app — alive and working through 429s.
+  2. screenshots/09-git-config-modal.png (1280x800, 180KB) — NEW. Config modal open, showing the decluttered "GIT CONFIG" title (no box chars), GitHub Token + Repository + Public toggle + Auto-create toggle fields, and the footer note about loop-01/loop-02 branches.
+  3. screenshots/10-stopped-state.png (1280x800, 226KB) — NEW. Stopped state: shows the dim ○ pip, [START] button, and the clean 4-line boot sequence ("(c) 2026 craighckby-stack" / blank / "Type 'help' for commands." / blank). The contrast with the running hero shot makes the alive-UI design visible at a glance.
+
+- CAPTURE METHOD: started the loop, waited 25s for retry logs to accumulate (79 retry logs in the buffer), set viewport to 1280x800, then used agent-browser screenshot. For the config modal, clicked [CONFIG] then captured. For the stopped state, POST /stop then reloaded and captured.
+
+- README UPDATED to reference the 2 new screenshots in their natural sections:
+  * "What You See" section: added the stopped-state screenshot with a note "The running state is shown at the top of this README; the stopped state below:" — avoids duplicating the hero shot, shows both pip states for the alive-UI explanation.
+  * "Configuration" section: added the config modal screenshot right after the opening sentence, before the bullet list — so the reader sees the modal they'll actually get, not a generic description.
+  * Top hero reference kept as-is (now points to the fresh 08-full-page-live.png showing the running state with pip + retry logs).
+
+- VERIFIED all 3 referenced screenshots exist on disk and have substantial file sizes (180-227KB — a blank black screen would be 2-5KB, so these have real content). Browser eval confirmed the page state at capture time (header text, pip presence, retry logs in DOM).
+
+- HONEST LIMIT: couldn't VLM-verify the screenshot content (the vision API endpoint is also 429'd — same rate limit hitting the LLM). Verified instead via: (1) browser eval confirming the DOM state at capture time, (2) file size sanity check, (3) PIL dimension check confirming 1280x800. The captures are real, just not visually described by an AI.
+
+- Did NOT delete the ~13 old dev-process screenshots (00-09 old versions, before-stop.png, loop-v5-final.png, etc.) — they're historical artifacts of the dev process and harmless. The README only references the 3 fresh ones. Mentioning this to the user in case they want a cleanup pass.
+
+Stage Summary:
+- 3 fresh screenshots captured, all showing the current decluttered UI: running state with pulsing ● + retry logs (hero, replaced stale file), config modal (new), stopped state with dim ○ (new).
+- README now references 3 screenshots: top hero (running), stopped-state in "What You See", config modal in "Configuration". All verified on disk.
+- Old stale screenshots left in the folder as historical artifacts (not referenced by README). User can request cleanup if wanted.
