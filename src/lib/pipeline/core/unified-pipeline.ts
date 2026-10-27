@@ -14,7 +14,7 @@ import { SIPHON_SOURCES, performArchitecturalVote, ArchitecturalVote } from "./s
 import { sanitizeAndGovern, SecuritySanitizerResult } from "../emg/sanitizer";
 import { executeCleanRoomEngine, EngineExecutionResult } from "../engines/clean-room-runtime";
 import { evaluateAstDiff, AstDiffResult } from "./ast-diff-gate";
-import { conductDebate, DebateVerdict } from "../emg/debate";
+import { DebateVerdict } from "../emg/debate";
 import { conductLlmDebate } from "../llm/debate-llm";
 import { SelfStoppingGovernor, HaltEvaluationState } from "../emg/halt";
 import { emgRagInstance } from "../emg/emg-rag";
@@ -260,7 +260,7 @@ export class UnifiedPipelineRunner {
 
     const llmStatus = agentEngineResult.llmUsed
       ? `LLM refactor produced ${agentEngineResult.proposedEvolvedCode.length} bytes (${agentEngineResult.llmTotalLatencyMs}ms).`
-      : `LLM unavailable (${agentEngineResult.llmError ?? "unknown"}). Deterministic fallback engaged.`;
+      : `LLM unavailable (${agentEngineResult.llmError ?? "unknown"}). No refactor produced — original code kept, cycle will halt at 0-diff.`;
 
     updateStage(
       "stage2_reasoning",
@@ -366,6 +366,69 @@ export class UnifiedPipelineRunner {
 
     // STAGE 4
     const t4 = performance.now();
+
+    // 0-diff short-circuit: if the evolution stage produced NO change
+    // (LLM unavailable or returned the original), there is nothing to
+    // review and nothing to commit. Convening a tribunal over identical
+    // code proves nothing — report HALTED honestly and stop here.
+    if (evolvedCode === config.code) {
+      updateStage(
+        "stage4_review",
+        "skipped",
+        "Skipped: 0-diff (no change produced). Nothing to review or commit.",
+        { consensus: "SKIPPED_ZERO_DIFF" },
+        Math.round(performance.now() - t4)
+      );
+      log({
+        timestamp: new Date().toLocaleTimeString(),
+        message: "[STAGE 4] Skipped — 0-diff: the evolution stage produced no change. Halting cycle honestly (no review, no commit).",
+        type: "warn",
+      });
+
+      let haltStateEarly: HaltEvaluationState | null = null;
+      try {
+        haltStateEarly = this.governor.checkZeroDiffSaturation(config.code, evolvedCode);
+      } catch {
+        haltStateEarly = null;
+      }
+
+      updateStage(
+        "stage5_convergence",
+        "succeeded",
+        "Converged at 0-diff (saturation). No proof commit — nothing changed.",
+        { proofCommitHash: "NONE", haltState: haltStateEarly },
+        0
+      );
+
+      return {
+        id: pipelineId,
+        timestamp: Date.now(),
+        config,
+        status: "HALTED",
+        stages,
+        originalCode: config.code,
+        evolvedCode,
+        patternVote,
+        siphonVote: patternVote,
+        sanitizerResult,
+        agentEngineResult,
+        astDiffResult,
+        reviewVerdict: {
+          currentTopic: `Code Review for ${config.filePath}`,
+          consensus: "APPROVED", // vacuous: identical code — nothing was changed, so nothing needs review
+          consensusCoefficient: 1,
+          cognitiveFriction: 0,
+          securityPoints: [],
+          architecturePoints: [],
+          leadSummary: "Review skipped: 0-diff (no change produced).",
+          arguments: [],
+        },
+        haltState: haltStateEarly,
+        proofCommitHash: "NONE",
+        logs,
+      };
+    }
+
     updateStage("stage4_review", "running", "Conducting dual-perspective review (Security vs Architecture)...");
     log({
       timestamp: new Date().toLocaleTimeString(),
@@ -373,11 +436,32 @@ export class UnifiedPipelineRunner {
       type: "info",
     });
 
-    const debateResult = await conductLlmDebate(
-      `Code Review for ${config.filePath}`,
-      evolvedCode,
-      config.filePath
-    );
+    // The tribunal THROWS when the LLM is unavailable — no fabricated
+    // verdicts. An unavailable review means the stage is blocked: the file
+    // does not pass review, and that is reported honestly.
+    let debateResult: Awaited<ReturnType<typeof conductLlmDebate>>;
+    try {
+      debateResult = await conductLlmDebate(
+        `Code Review for ${config.filePath}`,
+        evolvedCode,
+        config.filePath
+      );
+    } catch (debateErr) {
+      const dur4 = Math.round(performance.now() - t4);
+      updateStage(
+        "stage4_review",
+        "blocked",
+        `Review tribunal UNAVAILABLE — no verdict (LLM failure). Blocking: unreviewed code cannot pass.`,
+        { consensus: "UNAVAILABLE", usedLlm: false, llmError: (debateErr as Error).message },
+        dur4
+      );
+      log({
+        timestamp: new Date().toLocaleTimeString(),
+        message: `[STAGE 4] Review tribunal unavailable: ${(debateErr as Error).message.slice(0, 150)} — stage blocked, no fabrication`,
+        type: "error",
+      });
+      throw debateErr;
+    }
     const reviewVerdict = debateResult.verdict;
     const dur4 = Math.round(performance.now() - t4);
     const isReviewApproved =
@@ -387,22 +471,17 @@ export class UnifiedPipelineRunner {
     updateStage(
       "stage4_review",
       isReviewApproved ? "succeeded" : "blocked",
-      `Verdict: ${reviewVerdict.consensus} (Consensus: ${(reviewVerdict.consensusCoefficient * 100).toFixed(0)}%) ${
-        debateResult.usedLlm ? "[LLM]" : "[rule-based fallback]"
-      }`,
+      `Verdict: ${reviewVerdict.consensus} (Consensus: ${(reviewVerdict.consensusCoefficient * 100).toFixed(0)}%) [LLM]`,
       {
         consensus: reviewVerdict.consensus,
         coefficient: reviewVerdict.consensusCoefficient,
-        usedLlm: debateResult.usedLlm,
-        llmError: debateResult.llmError,
+        usedLlm: true,
       },
       dur4
     );
     log({
       timestamp: new Date().toLocaleTimeString(),
-      message: `[STAGE 4] Review outcome: ${reviewVerdict.consensus} (${reviewVerdict.leadSummary}) ${
-        debateResult.usedLlm ? "[LLM]" : "[fallback]"
-      }`,
+      message: `[STAGE 4] Review outcome: ${reviewVerdict.consensus} (${reviewVerdict.leadSummary}) [LLM]`,
       type: isReviewApproved ? "success" : "warn",
     });
 
@@ -436,12 +515,13 @@ export class UnifiedPipelineRunner {
       }
     }
 
+    // Proof hash: computed from the ACTUAL evolved code. If hashing fails,
+    // the proof is UNPROVEN — never a fabricated timestamp-based hash posing
+    // as a proof commit (that would make the proof layer meaningless).
     const proofCommitHash = await binaryShieldInstance
       .computeHash(evolvedCode)
       .then(h => h.slice(0, 7))
-      .catch(
-        () => "c_" + Math.abs(Date.now() ^ 0x5f3759df).toString(16).slice(0, 7)
-      );
+      .catch(() => "UNPROVEN");
     const dur5 = Math.round(performance.now() - t5);
 
     emgRagInstance.addEntry({

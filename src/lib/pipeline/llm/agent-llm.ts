@@ -6,8 +6,9 @@
  * then run through the real AST diff gate so the system can genuinely
  * reject LLM output that drops symbols.
  *
- * If the SDK is unreachable (e.g. no API access), every call gracefully
- * degrades to a deterministic fallback so the pipeline still runs.
+ * If the SDK is unreachable (e.g. no API access, sustained 429), the call
+ * returns ok:false after bounded retries. Callers must surface the failure
+ * honestly — never substitute a fabricated "deterministic" refactor.
  */
 
 import ZAI from "z-ai-web-dev-sdk";
@@ -44,9 +45,9 @@ export interface LlmCallResult {
 }
 
 /**
- * Single-shot LLM call with retry + graceful degradation.
- * Returns `ok: false` when the SDK is unavailable; callers must handle
- * this by falling back to a deterministic alternative.
+ * Single-shot LLM call with bounded retry.
+ * Returns `ok: false` when the SDK is unavailable; callers must surface
+ * that honestly (skip the stage / block the write) — never fabricate output.
  */
 export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> {
   const started = performance.now();

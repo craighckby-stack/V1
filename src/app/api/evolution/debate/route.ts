@@ -13,8 +13,9 @@ interface DebateRequest {
 /**
  * POST /api/evolution/debate
  * Runs the LLM-driven dual-perspective review tribunal (Security +
- * Architecture in parallel, then Lead synthesis). Falls back to the
- * rule-based tribunal if the LLM is unavailable.
+ * Architecture in parallel, then Lead synthesis). If any LLM call fails,
+ * conductLlmDebate THROWS — no fabricated fallback verdict. The error is
+ * returned honestly as a 500.
  */
 export async function POST(req: Request) {
   try {

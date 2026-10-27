@@ -369,10 +369,10 @@ Output ONLY the refactored code in a single \`\`\`${lang} fenced block. Preserve
       llmError = llmError ?? refactorRes.error;
       return {
         stepNumber,
-        thought: `[Pillar 4/5] LLM unavailable for refactor step (${refactorRes.error}). Falling back to downstream deterministic transform.`,
+        thought: `[Pillar 4/5] LLM unavailable for refactor step (${refactorRes.error}). No code produced; downstream keeps the original unchanged.`,
         actionName: "refactor_fallback",
         actionPayload: { engine: engineId },
-        observation: "No LLM code produced; pipeline will apply deterministic transform.",
+        observation: "No LLM code produced; downstream pipeline keeps the original code unchanged (0-diff halt).",
         isTerminal: false,
         llmUsed: false,
         llmLatencyMs: refactorRes.latencyMs,
@@ -392,7 +392,7 @@ Output ONLY the refactored code in a single \`\`\`${lang} fenced block. Preserve
   const status: EngineExecutionResult["status"] = llmUsed ? "COMPLETED" : "DEGRADED";
   const finalAnswer = llmUsed
     ? `Clean-Room Engine [${engineId}] produced ${proposedEvolvedCode.length} bytes of refactored code via LLM. Token budget at ${session.getTotalBudget().percentage}%.`
-    : `Clean-Room Engine [${engineId}] degraded: LLM unavailable (${llmError}). No refactored code produced; downstream pipeline will apply deterministic transform.`;
+    : `Clean-Room Engine [${engineId}] degraded: LLM unavailable (${llmError}). No refactored code produced; downstream pipeline keeps the original code unchanged.`;
 
   session.addMessage("assistant", finalAnswer);
   lifecycle.transition("ready");

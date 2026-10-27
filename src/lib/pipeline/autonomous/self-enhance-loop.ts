@@ -96,8 +96,10 @@ OUTPUT FORMAT (mandatory):
 - First, a SHORT summary starting with "## Changes" listing which behaviors you pinned.
 - Then the complete test file in a single fenced \`\`\`typescript block.`;
 
-// Files the system should NOT modify (would break the loop itself)
-const PROTECTED_FILES = new Set([
+// Files the system should NOT modify (would break the loop itself).
+// Exported so the /api/self-enhance/files route can report the REAL
+// protected set (single source of truth — no duplicated lists to drift).
+export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/loop-runtime.ts",
   "src/lib/pipeline/autonomous/self-enhance-loop.ts",
   "src/lib/pipeline/autonomous/loop-event-bus.ts",

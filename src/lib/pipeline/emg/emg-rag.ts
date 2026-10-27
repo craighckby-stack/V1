@@ -28,62 +28,12 @@ const ELEVATED_FRICTION_THRESHOLD = 0.6;
 const LOW_SIMILARITY_THRESHOLD = 0.02;
 const MAX_RESULTS_PER_CATEGORY = 3;
 
-const INITIAL_MEMORY_ENTRIES: Omit<VectorEntry, "id" | "timestamp">[] = [
-  {
-    provenance: "clean",
-    trust: "high",
-    filePath: "src/engine/zero-leak-sandbox.ts",
-    ruleToAvoid: "Never hold hard references to ephemeral mutation contexts in global maps.",
-    diagnosis: "WeakMap scoped garbage collection completely eliminates session leakage.",
-    cleanSnippet: "private readonly activeContexts = new WeakMap<object, SandboxContext>();",
-    content: "WeakMap isolated execution context preventing memory leak across autonomous cycles.",
-  },
-  {
-    provenance: "failure",
-    trust: "high",
-    filePath: "src/lib/gemini.ts",
-    ruleToAvoid: "Hardcoded API keys or unencrypted credentials in repository blobs.",
-    diagnosis: "Shannon entropy scan flags unredacted keys before Git commit dispatch.",
-    cleanSnippet: "const apiKey = process.env.GEMINI_API_KEY || '[REDACTED_SECRET]';",
-    content: "Secret leakage vulnerability detected via entropy threshold exceeding 4.2.",
-  },
-  {
-    provenance: "clean",
-    trust: "high",
-    filePath: "src/lib/ast-diff-gate.ts",
-    ruleToAvoid: "Silent symbol omission during AST transformations.",
-    diagnosis: "Enforce AST Diff Gate symbol retention minimum of 60% before merge.",
-    cleanSnippet: "const missingSymbols = originalSymbols.filter(s => !proposedNames.has(s.name));",
-    content: "AST structural verification preventing function or type erasure.",
-  },
-  {
-    provenance: "clean",
-    trust: "high",
-    filePath: "src/engine/halt.ts",
-    ruleToAvoid: "Infinite re-mutation of semantically identical files.",
-    diagnosis: "0-diff AST code normalization halts over-optimization.",
-    cleanSnippet: "if (normOriginal === normProposed) { return { shouldHalt: true }; }",
-    content: "Self-stopping point architecture preventing infinite autonomous loops.",
-  },
-  {
-    provenance: "failure",
-    trust: "high",
-    filePath: "src/lib/eval-runtime.ts",
-    ruleToAvoid: "Dynamic code execution (eval/Function) opens injection vectors.",
-    diagnosis: "Static review flags any eval() or new Function() usage before commit.",
-    cleanSnippet: "// Replace with a parser/interpreter sandbox",
-    content: "Dynamic code execution flagged by review tribunal; rewrite required before merge.",
-  },
-  {
-    provenance: "clean",
-    trust: "medium",
-    filePath: "src/engines/clean-room-runtime.ts",
-    ruleToAvoid: "Unbounded agent loops can run forever without progress checks.",
-    diagnosis: "Bounded ReAct loop with step cap + cycle detection breaks infinite loops.",
-    cleanSnippet: "if (seenActions.has(actionSig)) { break; }",
-    content: "Bounded agent reasoning loop with action-signature cycle detection.",
-  },
-];
+/**
+ * Memory entries are ONLY real observations recorded by actual pipeline
+ * runs (via addEntry). There is NO synthetic seed data: a memory bank that
+ * starts empty is honest; one preloaded with fabricated lessons from files
+ * that don't exist in this system is a simulation.
+ */
 
 const STOP_WORDS: ReadonlySet<string> = new Set([
   "a", "an", "the", "and", "or", "but", "if", "then", "else", "for", "while", "do",
@@ -194,25 +144,17 @@ class EmgRagMemory {
   private vectors: Map<string, Map<string, number>> = new Map();
   private seeded = false;
 
+  /**
+   * Load REAL memory entries from the database. No seeding: if the DB is
+   * empty, memory is empty (and query() reports EMPTY_MEMORY honestly). If
+   * the DB is unreachable, memory stays empty and the error is logged —
+   * never backfilled with fabricated entries.
+   */
   public async ensureSeeded(): Promise<void> {
     if (this.seeded) return;
     this.seeded = true;
-    
+
     try {
-      const count = await db.memoryEntry.count();
-      
-      if (count === 0) {
-        await db.memoryEntry.createMany({
-          data: INITIAL_MEMORY_ENTRIES.map(entry => ({
-            ...entry,
-            filePath: entry.filePath ?? null,
-            ruleToAvoid: entry.ruleToAvoid ?? null,
-            diagnosis: entry.diagnosis ?? null,
-            cleanSnippet: entry.cleanSnippet ?? null,
-          })),
-        });
-      }
-      
       const rows = await db.memoryEntry.findMany({ orderBy: { createdAt: "asc" } });
       this.entries = rows.map((r) => ({
         id: r.id,
@@ -226,14 +168,11 @@ class EmgRagMemory {
         timestamp: r.createdAt.getTime(),
       }));
     } catch (error) {
-      console.error("Failed to seed memory from database:", error);
-      this.entries = INITIAL_MEMORY_ENTRIES.map((e, idx) => ({
-        ...e,
-        id: `seed-${idx}`,
-        timestamp: Date.now() - idx * 60000,
-      }));
+      // DB unreachable — memory stays EMPTY (honest) rather than fabricated
+      console.error("Failed to load memory entries from database:", error);
+      this.entries = [];
     }
-    
+
     this.recomputeVectors();
   }
 

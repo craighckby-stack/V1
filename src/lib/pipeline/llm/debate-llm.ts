@@ -1,21 +1,20 @@
 /**
  * Real LLM-driven Code Review Tribunal.
  *
- * Replaces the rule-based if/else debate with actual LLM calls. Three
- * distinct reviewers (Security, Architecture, Lead) each receive the
+ * Three distinct reviewers (Security, Architecture, Lead) each receive the
  * candidate code with role-specific instructions and return findings.
  * The Lead synthesizes the two prior reviews into a final verdict.
  *
- * Falls back to the rule-based conductDebate() if the LLM is unavailable
- * so the pipeline still runs end-to-end.
+ * NO FALLBACK: if any LLM call fails or returns unparseable output, this
+ * module THROWS. A rule-based mock "debate" used to fabricate verdicts here
+ * when the LLM was unavailable — that was a simulation posing as review and
+ * has been removed. Callers must treat an unavailable tribunal as
+ * "review not performed" and surface that honestly; they must never present
+ * a fabricated verdict as a real one.
  */
 
 import { llmComplete } from "./agent-llm";
-import {
-  conductDebate as ruleBasedDebate,
-  DebateVerdict,
-  DebateArgument,
-} from "../emg/debate";
+import { DebateVerdict, DebateArgument } from "../emg/debate";
 
 const SECURITY_SYSTEM = `You are the Security Reviewer in an autonomous code review tribunal. You evaluate candidate code changes for:
 - Hardcoded credentials, API keys, or secrets (regex: AIzaSy..., ghp_, gho_, sk-, AKIA..., xox[baprs]-, Slack webhooks).
@@ -96,8 +95,11 @@ function clamp(n: unknown, min = 0, max = 1): number {
 }
 
 /**
- * Run the LLM-driven debate tribunal. Always returns a DebateVerdict — if
- * the LLM is unavailable, falls back to the rule-based tribunal.
+ * Run the LLM-driven debate tribunal.
+ *
+ * Throws if ANY LLM call fails or returns unparseable output — there is no
+ * fallback, because a fabricated verdict is worse than no verdict. The
+ * returned verdict is always the product of three real LLM reviews.
  */
 export async function conductLlmDebate(
   topic: string,
@@ -116,27 +118,24 @@ export async function conductLlmDebate(
   ]);
 
   if (!secRes.ok || !archRes.ok) {
-    // Fall back to rule-based
-    const fallback = ruleBasedDebate(topic, candidateCode, filePath);
-    return {
-      verdict: fallback,
-      usedLlm: false,
-      llmError: !secRes.ok ? secRes.error : archRes.error,
-    };
+    // A reviewer could not run — no tribunal. Throw; the caller must
+    // surface "review unavailable" honestly, never a fabricated verdict.
+    const err = !secRes.ok ? secRes.error : archRes.error;
+    throw new Error(`Debate tribunal unavailable — LLM call failed: ${err ?? "unknown error"}`);
   }
 
-  const secJson = safeJsonParse(secRes.content) ?? {
-    stance: "ENDORSE",
-    points: ["Security review unavailable — automatic endorsement."],
-    cognitiveFriction: 0.2,
-    citations: ["fallback"],
-  };
-  const archJson = safeJsonParse(archRes.content) ?? {
-    stance: "ENDORSE",
-    points: ["Architecture review unavailable — automatic endorsement."],
-    cognitiveFriction: 0.2,
-    citations: ["fallback"],
-  };
+  const secJson = safeJsonParse(secRes.content);
+  if (!secJson || typeof secJson.stance !== "string") {
+    throw new Error(
+      `Security Reviewer returned unparseable output — treating as review failure, not endorsement. Output: ${secRes.content.slice(0, 200)}`
+    );
+  }
+  const archJson = safeJsonParse(archRes.content);
+  if (!archJson || typeof archJson.stance !== "string") {
+    throw new Error(
+      `Architecture Reviewer returned unparseable output — treating as review failure, not endorsement. Output: ${archRes.content.slice(0, 200)}`
+    );
+  }
 
   // Lead synthesis — pass the two prior findings.
   const leadUserMsg = `Topic: ${topic}
@@ -156,33 +155,15 @@ Synthesize a final verdict as JSON per your instructions.`;
     temperature: 0.1,
   });
 
-  let leadJson: Record<string, unknown> | null = null;
-  if (leadRes.ok) {
-    leadJson = safeJsonParse(leadRes.content);
+  if (!leadRes.ok) {
+    throw new Error(`Lead Reviewer unavailable — no synthesized verdict without a real review: ${leadRes.error ?? "unknown error"}`);
   }
-  if (!leadJson) {
-    // Deterministic fallback synthesis when lead LLM call fails.
-    const secStance = secJson.stance === "OPPOSE";
-    const archStance = archJson.stance === "OPPOSE";
-    let consensus: DebateVerdict["consensus"] = "APPROVED";
-    let coefficient = 0.9;
-    if (secStance) {
-      consensus = "REQUIRES_REWRITE";
-      coefficient = 0.3;
-    } else if (archStance) {
-      consensus = "CONDITIONAL_APPROVAL";
-      coefficient = 0.6;
-    }
-    leadJson = {
-      consensus,
-      consensusCoefficient: coefficient,
-      cognitiveFriction: clamp(
-        (Number(secJson.cognitiveFriction) || 0) + (Number(archJson.cognitiveFriction) || 0)
-      ) / 2,
-      leadSummary: `Lead synthesis (fallback): ${consensus} based on Security=${secJson.stance} and Architecture=${archJson.stance}.`,
-      securityPoints: asStringArray(secJson.points),
-      architecturePoints: asStringArray(archJson.points),
-    };
+
+  const leadJson = safeJsonParse(leadRes.content);
+  if (!leadJson || typeof leadJson.consensus !== "string") {
+    throw new Error(
+      `Lead Reviewer returned unparseable output — treating as review failure. Output: ${leadRes.content.slice(0, 200)}`
+    );
   }
 
   // Build the DebateVerdict

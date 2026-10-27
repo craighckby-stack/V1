@@ -21,7 +21,10 @@ export async function GET() {
       source,
       count: source.patterns.length,
       complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
-      status: "active",
+      // Honest label: these are CONFIGURED siphon sources (declarative
+      // config), not verified-live remote repositories. No liveness probe
+      // is performed here, so we don't claim "active".
+      status: "configured",
     }));
     return NextResponse.json({ sources });
   } catch (err) {

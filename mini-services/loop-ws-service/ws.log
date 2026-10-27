@@ -1,0 +1,62 @@
+$ bun --hot index.ts
+[LOOP-WS] WebSocket service listening on 0.0.0.0:3003
+[LOOP-WS] /health available at http://localhost:3003/health
+[LOOP-WS] Polling http://localhost:3000/api/autonomous/status every 1000ms
+[LOOP-WS] state changed -> status=idle mode=scheduled totalRuns=0
+148 |         if (Array.isArray(header)) {
+149 |           applyHeaders(header, res);
+150 |         } else if (header.key === 'Vary' && header.value) {
+151 |           vary(res, header.value);
+152 |         } else if (header.value) {
+153 |           res.setHeader(header.key, header.value);
+                    ^
+error: Cannot set headers after they are sent to the client
+ code: "ERR_HTTP_HEADERS_SENT"
+
+      at throwHeadersSentIfNecessary (node:_http_outgoing:37:29)
+      at setHeader (node:_http_outgoing:169:32)
+      at applyHeaders (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:153:15)
+      at applyHeaders (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:149:11)
+      at applyHeaders (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:149:11)
+      at cors (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:187:7)
+      at <anonymous> (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:224:17)
+      at originCallback (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:214:15)
+      at <anonymous> (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:219:13)
+      at optionsCallback (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:199:9)
+      at corsMiddleware (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:204:7)
+      at apply (/home/z/my-project/mini-services/loop-ws-service/node_modules/engine.io/build/server.js:211:30)
+      at _applyMiddlewares (/home/z/my-project/mini-services/loop-ws-service/node_modules/engine.io/build/server.js:223:9)
+      at handleRequest (/home/z/my-project/mini-services/loop-ws-service/node_modules/engine.io/build/server.js:562:14)
+      at <anonymous> (/home/z/my-project/mini-services/loop-ws-service/node_modules/engine.io/build/server.js:682:22)
+      at <anonymous> (/home/z/my-project/mini-services/loop-ws-service/node_modules/socket.io/dist/index.js:347:24)
+      at emit (node:events:98:22)
+      at onNodeHTTPRequest (node:_http_server:373:22)
+148 |         if (Array.isArray(header)) {
+149 |           applyHeaders(header, res);
+150 |         } else if (header.key === 'Vary' && header.value) {
+151 |           vary(res, header.value);
+152 |         } else if (header.value) {
+153 |           res.setHeader(header.key, header.value);
+                    ^
+error: Cannot set headers after they are sent to the client
+ code: "ERR_HTTP_HEADERS_SENT"
+
+      at throwHeadersSentIfNecessary (node:_http_outgoing:37:29)
+      at setHeader (node:_http_outgoing:169:32)
+      at applyHeaders (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:153:15)
+      at applyHeaders (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:149:11)
+      at applyHeaders (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:149:11)
+      at cors (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:187:7)
+      at <anonymous> (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:224:17)
+      at originCallback (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:214:15)
+      at <anonymous> (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:219:13)
+      at optionsCallback (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:199:9)
+      at corsMiddleware (/home/z/my-project/mini-services/loop-ws-service/node_modules/cors/lib/index.js:204:7)
+      at apply (/home/z/my-project/mini-services/loop-ws-service/node_modules/engine.io/build/server.js:211:30)
+      at _applyMiddlewares (/home/z/my-project/mini-services/loop-ws-service/node_modules/engine.io/build/server.js:223:9)
+      at handleRequest (/home/z/my-project/mini-services/loop-ws-service/node_modules/engine.io/build/server.js:562:14)
+      at <anonymous> (/home/z/my-project/mini-services/loop-ws-service/node_modules/engine.io/build/server.js:682:22)
+      at <anonymous> (/home/z/my-project/mini-services/loop-ws-service/node_modules/socket.io/dist/index.js:347:24)
+      at emit (node:events:98:22)
+      at onNodeHTTPRequest (node:_http_server:373:22)
+error: script "dev" exited with code 1

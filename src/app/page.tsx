@@ -15,6 +15,8 @@ interface SelfEnhanceStatus {
     totalEnhanced: number;
     totalReverted: number;
     totalPushed: number;
+    testsWritten: number;
+    cyclesCompleted: number;
     lastEnhancementAt: string | null;
   };
   logs: LogEntry[];
@@ -485,17 +487,42 @@ export default function Home() {
 
       case "files":
       case "list": {
-        return [
-          "Self-enhancement targets (src/lib/pipeline/):",
-          "  core/       — unified-pipeline, ast-diff-gate, siphon, binaryShield",
-          "  emg/        — sanitizer, debate, halt, emg-rag",
-          "  engines/    — clean-room-runtime",
-          "  postmortem/ — postmortem-store",
-          "",
-          "Protected (not modified):",
-          "  autonomous/ — loop-runtime, self-enhance-loop, loop-event-bus, push-target",
-          "  llm/         — agent-llm, debate-llm",
-        ];
+        // Fetched LIVE from /api/self-enhance/files (scanned from disk) —
+        // never a hardcoded listing, so it can't drift from reality.
+        try {
+          const res = await fetch("/api/self-enhance/files");
+          if (!res.ok) return [`Error: files endpoint returned ${res.status}`];
+          const data = (await res.json()) as {
+            root: string;
+            totalFiles: number;
+            protectedCount: number;
+            enhanceableCount: number;
+            files: Array<{ path: string; protectedFile: boolean }>;
+          };
+          const byDir = new Map<string, string[]>();
+          for (const f of data.files) {
+            const parts = f.path.split("/");
+            const dir = parts.slice(0, -1).join("/").replace("src/lib/pipeline/", "");
+            const name = parts[parts.length - 1].replace(/\.ts$/, "");
+            const label = f.protectedFile ? `${name} [protected]` : name;
+            if (!byDir.has(dir)) byDir.set(dir, []);
+            byDir.get(dir)!.push(label);
+          }
+          const lines = [
+            `Self-enhancement targets (${data.root}) — scanned from disk:`,
+            "",
+          ];
+          for (const [dir, names] of [...byDir.entries()].sort()) {
+            lines.push(`  ${dir || "."}/ — ${names.join(", ")}`);
+          }
+          lines.push(
+            "",
+            `${data.totalFiles} files total: ${data.enhanceableCount} enhanceable, ${data.protectedCount} protected (the gates themselves).`
+          );
+          return lines;
+        } catch (e) {
+          return [`Error: ${(e as Error).message}`];
+        }
       }
 
       case "clear":
