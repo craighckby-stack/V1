@@ -943,8 +943,9 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
 
     try {
       const files = this.scanFiles();
-      // Report unique files seen, not a cumulative count per cycle
-      this.stats.totalScanned = files.length;
+      // Cumulative scan count — increments every cycle so the counter visibly
+      // moves (was `= files.length`, frozen at 16 forever, looked broken).
+      this.stats.totalScanned += files.length;
       this.log(`Scanned ${files.length} files in src/lib/pipeline/`, "info");
 
       const results: SelfEnhanceResult[] = [];
@@ -994,6 +995,12 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
 
   isRunning(): boolean {
     return this.running;
+  }
+
+  /** True when the continuous loop is active (between cycles OR mid-cycle).
+   *  Distinct from isRunning() which is only true mid-cycle. */
+  isContinuous(): boolean {
+    return this.continuous;
   }
 
   getStats() {

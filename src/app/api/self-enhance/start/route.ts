@@ -5,6 +5,15 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST() {
+  // Guard against double-start: if the continuous loop is already active,
+  // report it honestly instead of spinning up a second while-loop.
+  if (selfEnhanceLoop.isContinuous()) {
+    return NextResponse.json({
+      started: true,
+      alreadyRunning: true,
+      message: "Continuous self-enhancement already running",
+    });
+  }
   selfEnhanceLoop.runContinuous().catch((err) => {
     console.error("[SELF-ENHANCE] continuous loop crashed:", err);
   });

@@ -99,15 +99,14 @@ function renderPlan(p: ChatTaskPlan): string[] {
   ];
 }
 
-// Color system — simplified per user request:
-//   red    = errors only
-//   yellow = info/activity logs (info + success + warn all flow as "info")
-//   white  = everything else (boot, commands, output, header, buttons, prompt)
-// Green is gone. The terminal is white-on-black with red+yellow for signal.
+// Color system — simplified to the extreme:
+//   red   = errors only
+//   white = everything else (all logs, boot, commands, output, header, buttons)
+// No green, no yellow. Red is the single alarm color.
 const COLOR_MAP: Record<LogEntry["type"], string> = {
-  info: "#ffff00",
-  success: "#ffff00",
-  warn: "#ffff00",
+  info: "#e0e0e0",
+  success: "#e0e0e0",
+  warn: "#e0e0e0",
   error: "#ff4444",
 };
 
@@ -511,7 +510,48 @@ export default function Home() {
         try {
           const res = await fetch("/api/self-enhance/start", { method: "POST" });
           const data = await res.json();
-          return [data.message || "Started"];
+          // Immediately fetch fresh status + queue so the user sees the
+          // system's live state the moment it starts — not just "Started".
+          const [sres, qres] = await Promise.all([
+            fetch("/api/self-enhance/status"),
+            fetch("/api/self-enhance/tasks?limit=1"),
+          ]);
+          const st = sres.ok ? ((await sres.json()) as SelfEnhanceStatus) : null;
+          const q = qres.ok ? ((await qres.json()) as { queue: QueueCounts }).queue : null;
+          if (st) setStatus(st);
+          if (q) setQueue(q);
+
+          const stats = st?.stats;
+          const alreadyRunning = data.alreadyRunning === true;
+          const lines = [
+            alreadyRunning ? "LOOP IS ALREADY RUNNING — live activity:" : "LOOP STARTED — watch it work:",
+            "",
+            `  Running:          YES`,
+            `  Cycles completed: ${stats?.cyclesCompleted ?? 0}`,
+            `  Files scanned:    ${stats?.totalScanned ?? 0} (cumulative across cycles)`,
+            `  Files enhanced:   ${stats?.totalEnhanced ?? 0}`,
+            `  Tests pinned:     ${stats?.testsWritten ?? 0} (ratchet)`,
+            `  Reverted by gate: ${stats?.totalReverted ?? 0}`,
+            `  Pushed to git:    ${stats?.totalPushed ?? 0}`,
+            `  Current file:     ${st?.currentFile ?? "(starting first cycle...)"}`,
+            `  Task queue:        ${q ? `${q.pending} pending / ${q.done} done / ${q.failed} failed / ${q.skipped} skipped` : "?"}`,
+          ];
+          // Show the last few meaningful gate verdicts from the log buffer
+          const recentLogs = (st?.logs ?? []).slice(-6).reverse();
+          if (recentLogs.length > 0) {
+            lines.push("", "  Recent activity (newest first):");
+            for (const l of recentLogs) {
+              const msg = l.message.length > 72 ? `${l.message.slice(0, 71)}…` : l.message;
+              lines.push(`    [${l.timestamp}] ${msg}`);
+            }
+          }
+          lines.push(
+            "",
+            "The loop is now cycling in the background. Real-time activity streams below:",
+            "  scan → ratchet (pin tests) → enhance (LLM) → structural gate → typecheck → debate → test → write → push",
+            ""
+          );
+          return lines;
         } catch (e) {
           return [`Error: ${(e as Error).message}`];
         }
