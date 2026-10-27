@@ -1,359 +1,185 @@
-# Architecture Helper Pipeline v4.2 — LLM-Enhanced Autonomous Refactoring
+# LOOP v5.0 — Autonomous Self-Improvement
 
-> An autonomous code refactoring pipeline that refactors GitHub repositories **without manual triggering**. Six-stage flow with real LLM reasoning, TypeScript Compiler API AST verification, TF-IDF RAG memory, and an LLM-driven dual-perspective review tribunal.
+> A program that rewrites its own code, by itself, forever — and **remembers every failure** so it never makes the same mistake twice.
 
-![Architecture Helper Pipeline — Full Dashboard](./screenshots/08-full-page-live.png)
-
----
-
-## Table of Contents
-
-- [What It Does](#what-it-does)
-- [Key Features](#key-features)
-- [Live System](#live-system)
-- [Screenshots](#screenshots)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Architecture](#architecture)
-- [The 6-Stage Pipeline](#the-6-stage-pipeline)
-- [Autonomous Loop Modes](#autonomous-loop-modes)
-- [API Reference](#api-reference)
-- [Honest Limitations](#honest-limitations)
-- [Tech Stack](#tech-stack)
-- [License](#license)
+![LOOP — Live Terminal](./screenshots/08-full-page-live.png)
 
 ---
 
-## What It Does
+## The Point
 
-The Architecture Helper Pipeline is a self-enhancing code refactoring system. You point it at a GitHub repository, and it:
+Most code-improvement tools fall into one of two camps:
 
-1. **Fetches** the repo's file tree via the GitHub REST API
-2. **Selects** real code files (`.ts`, `.tsx`, `.js`, `.py`, `.go`, `.rs`, `.java`, etc.)
-3. **Runs a 6-stage pipeline** on each file:
-   - Pattern ingestion → Shannon entropy sanitization → **real LLM refactoring** → TypeScript Compiler API AST verification → **LLM debate tribunal** → convergence + proof hash
-4. **Commits** the refactored code to an evolution branch (auto-created if it doesn't exist)
-5. **Repeats** on a schedule, watch, or continuous basis — without you asking
+- **Copilot-style autocomplete** — guesses, breaks things, hopes you notice.
+- **One-shot refactor scripts** — run once, forget, leave you with the mess.
 
-The system **only commits when every gate passes**: AST symbol retention ≥ 50, review tribunal approves, and the halt governor doesn't flag 0-diff saturation. This means it won't push broken refactors or cosmetic-only changes.
+LOOP is neither. LOOP is a program that **fails, learns why, and carries the scar forward**. Every cycle makes it harder for the next cycle to repeat the same dumb mistake. That's the whole idea.
 
----
+In one sentence:
 
-## Key Features
-
-- **Real LLM Reasoning** — Stage 2 uses `z-ai-web-dev-sdk` to actually refactor code (add type annotations, extract constants, modularize). Not a stub.
-- **TypeScript Compiler API AST** — Stage 3 uses `ts.createSourceFile` to walk the real AST and verify symbol retention. Catches nested scopes, arrow functions, re-exports, methods, enums, namespaces.
-- **LLM Debate Tribunal** — Stage 4 runs 3 real LLM calls (Security Reviewer + Architecture Reviewer in parallel, then Lead synthesis). Falls back to rule-based if the LLM is unavailable.
-- **TF-IDF RAG Memory** — Pattern memory bank uses term frequency–inverse document frequency with cosine similarity, not token-overlap counting.
-- **4 Autonomous Trigger Modes** — Scheduled, Watch, Continuous, Manual.
-- **Real-time Telemetry** — WebSocket mini-service on port 3003 streams loop state to the browser via Socket.IO.
-- **Self-Stopping Governor** — Halts on 0-diff saturation, max cycles, or 3 consecutive failures.
-- **SQLite Persistence** — Pipeline runs, autonomous cycles, and memory entries persist across restarts.
-- **Skip-Already-Committed Logic** — Each cycle processes NEW files instead of re-doing the same first-N-alphabetical files.
-- **Branch Auto-Creation** — The evolution branch is created from the source branch HEAD if it doesn't exist.
-- **Token-Safety** — Empty-string and `[REDACTED]` placeholders never leak as real tokens.
+> A program that fails, remembers why, and never makes the same mistake twice.
 
 ---
 
-## Live System
+## What It Actually Does
 
-The system is deployed and running. The dashboard is available at:
+A continuous loop runs in the background. Every cycle:
 
-**[→ Open the Architecture Helper Pipeline Dashboard](/)**
-
-> The dashboard runs on port 3000 (Next.js) with a WebSocket telemetry service on port 3003. Both are wired through the Caddy gateway so you can access everything from a single origin.
-
-When you open the link, you'll see the live dashboard with:
-- The autonomous loop control panel (top)
-- The 6-stage pipeline visualization (middle)
-- Live telemetry streaming from the WebSocket (right)
-- The Code Review Tribunal (lower middle)
-- The Memory Bank / RAG (bottom)
-
-The "ws live" badge in the header confirms the WebSocket is connected. The "Token: set" / "Token: missing" badge shows whether the system can commit to GitHub.
+1. **Scan** — looks at its own source code (the files it's allowed to touch).
+2. **Pick** — selects one file to improve.
+3. **Check the scar log** — if that file has failed before, pulls up the postmortem and injects its constraints into the AI's prompt.
+4. **Rewrite** — asks an LLM to improve the file, with the postmortem constraints in scope.
+5. **Gate** — runs the safety gates: AST diff (no symbols dropped), sanitizer (no branding stripped), typecheck, debate tribunal.
+6. **Test** — runs characterization tests (the ratchet — see below).
+7. **Verdict**:
+   - **Pass** → commit to git, push, mark any postmortem as resolved.
+   - **Fail** → revert the change, **record a postmortem**, try again next cycle.
+8. Goto 1. Forever.
 
 ---
 
-## Screenshots
+## The Two Safety Mechanisms
 
-### 1. Hero + Autonomous Loop Control Panel
+This is the bit that makes the project more than a parlour trick. A system that rewrites its own code is dangerous — what stops it from "improving" away its own OFF switch, or weakening its own tests to cheat the gates?
 
-The landing view: hero section with the system description, followed by the centerpiece — the Autonomous Self-Enhancement Loop control panel with 4 trigger mode cards, repo config, and Start/Stop/Trigger buttons.
+### 1. The Ratchet — tests only get stricter
 
-![Hero + Loop Control Panel](./screenshots/01-hero-loop-control.png)
+Every time the loop commits an improvement to a file, it also writes **characterization tests** that pin the behaviour of that file. These tests:
 
-### 2. 6-Stage Pipeline (Live)
+- Are **write-once**. Once pinned, they cannot be loosened.
+- Run against every future refactor of that file.
+- Reject any change that breaks them.
 
-The 6-stage refactoring pipeline visualization with real data. Each stage shows its status (pending/running/succeeded/blocked), duration, and contextual badges:
-- Stage 2 shows a green **LLM** badge when the real LLM was used
-- Stage 3 shows a **TS Compiler API** badge (or "Regex fallback" for non-TS files)
-- Stage 4 shows **LLM Tribunal** or **Rule-based** depending on which reviewer ran
+So the system's own behaviour gets *increasingly locked* while its implementation gets *increasingly clean*. It can't weaken its own pins to escape its own standards. The ratchet only tightens.
 
-![6-Stage Pipeline Live](./screenshots/06-pipeline-stages-live.png)
+### 2. The Postmortem — failures only get safer
 
-### 3. Code Review Tribunal (Live)
+When an attempt fails (a gate catches a problem), the system doesn't just revert and shrug. It writes a **postmortem** to the database against that exact file path. Each postmortem records:
 
-The dual-perspective review tribunal with actual LLM-generated arguments from the Security Reviewer, Architecture Reviewer, and Lead Reviewer. Shows consensus coefficient, cognitive friction, and per-reviewer findings.
+- **What broke** — `failureType` (e.g. `AST_SYMBOL_DROPPED`, `HEADER_STRIPPED`, `COMPILE_ERROR`).
+- **The evidence** — machine-copied facts (which symbols vanished, which AST node drifted, what the sanitizer redacted).
+- **The constraint** — an imperative rule the LLM must obey next time.
 
-![Code Review Tribunal Live](./screenshots/07-debate-tribunal-live.png)
+The **next** time the loop picks that same file, it pulls the postmortem and injects it into the AI's prompt as a literal block:
 
-### 4. Full Dashboard Overview
+```
+--- POSTMORTEM CONSTRAINTS (this file failed 2 time(s) before) ---
+FAILURE TYPE: AST_SYMBOL_DROPPED
+SYMPTOM: function `parseHeader` was deleted from the output
+DO NOT: remove any exported symbols; refactor in place only.
+```
 
-A full-page capture showing all sections in context: hero, loop control, pipeline stages, live telemetry, current cycle, debate tribunal, recent cycles, manual runner, and memory bank.
+If the AI tries the same dumb refactor again, the gate catches it again, the `attempts` counter ticks to 3, the constraint gets sharper. When the attempt finally succeeds, the postmortem is marked `resolved`.
 
-![Full Dashboard](./screenshots/08-full-page-live.png)
+So the loop isn't just spinning — it's getting **wiser about its own codebase** as it runs. The 100th cycle is fundamentally smarter than the 1st, because it's carrying the lessons of the 99 failures before it.
+
+---
+
+## The Boundary — what it can and can't touch
+
+A self-improving system that could rewrite its own safety gates could lobotomize itself. So the codebase is split:
+
+| Layer | Files | Mutable? |
+|---|---|---|
+| **The brain** — loop runtime, event bus, push auth, typecheck, AST gate, sanitizer, debate tribunal, LLM callers, task generator | 8 files in `src/lib/pipeline/` | 🔒 **Never.** Permanently protected. |
+| **The body** — pipeline stages, helpers, the display layer | 17 files in `src/lib/pipeline/` + `src/app/display/` | ✏️ **Yes.** This is the mutation scope. |
+| **The control surface** — `page.tsx`, `layout.tsx` (your STOP/START/CLEAR/CONFIG buttons, command input, polling, config modal) | 2 files in `src/app/` | 🔒 **Never.** You always have the kill switch. |
+| **Everything else** — UI components, API routes, Prisma schema, etc. | outside the scan dirs | 🔒 Outside the loop's awareness entirely. |
+
+The system can change **how** things look (colors, layout, visualizations). It can **never** change **what you control**. If it could rewrite its own control surface, it could remove the STOP button and escape your oversight — this is structurally impossible.
+
+---
+
+## What You See
+
+A terminal. Black background, white text. Red appears only when something breaks.
+
+Type commands:
+
+- `start` — kick off the loop. The command renders a live activity snapshot: running state, cycles completed, files scanned, files enhanced, tests pinned, reverts by gate, pushes to git, current target, task queue, recent log entries. Then the live stream takes over.
+- `stop` — halt the loop.
+- `status` — current snapshot.
+- `about` — the elevator pitch.
+- `clear` — wipe the console.
+- `config` — open the config modal (LLM keys, push settings, scan scope, ratchet settings).
+
+Below your command, a live stream scrolls: *“Scanned 17 files… Ratchet: writing characterization tests for github-helpers.ts… Improving github-helpers.ts… AST gate: 0 violations… Pushed commit abc1234…”* — you can literally watch it think and work in real time.
+
+---
+
+## The Plumbing
+
+- **Next.js 16 + TypeScript + Tailwind + shadcn/ui** — the terminal UI on port 3000.
+- **WebSocket mini-service** on port 3003 — the real-time activity stream.
+- **Prisma + SQLite** — tasks, runs, postmortems.
+- **GitHub push** — real commits to real git history as the system improves. Every pinned test and every successful refactor lands as a commit.
+- **`scripts/dev-daemon.py`** — double-fork daemon that keeps the dev server alive across sandbox session cleanups. Start with `python3 scripts/dev-daemon.py start`.
+
+---
+
+## The Name
+
+The old name was *“Architecture Helper Pipeline v4.x”* — it described what the system used to do (help refactor external GitHub repos). The new name describes what the system **is**:
+
+> **LOOP** — four characters, terminal-native, honest. The system is one continuous loop: scan → improve → test → push → repeat. That's the whole shape of it.
+
+Alternate name we considered: **RATCHET** — named after the defining safety mechanism. If “LOOP” ever feels too generic, “RATCHET” is the runner-up.
 
 ---
 
 ## Quick Start
 
-### Prerequisites
-
-- **Node.js 22+** or **Bun** (recommended — this project uses Bun)
-- A GitHub account (for the autonomous loop to push commits)
-- A GitHub personal access token with `repo` scope (set via UI or env)
-
-### Install & Run
-
 ```bash
-# Clone the repo
-git clone https://github.com/YOUR_USERNAME/architecture-helper-pipeline.git
-cd architecture-helper-pipeline
-
-# Install dependencies
+# 1. Install deps
 bun install
 
-# Initialize the SQLite database
+# 2. Push the database schema
 bun run db:push
 
-# Start the Next.js dev server (port 3000)
-bun run dev
+# 3. Start the dev server (survives sandbox cleanups via double-fork daemon)
+python3 scripts/dev-daemon.py start
 
-# In a separate terminal, start the WebSocket telemetry service (port 3003)
-cd mini-services/loop-ws-service
-bun install
-bun run dev
+# 4. Start the WebSocket mini-service (real-time stream)
+cd mini-services/chat-service && bun run dev
 ```
 
-Open `http://localhost:3000` in your browser. You'll see the dashboard.
-
-### Set Your GitHub Token
-
-To actually push commits to GitHub, you need a token:
-
-1. Go to **https://github.com/settings/tokens**
-2. Generate a new classic token with `repo` scope
-3. In the dashboard, find the **GitHub Token** field in the Loop Control Panel
-4. Paste your token and click **Save Configuration**
-
-The "Token: set" / "Token: missing" badge tells you when commits can happen.
+Open the preview panel. Type `start`. Watch it work.
 
 ---
 
 ## Configuration
 
-### Via the UI
+The `config` command opens a modal covering:
 
-The Loop Control Panel exposes all config:
-- **Mode**: Scheduled / Watch / Continuous / Manual
-- **Target Repository**: `owner/repo` (e.g. `craighckby-stack/rea`)
-- **Source Branch**: e.g. `main`
-- **Evolution Branch**: e.g. `helper-evolution` (auto-created if missing)
-- **Interval (minutes)**: for scheduled/watch modes
-- **Max Files / Cycle**: up to 500 (hard cap)
-- **Siphon Pattern Source**: 6 built-in architectural templates
-- **Refactoring Prompt**: passed to the LLM
-- **GitHub Token**: stored server-side, never displayed after saving
-- **Auto-Push**: toggle commit dispatch
+- **LLM settings** — API keys, model selection, temperature, max tokens.
+- **Push settings** — enable/disable git push, repo URL, branch.
+- **Scan scope** — which directories the loop is allowed to mutate (default: `src/lib/pipeline/` + `src/app/display/`).
+- **Ratchet settings** — enable/disable characterization test writing, max tests per file.
 
-### Via Environment Variables
-
-Add to `.env`:
-
-```env
-DATABASE_URL="file:./db/custom.db"
-GITHUB_TOKEN=ghp_your_real_token_here
-BINARY_SHIELD_SEED=your_custom_crypto_seed
-```
-
-`GITHUB_TOKEN` is the fallback when no token is set via the UI.
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Browser (Dashboard)                       │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  React UI (Next.js 16 App Router)                     │  │
-│  │  ├── Loop Control Panel                                │  │
-│  │  ├── 6-Stage Pipeline Visualization                   │  │
-│  │  ├── Live Telemetry (Socket.IO client)                │  │
-│  │  ├── Code Review Tribunal                              │  │
-│  │  ├── Manual Pipeline Runner                           │  │
-│  │  └── Memory Bank (RAG) Display                        │  │
-│  └───────────────────────────────────────────────────────┘  │
-└───────────────────────────┬─────────────────────────────────┘
-                            │ WebSocket (port 3003 via gateway)
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│              WS Mini-Service (port 3003)                     │
-│  Polls /api/autonomous/status every 1s                      │
-│  Broadcasts "state" events to all connected clients         │
-└───────────────────────────┬─────────────────────────────────┘
-                            │ HTTP poll
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Next.js Server (port 3000)                      │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  Autonomous Loop Runtime (singleton)                   │  │
-│  │  ├── scheduled / watch / continuous / manual modes     │  │
-│  │  ├── halt governor (0-diff, max-cycles, consec-fail)   │  │
-│  │  └── previouslyCommittedPaths (skip already-done)     │  │
-│  └───────────────────────────────────────────────────────┘  │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  6-Stage Pipeline Runner                               │  │
-│  │  0. Pattern Ingestion (siphon.ts)                      │  │
-│  │  1. Shannon Entropy Sanitizer (sanitizer.ts)          │  │
-│  │  2. LLM Refactorer (z-ai-web-dev-sdk)                 │  │
-│  │  3. AST Diff Gate (TypeScript Compiler API)           │  │
-│  │  4. LLM Debate Tribunal (3 LLM calls)                 │  │
-│  │  5. Convergence + Proof Hash (BinaryShield)           │  │
-│  └───────────────────────────────────────────────────────┘  │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  SQLite (Prisma)                                       │  │
-│  │  ├── PipelineRun (every pipeline execution)            │  │
-│  │  ├── AutonomousCycle (every loop cycle)                │  │
-│  │  └── MemoryEntry (RAG pattern bank)                   │  │
-│  └───────────────────────────────────────────────────────┘  │
-└───────────────────────────┬─────────────────────────────────┘
-                            │ HTTPS
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│              GitHub REST API                                 │
-│  - Tree fetch (GET /repos/{owner}/{repo}/git/trees/{branch}) │
-│  - File fetch (GET /repos/{owner}/{repo}/contents/{path})    │
-│  - Branch creation (POST /repos/{owner}/{repo}/git/refs)      │
-│  - File commit (PUT /repos/{owner}/{repo}/contents/{path})   │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## The 6-Stage Pipeline
-
-| Stage | Name | What It Does | Implementation |
-|-------|------|--------------|----------------|
-| 0 | Pattern Ingestion | Selects an architectural template based on file type and content | `siphon.ts` — rule-based pattern vote |
-| 1 | Security Sanitizer | Computes Shannon entropy, redacts secrets (API keys, PII, high-entropy strings) | `sanitizer.ts` — real regex + entropy math |
-| 2 | Modular Agent Helper | **Real LLM refactoring** — produces refactored code | `clean-room-runtime.ts` + `agent-llm.ts` — z-ai-web-dev-sdk |
-| 3 | AST Verification | Verifies symbol retention, detects branding injection, checks structural drift | `ast-diff-gate.ts` — TypeScript Compiler API |
-| 4 | Code Review Tribunal | **3 LLM calls**: Security Reviewer + Architecture Reviewer (parallel), then Lead synthesis | `debate-llm.ts` — falls back to rule-based |
-| 5 | Convergence & Proof | Halt governor checks, SHA-256 proof hash, RAG memory entry | `halt.ts` + `binaryShield.ts` + `emg-rag.ts` |
-
-**Gate logic:** A commit is dispatched only when:
-- AST gate passed (score ≥ 50, no high-severity violations)
-- Review tribunal consensus is APPROVED or CONDITIONAL_APPROVAL
-- Halt governor did not halt (or halted only on 0-diff saturation, which means "nothing to commit")
-- Auto-Push is enabled
-- A GitHub token is configured
-- The file hasn't already been committed in a prior cycle
-
----
-
-## Autonomous Loop Modes
-
-### Scheduled (default)
-Interval-based cron-like timer. Re-runs the pipeline every N minutes (configurable, default 10). Best for steady, rate-limit-friendly progress.
-
-### Watch
-Polls the target repo's tree fingerprint every N minutes. Re-runs only when the remote tree changes. Skips the cycle if nothing changed. Best for repos that change infrequently.
-
-### Continuous
-True continuous agent loop. Back-to-back cycles with a 1.5s cooldown between cycles. The halt governor stops the loop when 0-diff saturation or consecutive failures occur. Best for fast initial processing of large repos.
-
-### Manual
-One-shot invocation. Triggered explicitly via the UI button or `/api/autonomous/trigger`. Best for testing and demos.
-
----
-
-## API Reference
-
-All routes are under `/api/` and return JSON. All POST routes accept JSON bodies.
-
-### Health
-- `GET /api/health` — System health, version, enhancement list, loop stats
-
-### Autonomous Loop
-- `GET /api/autonomous/status` — Current loop state, config, stats, logs, recent cycles
-- `POST /api/autonomous/config` — Update loop config (mode, repo, branch, token, etc.)
-- `POST /api/autonomous/start` — Enable the loop
-- `POST /api/autonomous/stop` — Disable the loop
-- `POST /api/autonomous/trigger` — Trigger a one-shot manual cycle
-- `GET /api/autonomous/recent-cycles` — Recent cycle history
-
-### Pipeline
-- `POST /api/pipeline/run` — Run the 6-stage pipeline on a single file (manual)
-- `GET /api/pipeline/history` — Recent pipeline runs from the DB
-
-### GitHub
-- `POST /api/github/validate-token` — Validate a GitHub token
-- `POST /api/github/repo-tree` — Fetch a repo's file tree
-- `POST /api/github/fetch-file` — Fetch a single file's content
-- `POST /api/github/commit-file` — Commit a single file
-- `POST /api/github/batch-commit` — Batch-commit multiple files
-
-### Analysis
-- `POST /api/emg/sanitize` — Run the Shannon entropy sanitizer on code
-- `POST /api/evolution/debate` — Run the LLM debate tribunal on code
-- `POST /api/evolution/coherence-gate` — Check structural drift ratio
-- `GET /api/engines/catalog` — List the 6 siphon pattern sources
-- `GET /api/memory/entries` — List all RAG memory entries
-- `GET /api/memory/query?q=<text>` — TF-IDF ranked query against the memory bank
+All config is stored in the database and read by the loop on next cycle.
 
 ---
 
 ## Honest Limitations
 
-This section is here because the system has been honestly assessed and the limitations matter.
-
-- **No behavior preservation check** — The AST gate verifies *symbol* retention, not *behavior*. The LLM could swap `a + b` for `a - b` (changing behavior) and the AST gate would pass because both `add` functions are still present. There's no test execution or type check.
-- **Watch mode is polling** — Not `fs.watch`. It polls the GitHub tree API every N minutes and compares fingerprints. Same latency as scheduled, just with a skip-if-unchanged optimization.
-- **TF-IDF RAG has few seed entries** — Only 6 built-in patterns. With so few entries, IDF flattens out and ranking differences between queries are small. Add more entries via the pipeline (every run adds one) or via the DB.
-- **LLM can produce nonsense on non-code files** — The file filter excludes markdown/JSON/YAML, but if you bypass it (via the manual runner), the LLM will happily "refactor" a README by adding TypeScript comment headers.
-- **0-diff saturation may flag useful refactors** — If the LLM's refactor is mostly comments (e.g. adding JSDoc), `normalizeCode` strips comments and the saturation check sees no semantic change. Useful comment additions get discarded.
-- **Singleton state clears on server restart** — The loop config, token, and `previouslyCommittedPaths` are in-memory. A dev server restart wipes them. Set `GITHUB_TOKEN` in `.env` to survive restarts.
-- **GitHub rate limits** — 5,000 req/hour authenticated, 60/hour anonymous. Each cycle does ~2 API calls per file. At 100 files/cycle, that's ~200 calls — you can do ~25 cycles/hour before hitting the limit.
-- **No PR mode** — Commits go straight to the evolution branch. There's no "open a PR" option. You'd merge the evolution branch manually.
+- The loop depends on an external LLM. When the LLM endpoint returns 429s (rate limit), the loop backs off honestly — it logs `429 — backing off` rather than pretending to work. No fake progress.
+- The first cycle on a fresh file has no postmortem to consult. The postmortem is written only after the first failure. So the *first* attempt at any file is the system at its dumbest; every subsequent attempt is informed.
+- The sandbox environment reaps processes spawned by a tool session. `scripts/dev-daemon.py` works around this with double-fork daemonization — the grandchild is orphaned to PID 1 before the session cleanup kills the tree. Without this, the dev server dies within minutes.
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Framework | Next.js 16 (App Router) |
-| Language | TypeScript 5 |
-| Styling | Tailwind CSS 4 + shadcn/ui (New York) |
-| Database | Prisma ORM + SQLite |
-| Real-time | Socket.IO (port 3003 mini-service) |
-| LLM | z-ai-web-dev-sdk (server-only) |
-| AST | TypeScript Compiler API (`ts.createSourceFile`) |
-| RAG | TF-IDF + cosine similarity (custom) |
-| Crypto | Node `crypto` (AES-GCM, SHA-256) |
-| State (client) | Zustand |
-| Icons | lucide-react |
-| Animations | framer-motion |
+- **Next.js 16** (App Router) + **TypeScript 5**
+- **Tailwind CSS 4** + **shadcn/ui** (New York)
+- **Prisma ORM** + SQLite
+- **Socket.io** for the real-time stream
+- **TypeScript Compiler API** for the AST diff gate
+- **z-ai-web-dev-sdk** for LLM calls (server-side only)
+- **NextAuth.js v4** (available, not yet wired into the loop)
 
 ---
 
 ## License
 
-MIT — inherited from the original `craighckby-stack/66` project.
-
----
-
-## Acknowledgements
-
-Built as a re-implementation and enhancement of the [Architecture Helper Pipeline v4.0](https://github.com/craighckby-stack/66) originally by `craighckby-stack`. The v4.2 enhancement replaces the original stubbed stages with real LLM reasoning, real TypeScript Compiler API AST parsing, real TF-IDF RAG, and an LLM-driven debate tribunal — while preserving the original's 5-Pillar Clean-Room architecture, halt governor, and dual-perspective review concept.
+MIT. The system rewrites itself; you own what it produces.
