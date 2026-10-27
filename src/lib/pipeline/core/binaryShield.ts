@@ -40,7 +40,9 @@ export class BinaryShield {
     let encryptedData: Buffer;
     
     try {
-      encryptedData = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
+      encryptedData = cipher.update(plainText, "utf8");
+      const finalData = cipher.final();
+      encryptedData = Buffer.concat([encryptedData, finalData]);
     } catch (error) {
       cipher.destroy();
       throw new Error(`Encryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -107,7 +109,9 @@ export class BinaryShield {
     
     try {
       decipher.setAuthTag(authTag);
-      const decryptedData = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+      let decryptedData = decipher.update(encryptedData);
+      const finalData = decipher.final();
+      decryptedData = Buffer.concat([decryptedData, finalData]);
       return decryptedData.toString("utf8");
     } catch (error) {
       decipher.destroy();
