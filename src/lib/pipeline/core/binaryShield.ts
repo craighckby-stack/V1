@@ -110,6 +110,7 @@ export class BinaryShield {
       const decryptedData = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
       return decryptedData.toString("utf8");
     } catch (error) {
+      decipher.destroy();
       throw new Error(`Decryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       decipher.destroy();
