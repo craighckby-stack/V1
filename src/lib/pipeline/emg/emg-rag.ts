@@ -195,6 +195,10 @@ class EmgRagMemory {
   }
 
   public addEntry(entry: Omit<VectorEntry, "id" | "timestamp">): VectorEntry {
+    if (!entry) {
+      throw new Error("Invalid entry: entry cannot be null or undefined");
+    }
+
     const newEntry: VectorEntry = {
       ...entry,
       id: `vec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -244,9 +248,19 @@ class EmgRagMemory {
     }
     
     const queryVec = tfidfVector(queryText, this.idf);
+    if (!queryVec) {
+      return {
+        topFailures: [],
+        topFixes: [],
+        cognitiveFrictionScore: 0,
+        epistemicRuling: "VECTOR_COMPUTATION_FAILED: Could not compute query vector.",
+      };
+    }
+    
     const scored = this.entries.map((entry) => {
       const vec = this.vectors.get(entry.id);
-      const score = vec ? cosine(queryVec, vec) : 0;
+      if (!vec) return { entry, score: 0 };
+      const score = cosine(queryVec, vec);
       return { entry, score };
     });
 
