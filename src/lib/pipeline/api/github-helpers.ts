@@ -45,6 +45,10 @@ export function githubHeaders(token: string | null): Record<string, string> {
     throw new Error(`Invalid token provided: must be a non-empty string with at least ${MIN_TOKEN_LENGTH} characters. Received: ${token}`);
   }
 
+  if (isInvalidToken(token)) {
+    throw new Error(`Invalid token provided: contains invalid patterns. Received: ${token}`);
+  }
+
   const headers: Record<string, string> = {
     "User-Agent": USER_AGENT,
     Accept: API_ACCEPT_HEADER,
