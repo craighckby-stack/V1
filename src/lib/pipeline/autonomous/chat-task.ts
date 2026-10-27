@@ -77,8 +77,9 @@ function gatherContext(): string {
           }
         }
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      // ignore permission errors but log for debugging
+      console.error(`Error scanning directory ${dir}:`, (err as Error).message);
     }
   };
   scan(srcDir);
@@ -94,8 +95,9 @@ function gatherContext(): string {
     }).trim();
     lines.push("\nRECENT COMMITS:");
     lines.push(log);
-  } catch {
-    // ignore
+  } catch (err) {
+    // ignore but log for debugging
+    console.error("Error getting git log:", (err as Error).message);
   }
 
   // 3. Git status
@@ -107,8 +109,9 @@ function gatherContext(): string {
     }).trim();
     lines.push("\nGIT STATUS:");
     lines.push(status || "(clean)");
-  } catch {
-    // ignore
+  } catch (err) {
+    // ignore but log for debugging
+    console.error("Error getting git status:", (err as Error).message);
   }
 
   return lines.join("\n");
@@ -120,6 +123,17 @@ function gatherContext(): string {
  * to change and why. Does NOT modify anything — just plans.
  */
 export async function proposeTaskPlan(userGoal: string): Promise<ChatTaskPlan> {
+  if (!userGoal || userGoal.trim().length === 0) {
+    return {
+      ok: false,
+      userGoal,
+      understanding: "",
+      files: [],
+      summary: "",
+      error: "User goal cannot be empty",
+    };
+  }
+
   const context = gatherContext();
 
   const systemPrompt = `You are a senior coding agent working inside a Next.js project. The user will describe a goal. Your job is to propose a plan to achieve it.
@@ -225,6 +239,15 @@ function parsePlan(raw: string, userGoal: string): ChatTaskPlan {
  * verify via in-memory typecheck, write to disk, and push.
  */
 export async function applyTaskPlan(plan: ChatTaskPlan): Promise<ChatTaskApplyResult> {
+  if (!plan.files || plan.files.length === 0) {
+    return {
+      ok: false,
+      results: [],
+      pushed: false,
+      error: "No files to apply in the plan",
+    };
+  }
+
   const results: ChatTaskApplyResult["results"] = [];
 
   for (const file of plan.files) {
@@ -275,7 +298,7 @@ Output the COMPLETE new content for this file that achieves the goal.`;
       results.push({
         path: file.path,
         applied: false,
-        reason: `LLM failed: ${llmResult.error}`,
+        reason: `LLM failed for ${file.path}: ${llmResult.error}`,
         diffBytes: 0,
       });
       continue;
@@ -286,7 +309,7 @@ Output the COMPLETE new content for this file that achieves the goal.`;
       results.push({
         path: file.path,
         applied: false,
-        reason: "LLM returned no code",
+        reason: `LLM returned no code for ${file.path}`,
         diffBytes: 0,
       });
       continue;
@@ -319,7 +342,7 @@ Output the COMPLETE new content for this file that achieves the goal.`;
       results.push({
         path: file.path,
         applied: false,
-        reason: `Write failed: ${(err as Error).message}`,
+        reason: `Write failed for ${file.path}: ${(err as Error).message}`,
         diffBytes: 0,
       });
     }
