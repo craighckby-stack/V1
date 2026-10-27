@@ -26,6 +26,10 @@ export interface DebateVerdict {
 }
 
 function analyzeCodeSecurity(candidateCode: string): { securityPoints: string[]; hasCriticalFlaws: boolean } {
+  if (!candidateCode || typeof candidateCode !== 'string') {
+    throw new Error('Invalid input: candidateCode must be a non-empty string');
+  }
+
   const containsSecrets = SECRET_PATTERN.test(candidateCode);
   const containsEval = EVAL_PATTERN.test(candidateCode);
   const isLarge = candidateCode.length > LARGE_CODE_THRESHOLD;
@@ -52,6 +56,10 @@ function analyzeCodeSecurity(candidateCode: string): { securityPoints: string[];
 }
 
 function analyzeCodeArchitecture(candidateCode: string): string[] {
+  if (!candidateCode || typeof candidateCode !== 'string') {
+    throw new Error('Invalid input: candidateCode must be a non-empty string');
+  }
+
   const hasTypeAnnotations = TYPE_ANNOTATION_PATTERN.test(candidateCode);
   const architecturePoints: string[] = [];
 
@@ -131,6 +139,16 @@ function createLeadArgument(leadSummary: string, cognitiveFriction: number): Deb
 }
 
 export function conductDebate(topic: string, candidateCode: string, filePath: string): DebateVerdict {
+  if (!topic || typeof topic !== 'string') {
+    throw new Error('Invalid input: topic must be a non-empty string');
+  }
+  if (!candidateCode || typeof candidateCode !== 'string') {
+    throw new Error('Invalid input: candidateCode must be a non-empty string');
+  }
+  if (!filePath || typeof filePath !== 'string') {
+    throw new Error('Invalid input: filePath must be a non-empty string');
+  }
+
   const { securityPoints, hasCriticalFlaws } = analyzeCodeSecurity(candidateCode);
   const architecturePoints = analyzeCodeArchitecture(candidateCode);
 

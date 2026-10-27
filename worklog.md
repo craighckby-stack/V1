@@ -718,3 +718,48 @@ Stage Summary:
 - Commit messages on GitHub will show WHAT was fixed and WHY (the change summary), not just "+27b diff"
 - "No issues found" is a valid outcome — the system no longer makes changes for the sake of change
 - Pending: actual verification once the API rate limit resets
+
+---
+Task ID: dangerous-option-real-signal
+Agent: main (Z.ai Code)
+Task: User: "Pick option dangerous lol" — referring to the dangerous direction I flinched from (real-signal self-improvement vs cosmetic throughput)
+
+Work Log:
+- MAJOR DISCOVERY: between my sessions, the autonomous loop had already done most of the dangerous work on its own. Commit a27b9d4 "feat: real enhancements, not cosmetic refactoring" (09:12 UTC today) rewrote the architecture:
+  * task-executor.ts (my cosmetic single-issue fixer) — DELETED by the loop
+  * self-task-generator.ts (my SelfTask queue) — DELETED by the loop
+  * The Gemini fallback I built (gemini-direct.ts, LlmConfig model, llm-config route, modal section) — ALL SCRUBBED by the loop itself
+  * New architecture: EMG-style whole-file refactor — scan src/lib/pipeline, LLM-refactor each file, verify with in-memory tsc, write live, push
+  * The loop restored the EMG-style enhancer that points at its own source — exactly what the user said EMG should do ("pointed at all its own files not another repo")
+- The user's "scrub Gemini fallback all together" was already done by the system. The user's "EMG pointed at own files" was already the architecture. The system self-corrected while I was away.
+
+- WHAT WAS MISSING: the real signal beyond typecheck. The current gate was typecheck-only — proves "compiles", doesn't prove "didn't break the public API / didn't drop tests / wasn't truncated". EMG has this in its validator.ts; we didn't.
+
+- BUILT: src/lib/pipeline/autonomous/structural-validator.ts — ports EMG's destructive-change detection:
+  1. DESTRUCTIVE_TRUNCATION: >30% line drop on files >=15 lines (catches LLM output-token-limit truncation)
+  2. HEADER_STRIPPED: imports go from N>=2 to 0 (catches the LLM removing the entire import block)
+  3. SYMBOL_DROPPED: top-level exports present in original but absent in candidate (the real "public API didn't break" signal — uses a regex-based export extractor)
+  4. TEST_DELETION: in test files, test count must not drop
+  5. LICENSE_STRIPPED: copyright/SPDX header in original first 2000 chars but missing in candidate
+
+- WIRED into verify-refactor.ts as a 3-gate pipeline (cheap -> expensive): structural (regex, instant) -> syntax (AST parse, fast) -> typecheck (full tsc, ~10s). A destructive refactor is now rejected in milliseconds instead of wasting a 10s typecheck cycle.
+
+- BUG + FIX: first run had `origExports.filter(...)` but Set has no .filter method — the loop's own error log caught it ("origExports.filter is not a function"). Fixed to `[...origExports].filter(...)`. The loop's self-observation (the error in the log) caught my bug — exactly the liveness pattern working.
+
+- VERIFIED LIVE: restarted the loop with the fixed validator. Real enhancements produced:
+  * binaryShield.ts — 696b diff: "Added input validation for encrypt() method to handle null/undefined input"
+  * github-helpers.ts — 78b diff: "Added null/undefined check in isInvalidToken() to prevent potential runtime error"
+  Both passed structural (symbol preservation, no truncation, imports intact) AND typecheck. These are REAL code improvements — the enhancer is doing real refactoring, not cosmetic lint.
+  * The structural gate also REJECTED a refactor of structural-validator.ts itself (unbalanced braces — LLM truncated its output). The truncation detector caught it. The gate works on itself.
+  * ast-diff-gate.ts was skipped (12973b — too large for LLM, would truncate). The loop has a size limit — smart.
+
+- PUSH TARGET WIPED: the loop's self-rewrites reset the DB, wiping the GitPushTarget row (the GitHub PAT). totalPushed: 0 because of this. The user needs to re-paste the PAT via the CONFIG modal to resume pushes. The git remote is still configured (origin -> craighckby-stack/V1.git); only the auth token is gone.
+
+- Committed locally as 455d228. Not pushed yet (push target unconfigured).
+
+Stage Summary:
+- THE DANGEROUS DIRECTION IS LIVE. The system is no longer doing cosmetic lint. It's doing real LLM-driven whole-file refactoring of its own source, gated by typecheck + structural validation (the real signal: symbol preservation, no truncation, no import stripping, no test deletion, no license stripping).
+- The system self-corrected while I was away — it deleted the cosmetic architecture I built and restored the EMG-style enhancer. My job was to add the missing real signal (structural validator), which I did.
+- Verified: real enhancements produced (binaryShield.ts, github-helpers.ts) that passed both gates. The cosmetic era is over.
+- BLOCKER: the push target (GitHub PAT) was wiped by the loop's DB reset. User needs to re-paste it via CONFIG to resume pushes. The structural validator code is committed locally as 455d228, waiting to push.
+- This is the version I flinched from when I labeled it "Dangerous". The system did it anyway, and it works.
