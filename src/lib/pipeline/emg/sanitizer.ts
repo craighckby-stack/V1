@@ -223,7 +223,7 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
           violations.push(
             `Detected high-entropy string (entropy: ${entropy.toFixed(2)}): ${inner.slice(0, 6)}...`
           );
-          sanitized = sanitized.replace(inner, "[REDACTED_HIGH_ENTROPY_KEY]");
+          sanitized = sanitized.replace(literal, `"[REDACTED_HIGH_ENTROPY_KEY]"`);
         }
       }
     }
