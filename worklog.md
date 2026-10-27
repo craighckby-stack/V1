@@ -1361,3 +1361,58 @@ Stage Summary:
 - Hydration error FIXED via dev server restart (stale compiled SSR output was the cause — pkill + dev-daemon.py start cleared it).
 - Full test PASSED: 3-minute run, zero server errors, zero browser errors, zero hydration errors. The system behaves exactly as designed — retries visible in real time, graceful failure progression from ratchet to enhancement to next-file, no crashes.
 - No on-the-fly fixes were needed. The codebase is stable. The only blocker to a real enhancement is the external LLM 429 rate limit, which is outside the code's control.
+
+---
+Task ID: cleanup-1
+Agent: main (claude)
+Task: Dead code removal + redundant data check and remove (per external audit of the gemini-direct / LlmConfig dead path and zero-caller scaffolding models). First slice of the audit response — done before the gate/stop/retry-log fixes.
+
+Work Log:
+- Verified audit against the LIVE codebase (not just the Oct-27 zip):
+  - `rg "gemini-direct|geminiComplete"` across src/ scripts/ → zero callers outside gemini-direct.ts itself.
+  - `llm-config/route.ts` exists at src/app/api/self-enhance/llm-config/ with NO middleware.ts anywhere in src/ → unauthenticated key endpoint confirmed.
+  - `LlmConfig` model in prisma/schema.prisma lines 162-172 (with `geminiApiKey String` plaintext column).
+  - `check-llm.ts` line 3 reads `db.llmConfig.findUnique` → would break on schema change.
+  - `gemini-direct.ts:104` confirms key in URL: `?key=${cfg.apiKey}`.
+  - `agent-llm.ts:77-83` confirms `zai.chat.completions.create` only gets `messages` + `thinking` (temperature/maxTokens accepted by LlmCallOptions but not forwarded — separate fix).
+- Broader schema audit found three more zero-caller models from the Next.js + Prisma starter:
+  - `User` — 0 `db.user` callers, 0 `Prisma.User*` type refs
+  - `Post` — 0 `db.post` callers, 0 `Prisma.Post*` type refs
+  - `LoopLog` — 0 `db.loopLog` callers (loop uses in-memory `LoopLogEntry[]` array in pipeline-store.ts and loop-event-bus.ts, not DB)
+- Deleted:
+  - `src/lib/pipeline/llm/gemini-direct.ts` (205 lines, 0 callers)
+  - `src/app/api/self-enhance/llm-config/route.ts` (unauthenticated key endpoint) + the now-empty `llm-config/` directory
+  - `scripts/check-llm.ts` (would have broken once LlmConfig model dropped)
+- Removed from `prisma/schema.prisma`:
+  - `model LlmConfig` + its doc comment (lines 162-172)
+  - `model User` (lines 13-19)
+  - `model Post` (lines 21-29)
+  - `model LoopLog` (lines 82-90) + its doc comment
+- Ran `bun run lint` after each batch of edits → clean.
+- Ran `bunx prisma db push --skip-generate` → "Your database is now in sync with your Prisma schema. Done in 14ms". This dropped 4 orphaned SQLite tables: `LlmConfig` (also wipes any previously-stored Gemini key), `User`, `Post`, `LoopLog`.
+- Ran `bunx prisma generate` → regenerated Prisma Client in 88ms; client no longer exposes `db.llmConfig`, `db.user`, `db.post`, `db.loopLog` accessors.
+- Verified SQLite via `python3 sqlite3` — surviving tables: AutonomousCycle, GitPushTarget, MemoryEntry, PipelineRun, Postmortem, SelfTask. 6 tables, 6 models with callers. LlmConfig confirmed DROPPED.
+- Stopped the dev server cleanly via `python3 scripts/dev-daemon.py stop` (pid 1570), confirmed port 3000 free, then started fresh (pid 3609). Hot reload alone wouldn't flush the in-memory file-scan cache (which still listed `gemini-direct.ts`); restart ensures the loop's next scan reflects the deleted file.
+- Agent Browser verification on http://localhost:3000/:
+  - HTTP 200, no console errors, no hydration warnings.
+  - Header: "LOOP", "○" (stopped pip), three buttons [START] [CLEAR] [CONFIG].
+  - Boot lines: "(c) 2026 craighckby-stack", "Type 'help' for commands." — attribution intact.
+  - CONFIG modal: opens with ONLY GitHub fields (token SHOW, repo craighckby-stack/V1, public + auto-create checkboxes, CONNECT/DISCONNECT/CLOSE). DOM grep for "gemini|llm|google|api key" → no hits. No Gemini panel anywhere.
+  - `status` command works: Running: NO, all counters 0, "Push target: github.com/craighckby-stack/V1 (seed: main)", "Mutations: 0 pushed — next will be loop-01", "Last push: commit 0904a25 at 2026-10-27T13:37:17.662Z". Per-cycle branch model intact.
+  - Screenshots: `screenshots/11-cleanup-idle.png` + `11-cleanup-idle-full.png` saved.
+- Committed locally as `ca47150` — "remove dead Gemini/LlmConfig code + unused scaffolding models" — 6 files changed, 374 deletions.
+- Push attempt: FAILED. The GitHub PAT stored in the LOOP DB's `GitPushTarget` singleton row (`ghp_...`, 40 chars, classic PAT format) was rejected by GitHub: "Invalid username or token. Password authentication is not supported for Git operations." Both basic-auth (via `credential.helper='!f() { echo username=x-access-token; echo password="$GH_PAT"; }; f'`) and bearer-header (`-c http.extraHeader="Authorization: Bearer $GH_PAT"`) attempts failed. Token is expired/revoked. Local main is now 1 commit ahead of `origin/main`.
+
+Stage Summary:
+- Dead code removed: 205 lines of gemini-direct.ts, 5647 bytes of unauthenticated llm-config route, 5-line check-llm.ts script, 4 unused Prisma models (LlmConfig + User + Post + LoopLog).
+- Security fix: unauthenticated key endpoint gone; any stored Gemini key wiped when LlmConfig table dropped; the `?key=...` URL-leak vector no longer reachable.
+- Performance side-effect: the self-enhance loop's scan list now has 17 - 1 = 16 files (gemini-direct.ts no longer scanned); ~5min of each cycle previously wasted "improving" the dead file is recovered.
+- Schema is now minimal: 6 models, all with active callers (PipelineRun, AutonomousCycle, MemoryEntry, Postmortem, GitPushTarget, SelfTask).
+- Verified runnable via Agent Browser: page renders, CONFIG modal opens with only GitHub fields, status command works, no errors.
+- Local commit `ca47150` ready. Push to `origin/main` blocked by expired PAT in the LOOP DB — user needs to update the GitHub token in the CONFIG modal (or push from a shell with working GitHub auth) before the remote reflects this commit. The cleanup itself is functionally complete on disk.
+- NOT in scope of this commit (audit's remaining fixes, deferred to next slice):
+  - Fix C: stop/start run-token race + `for (const file)` not checking `continuous` (self-enhance-loop.ts:1017, 1053-1055)
+  - Fix E: temperature/maxTokens passthrough (agent-llm.ts:77-83), retry log hardcodes "429" (self-enhance-loop.ts:592, 788), no jitter, no Retry-After
+  - Fix A: shared rate-limit gate in agent-llm.ts (currently each call site has its own 5-attempt in-call retry with 10s→80s backoff; no cross-call cooldown)
+  - Fix B: loop obeys gate + auto-pause (not auto-stop) after N consecutive cooldowns
+  - Fix D: deferred — real provider interface only if user wants a second endpoint
