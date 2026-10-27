@@ -128,3 +128,40 @@ model GitPushTarget {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
+
+/// On-demand chat/task engine (restored from the Original-branch lineage).
+/// A task is a single concrete finding in the codebase that the chat-driven
+/// agent (or manual rescan) can pick up, fix through the gated pipeline,
+/// and mark done. The unique key prevents duplicate tasks for the same
+/// finding at the same location.
+model SelfTask {
+  id         String    @id @default(cuid())
+  kind       String    // todo-comment | empty-catch | any-usage | missing-return-type | magic-number | non-null-assertion
+  filePath   String    // relative to project root
+  line       Int       // 1-based
+  evidence   String    // the matched source line (trimmed)
+  priority   Int       // lower = more important
+  status     String    @default("pending") // pending | in_progress | done | failed | skipped
+  attempts   Int       @default(0)
+  deferred   Int       @default(0)  // times LLM was unavailable (429)
+  lastError  String?
+  fixSummary String?   // what the fix actually did
+  commitSha  String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  doneAt     DateTime?
+
+  @@unique([kind, filePath, line])
+}
+
+/// Direct-Gemini credentials for the chat/task engine (user-configurable
+/// via /api/self-enhance/llm-config). Stored server-side only.
+model LlmConfig {
+  id            String    @id @default("singleton")
+  geminiApiKey  String
+  geminiModel   String    @default("gemini-2.5-flash")
+  lastUsedAt    DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}

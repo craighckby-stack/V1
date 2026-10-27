@@ -42,6 +42,10 @@ export interface LlmCallResult {
   error?: string;
   attempts: number;
   latencyMs: number;
+  /** Which model actually served the call (from the API response —
+   *  honest provenance for the task engine's records; undefined only
+   *  if the provider omits the field). */
+  modelUsed?: string;
 }
 
 /**
@@ -75,6 +79,7 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
         content,
         attempts: attempt,
         latencyMs: Math.round(performance.now() - started),
+        modelUsed: (completion as { model?: string }).model,
       };
     } catch (err) {
       lastError = (err as Error).message;

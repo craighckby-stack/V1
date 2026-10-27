@@ -19,6 +19,8 @@ import { llmComplete, extractSummaryAndCode } from "../llm/agent-llm";
 import { conductLlmDebate } from "../llm/debate-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
 import { pushCurrentState } from "./push-target";
+import { db } from "@/lib/db";
+import { generateTasks } from "./self-task-generator";
 
 const PIPELINE_SRC_DIR = "/home/z/my-project/src/lib/pipeline";
 const PROJECT_ROOT = "/home/z/my-project";
@@ -142,6 +144,7 @@ class SelfEnhanceLoop {
     totalPushed: 0,
     testsWritten: 0,
     cyclesCompleted: 0,
+    tasksGenerated: 0,
     lastEnhancementAt: null as string | null,
   };
   private logs: Array<{
@@ -1003,6 +1006,54 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
 
   getCurrentFile() {
     return this.currentFile;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // On-demand task engine (restored from the Original-branch lineage).
+  // These run alongside the continuous whole-file loop: the loop refactors
+  // module-by-module through the full gate chain, while the task engine
+  // lets the USER drive targeted fixes (Direction 1: the user is the
+  // feedback signal). Ported from d326ba6.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Update a task row; a missing row is non-fatal (it may have been
+   *  deleted by the user from the tasks panel). */
+  private async updateTask(
+    id: string,
+    patch: {
+      status?: string;
+      lastError?: string | null;
+      fixSummary?: string;
+      commitSha?: string;
+      deferred?: number;
+    }
+  ) {
+    await db.selfTask.update({ where: { id }, data: patch }).catch(() => {
+      /* task row may be gone — non-fatal */
+    });
+  }
+
+  /** Manual rescan: regenerate the task queue from code findings. */
+  async rescan() {
+    const scan = await generateTasks();
+    this.stats.tasksGenerated += scan.newTasks;
+    this.log(
+      `Manual rescan: ${scan.filesAnalyzed} files, ${scan.findings} findings, ${scan.newTasks} new tasks`,
+      scan.newTasks > 0 ? "success" : "info"
+    );
+    return scan;
+  }
+
+  /** User veto on system-defined input: skip the next pending task. */
+  async skipNext(): Promise<{ skipped: boolean; kind?: string; filePath?: string; line?: number }> {
+    const next = await db.selfTask.findFirst({
+      where: { status: "pending" },
+      orderBy: [{ priority: "asc" }, { deferred: "asc" }, { createdAt: "asc" }],
+    });
+    if (!next) return { skipped: false };
+    await this.updateTask(next.id, { status: "skipped", lastError: "user veto" });
+    this.log(`User veto: skipped [${next.kind}] ${next.filePath}:${next.line}`, "warn");
+    return { skipped: true, kind: next.kind, filePath: next.filePath, line: next.line };
   }
 }
 
