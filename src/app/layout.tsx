@@ -29,7 +29,7 @@ export const metadata: Metadata = {
     "GitHub audit trail",
     "Next.js",
   ],
-  authors: [{ name: "Z.ai Code" }],
+  authors: [{ name: "craighckby-stack" }],
   icons: {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },

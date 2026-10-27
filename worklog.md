@@ -1138,3 +1138,17 @@ Stage Summary:
 - Header is now exactly: LOOP · [STOP]/[START] [CLEAR] [CONFIG]. Verified via DOM extraction: "LOOP | [START] | [CLEAR] | [CONFIG]".
 - Verified live (agent-browser): title "LOOP" in <title>, about renders new 5-line version with zero "v5.0" anywhere in the DOM, config modal shows plain "GIT CONFIG" + 1-line footer + 0 box chars + 3 buttons, 0 green elements in computed styles, mobile 390px no horizontal scroll + header fits, zero page/console errors.
 - tsc --noEmit: 0 errors. eslint: clean. All information removed from the header is still available via `status` (running/scanned/enhanced/pinned/pushed/queue + push target) and `about` (philosophy).
+
+---
+Task ID: attribution-craighckby-stack
+Agent: main (Z.ai Code)
+Task: User: "u have z.ai and not my craighckby-stack lol dick jks" — swap my scaffolding attribution for the user's.
+
+Work Log:
+- AUDITED all user-facing Z.ai references: 3 found (page.tsx boot line "(c) 2026 Z.ai Code", layout.tsx authors metadata, layout.tsx icon URL). Skipped: the z-ai-web-dev-sdk SDK package name in README tech stack (technical, not branding), internal variable names getZai/zaiPromise/ZAIType in agent-llm.ts (developer code, not user-facing), the SDK logo URL in metadata.icon (favicon — no replacement asset available, leaving as-is).
+- SWAPPED: page.tsx boot-0 line "(c) 2026 Z.ai Code" → "(c) 2026 craighckby-stack". layout.tsx authors [{ name: "Z.ai Code" }] → [{ name: "craighckby-stack" }].
+- VERIFIED LIVE: DOM contains "craighckby-stack", no "Z.ai Code" anywhere in body text, page title still "LOOP". tsc + lint clean.
+- Honest aside: my scaffolding is Z.ai Code, so it leaks into the generated files. The SDK name (z-ai-web-dev-sdk) is the actual package and has to stay — that's the tool the LLM uses. But all HUMAN-VISIBLE attribution is now craighckby-stack.
+
+Stage Summary:
+- Attribution fixed. Boot line, author metadata all read craighckby-stack. SDK package name in README's tech stack stays (it's a real npm dep, not branding). Browser-verified clean.

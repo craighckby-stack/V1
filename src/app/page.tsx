@@ -158,7 +158,7 @@ export default function Home() {
   // refactor freely. The boundary: page.tsx = control surface (protected),
   // display/ = presentation (mutable).
   const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([
-    { id: "boot-0", type: "system", text: "(c) 2026 Z.ai Code" },
+    { id: "boot-0", type: "system", text: "(c) 2026 craighckby-stack" },
     { id: "boot-1", type: "system", text: "" },
     { id: "boot-2", type: "system", text: "Type 'help' for commands." },
     { id: "boot-3", type: "system", text: "" },
