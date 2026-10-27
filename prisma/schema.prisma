@@ -10,24 +10,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
 /// A single execution of the 6-stage refactoring pipeline on one file.
 model PipelineRun {
   id             String   @id @default(cuid())
@@ -77,16 +59,6 @@ model MemoryEntry {
   cleanSnippet String?
   content     String
   createdAt   DateTime @default(now())
-}
-
-/// Logged events emitted by the autonomous loop engine.
-model LoopLog {
-  id        String   @id @default(cuid())
-  cycleId   String?
-  timestamp DateTime @default(now())
-  type      String   // info | warn | success | error
-  message   String
-  source    String   // autonomous | pipeline | github | websocket
 }
 
 /// Per-file postmortem — negative constraints learned from past failures.
@@ -157,16 +129,4 @@ model SelfTask {
   doneAt     DateTime?
 
   @@unique([kind, filePath, line])
-}
-
-/// Direct-Gemini credentials for the chat/task engine (user-configurable
-/// via /api/self-enhance/llm-config). Stored server-side only.
-model LlmConfig {
-  id            String    @id @default("singleton")
-  geminiApiKey  String
-  geminiModel   String    @default("gemini-2.5-flash")
-  lastUsedAt    DateTime?
-  lastError     String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
 }
