@@ -248,6 +248,8 @@ function walkAndCollect(dir: string, branch: string, repoSlug: string, out: Post
     return;
   }
   for (const entry of entries) {
+    if (!entry.name) continue; // Skip if entry.name is null/undefined
+    
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
       walkAndCollect(fullPath, branch, repoSlug, out);
@@ -268,6 +270,12 @@ function walkAndCollect(dir: string, branch: string, repoSlug: string, out: Post
         let filePath = parsed.filePath;
         if (!filePath || filePath !== rel) {
           filePath = rel;
+        }
+        
+        // Ensure filePath is never undefined
+        if (!filePath) {
+          console.error(`Skipping postmortem file with invalid path: ${fullPath}`);
+          continue;
         }
         
         out.push(fromFileShape({ ...parsed, filePath }));
