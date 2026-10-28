@@ -135,7 +135,7 @@ export function validateStructure(
  */
 function extractTopLevelExports(code: string): Set<string> {
   // Input validation
-  if (typeof code !== 'string') {
+  if (typeof code !== 'string' || !code.trim()) {
     return new Set<string>();
   }
 
@@ -157,8 +157,8 @@ function extractTopLevelExports(code: string): Set<string> {
         continue;
       }
       
-      // Check for export default but ensure it's not part of a larger export statement
-      if (exportDefaultRe.test(trimmed) && !trimmed.includes('export default')) {
+      // Check for export default
+      if (exportDefaultRe.test(trimmed)) {
         exports.add("default");
         continue;
       }
