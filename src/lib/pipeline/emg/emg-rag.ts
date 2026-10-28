@@ -247,6 +247,7 @@ class EmgRagMemory {
         })
         .catch((error) => {
           console.error("Failed to save memory entry to database:", error);
+          throw new Error(`Database error while saving memory entry: ${error instanceof Error ? error.message : String(error)}`);
         });
     }
     
@@ -351,6 +352,7 @@ class EmgRagMemory {
     if (db.memoryEntry) {
       db.memoryEntry.deleteMany({}).catch((error) => {
         console.error("Failed to clear memory entries from database:", error);
+        throw new Error(`Database error while clearing memory entries: ${error instanceof Error ? error.message : String(error)}`);
       });
     }
   }
