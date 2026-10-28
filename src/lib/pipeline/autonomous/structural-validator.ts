@@ -134,6 +134,7 @@ export function validateStructure(
  * "export default" is included as the literal string "default".
  */
 function extractTopLevelExports(code: string): Set<string> {
+  // Input validation
   if (!code || typeof code !== 'string') {
     return new Set<string>();
   }
@@ -149,21 +150,26 @@ function extractTopLevelExports(code: string): Set<string> {
   for (const line of lines) {
     const trimmed = line.trim();
     
-    const m = trimmed.match(exportRe);
-    if (m && m[1]) {
-      exports.add(m[1]);
-      continue;
-    }
-    if (exportDefaultRe.test(trimmed)) {
-      exports.add("default");
-      continue;
-    }
-    const braceMatch = trimmed.match(exportBraceRe);
-    if (braceMatch && braceMatch[1]) {
-      for (const name of braceMatch[1].split(",")) {
-        const trimmedName = name.trim().split(/\s+as\s+/)[0];
-        if (trimmedName) exports.add(trimmedName);
+    try {
+      const m = trimmed.match(exportRe);
+      if (m && m[1]) {
+        exports.add(m[1]);
+        continue;
       }
+      if (exportDefaultRe.test(trimmed)) {
+        exports.add("default");
+        continue;
+      }
+      const braceMatch = trimmed.match(exportBraceRe);
+      if (braceMatch && braceMatch[1]) {
+        for (const name of braceMatch[1].split(",")) {
+          const trimmedName = name.trim().split(/\s+as\s+/)[0];
+          if (trimmedName) exports.add(trimmedName);
+        }
+        continue;
+      }
+    } catch (error) {
+      // Continue processing if regex fails on a particular line
       continue;
     }
   }
