@@ -9,7 +9,7 @@ import nextTypescript from "eslint-config-next/typescript";
  */
 const normalizeConfig = (config) => {
   if (Array.isArray(config)) {
-    return config;
+    return /** @type {import('eslint').Linter.Config[]} */ (config);
   }
   if (config && typeof config === "object") {
     return [/** @type {import('eslint').Linter.Config} */ (config)];
