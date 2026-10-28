@@ -16,7 +16,7 @@ export interface Message {
   readonly id: string
   readonly username: string
   readonly content: string
-  readonly timestamp: Date
+  readonly timestamp: string
   readonly type: MessageType
 }
 
@@ -65,7 +65,7 @@ const createSystemMessage = (content: string): Message => ({
   id: generateMessageId(),
   username: 'System',
   content,
-  timestamp: new Date(),
+  timestamp: new Date().toISOString(),
   type: 'system',
 })
 
@@ -73,7 +73,7 @@ const createUserMessage = (username: string, content: string): Message => ({
   id: generateMessageId(),
   username,
   content,
-  timestamp: new Date(),
+  timestamp: new Date().toISOString(),
   type: 'user',
 })
 
