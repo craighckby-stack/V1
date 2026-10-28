@@ -183,6 +183,8 @@ class EmgRagMemory {
       // seeded stays false: the load is retried on the next query.
       console.error("Failed to load memory entries from database:", error);
       this.entries = [];
+      this.idf.clear();
+      this.vectors.clear();
     }
   }
 
@@ -253,7 +255,7 @@ class EmgRagMemory {
 
   public query(queryText: string): EmgQueryResult {
     // Validate input
-    if (!queryText || !queryText.trim()) {
+    if (!queryText || typeof queryText !== "string" || !queryText.trim()) {
       return {
         topFailures: [],
         topFixes: [],
