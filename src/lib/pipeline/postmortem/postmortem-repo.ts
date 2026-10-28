@@ -146,12 +146,6 @@ export function writePostmortemToDisk(rec: PostmortemRecord): void {
   // watcher) from reading a half-flushed file.
   const tmpPath = `${absPath}.tmp`;
   writeFileSync(tmpPath, json, "utf-8");
-  
-  // Check if file exists before renaming to prevent race condition
-  if (existsSync(absPath)) {
-    // If file exists, remove it first to ensure rename succeeds
-    require("fs").unlinkSync(absPath);
-  }
   renameSync(tmpPath, absPath);
 }
 
@@ -246,7 +240,11 @@ function walkAndCollect(dir: string, branch: string, repoSlug: string, out: Post
     entries = readdirSync(dir, { withFileTypes: true });
   } catch (error) {
     // Log the error but continue processing other directories
-    console.error(`Error reading directory ${dir}:`, error);
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      console.error(`Directory not found: ${dir}`);
+    } else {
+      console.error(`Error reading directory ${dir}:`, error);
+    }
     return;
   }
   for (const entry of entries) {
@@ -290,6 +288,9 @@ export async function rehydrateSqliteFromDisk(
 ): Promise<number> {
   if (upsert == null) {
     throw new Error("Upsert function cannot be null or undefined - rehydration requires a valid upsert function");
+  }
+  if (typeof upsert !== 'function') {
+    throw new Error("Upsert must be a function");
   }
   const records = listAllPostmortemsFromDisk();
   let count = 0;
