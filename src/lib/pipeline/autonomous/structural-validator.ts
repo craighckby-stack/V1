@@ -47,24 +47,17 @@ export function validateStructure(
     };
   }
 
-  if (!originalCode || typeof originalCode !== 'string') {
+  if (!originalCode || typeof originalCode !== 'string' || !originalCode.trim()) {
     return {
       ok: false,
       issues: [{ code: "INVALID_INPUT", message: "originalCode must be a non-empty string." }],
     };
   }
 
-  if (!refactoredCode || typeof refactoredCode !== 'string') {
+  if (!refactoredCode || typeof refactoredCode !== 'string' || !refactoredCode.trim()) {
     return {
       ok: false,
       issues: [{ code: "INVALID_INPUT", message: "refactoredCode must be a non-empty string." }],
-    };
-  }
-
-  if (!refactoredCode || !refactoredCode.trim()) {
-    return {
-      ok: false,
-      issues: [{ code: "EMPTY_FILE", message: "Refactored code is empty." }],
     };
   }
 
