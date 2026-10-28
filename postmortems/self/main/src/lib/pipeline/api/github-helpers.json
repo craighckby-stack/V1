@@ -1,0 +1,16 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/api/github-helpers.ts",
+  "status": "active",
+  "failureType": "REVIEW_REJECTED",
+  "symptom": "Debate rejected the refactor: Debate rejected (REQUIRES_REWRITE): The proposed refactor has conflicting assessments. While the Security Reviewer endorses the changes for removing redundant validation and improving error messages, the Architecture Reviewer opposes it, citing that the refactored code actually introduces redundant validation, violates DRY principles, and creates inconsistent error handling. The significant architectural concerns outweigh the security improvements, requiring a rewrite to address the DRY violations and inconsistent error handling.",
+  "evidence": "Change summary: ## Changes\n- Fixed redundant token validation in `githubHeaders()` - it was re-validating a token that was already validated in `getUsableToken()`\n- Improved error message in `githubHeaders()` to show the actual invalid token value instead of just saying \"Invalid token provided\"\n- Added null check for `process.env` in `getUsableToken()` to prevent potential runtime error if `process` is undefined",
+  "constraints": "The previous refactor of src/lib/pipeline/api/github-helpers.ts was rejected by the debate tribunal (REQUIRES_REWRITE). Address the review feedback before retrying.",
+  "attempts": 1,
+  "lastAttemptAt": "2026-10-28T16:16:52.740Z",
+  "resolvedAt": null,
+  "createdAt": "2026-10-28T16:16:52.741Z",
+  "updatedAt": "2026-10-28T16:16:52.741Z",
+  "schema": 1
+}

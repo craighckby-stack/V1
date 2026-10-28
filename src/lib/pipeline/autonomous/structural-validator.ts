@@ -39,6 +39,28 @@ export function validateStructure(
 ): StructureResult {
   const issues: StructureIssue[] = [];
 
+  // Input validation
+  if (!filePath || typeof filePath !== 'string' || !filePath.trim()) {
+    return {
+      ok: false,
+      issues: [{ code: "INVALID_INPUT", message: "filePath must be a non-empty string." }],
+    };
+  }
+
+  if (!originalCode || typeof originalCode !== 'string') {
+    return {
+      ok: false,
+      issues: [{ code: "INVALID_INPUT", message: "originalCode must be a non-empty string." }],
+    };
+  }
+
+  if (!refactoredCode || typeof refactoredCode !== 'string') {
+    return {
+      ok: false,
+      issues: [{ code: "INVALID_INPUT", message: "refactoredCode must be a non-empty string." }],
+    };
+  }
+
   if (!refactoredCode || !refactoredCode.trim()) {
     return {
       ok: false,
@@ -119,28 +141,35 @@ export function validateStructure(
 function extractTopLevelExports(code: string): Set<string> {
   const exports = new Set<string>();
   const lines = code.split("\n");
-  // Match `export <kind> <name>` and `export { ... }`
+  
+  // Cache regex patterns to avoid recompilation
   const exportRe = /^export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|var|interface|type|enum|abstract\s+class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/;
   const exportDefaultRe = /^export\s+default\b/;
   const exportBraceRe = /^export\s*\{([^}]+)\}/;
 
   for (const line of lines) {
     const trimmed = line.trim();
-    const m = trimmed.match(exportRe);
-    if (m && m[1]) {
-      exports.add(m[1]);
-      continue;
-    }
-    if (exportDefaultRe.test(trimmed)) {
-      exports.add("default");
-      continue;
-    }
-    const braceMatch = trimmed.match(exportBraceRe);
-    if (braceMatch && braceMatch[1]) {
-      for (const name of braceMatch[1].split(",")) {
-        const trimmedName = name.trim().split(/\s+as\s+/)[0];
-        if (trimmedName) exports.add(trimmedName);
+    
+    try {
+      const m = trimmed.match(exportRe);
+      if (m && m[1]) {
+        exports.add(m[1]);
+        continue;
       }
+      if (exportDefaultRe.test(trimmed)) {
+        exports.add("default");
+        continue;
+      }
+      const braceMatch = trimmed.match(exportBraceRe);
+      if (braceMatch && braceMatch[1]) {
+        for (const name of braceMatch[1].split(",")) {
+          const trimmedName = name.trim().split(/\s+as\s+/)[0];
+          if (trimmedName) exports.add(trimmedName);
+        }
+      }
+    } catch (error) {
+      // Continue processing other lines if one fails
+      continue;
     }
   }
   return exports;
