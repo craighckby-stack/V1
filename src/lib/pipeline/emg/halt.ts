@@ -162,7 +162,10 @@ export class SelfStoppingGovernor {
     if (typeof max !== "number" || max <= 0) {
       throw new Error("setMaxCycles requires a positive number");
     }
-    this.maxCycles = Math.min(MAX_ALLOWED_CYCLES, max);
+    if (max > MAX_ALLOWED_CYCLES) {
+      throw new Error(`setMaxCycles cannot exceed ${MAX_ALLOWED_CYCLES}`);
+    }
+    this.maxCycles = max;
   }
 
   public reset(): void {
