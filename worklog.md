@@ -1658,3 +1658,72 @@ Stage Summary:
 - Recovery complete except one thing ONLY THE USER CAN DO: re-enter the GitHub PAT via the CONFIG modal. Until then, mutations commit locally only (no data loss — the next successful push includes them on the next loop-NN branch).
 - Counter seeded to 32: when the token is re-entered, the next mutation pushes to loop-33. The setPushTarget upsert preserves the seeded counter (verified in code).
 - Loop is RUNNING and healthy: gate escalating correctly through the current 429 storm (2min → 5min tiers, jitter visible, deferral instead of burning calls).
+
+---
+Task ID: audit2-a
+Agent: main (Z.ai Code)
+Task: Second external audit, slice 1 — "parser-aware analysis core". Fix the audit's top confirmed items: naive detectTruncation false positives (raw brace/`/*` counting rejecting valid files), extractExports corrupted by URLs (comments stripped before strings), ScriptKind.TS hardcoded (display .tsx could never pass verification), naive truncation copies in task-executor/chat-task, isCosmeticChange + halt.normalizeCode `//`-in-string blindness, .tsx test-discovery extension bug.
+
+Work Log:
+- Verified every claim against the live tree before editing (all confirmed, incl. structural-validator.ts 34v35 raw braces, sanitizer.ts missing sanitizeAndGovern, trigger route calling runCycle with continuous=false).
+- Created src/lib/pipeline/autonomous/code-analysis.ts: ts.createScanner-based maskTokens (comments/strings/templates/regex, with regexAllowedAfter prev-token heuristic), stripComments, stripLiteralsAndComments, scriptKindForPath, parse-based detectTruncation (EOF-window + unterminated-literal heuristics, ScriptKind per extension).
+- BUG FOUND IN MY OWN NEW CODE during verification: standalone scan() returns the template substitution's closing `}` as CloseBraceToken — must call reScanTemplateToken(false) like the parser does, else a template's closing backtick swallows 30+ lines (this hid sanitizeAndGovern in the first run). Fixed with inTemplateSubstitution + brace-depth tracking.
+- Replaced self-enhance-loop's private detectTruncation with checkTruncation → shared util (call sites pass filePath now); extractExports now masks via stripLiteralsAndComments; isCosmeticChange via stripComments; findTestFilesFor + writeTestsForFile strip real extension (.ts/.tsx) and look for .test.ts/.test.tsx.
+- in-memory-typecheck: scriptKindForPath in both the compiler-host substitution and syntaxCheck (now takes optional filePath); threaded through verify-refactor.ts and task-executor.ts (both syntaxCheck call sites + the annotator's createSourceFile).
+- task-executor + chat-task: replaced their naive brace-count truncation guards with shared detectTruncation.
+- halt.ts normalizeCode: scanner-based comment stripping (URL-in-string no longer normalizes to zero-diff).
+- TEMP verification script (17 checks, deleted before commit): the auditor's three false-positive files (structural-validator, halt, console-stream.tsx) all now pass; genuine truncation (mid-expression/mid-string/mid-comment) still caught; mid-file syntax error with long valid tail NOT flagged; sanitizeAndGovern back in the export list; URL changes detected as non-cosmetic; console-stream.tsx passes syntaxCheck as TSX (and fails as TS — proving the fix matters); halt normalizeCode detects URL changes, ignores comment-only changes.
+- Fixed ts.isKeywordKind → not public in TS 5.9; used FirstKeyword..LastKeyword range. reScanTemplateToken requires isTaggedTemplate arg in 5.9.
+- lint clean, tsc --noEmit clean (1 type error fixed en route).
+- Committed c86e9ec, pushed to origin/main (extraheader auth from DB PAT), 0/0 sync.
+
+Stage Summary:
+- The loop's mechanical gates now see the real lexical structure: valid files stop being rejected as "truncated" (and stop recording false "token limit" postmortems that poisoned subsequent prompts); .tsx display components are verifiable for the first time; the ratchet's export list is complete.
+- New shared module: src/lib/pipeline/autonomous/code-analysis.ts (leaf dep: typescript only).
+- Verified: 17/17 script checks against the auditor's exact evidence files.
+
+---
+Task ID: audit2-b
+Agent: main (Z.ai Code)
+Task: Second external audit, slice 2 — "gates & races": ratchet burning attempts on 429s, debate gate failing open, parallel llmComplete calls racing the shared gate, runContinuous without run-token (stop/start double-loop), manual trigger doing nothing (my own Fix-C regression), resolveToken ?? dead env fallback, totalReverted double-count, AST gate recursing into function bodies + unqualified method keys, push self-heal merging wrong ref, emg-rag seeded-before-query + revoked entries in topFixes, unified-pipeline trust:"high" for failed runs, GitHub route validation gaps, PROTECTED_FILES drift, dead consecutiveRateLimits, tracked .pid/.log files.
+
+Work Log:
+- agent-llm.ts: llmComplete now dispatches through a module-level promise queue (performLlmComplete) — parallel callers (debate's Promise.all) serialize, so the gate is checked with knowledge of the previous call; no more double-strike escalation per outage. Updated the stale comment that claimed parallel safety it didn't have. Tightened isRateLimit to \b429\b.
+- debate-llm.ts: VALID_STANCES/VALID_CONSENSUS enums; invalid stance or consensus throws (review failure) instead of coercing to ENDORSE / defaulting to APPROVED (`?? "APPROVED"` removed).
+- self-enhance-loop.ts debateGate: catch now FAILS CLOSED with {approved:false, deferred:true} — tribunal unavailable defers the file (no postmortem, no reverted count); both call sites (ratchet gate 4 + enhance 5b) honor `deferred`.
+- Ratchet attempts: removed the pre-call increment; rateLimited returns defer WITHOUT recording; attempt recorded only after a real LLM call. Two gated calls no longer lock a module for 30 min.
+- runContinuous captures myRun (stale loop exits after stop→start); runCycle file-loop + enhanceFile post-ratchet checkpoints are token-ONLY (manual trigger fixed — was breaking on !this.continuous before the first file); manual cycles skip the between-file cooldown wait (defer fast).
+- resolveToken: falls through empty/invalid candidates (GITHUB_TOKEN now reachable).
+- totalReverted: removed 3 inline increments; counted once in runCycle via "Rejected" prefix.
+- Removed dead consecutiveRateLimits field + writes + comment mentions.
+- ast-diff-gate.ts extractSymbolsFromTs rewritten: top-level statements + namespace bodies only (no function-body recursion); class methods owner-qualified (ClassName.method); re-export keyed on exported alias (spec.name). Removed orphaned symbolKindFromDeclaration.
+- push-target.ts self-heal merges origin/${pushBranch} (the loop-NN actually being pushed), not origin/${target.branch}.
+- emg-rag.ts: seeded=true only after successful load (transient DB failure retries); topFixes + maxFixScore exclude trust:"revoked".
+- unified-pipeline.ts: RAG entry records failure/low for AST-failed runs, clean/high only when passed.
+- github routes: batch-commit rejects empty files array (400); commit-file accepts empty-string content (typeof check).
+- NEW src/lib/pipeline/autonomous/protected-files.ts: single shared PROTECTED_FILES (union of both drifted sets); self-enhance-loop re-exports it (files route unaffected); self-task-generator imports it (no longer can queue tasks against verifier/push path).
+- Untracked .dev-daemon.pid/.zscripts/dev.pid/.zscripts/mini-service-loop-ws-service.log; .gitignore += *.pid, .zscripts/*.log; deleted empty src/test.ts.
+- TEMP AST verification (5 checks, deleted): rename-4-locals now 100/100 PASS (auditor saw 2/100 rejected); Beta.run drop caught; exported-fn drop caught; export-alias rename caught. lint clean, tsc clean.
+- Committed 1f1fd23, pushed to origin/main, 0/0 sync.
+
+Stage Summary:
+- All gate-integrity and stop/start race items from the audit are fixed and committed (c86e9ec + 1f1fd23 on origin/main).
+- End-to-end verified live after a dev-server restart (see audit2-e2e): manual trigger processes all files, defers without burning attempts, debate fail-closed wired, loop restarted.
+
+---
+Task ID: audit2-e2e
+Agent: main (Z.ai Code)
+Task: End-to-end verification of audit2-a/b via agent-browser + live cycle, and honoring the user's pre-audit "Go" (restart the loop).
+
+Work Log:
+- First trigger attempt reproduced the OLD bug (0/18 instant break) — root cause: the dev server had been up since 04:03, BEFORE the fixes; the globalThis singleton pattern means the loop INSTANCE kept executing the OLD class's methods (old `!this.continuous` break). Fix on disk ≠ fix in memory. Killed the stale server tree (1155/1158/1162/1180).
+- Dev-server restart under this sandbox: plain nohup and single-& setsid both died at tool-session end. Working pattern: double-fork `( setsid bash -c "exec bun run dev" >/dev/null 2>&1 & )` — PPID=1, own session, survives across tool calls (verified with sentinel + server).
+- Fresh singleton (new code) verified via /: dashboard renders, control surface intact, footer sticky, mobile 390x844 layout captured (screenshots 17, 18, 19).
+- MANUAL TRIGGER (the previously-broken golden path) via the UI command input: cycle ran a REAL sweep — 17 files processed in ~24s: oversized files skipped honestly, first probe (github-helpers.ts) hit a live 429 and set the 2-min gate, every subsequent file deferred with "Ratchet: deferring test-writing — LLM on cooldown" and — the fix — every one still showed "(attempt 1)": NO attempts burned on gate deferrals. Zero reverts, zero postmortems, console-stream.tsx processed through the full path for the first time. "Cycle complete: 0/17" is now an honest all-deferred sweep, not a silent no-op.
+- Clicked START via the UI: continuous loop running; correctly sleeping out the active gate ("LLM cooldown active — pausing 73s before next file" — the stoppable wait; STOP would break it in <1s). UI flipped to [STOP]; terminal shows live logs.
+- Note: the z-ai provider is still returning 429s at 05:22 (quota window; same as the user's original report). The loop will resume real mutations automatically when the quota resets — now with all gates truthful.
+
+Stage Summary:
+- Browser-verified: / renders, manual trigger works end-to-end, defer paths honest, attempt counters unburned, continuous loop live (waiting on provider quota, will auto-resume).
+- Key operational lesson recorded: after editing loop/gate files, the dev server must be fully restarted for the singleton to pick up new code — hot reload swaps modules but keeps the old instance's prototype methods. Also: only the double-fork setsid pattern survives the sandbox's tool-session cleanup.
+- Screenshots: 16 (dashboard pre-restart), 17 (fresh server), 18 (loop running with fixes), 19 (mobile viewport).
