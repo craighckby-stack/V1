@@ -89,7 +89,7 @@ export class SelfStoppingGovernor {
   }
 
   public setSaturatedTreeHash(hash: string): void {
-    if (!hash) {
+    if (typeof hash !== "string" || hash.trim() === "") {
       throw new Error("setSaturatedTreeHash requires a non-empty string");
     }
     this.saturatedTreeHash = hash;
@@ -112,13 +112,16 @@ export class SelfStoppingGovernor {
   }
 
   public recordResult(success: boolean, filePath?: string): HaltEvaluationState | null {
-    // Update lastFilePath before checking for cycle reset
+    // Store previous path before updating
+    const previousFilePath = this.lastFilePath;
+    
+    // Update lastFilePath after checking for cycle reset
     if (filePath) {
       this.lastFilePath = filePath;
     }
     
     // Check if we should reset the cycle counter
-    if (filePath && this.lastFilePath && this.lastFilePath !== filePath) {
+    if (filePath && previousFilePath && previousFilePath !== filePath) {
       this.currentCycle = 0;
     }
     
