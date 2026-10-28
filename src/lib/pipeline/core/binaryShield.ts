@@ -50,8 +50,6 @@ export class BinaryShield {
     } catch (error) {
       cipher.destroy();
       throw new Error(`Encryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
-    } finally {
-      cipher.destroy();
     }
     
     const authTag = cipher.getAuthTag();
@@ -108,7 +106,7 @@ export class BinaryShield {
     }
     
     if (combinedData.length < AUTH_TAG_LENGTH) {
-      throw new Error(`Ciphertext too short for ${ALGORITHM_NAME} - must include ${AUTH_TAG_LENGTH}-byte authentication tag`);
+      throw new Error(`Ciphertext too short for ${ALGORITHM_NAME} - must include at least ${AUTH_TAG_LENGTH} bytes for authentication tag`);
     }
     
     const authTag = combinedData.subarray(combinedData.length - AUTH_TAG_LENGTH);
