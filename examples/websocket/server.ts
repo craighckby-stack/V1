@@ -40,6 +40,8 @@ export interface TestPayload {
 const PORT = 3003
 const PING_TIMEOUT_MS = 60000
 const PING_INTERVAL_MS = 25000
+const MAX_USERNAME_LENGTH = 32
+const MAX_CONTENT_LENGTH = 1024
 
 const httpServer: HttpServer = createServer()
 const io = new Server(httpServer, {
@@ -56,7 +58,7 @@ const io = new Server(httpServer, {
 const activeUsers = new Map<string, User>()
 
 // ==========================================
-// Factory Functions
+// Factory & Validation Functions
 // ==========================================
 
 const generateMessageId = (): string => Math.random().toString(36).substring(2, 11)
@@ -77,6 +79,11 @@ const createUserMessage = (username: string, content: string): Message => ({
   type: 'user',
 })
 
+const sanitizeString = (input: unknown, maxLength: number): string => {
+  if (typeof input !== 'string') return ''
+  return input.trim().slice(0, maxLength)
+}
+
 // ==========================================
 // Socket Event Handlers
 // ==========================================
@@ -93,7 +100,16 @@ const registerTestHandlers = (socket: Socket): void => {
 }
 
 const registerRoomHandlers = (socket: Socket, ioServer: Server): void => {
-  socket.on('join', ({ username }: JoinPayload) => {
+  socket.on('join', (payload: unknown) => {
+    if (!payload || typeof payload !== 'object') return
+    const rawUsername = (payload as Record<string, unknown>).username
+    const username = sanitizeString(rawUsername, MAX_USERNAME_LENGTH)
+
+    if (username.length === 0) {
+      socket.emit('error', { message: 'Invalid username provided' })
+      return
+    }
+
     const user: User = {
       id: socket.id,
       username,
@@ -110,7 +126,14 @@ const registerRoomHandlers = (socket: Socket, ioServer: Server): void => {
     console.log(`${username} joined the chat room, current online users: ${activeUsers.size}`)
   })
 
-  socket.on('message', ({ content, username }: MessagePayload) => {
+  socket.on('message', (payload: unknown) => {
+    if (!payload || typeof payload !== 'object') return
+    const record = payload as Record<string, unknown>
+    const content = sanitizeString(record.content, MAX_CONTENT_LENGTH)
+    const username = sanitizeString(record.username, MAX_USERNAME_LENGTH)
+
+    if (content.length === 0 || username.length === 0) return
+
     const user = activeUsers.get(socket.id)
 
     if (user && user.username === username) {
