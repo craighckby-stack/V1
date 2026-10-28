@@ -102,6 +102,11 @@ function containsKeyword(text: string | null | undefined, keywords: readonly str
   if (!text || typeof text !== 'string' || text.trim() === '') {
     return false;
   }
+  
+  if (!keywords || !Array.isArray(keywords)) {
+    return false;
+  }
+  
   const lowerText = text.toLowerCase();
   return keywords.some(keyword => keyword && typeof keyword === 'string' && lowerText.includes(keyword));
 }
