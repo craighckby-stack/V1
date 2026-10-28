@@ -98,7 +98,7 @@ export interface ArchitecturalVote {
   recommendedPattern: string;
 }
 
-function containsKeyword(text: string | null | undefined, keywords: readonly string[]): boolean {
+function containsKeyword(text: string | null | undefined, keywords: readonly string[] | null | undefined): boolean {
   if (!text || typeof text !== 'string' || text.trim() === '') {
     return false;
   }
@@ -112,11 +112,27 @@ function containsKeyword(text: string | null | undefined, keywords: readonly str
 }
 
 function isSecurityRelated(fileName: string | null | undefined, codeSnippet: string | null | undefined): boolean {
+  if (!fileName || typeof fileName !== 'string' || fileName.trim() === '') {
+    return false;
+  }
+  
+  if (!codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
+    return false;
+  }
+  
   return containsKeyword(fileName, SECURITY_KEYWORDS) || 
          containsKeyword(codeSnippet, SECURITY_KEYWORDS);
 }
 
 function isAgentRelated(fileName: string | null | undefined, codeSnippet: string | null | undefined): boolean {
+  if (!fileName || typeof fileName !== 'string' || fileName.trim() === '') {
+    return false;
+  }
+  
+  if (!codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
+    return false;
+  }
+  
   return containsKeyword(fileName, AGENT_KEYWORDS) || 
          containsKeyword(codeSnippet, AGENT_KEYWORDS);
 }
