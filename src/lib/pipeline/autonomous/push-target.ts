@@ -15,10 +15,72 @@
  */
 
 import { execSync, execFileSync } from "child_process";
+import { readFileSync, writeFileSync, existsSync, renameSync, rmSync } from "fs";
+import { join } from "path";
 import { db } from "@/lib/db";
 
 const PROJECT_ROOT = "/home/z/my-project";
 const SINGLETON_ID = "singleton";
+
+// ── Durable push-target state (audit2-d) ──────────────────────────────
+// The sandbox's boot sequence recreates the database (db:push at startup
+// on a restored filesystem layer), which wiped the push config — INCLUDING
+// the user's PAT — on every machine restart. The filesystem itself survives
+// restarts (git history, worklog, postmortems/ all persist). So the config
+// now ALSO lives in a gitignored JSON file at the project root: the DB is
+// the cache, the file is the source of truth, same pattern as the
+// postmortems (audit2-c). The file is NEVER committed — it holds a secret.
+const STATE_FILE = join(PROJECT_ROOT, ".loop-push-state.json");
+
+interface LoopPushState {
+  repo: string;
+  token: string;
+  branch: string;
+  createdRepo: boolean;
+  lastBranchNumber: number;
+  savedAt: string; // ISO — when the file was written
+}
+
+function readStateFile(): LoopPushState | null {
+  try {
+    if (!existsSync(STATE_FILE)) return null;
+    const parsed = JSON.parse(readFileSync(STATE_FILE, "utf-8")) as LoopPushState;
+    if (!parsed.repo || !parsed.token || !parsed.branch) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeStateFile(state: LoopPushState): void {
+  const tmp = `${STATE_FILE}.tmp`;
+  writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
+  renameSync(tmp, STATE_FILE); // atomic — never a half-written config
+}
+
+/** Seed the DB from the state file if the DB row is missing (the
+ *  machine-restart recovery path). Best-effort, idempotent. */
+async function seedDbFromStateFile(): Promise<LoopPushState | null> {
+  const state = readStateFile();
+  if (!state) return null;
+  try {
+    await db.gitPushTarget.upsert({
+      where: { id: SINGLETON_ID },
+      update: {}, // never overwrite an existing row — DB wins when present
+      create: {
+        id: SINGLETON_ID,
+        repo: state.repo,
+        token: state.token,
+        branch: state.branch,
+        createdRepo: state.createdRepo,
+        lastBranchNumber: state.lastBranchNumber,
+      },
+    });
+  } catch {
+    /* DB unavailable — the file alone still serves reads */
+  }
+  return state;
+}
 
 export interface PushTargetPublic {
   configured: boolean;
@@ -84,15 +146,48 @@ function validTokenFormat(token: string): boolean {
 
 /** Read the stored target (with token) — server-side only. */
 async function getStoredTarget(): Promise<StoredTarget | null> {
-  const row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
-  if (!row) return null;
+  let row: Awaited<ReturnType<typeof db.gitPushTarget.findUnique>> = null;
+  try {
+    row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
+  } catch {
+    /* DB unavailable — fall through to the state file */
+  }
+  if (!row) {
+    // DB wiped (machine restart) — recover from the durable state file.
+    const state = await seedDbFromStateFile();
+    if (state) return { repo: state.repo, token: state.token, branch: state.branch };
+    return null;
+  }
   return { repo: row.repo, token: row.token, branch: row.branch };
 }
 
 /** Public view of the push target — token never included. */
 export async function getPushTargetPublic(): Promise<PushTargetPublic> {
-  const row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
-  if (!row) return { configured: false };
+  let row: Awaited<ReturnType<typeof db.gitPushTarget.findUnique>> = null;
+  try {
+    row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
+  } catch {
+    /* DB unavailable — fall through to the state file */
+  }
+  if (!row) {
+    // DB wiped — report from the durable state file so the UI still shows
+    // the configured target (and the user knows they DON'T need to re-enter
+    // the token just because the DB was recreated).
+    const state = await seedDbFromStateFile();
+    if (state) {
+      return {
+        configured: true,
+        repo: state.repo,
+        branch: state.branch,
+        createdRepo: state.createdRepo,
+        lastPushAt: null,
+        lastPushSha: null,
+        lastPushError: null,
+        lastBranchNumber: state.lastBranchNumber,
+      };
+    }
+    return { configured: false };
+  }
   return {
     configured: true,
     repo: row.repo,
@@ -208,12 +303,29 @@ export async function setPushTarget(opts: {
     throw new Error(`Repo check failed for ${repo}: ${body.message ?? `HTTP ${repoRes.status}`}`);
   }
 
-  // 3. Persist config (upsert the singleton row)
+  // 3. Persist config (upsert the singleton row + durable state file)
   await db.gitPushTarget.upsert({
     where: { id: SINGLETON_ID },
     update: { repo, token, branch: "main", createdRepo: created, lastPushError: null },
     create: { id: SINGLETON_ID, repo, token, branch: "main", createdRepo: created },
   });
+  // Write-through to the durable state file (survives DB wipes). The branch
+  // counter is preserved from the existing file so a re-configure doesn't
+  // reset loop-NN numbering mid-run.
+  const prevState = readStateFile();
+  try {
+    writeStateFile({
+      repo,
+      token,
+      branch: "main",
+      createdRepo: created,
+      lastBranchNumber: prevState?.repo === repo ? prevState.lastBranchNumber : 0,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    // Non-fatal: the DB row is written; the file is the durability bonus.
+    console.error("[PUSH-TARGET] failed to write state file:", err);
+  }
 
   // 4. Point `origin` at the tokenless URL (safe to display in `git remote -v`)
   const remoteUrl = `https://github.com/${repo}.git`;
@@ -235,9 +347,11 @@ export async function setPushTarget(opts: {
   return { repo, login, created };
 }
 
-/** Clear the push target: delete the DB row and remove the remote. */
+/** Clear the push target: delete the DB row, remove the durable state
+ *  file, and remove the remote. */
 export async function clearPushTarget(): Promise<{ cleared: boolean }> {
   await db.gitPushTarget.deleteMany({ where: { id: SINGLETON_ID } });
+  try { rmSync(STATE_FILE, { force: true }); } catch { /* best-effort */ }
   try {
     execSync("git remote remove origin", { cwd: PROJECT_ROOT, timeout: 5000, stdio: "pipe" });
   } catch {
@@ -484,8 +598,15 @@ export async function pushCurrentState(opts?: {
  * The next enhancement will push to `loop-{N+1}` (zero-padded to 2).
  */
 export async function getLastBranchNumber(): Promise<number> {
-  const row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
-  return row?.lastBranchNumber ?? 0;
+  let row: Awaited<ReturnType<typeof db.gitPushTarget.findUnique>> = null;
+  try {
+    row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
+  } catch {
+    /* DB unavailable — fall through */
+  }
+  if (row) return row.lastBranchNumber ?? 0;
+  // DB wiped — the durable state file carries the counter.
+  return readStateFile()?.lastBranchNumber ?? 0;
 }
 
 /**
@@ -501,6 +622,13 @@ export async function setLastBranchNumber(next: number): Promise<void> {
     where: { id: SINGLETON_ID },
     data: { lastBranchNumber: next },
   }).catch(() => { /* non-fatal — counter is best-effort audit */ });
+  // Write-through to the durable state file (survives DB wipes).
+  const state = readStateFile();
+  if (state) {
+    try {
+      writeStateFile({ ...state, lastBranchNumber: next, savedAt: new Date().toISOString() });
+    } catch { /* best-effort */ }
+  }
 }
 
 /**

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { selfEnhanceLoop } from "@/lib/pipeline/autonomous/self-enhance-loop";
+import { llmGateInfo } from "@/lib/pipeline/llm/agent-llm";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -10,5 +11,9 @@ export async function GET() {
     stats: selfEnhanceLoop.getStats(),
     logs: selfEnhanceLoop.getLogs(),
     currentFile: selfEnhanceLoop.getCurrentFile(),
+    // Shared LLM rate-limit gate state — powers the UI's live countdown.
+    // `endsAtMs` is the anchor: the client ticks against it every second so
+    // the countdown stays accurate between polls (poll is every 2s).
+    llmGate: llmGateInfo(),
   });
 }

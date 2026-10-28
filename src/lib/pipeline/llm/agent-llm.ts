@@ -78,6 +78,32 @@ export function llmClearGate(): void {
   blockedUntil = 0;
 }
 
+/** Snapshot of the shared rate-limit gate, for the status API and UI.
+ *  `level` is the CURRENT escalation state (1-4): the cooldown that's active
+ *  now was set from COOLDOWNS_MS[level-1] (2/5/15/30 min). The next 429
+ *  after this one escalates to level+1; one successful call resets to 0. */
+export interface LlmGateInfo {
+  active: boolean;
+  /** Milliseconds until the gate opens (0 when inactive). */
+  remainingMs: number;
+  /** Epoch ms when the gate opens (0 when inactive) — the UI ticks against
+   *  this so the countdown stays accurate between polls. */
+  endsAtMs: number;
+  /** Escalation level of the ACTIVE cooldown (1=2min, 2=5min, 3=15min, 4=30min). */
+  level: number;
+}
+
+export function llmGateInfo(): LlmGateInfo {
+  const now = Date.now();
+  const active = blockedUntil > now;
+  return {
+    active,
+    remainingMs: active ? blockedUntil - now : 0,
+    endsAtMs: active ? blockedUntil : 0,
+    level: active ? Math.min(strikes, 4) : 0,
+  };
+}
+
 export interface LlmCallOptions {
   systemPrompt: string;
   userPrompt: string;

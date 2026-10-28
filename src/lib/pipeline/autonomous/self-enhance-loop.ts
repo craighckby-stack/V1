@@ -1275,6 +1275,10 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
             this.log("Stop during cooldown wait — breaking out of cycle", "warn");
             break;
           }
+          // Observability: the pause→resume transition is now visible in the
+          // log stream (previously the wait just silently ended and the next
+          // file's ratchet logs appeared — "resumed" was implied, not shown).
+          this.log("LLM cooldown cleared — resuming cycle", "success");
         }
         const result = await this.enhanceFile(file);
         results.push(result);

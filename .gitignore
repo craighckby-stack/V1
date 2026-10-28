@@ -17,3 +17,6 @@ tool-results/
 # runtime state — never commit process ids or service logs (audit 2)
 *.pid
 .zscripts/*.log
+
+# durable push-target state (contains the PAT — NEVER commit)
+.loop-push-state.json

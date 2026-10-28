@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ConsoleStream, type ConsoleLine } from "./display/console-stream";
 
 interface LogEntry {
   timestamp: string;
   message: string;
   type: "info" | "success" | "warn" | "error";
+}
+
+interface LlmGate {
+  active: boolean;
+  remainingMs: number;
+  endsAtMs: number;
+  level: number; // 1=2min, 2=5min, 3=15min, 4=30min escalation
 }
 
 interface SelfEnhanceStatus {
@@ -22,6 +29,7 @@ interface SelfEnhanceStatus {
   };
   logs: LogEntry[];
   currentFile: string | null;
+  llmGate?: LlmGate;
 }
 
 interface PushTargetInfo {
@@ -117,6 +125,7 @@ const TEXT_COLOR = "#e0e0e0";
 const DIM_COLOR = "#777777";
 const USER_INPUT_COLOR = "#ffffff";
 const ERROR_COLOR = "#ff4444";
+const WARN_COLOR = "#ffaa33"; // LLM cooldown countdown + other warn-state chips
 
 // Shared styles for the config panel (kept DOS-themed to match the terminal)
 const cfgInputStyle = {
@@ -242,6 +251,35 @@ export default function Home() {
       clearInterval(interval);
     };
   }, []);
+
+  // LLM cooldown countdown: tick every second WHILE the gate is active so
+  // the header chip counts down smoothly between the 2s status polls. The
+  // countdown anchors on `llmGate.endsAtMs` (server epoch), so clock skew
+  // between polls self-corrects — each poll re-anchors, the tick just fills
+  // the gap. When the gate is inactive the interval is cleared (no idle
+  // re-renders).
+  const gateActive = status?.llmGate?.active ?? false;
+  const gateEndsAt = status?.llmGate?.endsAtMs ?? 0;
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => {
+    if (!gateActive) return;
+    setNowTick(Date.now());
+    const t = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [gateActive]);
+  const gateRemainingMs = gateActive ? Math.max(0, gateEndsAt - nowTick) : 0;
+  /** MM:SS (or H:MM:SS past an hour — the max escalation is 30min, but be
+   *  robust if the provider ever sends a huge Retry-After). */
+  const gateCountdown = useMemo(() => {
+    const totalSec = Math.ceil(gateRemainingMs / 1000);
+    if (totalSec <= 0) return "00:00";
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    const mm = String(m).padStart(2, "0");
+    const ss = String(s).padStart(2, "0");
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }, [gateRemainingMs]);
 
   // Poll the task-queue counts every 5s (limit=1 keeps the payload tiny —
   // the queue stats come back regardless of the limit).
@@ -1069,6 +1107,42 @@ export default function Home() {
           >
             {running ? "●" : "○"}
           </span>
+          {/* LLM rate-limit countdown — visible whenever the shared gate is
+              active. Ticks down every second (anchored on the server's
+              endsAtMs); "RESUMING…" shows in the final sub-poll window after
+              the local countdown hits zero but before the next poll clears
+              the chip. The loop itself is PAUSED in a stoppable wait during
+              this entire window — STOP breaks it within 1s. */}
+          {gateActive && (
+            <span
+              aria-label={`LLM rate-limited — paused, resuming in ${gateCountdown}`}
+              title={
+                status?.llmGate?.level
+                  ? `LLM rate-limited — loop paused until quota window resets (escalation level ${status.llmGate.level}/4). STOP still works during the pause.`
+                  : "LLM rate-limited — loop paused until quota window resets."
+              }
+              style={{
+                color: WARN_COLOR,
+                fontSize: "12px",
+                fontFamily: "inherit",
+                letterSpacing: "0.5px",
+                whiteSpace: "nowrap",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+              }}
+            >
+              <span aria-hidden>⏳</span>
+              {gateRemainingMs > 0 ? (
+                <span>
+                  LLM&nbsp;COOLDOWN&nbsp;
+                  <span style={{ fontVariantNumeric: "tabular-nums" }}>{gateCountdown}</span>
+                </span>
+              ) : (
+                <span>RESUMING…</span>
+              )}
+            </span>
+          )}
         </div>
         <style>{`
           @keyframes loopPulse {
