@@ -21,6 +21,7 @@ import { postmortemStore } from "../postmortem/postmortem-store";
 import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopBranch } from "./push-target";
 import { db } from "@/lib/db";
 import { generateTasks } from "./self-task-generator";
+import { detectTruncation, stripComments, stripLiteralsAndComments } from "./code-analysis";
 
 const PIPELINE_SRC_DIR = "/home/z/my-project/src/lib/pipeline";
 const DISPLAY_SRC_DIR = "/home/z/my-project/src/app/display";
@@ -39,18 +40,23 @@ const PROJECT_ROOT = "/home/z/my-project";
  */
 function findTestFilesFor(sourceFilePath: string): string[] {
   const dir = dirname(sourceFilePath);
-  const base = basename(sourceFilePath, ".ts");
+  // Strip the ACTUAL extension. basename(p, ".ts") leaves ".tsx" files
+  // unchanged, so `console-stream.tsx` used to look for a co-located test
+  // named `console-stream.tsx.test.ts` — never finding `console-stream.test.tsx`
+  // (audit 2, item 13).
+  const ext = sourceFilePath.endsWith(".tsx") ? ".tsx" : ".ts";
+  const base = basename(sourceFilePath, ext);
   const testFiles: string[] = [];
 
-  // 1. Co-located test file: foo.ts -> foo.test.ts
-  const coLocated = join(dir, `${base}.test.ts`);
+  // 1. Co-located test file: foo.ts -> foo.test.ts, foo.tsx -> foo.test.tsx
+  const coLocated = join(dir, `${base}.test${ext}`);
   if (existsSync(coLocated)) testFiles.push(coLocated);
 
-  // 2. Scan the directory for .test.ts files that import the source file
+  // 2. Scan the directory for .test.ts/.test.tsx files that import the source
   try {
     const entries = readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".test.ts")) continue;
+      if (!entry.isFile() || !(entry.name.endsWith(".test.ts") || entry.name.endsWith(".test.tsx"))) continue;
       const testPath = join(dir, entry.name);
       if (testPath === coLocated) continue; // already added
       try {
@@ -105,7 +111,7 @@ function findTestFilesFor(sourceFilePath: string): string[] {
  *     value but is a type" typecheck errors).
  *   - default exports need `import X from './base'` (no braces).
  */
-function extractExports(source: string): { names: string[]; kinds: Record<string, string> } {
+export function extractExports(source: string): { names: string[]; kinds: Record<string, string> } {
   const names: string[] = [];
   const kinds: Record<string, string> = {};
   const seen = new Set<string>();
@@ -117,16 +123,14 @@ function extractExports(source: string): { names: string[]; kinds: Record<string
     }
   };
 
-  // Strip block comments, line comments, and string/template literals so the
-  // regexes below don't match inside them. Replace with empty/sentinel
-  // strings of the same rough shape (keeps line numbers stable for any
-  // future error reporting, though we don't use them here).
-  const stripped = source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/[^\n]*/g, "")
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
-    .replace(/'(?:[^'\\]|\\.)*'/g, "''")
-    .replace(/`(?:[^`\\]|\\.)*`/g, "``");
+  // Mask comments, string/template literals AND regex literals with the real
+  // TypeScript scanner (code-analysis.ts). The previous order-sensitive regex
+  // chain stripped comments BEFORE strings, so the `//` in a URL string
+  // literal ate the rest of its line and the string regex then paired quotes
+  // across lines — swallowing real export declarations (audit 2: for
+  // sanitizer.ts, `sanitizeAndGovern` went missing from this list, which the
+  // test-writer prompt calls "EXACTLY these symbols").
+  const stripped = stripLiteralsAndComments(source);
 
   let m: RegExpExecArray | null;
   // export [async] function foo
@@ -381,48 +385,15 @@ class SelfEnhanceLoop {
   }
 
   /**
-   * Detect truncated LLM output. The LLM often hits its output token limit
-   * mid-comment on larger files, producing code with:
-   *   - Unbalanced braces (more opens than closes)
-   *   - Unterminated block comments (odd count of block-comment delimiters)
-   *   - Missing closing code fence at the end
-   * Catching this early avoids a ~10s wasted typecheck cycle.
+   * Detect truncated LLM output. Delegates to the parser-based
+   * implementation in code-analysis.ts — see that file for why raw
+   * character counting produced false positives on perfectly valid files
+   * (brace imbalance inside strings/regexes read as "truncation", and each
+   * false positive recorded a bogus "LLM hit its output token limit"
+   * postmortem that then poisoned the next prompt).
    */
-  private detectTruncation(code: string, original: string): { truncated: boolean; reason?: string } {
-    // 1. Unbalanced braces — count { and } (ignoring strings/comments is hard;
-    //    a rough count is enough to catch truncation since the original was balanced)
-    let opens = 0, closes = 0;
-    for (let i = 0; i < code.length; i++) {
-      if (code[i] === "{") opens++;
-      else if (code[i] === "}") closes++;
-    }
-    if (opens !== closes) {
-      return {
-        truncated: true,
-        reason: `unbalanced braces (${opens} { vs ${closes} })`,
-      };
-    }
-
-    // 2. Unterminated block comment — odd number of /* */ pairs
-    const blockCommentOpens = (code.match(/\/\*/g) || []).length;
-    const blockCommentCloses = (code.match(/\*\//g) || []).length;
-    if (blockCommentOpens !== blockCommentCloses) {
-      return {
-        truncated: true,
-        reason: `unterminated block comment (${blockCommentOpens} /* vs ${blockCommentCloses} */)`,
-      };
-    }
-
-    // 3. Refactored code is significantly shorter than original + missing closing
-    //    characters — likely cut off mid-generation
-    if (code.length < original.length * 0.5 && !code.endsWith("}") && !code.endsWith(";")) {
-      return {
-        truncated: true,
-        reason: `output too short (${code.length}b vs ${original.length}b original) and not properly terminated`,
-      };
-    }
-
-    return { truncated: false };
+  private checkTruncation(code: string, original: string, filePath?: string): { truncated: boolean; reason?: string } {
+    return detectTruncation(code, original, filePath);
   }
 
   /**
@@ -636,12 +607,12 @@ class SelfEnhanceLoop {
    * output NO_CHANGES_NEEDED. We detect the equivalent after the fact.
    */
   private isCosmeticChange(original: string, refactored: string): boolean {
-    // Strip // comments, /* */ comments, and all whitespace, then compare
-    const strip = (s: string) =>
-      s
-        .replace(/\/\*[\s\S]*?\*\//g, "") // block comments
-        .replace(/\/\/[^\n]*/g, "") // line comments
-        .replace(/\s+/g, ""); // all whitespace
+    // Mask comments with the real scanner (code-analysis.ts), then strip all
+    // whitespace, then compare. Comment churn is cosmetic; code and string
+    // content are not. The old regex chain stripped `//` inside STRING
+    // literals too, so a real change after a URL on the same line looked
+    // cosmetic (audit 2).
+    const strip = (s: string) => stripComments(s).replace(/\s+/g, "");
     return strip(original) === strip(refactored);
   }
 
@@ -789,7 +760,7 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       }
 
       // Gate 1: truncation + anti-tautology (mechanical, instant)
-      const truncation = this.detectTruncation(code, "");
+      const truncation = this.checkTruncation(code, "", testPath);
       if (truncation.truncated) {
         this.log(`Ratchet: rejected test for ${relPath} (truncated: ${truncation.reason})`, "warn");
         return false;
@@ -1046,7 +1017,7 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       result.diffBytes = Math.abs(cleanCode.length - originalCode.length);
 
       // 3c. Detect truncated LLM output before the expensive typecheck.
-      const truncation = this.detectTruncation(cleanCode, originalCode);
+      const truncation = this.checkTruncation(cleanCode, originalCode, filePath);
       if (truncation.truncated) {
         result.reason = `Rejected (LLM output truncated: ${truncation.reason})`;
         this.log(`Rejected ${relPath} (LLM output truncated: ${truncation.reason})`, "warn");

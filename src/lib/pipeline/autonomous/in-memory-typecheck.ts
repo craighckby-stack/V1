@@ -19,6 +19,7 @@
 import * as ts from "typescript";
 import { readFileSync } from "fs";
 import { resolve, relative } from "path";
+import { scriptKindForPath } from "./code-analysis";
 
 const PROJECT_ROOT = "/home/z/my-project";
 const TSCONFIG_PATH = resolve(PROJECT_ROOT, "tsconfig.json");
@@ -81,14 +82,18 @@ export function typecheckRefactor(
     onError?: (message: string) => void,
     shouldCreateNewSourceFile?: boolean
   ): ts.SourceFile | undefined => {
-    // Substitute the refactored code for our target file
+    // Substitute the refactored code for our target file. ScriptKind must
+    // follow the file's real extension: hardcoding ScriptKind.TS made every
+    // proposed .tsx refactor fail with JSX parse errors like "'>' expected"
+    // before verification even started (audit 2) — so display components
+    // could never pass, and every attempt burned an LLM call.
     if (resolve(fileName) === absPath) {
       return ts.createSourceFile(
         fileName,
         refactoredCode,
         languageVersion,
         true,
-        ts.ScriptKind.TS
+        scriptKindForPath(fileName)
       );
     }
     return originalGetSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
@@ -122,14 +127,17 @@ export function typecheckRefactor(
 /**
  * Quick syntax-only check (much faster than full typecheck).
  * Used as a pre-filter to catch obvious syntax errors before the full check.
+ * @param filePath Real path of the target file — .tsx sources are parsed
+ * with ScriptKind.TSX so JSX isn't reported as syntax errors.
  */
-export function syntaxCheck(code: string): { ok: boolean; error?: string } {
+export function syntaxCheck(code: string, filePath?: string): { ok: boolean; error?: string } {
+  const kind = scriptKindForPath(filePath);
   const sourceFile = ts.createSourceFile(
-    "refactored.ts",
+    kind === ts.ScriptKind.TSX ? "refactored.tsx" : "refactored.ts",
     code,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS
+    kind
   );
   // SourceFile has syntactic diagnostics attached during parsing
   const diagnostics = (sourceFile as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics;

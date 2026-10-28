@@ -1,3 +1,5 @@
+import { stripComments } from "../autonomous/code-analysis";
+
 export interface HaltEvaluationState {
   shouldHalt: boolean;
   reason?:
@@ -19,13 +21,20 @@ const DEFAULT_MAX_CYCLES = 100;
 const MAX_ALLOWED_CYCLES = 1000;
 const WHITESPACE_REGEX = /\s+/g;
 const SPECIAL_CHARACTERS_REGEX = /\s*([{};:,=()])\s*/g;
-const SINGLE_LINE_COMMENT_REGEX = /\/\/[^\n\r]*/g;
-const MULTI_LINE_COMMENT_REGEX = /\/\*[\s\S]*?\*\//g;
 
+/**
+ * Normalize code for zero-diff saturation comparison: remove comments and
+ * collapse whitespace/punctuation spacing.
+ *
+ * Comment removal is done by the real TypeScript scanner
+ * (stripComments from code-analysis.ts) — NOT by regex. The old
+ * SINGLE_LINE_COMMENT_REGEX stripped from `//` to end-of-line inside STRING
+ * literals too, so `"https://old.example"` → `"https://new.example"`
+ * normalized to identical text and a REAL change was misclassified as
+ * ZERO_DIFF_SATURATION (audit 2, item 10).
+ */
 export function normalizeCode(code: string): string {
-  return code
-    .replace(MULTI_LINE_COMMENT_REGEX, "")
-    .replace(SINGLE_LINE_COMMENT_REGEX, "")
+  return stripComments(code)
     .replace(WHITESPACE_REGEX, " ")
     .replace(SPECIAL_CHARACTERS_REGEX, "$1")
     .trim();

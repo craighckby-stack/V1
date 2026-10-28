@@ -22,6 +22,7 @@ import * as ts from "typescript";
 import { readFileSync } from "fs";
 import { join, resolve } from "path";
 import { typecheckRefactor, syntaxCheck } from "./in-memory-typecheck";
+import { detectTruncation, scriptKindForPath } from "./code-analysis";
 import { llmComplete, extractCodeBlock } from "../llm/agent-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
 import { getTaskMethod } from "./self-task-generator";
@@ -66,7 +67,7 @@ function buildProgram(): ts.Program {
  */
 function executeMissingReturnType(task: TaskRow, code: string): TaskExecutionResult {
   const absPath = join(PROJECT_ROOT, task.filePath);
-  const sf = ts.createSourceFile(absPath, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const sf = ts.createSourceFile(absPath, code, ts.ScriptTarget.Latest, true, scriptKindForPath(task.filePath));
 
   // Find the function/method declaration whose name sits on the task's line
   let target: ts.FunctionDeclaration | ts.MethodDeclaration | null = null;
@@ -138,7 +139,7 @@ function executeMissingReturnType(task: TaskRow, code: string): TaskExecutionRes
   const insertPos = fn.body.getStart(sf);
   const newCode = code.slice(0, insertPos) + `: ${typeText} ` + code.slice(insertPos);
 
-  const syntax = syntaxCheck(newCode);
+  const syntax = syntaxCheck(newCode, task.filePath);
   if (!syntax.ok) {
     return { status: "failed", method: "deterministic", summary: "syntax check failed after insertion", error: syntax.error };
   }
@@ -210,17 +211,19 @@ ${code}
     return { status: "failed", method: "llm", summary: "LLM returned no code", error: "empty response" };
   }
 
-  // Truncation guard: unbalanced braces mean the file was cut off
-  const braces = (s: string) => (s.match(/\{/g) ?? []).length - (s.match(/\}/g) ?? []).length;
-  if (braces(newCode) !== 0) {
-    return { status: "failed", method: "llm", summary: "LLM output truncated (unbalanced braces)", error: "truncation" };
+  // Truncation guard — parser-based (code-analysis.ts). The old raw brace
+  // count misread imbalance inside strings/regexes as truncation; the parser
+  // only flags output whose parse errors sit at the end of the generation.
+  const truncation = detectTruncation(newCode, code, task.filePath);
+  if (truncation.truncated) {
+    return { status: "failed", method: "llm", summary: `LLM output truncated (${truncation.reason ?? "unknown"})`, error: "truncation" };
   }
 
   if (newCode.trim() === code.trim()) {
     return { status: "no-op", method: "llm", summary: "LLM returned the file unchanged (fix unsafe or unnecessary)" };
   }
 
-  const syntax = syntaxCheck(newCode);
+  const syntax = syntaxCheck(newCode, task.filePath);
   if (!syntax.ok) {
     return { status: "failed", method: "llm", summary: "syntax error in LLM output", error: syntax.error };
   }

@@ -68,8 +68,9 @@ async function main() {
     }
   }
 
-  // Gate 2: SYNTAX — fast AST parse.
-  const syntax = syntaxCheck(refactoredCode);
+  // Gate 2: SYNTAX — fast AST parse (ScriptKind follows the real extension,
+  // so .tsx display components parse as JSX, not as broken TypeScript).
+  const syntax = syntaxCheck(refactoredCode, filePath);
   if (!syntax.ok) {
     console.log(JSON.stringify({ ok: false, errors: [syntax.error ?? "Syntax error"] }));
     process.exit(1);

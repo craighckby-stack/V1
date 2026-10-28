@@ -17,6 +17,7 @@ import { execSync } from "child_process";
 import { join, relative } from "path";
 import { llmComplete, extractCodeBlock } from "../llm/agent-llm";
 import { pushCurrentState } from "./push-target";
+import { detectTruncation } from "./code-analysis";
 
 const PROJECT_ROOT = "/home/z/my-project";
 
@@ -338,14 +339,15 @@ Output the COMPLETE new content for this file that achieves the goal.`;
       continue;
     }
 
-    // Basic truncation check
-    const opens = (newCode.match(/{/g) || []).length;
-    const closes = (newCode.match(/}/g) || []).length;
-    if (opens !== closes) {
+    // Truncation check — parser-based (code-analysis.ts); the old raw brace
+    // count rejected valid files whose braces balanced only when counting
+    // inside strings/regexes.
+    const truncation = detectTruncation(newCode, originalCode, file.path);
+    if (truncation.truncated) {
       results.push({
         path: file.path,
         applied: false,
-        reason: `Rejected (unbalanced braces: ${opens} { vs ${closes} })`,
+        reason: `Rejected (LLM output truncated: ${truncation.reason ?? "unknown"})`,
         diffBytes: 0,
       });
       continue;
