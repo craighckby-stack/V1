@@ -64,8 +64,8 @@ export class SelfStoppingGovernor {
     
     const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
     const raw = sorted.map(f => {
-      if (!f || typeof f.path !== "string") {
-        throw new Error("Invalid file descriptor in computeTreeFingerprint");
+      if (!f || typeof f.path !== "string" || f.path.trim() === "") {
+        throw new Error("Invalid file descriptor in computeTreeFingerprint: missing or empty path");
       }
       return `${f.path}:${f.sha ?? f.size ?? 0}`;
     }).join("|");
@@ -96,7 +96,10 @@ export class SelfStoppingGovernor {
   }
 
   public checkZeroDiffSaturation(originalCode: string, proposedCode: string): HaltEvaluationState | null {
-    if (!originalCode || !proposedCode) {
+    if (typeof originalCode !== "string" || typeof proposedCode !== "string") {
+      throw new Error("checkZeroDiffSaturation requires both originalCode and proposedCode to be strings");
+    }
+    if (originalCode.trim() === "" || proposedCode.trim() === "") {
       throw new Error("checkZeroDiffSaturation requires both originalCode and proposedCode to be non-empty strings");
     }
     const normOriginal = normalizeCode(originalCode);
