@@ -1,41 +1,72 @@
-import { createServer } from 'http'
-import { Server } from 'socket.io'
+import { createServer, Server as HttpServer } from 'http'
+import { Server, Socket } from 'socket.io'
 
-const httpServer = createServer()
+// ==========================================
+// Types & Interfaces
+// ==========================================
+
+export interface User {
+  readonly id: string
+  readonly username: string
+}
+
+export type MessageType = 'user' | 'system'
+
+export interface Message {
+  readonly id: string
+  readonly username: string
+  readonly content: string
+  readonly timestamp: Date
+  readonly type: MessageType
+}
+
+export interface JoinPayload {
+  readonly username: string
+}
+
+export interface MessagePayload {
+  readonly username: string
+  readonly content: string
+}
+
+export interface TestPayload {
+  readonly [key: string]: unknown
+}
+
+// ==========================================
+// Constants & Server Initialization
+// ==========================================
+
+const PORT = 3003
+const PING_TIMEOUT_MS = 60000
+const PING_INTERVAL_MS = 25000
+
+const httpServer: HttpServer = createServer()
 const io = new Server(httpServer, {
   // DO NOT change the path, it is used by Caddy to forward the request to the correct port
   path: '/',
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+    origin: '*',
+    methods: ['GET', 'POST'],
   },
-  pingTimeout: 60000,
-  pingInterval: 25000,
+  pingTimeout: PING_TIMEOUT_MS,
+  pingInterval: PING_INTERVAL_MS,
 })
 
-interface User {
-  id: string
-  username: string
-}
+const activeUsers = new Map<string, User>()
 
-interface Message {
-  id: string
-  username: string
-  content: string
-  timestamp: Date
-  type: 'user' | 'system'
-}
+// ==========================================
+// Factory Functions
+// ==========================================
 
-const users = new Map<string, User>()
-
-const generateMessageId = () => Math.random().toString(36).substr(2, 9)
+const generateMessageId = (): string => Math.random().toString(36).substring(2, 11)
 
 const createSystemMessage = (content: string): Message => ({
   id: generateMessageId(),
   username: 'System',
   content,
   timestamp: new Date(),
-  type: 'system'
+  type: 'system',
 })
 
 const createUserMessage = (username: string, content: string): Message => ({
@@ -43,96 +74,101 @@ const createUserMessage = (username: string, content: string): Message => ({
   username,
   content,
   timestamp: new Date(),
-  type: 'user'
+  type: 'user',
 })
 
-io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.id}`)
+// ==========================================
+// Socket Event Handlers
+// ==========================================
 
-  // Add test event handler
-  socket.on('test', (data) => {
+const registerTestHandlers = (socket: Socket): void => {
+  socket.on('test', (data: TestPayload) => {
     console.log('Received test message:', data)
-    socket.emit('test-response', { 
-      message: 'Server received test message', 
-      data: data,
-      timestamp: new Date().toISOString()
+    socket.emit('test-response', {
+      message: 'Server received test message',
+      data,
+      timestamp: new Date().toISOString(),
     })
   })
+}
 
-  socket.on('join', (data: { username: string }) => {
-    const { username } = data
-    
-    // Create user object
+const registerRoomHandlers = (socket: Socket, ioServer: Server): void => {
+  socket.on('join', ({ username }: JoinPayload) => {
     const user: User = {
       id: socket.id,
-      username
+      username,
     }
-    
-    // Add to user list
-    users.set(socket.id, user)
-    
-    // Send join message to all users
+
+    activeUsers.set(socket.id, user)
+
     const joinMessage = createSystemMessage(`${username} joined the chat room`)
-    io.emit('user-joined', { user, message: joinMessage })
-    
-    // Send current user list to new user
-    const usersList = Array.from(users.values())
+    ioServer.emit('user-joined', { user, message: joinMessage })
+
+    const usersList = Array.from(activeUsers.values())
     socket.emit('users-list', { users: usersList })
-    
-    console.log(`${username} joined the chat room, current online users: ${users.size}`)
+
+    console.log(`${username} joined the chat room, current online users: ${activeUsers.size}`)
   })
 
-  socket.on('message', (data: { content: string; username: string }) => {
-    const { content, username } = data
-    const user = users.get(socket.id)
-    
+  socket.on('message', ({ content, username }: MessagePayload) => {
+    const user = activeUsers.get(socket.id)
+
     if (user && user.username === username) {
       const message = createUserMessage(username, content)
-      io.emit('message', message)
+      ioServer.emit('message', message)
       console.log(`${username}: ${content}`)
     }
   })
+}
+
+const registerConnectionLifecycle = (socket: Socket, ioServer: Server): void => {
+  console.log(`User connected: ${socket.id}`)
+
+  registerTestHandlers(socket)
+  registerRoomHandlers(socket, ioServer)
 
   socket.on('disconnect', () => {
-    const user = users.get(socket.id)
-    
+    const user = activeUsers.get(socket.id)
+
     if (user) {
-      // Remove from user list
-      users.delete(socket.id)
-      
-      // Send leave message to all users
+      activeUsers.delete(socket.id)
+
       const leaveMessage = createSystemMessage(`${user.username} left the chat room`)
-      io.emit('user-left', { user: { id: socket.id, username: user.username }, message: leaveMessage })
-      
-      console.log(`${user.username} left the chat room, current online users: ${users.size}`)
+      ioServer.emit('user-left', {
+        user: { id: socket.id, username: user.username },
+        message: leaveMessage,
+      })
+
+      console.log(`${user.username} left the chat room, current online users: ${activeUsers.size}`)
     } else {
       console.log(`User disconnected: ${socket.id}`)
     }
   })
 
-  socket.on('error', (error) => {
+  socket.on('error', (error: Error) => {
     console.error(`Socket error (${socket.id}):`, error)
   })
+}
+
+io.on('connection', (socket) => {
+  registerConnectionLifecycle(socket, io)
 })
 
-const PORT = 3003
+// ==========================================
+// Server Bootstrap & Lifecycle Management
+// ==========================================
+
 httpServer.listen(PORT, () => {
   console.log(`WebSocket server running on port ${PORT}`)
 })
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('Received SIGTERM signal, shutting down server...')
+const handleShutdown = (signal: string): void => {
+  console.log(`Received ${signal} signal, shutting down server...`)
   httpServer.close(() => {
     console.log('WebSocket server closed')
     process.exit(0)
   })
-})
+}
 
-process.on('SIGINT', () => {
-  console.log('Received SIGINT signal, shutting down server...')
-  httpServer.close(() => {
-    console.log('WebSocket server closed')
-    process.exit(0)
-  })
-})
+process.on('SIGTERM', () => handleShutdown('SIGTERM'))
+process.on('SIGINT', () => handleShutdown('SIGINT'))
