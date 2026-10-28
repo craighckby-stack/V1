@@ -7,18 +7,18 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
-type User = {
+export type User = {
   id: string;
   username: string;
-}
+};
 
-type Message = {
+export type Message = {
   id: string;
   username: string;
   content: string;
   timestamp: Date | string;
   type: 'user' | 'system';
-}
+};
 
 export default function SocketDemo() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -32,12 +32,12 @@ export default function SocketDemo() {
   const [, setUsersVersion] = useState(0);
 
   const triggerUsersUpdate = useCallback(() => {
-    setUsersVersion(v => v + 1);
+    setUsersVersion((v) => v + 1);
   }, []);
 
   useEffect(() => {
     // Connect to websocket server
-    // Never use PORT in the URL, alyways use XTransformPort
+    // Never use PORT in the URL, always use XTransformPort
     // DO NOT change the path, it is used by Caddy to forward the request to the correct port
     const socketInstance = io('/?XTransformPort=3003', {
       transports: ['websocket', 'polling'],
@@ -45,49 +45,62 @@ export default function SocketDemo() {
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
-      timeout: 10000
+      timeout: 10000,
     });
 
     socketRef.current = socketInstance;
 
-    socketInstance.on('connect', () => {
+    const handleConnect = () => {
       setIsConnected(true);
-    });
+    };
 
-    socketInstance.on('disconnect', () => {
+    const handleDisconnect = () => {
       setIsConnected(false);
-    });
+    };
 
-    socketInstance.on('message', (msg: Message) => {
-      setMessages(prev => [...prev, msg]);
-    });
+    const handleMessage = (msg: Message) => {
+      setMessages((prev) => [...prev, msg]);
+    };
 
-    socketInstance.on('user-joined', (data: { user: User; message: Message }) => {
-      setMessages(prev => [...prev, data.message]);
+    const handleUserJoined = (data: { user: User; message: Message }) => {
+      setMessages((prev) => [...prev, data.message]);
       if (!usersMapRef.current.has(data.user.id)) {
         usersMapRef.current.set(data.user.id, data.user);
         triggerUsersUpdate();
       }
-    });
+    };
 
-    socketInstance.on('user-left', (data: { user: User; message: Message }) => {
-      setMessages(prev => [...prev, data.message]);
+    const handleUserLeft = (data: { user: User; message: Message }) => {
+      setMessages((prev) => [...prev, data.message]);
       if (usersMapRef.current.has(data.user.id)) {
         usersMapRef.current.delete(data.user.id);
         triggerUsersUpdate();
       }
-    });
+    };
 
-    socketInstance.on('users-list', (data: { users: User[] }) => {
+    const handleUsersList = (data: { users: User[] }) => {
       usersMapRef.current.clear();
       for (let i = 0; i < data.users.length; i++) {
         const u = data.users[i];
         usersMapRef.current.set(u.id, u);
       }
       triggerUsersUpdate();
-    });
+    };
+
+    socketInstance.on('connect', handleConnect);
+    socketInstance.on('disconnect', handleDisconnect);
+    socketInstance.on('message', handleMessage);
+    socketInstance.on('user-joined', handleUserJoined);
+    socketInstance.on('user-left', handleUserLeft);
+    socketInstance.on('users-list', handleUsersList);
 
     return () => {
+      socketInstance.off('connect', handleConnect);
+      socketInstance.off('disconnect', handleDisconnect);
+      socketInstance.off('message', handleMessage);
+      socketInstance.off('user-joined', handleUserJoined);
+      socketInstance.off('user-left', handleUserLeft);
+      socketInstance.off('users-list', handleUsersList);
       socketInstance.disconnect();
     };
   }, [triggerUsersUpdate]);
@@ -108,19 +121,19 @@ export default function SocketDemo() {
     if (sock && trimmedInput && trimmedUsername) {
       sock.emit('message', {
         content: trimmedInput,
-        username: trimmedUsername
+        username: trimmedUsername,
       });
       setInputMessage('');
     }
   }, [inputMessage, username]);
 
-  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyPress = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       sendMessage();
     }
   }, [sendMessage]);
 
-  const handleUsernameKeyPress = useCallback((e: React.KeyboardEvent) => {
+  const handleUsernameKeyPress = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       handleJoin();
     }
@@ -148,7 +161,7 @@ export default function SocketDemo() {
               <Input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                onKeyPress={handleUsernameKeyPress}
+                onKeyDown={handleUsernameKeyPress}
                 placeholder="Enter your username..."
                 disabled={!isConnected}
                 className="flex-1"
@@ -196,7 +209,7 @@ export default function SocketDemo() {
                 <Input
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyPress={handleKeyPress}
+                  onKeyDown={handleKeyPress}
                   placeholder="Type a message..."
                   disabled={!isConnected}
                   className="flex-1"
