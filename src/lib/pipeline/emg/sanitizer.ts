@@ -114,6 +114,8 @@ function isLikelyEnvVarOrPath(s: string): boolean {
     return false;
   } catch (error) {
     // If any error occurs during validation, treat as not an env var/path
+    // Log the error for debugging purposes
+    console.error("Error in isLikelyEnvVarOrPath:", error);
     return false;
   }
 }
