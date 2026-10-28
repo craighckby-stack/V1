@@ -149,26 +149,21 @@ function extractTopLevelExports(code: string): Set<string> {
   for (const line of lines) {
     const trimmed = line.trim();
     
-    try {
-      const m = trimmed.match(exportRe);
-      if (m && m[1]) {
-        exports.add(m[1]);
-        continue;
+    const m = trimmed.match(exportRe);
+    if (m && m[1]) {
+      exports.add(m[1]);
+      continue;
+    }
+    if (exportDefaultRe.test(trimmed)) {
+      exports.add("default");
+      continue;
+    }
+    const braceMatch = trimmed.match(exportBraceRe);
+    if (braceMatch && braceMatch[1]) {
+      for (const name of braceMatch[1].split(",")) {
+        const trimmedName = name.trim().split(/\s+as\s+/)[0];
+        if (trimmedName) exports.add(trimmedName);
       }
-      if (exportDefaultRe.test(trimmed)) {
-        exports.add("default");
-        continue;
-      }
-      const braceMatch = trimmed.match(exportBraceRe);
-      if (braceMatch && braceMatch[1]) {
-        for (const name of braceMatch[1].split(",")) {
-          const trimmedName = name.trim().split(/\s+as\s+/)[0];
-          if (trimmedName) exports.add(trimmedName);
-        }
-        continue;
-      }
-    } catch (error) {
-      // Continue processing other lines if one fails
       continue;
     }
   }
