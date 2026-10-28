@@ -203,7 +203,7 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
       for (const literal of stringLiterals) {
         iterations++;
         if (iterations > MAX_ITERATIONS) {
-          violations.push("High entropy check exceeded maximum iterations - potential infinite loop prevented");
+          violations.push("High entropy check exceeded maximum iterations - potential infinite loop prevented. Consider reducing the number of string literals in the code.");
           break;
         }
 
