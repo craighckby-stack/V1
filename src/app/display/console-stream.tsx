@@ -68,17 +68,19 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
         }
         
         const safeText = line.text ?? "";
+        const safeId = line.id ?? "";
+        const safeType = line.type || "system";
         const color =
-          line.type === "command"
+          safeType === "command"
             ? USER_INPUT_COLOR
-            : line.type === "log"
+            : safeType === "log"
             ? COLOR_MAP[line.logType ?? "info"]
             : TEXT_COLOR;
 
         return (
-          <div key={line.id} style={{ color, whiteSpace: "pre-wrap" }}>
-            {line.type === "command" && "> "}
-            {line.type === "log" && line.ts && (
+          <div key={safeId} style={{ color, whiteSpace: "pre-wrap" }}>
+            {safeType === "command" && "> "}
+            {safeType === "log" && line.ts && (
               <span style={{ color: DIM_COLOR }}>[{line.ts}] </span>
             )}
             {safeText || "\u00a0"}
