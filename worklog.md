@@ -1727,3 +1727,26 @@ Stage Summary:
 - Browser-verified: / renders, manual trigger works end-to-end, defer paths honest, attempt counters unburned, continuous loop live (waiting on provider quota, will auto-resume).
 - Key operational lesson recorded: after editing loop/gate files, the dev server must be fully restarted for the singleton to pick up new code — hot reload swaps modules but keeps the old instance's prototype methods. Also: only the double-fork setsid pattern survives the sandbox's tool-session cleanup.
 - Screenshots: 16 (dashboard pre-restart), 17 (fresh server), 18 (loop running with fixes), 19 (mobile viewport).
+
+---
+Task ID: audit2-c
+Agent: main (Z.ai Code)
+Task: User said "Let's do that then makes sense" after the audit identified SQLite postmortems as non-durable (DB wipe = amnesia). Make failure memory survive DB recreations by moving the source of truth into the repo as committed JSON, with SQLite as a read cache.
+
+Work Log:
+- New src/lib/pipeline/postmortem/postmortem-repo.ts (leaf, fs-only, no DB dep): one JSON file per (repo, branch, filePath) under postmortems/<repo>/<branch>/<filepath>.json. Atomic writes (tmp+rename). Schema:1 versioned. Hand-readable, git-diff-friendly.
+- postmortem-store.ts wired as write-through + read-fallback:
+  - recordFailure: writes SQLite (cache) + disk (source of truth). DB-unavailable fallback no longer returns an amnesic in-memory record — it still writes to disk so the next read finds it.
+  - getActivePostmortem: SQLite first, disk second (the wiped-DB recovery path).
+  - markResolved: updates both SQLite and disk so the audit trail shows "failed then fixed".
+  - listActive: merges DB + disk-only records (UI sees everything before rehydration).
+  - ensureRehydrated: one-time idempotent import of disk → SQLite on first read (skips existing rows — never overwrites a fresher DB row with a stale disk row).
+- postmortems/ lives at repo root, OUTSIDE both scan roots (src/lib/pipeline, src/app/display) — the loop can never mutate its own failure memory; PROTECTED_FILES not needed for it.
+- 31-case verification script (deleted before commit): write/read round-trip, missing→null, wrong-repo→null, resolve-on-disk, listFromDisk enumeration + repo/branch filter, disk fallback when SQLite empty, promptBlock formatting from disk record, recordFailure write-through, markResolved resolves disk, resolved records excluded from getActivePostmortem. Rehydration fired correctly during test 8 ("rehydrated 1 record(s) from repo to DB").
+- lint clean, tsc clean. Loop was mid-cycle (15-min gate, still 429ing) throughout — hot-reload picked up the new module without restarting; verified the in-flight cycle was unaffected.
+- Committed c90aeb4, pushed to origin/main, 0/0 sync.
+
+Stage Summary:
+- The "demonstrably learning from previous failures" benchmark now holds across DB recreations. After a wipe, the system rehydrates its failure memory from the repo's postmortems/ directory on first read.
+- The git history of postmortems/ becomes an auditable trail: which files failed, how many times, what constraint was injected, when each was resolved.
+- No live data yet (z-ai still 429ing, loop sleeping out the gate); the directory will populate as mutations land and get rejected, and will survive the next DB wipe.
