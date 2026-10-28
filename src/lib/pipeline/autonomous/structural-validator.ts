@@ -122,10 +122,12 @@ export function validateStructure(
   // 5. LICENSE HEADER STRIPPING — copyright/SPDX in the first 2000 chars of
   // original but missing in candidate.
   const licenseRe = /(?:SPDX-License-Identifier:|Copyright\s+(?:\([cC]\)|©)|Licensed\s+under\s+the|Permission\s+is\s+hereby\s+granted)/i;
-  if (licenseRe.test(originalCode.slice(0, 2000)) && !licenseRe.test(refactoredCode.slice(0, 2000))) {
+  const origHasLicense = licenseRe.test(originalCode.slice(0, 2000));
+  const candHasLicense = licenseRe.test(refactoredCode.slice(0, 2000));
+  if (origHasLicense && !candHasLicense) {
     issues.push({
       code: "LICENSE_STRIPPED",
-      message: "Original file contained a license/copyright header; candidate removed it. License headers must be preserved.",
+      message: `Original file in ${filePath} contained a license/copyright header; candidate removed it. License headers must be preserved.`,
     });
   }
 
@@ -139,6 +141,10 @@ export function validateStructure(
  * "export default" is included as the literal string "default".
  */
 function extractTopLevelExports(code: string): Set<string> {
+  if (!code || typeof code !== 'string') {
+    return new Set<string>();
+  }
+
   const exports = new Set<string>();
   const lines = code.split("\n");
   
@@ -166,6 +172,7 @@ function extractTopLevelExports(code: string): Set<string> {
           const trimmedName = name.trim().split(/\s+as\s+/)[0];
           if (trimmedName) exports.add(trimmedName);
         }
+        continue;
       }
     } catch (error) {
       // Continue processing other lines if one fails
