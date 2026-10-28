@@ -96,6 +96,9 @@ export class SelfStoppingGovernor {
   }
 
   public checkZeroDiffSaturation(originalCode: string, proposedCode: string): HaltEvaluationState | null {
+    if (!originalCode || !proposedCode) {
+      throw new Error("checkZeroDiffSaturation requires both originalCode and proposedCode to be non-empty strings");
+    }
     const normOriginal = normalizeCode(originalCode);
     const normProposed = normalizeCode(proposedCode);
     if (normOriginal === normProposed) {
