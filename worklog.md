@@ -1750,3 +1750,34 @@ Stage Summary:
 - The "demonstrably learning from previous failures" benchmark now holds across DB recreations. After a wipe, the system rehydrates its failure memory from the repo's postmortems/ directory on first read.
 - The git history of postmortems/ becomes an auditable trail: which files failed, how many times, what constraint was injected, when each was resolved.
 - No live data yet (z-ai still 429ing, loop sleeping out the gate); the directory will populate as mutations land and get rejected, and will survive the next DB wipe.
+
+---
+Task ID: audit2-d
+Agent: main (Z.ai Code)
+Task: User: "Debug system again. Rate limit should pause system until available again add count down timer." Debug the loop's rate-limit pause behavior, then add a visible countdown timer for the LLM cooldown gate.
+
+Work Log:
+- DEBUG: found the machine restarted at 11:27 UTC (EADDRINUSE race in dev.log — two instances raced port 3000, one crashed; null-byte garbage in the log from the crashed writer). The restart wiped the DB AGAIN (db/ recreated by boot's db:push on the restored layer): GitPushTarget gone — including the PAT the user configured at 06:45 — all counts 0. The loop was killed by the restart (continuous state is per-process, no auto-resume).
+- Verified pause-until-available is intact in code (waitForCooldown: 1s-chunk stoppable poll; runCycle gate check before each file) and then LIVE:
+  * 11:34:27 first ratchet call → 429 → level-1 gate (2min), loop paused ("pausing 136s before next file")
+  * 11:36:47 gate cleared → "LLM cooldown cleared — resuming cycle" (new log line) → next ratchet → 429 → level-2 gate (5min) → paused again
+  * STOP during the level-2 pause broke out in 0.116s ("Stop during cooldown wait — breaking out of cycle")
+  * Escalation ladder confirmed live: 2min (L1) → 5min (L2); de-escalates on first success.
+- FEATURE — countdown timer:
+  * agent-llm.ts: new LlmGateInfo + llmGateInfo() export (active, remainingMs, endsAtMs, level 1-4).
+  * status route: response now includes `llmGate` (endsAtMs is the anchor — client ticks against server epoch so skew self-corrects between polls).
+  * page.tsx: amber chip next to the status dot — "⏳ LLM COOLDOWN 04:38", 1s tick (interval only while gate active, no idle re-renders), tabular-nums, tooltip shows escalation level + "STOP still works", "RESUMING…" in the final sub-poll window after local zero. Screenshot 20 (level-1) + 21 (level-2 escalation).
+  * self-enhance-loop.ts: "LLM cooldown cleared — resuming cycle" success log on wait completion (the pause→resume transition is now visible in the stream).
+- FIX — durable push-target config (the recurring DB-wipe pain, same lesson as audit2-c postmortems):
+  * push-target.ts: config (repo, token, branch, createdRepo, lastBranchNumber) now write-through to .loop-push-state.json (gitignored — holds the PAT, NEVER committed; atomic tmp+rename). getStoredTarget/getPushTargetPublic/getLastBranchNumber fall back to the file when the DB row is missing (and re-seed the DB, DB-wins-when-present). clearPushTarget removes the file. setLastBranchNumber write-throughs the counter.
+  * This makes the NEXT machine restart the first one where the token + branch counter survive.
+- tsc caught a real bug in my first pass: `let row = null` narrowed to type null → fixed with Awaited<ReturnType<...>> annotations (3 sites).
+- lint clean, tsc clean. Dev server fully restarted after edits (singleton-prototype lesson from audit2-e2e: the status route's llmGateInfo and the running loop must share ONE agent-llm module instance, or the countdown reads a different blockedUntil than the loop sets).
+- Live verification via agent-browser: countdown renders, ticks (01:26 → 01:20 over 6s), escalates (04:38 at L2), resume line fires, STOP breaks pause in 0.116s. Loop left RUNNING, paused-until-available on the L2 gate.
+- Committed locally — CANNOT PUSH: no push target (the wipe took the PAT). User must re-enter the token via CONFIG once more; after that the state file makes it permanent. A `push` command after configuring will publish all local commits.
+
+Stage Summary:
+- Rate-limit pause behavior: verified end-to-end live (pause → auto-resume → escalate → stoppable), plus visible countdown in the UI.
+- Push config is now durable across machine restarts (.loop-push-state.json write-through + fallback, gitignored).
+- The user re-enters the PAT exactly once more; every restart after that self-heals from the state file.
+- Screenshots: 20 (L1 countdown), 21 (L2 escalation).
