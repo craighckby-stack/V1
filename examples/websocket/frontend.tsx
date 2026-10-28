@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { io } from 'socket.io-client';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { io, Socket } from 'socket.io-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,9 +25,15 @@ export default function SocketDemo() {
   const [inputMessage, setInputMessage] = useState('');
   const [username, setUsername] = useState('');
   const [isUsernameSet, setIsUsernameSet] = useState(false);
-  const [socket, setSocket] = useState<any>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [users, setUsers] = useState<User[]>([]);
+  
+  const socketRef = useRef<Socket | null>(null);
+  const usersMapRef = useRef<Map<string, User>>(new Map());
+  const [, setUsersVersion] = useState(0);
+
+  const triggerUsersUpdate = useCallback(() => {
+    setUsersVersion(v => v + 1);
+  }, []);
 
   useEffect(() => {
     // Connect to websocket server
@@ -40,9 +46,9 @@ export default function SocketDemo() {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       timeout: 10000
-    })
+    });
 
-    setSocket(socketInstance);
+    socketRef.current = socketInstance;
 
     socketInstance.on('connect', () => {
       setIsConnected(true);
@@ -58,50 +64,72 @@ export default function SocketDemo() {
 
     socketInstance.on('user-joined', (data: { user: User; message: Message }) => {
       setMessages(prev => [...prev, data.message]);
-      setUsers(prev => {
-        if (!prev.find(u => u.id === data.user.id)) {
-          return [...prev, data.user];
-        }
-        return prev;
-      });
+      if (!usersMapRef.current.has(data.user.id)) {
+        usersMapRef.current.set(data.user.id, data.user);
+        triggerUsersUpdate();
+      }
     });
 
     socketInstance.on('user-left', (data: { user: User; message: Message }) => {
       setMessages(prev => [...prev, data.message]);
-      setUsers(prev => prev.filter(u => u.id !== data.user.id));
+      if (usersMapRef.current.has(data.user.id)) {
+        usersMapRef.current.delete(data.user.id);
+        triggerUsersUpdate();
+      }
     });
 
     socketInstance.on('users-list', (data: { users: User[] }) => {
-      setUsers(data.users);
+      usersMapRef.current.clear();
+      for (let i = 0; i < data.users.length; i++) {
+        const u = data.users[i];
+        usersMapRef.current.set(u.id, u);
+      }
+      triggerUsersUpdate();
     });
 
     return () => {
       socketInstance.disconnect();
     };
-  }, []);
+  }, [triggerUsersUpdate]);
 
-  const handleJoin = () => {
-    if (socket && username.trim() && isConnected) {
-      socket.emit('join', { username: username.trim() });
+  const handleJoin = useCallback(() => {
+    const trimmedUsername = username.trim();
+    const sock = socketRef.current;
+    if (sock && trimmedUsername && isConnected) {
+      sock.emit('join', { username: trimmedUsername });
       setIsUsernameSet(true);
     }
-  };
+  }, [username, isConnected]);
 
-  const sendMessage = () => {
-    if (socket && inputMessage.trim() && username.trim()) {
-      socket.emit('message', {
-        content: inputMessage.trim(),
-        username: username.trim()
+  const sendMessage = useCallback(() => {
+    const trimmedInput = inputMessage.trim();
+    const trimmedUsername = username.trim();
+    const sock = socketRef.current;
+    if (sock && trimmedInput && trimmedUsername) {
+      sock.emit('message', {
+        content: trimmedInput,
+        username: trimmedUsername
       });
       setInputMessage('');
     }
-  };
+  }, [inputMessage, username]);
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       sendMessage();
     }
-  };
+  }, [sendMessage]);
+
+  const handleUsernameKeyPress = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleJoin();
+    }
+  }, [handleJoin]);
+
+  const connectionBadgeClass = useMemo(() => 
+    `text-sm px-2 py-1 rounded ${isConnected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`,
+    [isConnected]
+  );
 
   return (
     <div className="container mx-auto p-4 max-w-2xl">
@@ -109,7 +137,7 @@ export default function SocketDemo() {
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             WebSocket Demo
-            <span className={`text-sm px-2 py-1 rounded ${isConnected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+            <span className={connectionBadgeClass}>
               {isConnected ? 'Connected' : 'Disconnected'}
             </span>
           </CardTitle>
@@ -120,11 +148,7 @@ export default function SocketDemo() {
               <Input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    handleJoin();
-                  }
-                }}
+                onKeyPress={handleUsernameKeyPress}
                 placeholder="Enter your username..."
                 disabled={!isConnected}
                 className="flex-1"
@@ -144,29 +168,26 @@ export default function SocketDemo() {
                   {messages.length === 0 ? (
                     <p className="text-gray-500 text-center">No messages yet</p>
                   ) : (
-                    messages.map((msg) => (
-                      <div key={msg.id} className="border-b pb-2 last:border-b-0">
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <p className={`text-sm font-medium ${msg.type === 'system'
-                                ? 'text-blue-600 italic'
-                                : 'text-gray-700'
-                              }`}>
-                              {msg.username}
-                            </p>
-                            <p className={`${msg.type === 'system'
-                                ? 'text-blue-500 italic'
-                                : 'text-gray-900'
-                              }`}>
-                              {msg.content}
-                            </p>
+                    messages.map((msg) => {
+                      const isSystem = msg.type === 'system';
+                      return (
+                        <div key={msg.id} className="border-b pb-2 last:border-b-0">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <p className={`text-sm font-medium ${isSystem ? 'text-blue-600 italic' : 'text-gray-700'}`}>
+                                {msg.username}
+                              </p>
+                              <p className={`${isSystem ? 'text-blue-500 italic' : 'text-gray-900'}`}>
+                                {msg.content}
+                              </p>
+                            </div>
+                            <span className="text-xs text-gray-500">
+                              {new Date(msg.timestamp).toLocaleTimeString()}
+                            </span>
                           </div>
-                          <span className="text-xs text-gray-500">
-                            {new Date(msg.timestamp).toLocaleTimeString()}
-                          </span>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </ScrollArea>
