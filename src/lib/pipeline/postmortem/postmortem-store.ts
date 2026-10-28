@@ -21,6 +21,13 @@ import { db } from "@/lib/db";
 import type { AstDiffResult } from "../core/ast-diff-gate";
 import type { SecuritySanitizerResult } from "../emg/sanitizer";
 import type { DebateVerdict } from "../emg/debate";
+import {
+  writePostmortemToDisk,
+  readPostmortemFromDisk,
+  resolvePostmortemOnDisk,
+  listFromDisk,
+  rehydrateSqliteFromDisk,
+} from "./postmortem-repo";
 
 export type PostmortemFailureType =
   | "AST_SYMBOL_DROPPED"
@@ -61,26 +68,86 @@ export interface PostmortemConstraints {
 }
 
 class PostmortemStore {
+  /** One-time rehydration guard: when the DB is wiped (or fresh), seed it
+   *  from the repo's postmortems/ directory on first read. Idempotent and
+   *  process-local — only runs once per process, so a DB wipe mid-run
+   *  still gets caught by the per-call disk fallback below. */
+  private rehydrated = false;
+  private async ensureRehydrated(): Promise<void> {
+    if (this.rehydrated) return;
+    this.rehydrated = true;
+    try {
+      const imported = await rehydrateSqliteFromDisk(async (rec) => {
+        // upsert: create if missing, skip if present (don't overwrite a
+        // fresher DB row with a stale disk row).
+        const existing = await db.postmortem.findUnique({
+          where: {
+            targetRepo_branch_filePath: {
+              targetRepo: rec.targetRepo,
+              branch: rec.branch,
+              filePath: rec.filePath,
+            },
+          },
+        });
+        if (existing) return;
+        await db.postmortem.create({
+          data: {
+            targetRepo: rec.targetRepo,
+            branch: rec.branch,
+            filePath: rec.filePath,
+            status: rec.status,
+            failureType: rec.failureType,
+            symptom: rec.symptom,
+            evidence: rec.evidence,
+            constraints: rec.constraints,
+            attempts: rec.attempts,
+            lastAttemptAt: new Date(rec.lastAttemptAt),
+            resolvedAt: rec.resolvedAt ? new Date(rec.resolvedAt) : null,
+          },
+        });
+      });
+      if (imported > 0) {
+        console.log(`[POSTMORTEM] rehydrated ${imported} record(s) from repo to DB`);
+      }
+    } catch {
+      /* best-effort — per-call disk fallback still covers reads */
+    }
+  }
+
   /**
    * Get the active postmortem for a specific file, if one exists.
    * Returns null if no active postmortem (file has never failed, or was resolved).
+   *
+   * Read order: SQLite (fast cache) → repo JSON (source of truth, survives
+   * DB wipes). The disk fallback is what makes failure memory durable
+   * across DB recreations.
    */
   async getActivePostmortem(
     repo: string,
     branch: string,
     filePath: string
   ): Promise<PostmortemRecord | null> {
+    await this.ensureRehydrated();
+    // 1. Fast path: SQLite cache.
     try {
       const record = await db.postmortem.findUnique({
         where: {
           targetRepo_branch_filePath: { targetRepo: repo, branch, filePath },
         },
       });
-      if (!record || record.status !== "active") return null;
-      return this.mapRecord(record);
+      if (record) {
+        if (record.status !== "active") return null;
+        return this.mapRecord(record);
+      }
     } catch {
-      return null;
+      /* DB unavailable — fall through to disk */
     }
+    // 2. Disk fallback: the repo's postmortems/<repo>/<branch>/<file>.json.
+    //    This is the wiped-DB recovery path: if SQLite is empty but the
+    //    repo has a record, the system still recalls the failure.
+    const fromDisk = readPostmortemFromDisk(repo, branch, filePath);
+    if (fromDisk && fromDisk.status === "active") return fromDisk;
+    return null;
   }
 
   /**
@@ -129,6 +196,12 @@ ${pm.constraints}
   /**
    * Record a failure for a file. Creates a new postmortem or updates the
    * existing one (incrementing attempts, replacing evidence/constraints).
+   *
+   * WRITE-THROUGH (audit2-c): writes to BOTH SQLite (cache) AND the repo's
+   * postmortems/<repo>/<branch>/<file>.json (source of truth). The repo
+   * write is what makes the failure memory survive DB wipes — the
+   * previous fallback-to-in-memory meant a DB outage made the system
+   * record failures it could never recall.
    */
   async recordFailure(params: {
     repo: string;
@@ -140,6 +213,7 @@ ${pm.constraints}
     constraints: string;
   }): Promise<PostmortemRecord> {
     const { repo, branch, filePath, failureType, symptom, evidence, constraints } = params;
+    let record: PostmortemRecord;
     try {
       const existing = await db.postmortem.findUnique({
         where: {
@@ -161,26 +235,30 @@ ${pm.constraints}
             updatedAt: new Date(),
           },
         });
-        return this.mapRecord(updated);
+        record = this.mapRecord(updated);
+      } else {
+        const created = await db.postmortem.create({
+          data: {
+            targetRepo: repo,
+            branch,
+            filePath,
+            status: "active",
+            failureType,
+            symptom,
+            evidence,
+            constraints,
+            attempts: 1,
+            lastAttemptAt: new Date(),
+          },
+        });
+        record = this.mapRecord(created);
       }
-      const created = await db.postmortem.create({
-        data: {
-          targetRepo: repo,
-          branch,
-          filePath,
-          status: "active",
-          failureType,
-          symptom,
-          evidence,
-          constraints,
-          attempts: 1,
-          lastAttemptAt: new Date(),
-        },
-      });
-      return this.mapRecord(created);
     } catch (err) {
-      // Fallback to in-memory record if DB unavailable
-      return {
+      // DB unavailable — build an in-memory record and STILL write it to
+      // disk. The previous code returned an in-memory record that nothing
+      // could recall (getActivePostmortem only read from DB). Now the disk
+      // write means the next getActivePostmortem finds it even with a dead DB.
+      record = {
         id: `pm_${Date.now()}`,
         targetRepo: repo,
         branch,
@@ -197,11 +275,22 @@ ${pm.constraints}
         updatedAt: new Date().toISOString(),
       };
     }
+    // Write-through to disk (source of truth). Best-effort: a disk failure
+    // doesn't fail the recordFailure call — the in-memory + SQLite record
+    // still exists for this process. The disk just won't survive a restart.
+    try {
+      writePostmortemToDisk(record);
+    } catch (diskErr) {
+      console.error("[POSTMORTEM] failed to write to repo (continuing with DB only):", diskErr);
+    }
+    return record;
   }
 
   /**
    * Mark a postmortem as resolved (file was successfully committed).
    * Kept for history — getActivePostmortem skips resolved records.
+   * Also resolves the on-disk copy so the repo's audit trail reflects
+   * "failed then fixed" instead of staying active forever.
    */
   async markResolved(repo: string, branch: string, filePath: string): Promise<void> {
     try {
@@ -210,14 +299,25 @@ ${pm.constraints}
         data: { status: "resolved", resolvedAt: new Date(), updatedAt: new Date() },
       });
     } catch {
-      /* ignore */
+      /* ignore DB error — disk still has the record */
+    }
+    try {
+      resolvePostmortemOnDisk(repo, branch, filePath);
+    } catch {
+      /* best-effort */
     }
   }
 
   /**
    * List all active postmortems for a repo/branch.
+   * Reads from SQLite first, then merges any disk-only records (the
+   * wiped-DB recovery path — a record on disk but not yet rehydrated
+   * into the cache still shows up in the UI).
    */
   async listActive(repo?: string, branch?: string): Promise<PostmortemRecord[]> {
+    await this.ensureRehydrated();
+    const seen = new Set<string>();
+    const out: PostmortemRecord[] = [];
     try {
       const where: Record<string, unknown> = { status: "active" };
       if (repo) where.targetRepo = repo;
@@ -227,10 +327,28 @@ ${pm.constraints}
         orderBy: { lastAttemptAt: "desc" },
         take: 100,
       });
-      return records.map((r) => this.mapRecord(r));
+      for (const r of records) {
+        const rec = this.mapRecord(r);
+        seen.add(`${rec.targetRepo}|${rec.branch}|${rec.filePath}`);
+        out.push(rec);
+      }
     } catch {
-      return [];
+      /* DB unavailable — disk-only path below */
     }
+    // Merge disk-only records not already in the DB result.
+    try {
+      const disk = listFromDisk(repo, branch);
+      for (const rec of disk) {
+        if (rec.status !== "active") continue;
+        const key = `${rec.targetRepo}|${rec.branch}|${rec.filePath}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(rec);
+      }
+    } catch {
+      /* disk unreadable — best-effort */
+    }
+    return out;
   }
 
   /**
