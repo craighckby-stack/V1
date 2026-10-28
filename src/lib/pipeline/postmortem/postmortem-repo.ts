@@ -33,6 +33,9 @@ const POSTMORTEM_DIR = join(PROJECT_ROOT, "postmortems");
 /** Sanitize a repo slug like "craighckby-stack/V1" into a single path
  *  component (the "/" would otherwise nest a real directory). */
 function sanitizeRepo(repo: string): string {
+  if (repo == null) {
+    throw new Error("Repo cannot be null or undefined");
+  }
   return repo.replace(/[^a-zA-Z0-9._-]/g, "__");
 }
 
@@ -41,6 +44,9 @@ function sanitizeRepo(repo: string): string {
  *  suffix replaces the source extension so "debate.ts" → "debate.json"
  *  (a directory tree of them is unambiguous and git-friendly). */
 function relativePathToPostmortemFile(repo: string, branch: string, filePath: string): string {
+  if (repo == null || branch == null || filePath == null) {
+    throw new Error("Repo, branch, and filePath cannot be null or undefined");
+  }
   // Strip the source extension; keep directory structure.
   const noExt = filePath.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "");
   return join(POSTMORTEM_DIR, sanitizeRepo(repo), branch, `${noExt}.json`);
@@ -128,6 +134,9 @@ function fromFileShape(f: PostmortemFile): PostmortemRecord {
 /** Write a postmortem record to disk atomically. Creates the directory
  *  tree if needed. Throws on failure so the caller can fall back. */
 export function writePostmortemToDisk(rec: PostmortemRecord): void {
+  if (rec == null) {
+    throw new Error("Postmortem record cannot be null or undefined");
+  }
   const absPath = relativePathToPostmortemFile(rec.targetRepo, rec.branch, rec.filePath);
   const dir = dirname(absPath);
   mkdirSync(dir, { recursive: true });
@@ -147,6 +156,9 @@ export function readPostmortemFromDisk(
   branch: string,
   filePath: string
 ): PostmortemRecord | null {
+  if (repo == null || branch == null || filePath == null) {
+    throw new Error("Repo, branch, and filePath cannot be null or undefined");
+  }
   const absPath = relativePathToPostmortemFile(repo, branch, filePath);
   if (!existsSync(absPath)) return null;
   try {
@@ -178,6 +190,9 @@ export function resolvePostmortemOnDisk(
   branch: string,
   filePath: string
 ): void {
+  if (repo == null || branch == null || filePath == null) {
+    throw new Error("Repo, branch, and filePath cannot be null or undefined");
+  }
   const existing = readPostmortemFromDisk(repo, branch, filePath);
   if (!existing) return; // nothing to resolve
   if (existing.status === "resolved") return;
@@ -221,7 +236,9 @@ function walkAndCollect(dir: string, branch: string, repoSlug: string, out: Post
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
+  } catch (error) {
+    // Log the error but continue processing other directories
+    console.error(`Error reading directory ${dir}:`, error);
     return;
   }
   for (const entry of entries) {
@@ -242,8 +259,9 @@ function walkAndCollect(dir: string, branch: string, repoSlug: string, out: Post
         // otherwise fall back to the reconstructed one.
         const filePath = parsed.filePath || rel;
         out.push(fromFileShape({ ...parsed, filePath }));
-      } catch {
+      } catch (error) {
         /* unreadable JSON — skip */
+        console.error(`Error reading postmortem file ${fullPath}:`, error);
       }
     }
   }
@@ -256,14 +274,18 @@ function walkAndCollect(dir: string, branch: string, repoSlug: string, out: Post
 export async function rehydrateSqliteFromDisk(
   upsert: (rec: PostmortemRecord) => Promise<void>
 ): Promise<number> {
+  if (upsert == null) {
+    throw new Error("Upsert function cannot be null or undefined");
+  }
   const records = listAllPostmortemsFromDisk();
   let count = 0;
   for (const rec of records) {
     try {
       await upsert(rec);
       count++;
-    } catch {
+    } catch (error) {
       /* ignore individual failures — best-effort rehydration */
+      console.error(`Error upserting postmortem record ${rec.id}:`, error);
     }
   }
   return count;
