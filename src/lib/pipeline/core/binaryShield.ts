@@ -50,8 +50,6 @@ export class BinaryShield {
     } catch (error) {
       cipher.destroy();
       throw new Error(`Encryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
-    } finally {
-      cipher.destroy();
     }
     
     const authTag = cipher.getAuthTag();
@@ -68,6 +66,10 @@ export class BinaryShield {
   public async decrypt(packet: DecryptionPacket): Promise<string> {
     if (!packet || typeof packet !== "object") {
       throw new Error("Decryption packet must be a valid object");
+    }
+    
+    if (!("data" in packet) || !("iv" in packet)) {
+      throw new Error("Decryption packet must contain data and iv fields");
     }
     
     if (packet.data === null || packet.data === undefined || packet.iv === null || packet.iv === undefined) {
@@ -120,8 +122,6 @@ export class BinaryShield {
     } catch (error) {
       decipher.destroy();
       throw new Error(`Decryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
-    } finally {
-      decipher.destroy();
     }
   }
 
