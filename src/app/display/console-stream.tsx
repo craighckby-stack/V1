@@ -49,6 +49,9 @@ const USER_INPUT_COLOR = "#ffffff";
 const DIM_COLOR = "#777777";
 
 export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
+  // Validate input lines array
+  const safeLines = Array.isArray(lines) ? lines : [];
+  
   return (
     <div
       ref={logRef}
@@ -58,7 +61,13 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
         paddingRight: "4px",
       }}
     >
-      {lines.map((line) => {
+      {safeLines.map((line) => {
+        // Validate line object and its properties
+        if (!line || typeof line !== 'object') {
+          return null;
+        }
+        
+        const safeText = line.text ?? "";
         const color =
           line.type === "command"
             ? USER_INPUT_COLOR
@@ -72,7 +81,7 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
             {line.type === "log" && line.ts && (
               <span style={{ color: DIM_COLOR }}>[{line.ts}] </span>
             )}
-            {line.text || "\u00a0"}
+            {safeText || "\u00a0"}
           </div>
         );
       })}
