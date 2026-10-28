@@ -1628,3 +1628,33 @@ Stage Summary:
 - extractExports is regex-based, not a full AST. Misses destructuring exports and wildcard re-exports. Both rare in this codebase; 90% of the real list is enough to stop the hallucination. If needed later, swap to ts-morph or tsc --declaration.
 - The loop produced 5 mutations total (binaryShield → siphon → github-helpers → chat-task → github-helpers-again), 4 on loop-01..loop-04 plus #5 on loop-05. All on origin/main. The ratchet fix is live in the running code.
 - bun run lint: clean. tsc --noEmit: clean. Pushed to origin/main.
+
+---
+Task ID: overnight-recovery-1
+Agent: main (claude)
+Task: User said "Go" (start the loop). On start, discovered the sandbox was rebuilt overnight (~Oct 28 04:03): db/custom.db recreated fresh (all 6 tables, 0 rows — GitPushTarget singleton GONE: token + branch counter lost). Investigated and recovered.
+
+Work Log:
+- Started the loop via Agent Browser. Noticed "Branch for this mutation: loop-01" — should have been loop-06 (5 mutations pushed yesterday).
+- Investigated: GitPushTarget query returned None. DB file mtime Oct 28 04:03 — fresh. All 6 tables present (schema survived — it's the cleaned 6-model version from cleanup-1) but 0 rows.
+- Git archaeology:
+  - Local main HEAD = 0d9d290, which EQUALS origin/loop-32. 0 commits ahead.
+  - Remote tracking refs show loop-01 through loop-32 — the loop ran overnight and pushed 32 mutations (the sandbox kept running after yesterday's session ended).
+  - 61 "Self-enhancement" commits in the history; 287 total commits.
+  - origin/main tracking ref at dd36aa1 (stale — mutations go to loop-NN branches by design; main is the seed).
+  - Local main IS a descendant of origin/loop-32 (verified merge-base --is-ancestor) — everything is pushed, nothing at risk.
+- Code state verified intact: extractExports present (2 refs) in self-enhance-loop.ts, prisma schema is the cleaned version, all fixes (A, B, C, E, ratchet) in the files.
+- Recovery: seeded the GitPushTarget singleton row via direct sqlite INSERT:
+  - repo = 'craighckby-stack/V1', token = 'PENDING_TOKEN_REENTER_VIA_CONFIG' (placeholder), branch = 'main', lastBranchNumber = 32.
+  - Rationale: pushCurrentState with the placeholder token fails cleanly (auth error, no branch consumed, no remote damage). setPushTarget's upsert (push-target.ts:212-216) does NOT include lastBranchNumber in its update clause → preserves my seeded value when the user re-enters the real PAT. The next enhanceFile then computes thisN=33 → loop-33, NOT overwriting loop-01's branch pointer.
+  - Verified the upsert preserves lastBranchNumber by reading push-target.ts lines 211-216.
+- Loop behavior post-seed (still running): LLM is 429ing again (provider-side). The gate is handling it correctly: github-helpers 2 attempts → gate 107s → deferred; structural-validator 2 attempts → gate 255s (~5min tier, escalation live). "Branch for this mutation: loop-01" still appears for in-flight files that started BEFORE the seed — they will defer without pushing (no mutation completes during 429 storm), so no risk of pushing to loop-01.
+- Notable: chat-task.ts grew to 12336 bytes overnight (was under 12KB) — the loop's own enhancements pushed it past the MAX_FILE_BYTES skip threshold. self-task-generator.ts at 15383b also skipped. The skip list is growing as the loop edits its own code — natural saturation signal.
+- Screenshot: screenshots/15-overnight-32-mutations-and-db-wipe.png.
+
+Stage Summary:
+- The loop ran OVERNIGHT and pushed 32 mutations (loop-01..loop-32) to GitHub. Local main == origin/loop-32 — the live state is fully pushed.
+- Sandbox rebuild at ~04:03 wiped the DB: GitHub PAT (stored only in GitPushTarget) and the branch counter are gone.
+- Recovery complete except one thing ONLY THE USER CAN DO: re-enter the GitHub PAT via the CONFIG modal. Until then, mutations commit locally only (no data loss — the next successful push includes them on the next loop-NN branch).
+- Counter seeded to 32: when the token is re-entered, the next mutation pushes to loop-33. The setPushTarget upsert preserves the seeded counter (verified in code).
+- Loop is RUNNING and healthy: gate escalating correctly through the current 429 storm (2min → 5min tiers, jitter visible, deferral instead of burning calls).

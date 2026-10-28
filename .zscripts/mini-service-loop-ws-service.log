@@ -1,15 +1,14 @@
 [loop-ws-service] Installing dependencies...
 bun install v1.3.14 (0d9b296a)
 
-Checked 89 installs across 83 packages (no changes) [3.00ms]
++ express@4.22.3
++ socket.io@4.8.4
+
+62 packages installed [339.00ms]
 [loop-ws-service] Running bun run dev...
 $ bun --hot index.ts
-[LOOP-WS] UNCAUGHT EXCEPTION (service stays up): error: Failed to start server. Is port 3003 in use?
- syscall: "listen",
-   errno: 0,
-    code: "EADDRINUSE"
-
-      at serve (unknown:1:1)
-      at node:_http_server:281:39
-      at node:_http_server:258:33
+[LOOP-WS] WebSocket service listening on 0.0.0.0:3003
+[LOOP-WS] /health available at http://localhost:3003/health
+[LOOP-WS] Polling http://localhost:3000/api/autonomous/status every 1000ms
+[LOOP-WS] state changed -> status=idle mode=scheduled totalRuns=0
 
