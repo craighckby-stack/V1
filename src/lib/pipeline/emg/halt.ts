@@ -171,8 +171,8 @@ export class SelfStoppingGovernor {
   }
 
   public setMaxCycles(max: number): void {
-    if (typeof max !== "number" || max <= 0) {
-      throw new Error("setMaxCycles requires a positive number");
+    if (typeof max !== "number" || !Number.isFinite(max) || max <= 0) {
+      throw new Error("setMaxCycles requires a positive finite number");
     }
     if (max > MAX_ALLOWED_CYCLES) {
       throw new Error(`setMaxCycles cannot exceed ${MAX_ALLOWED_CYCLES}`);
