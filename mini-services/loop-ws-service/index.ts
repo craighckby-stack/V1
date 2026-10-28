@@ -21,12 +21,23 @@
  * router that answers /health itself and delegates everything else.
  */
 
-import { createServer } from "http";
-import { Server } from "socket.io";
+import { createServer, IncomingMessage, ServerResponse } from "http";
+import { Server, Socket } from "socket.io";
 
 const PORT = 3003;
 const NEXTJS_STATUS_URL = "http://localhost:3000/api/autonomous/status";
 const POLL_INTERVAL_MS = 1000;
+
+interface AutonomousState {
+  status?: string;
+  config?: {
+    mode?: string;
+  };
+  stats?: {
+    totalRuns?: number;
+  };
+  [key: string]: unknown;
+}
 
 const httpServer = createServer();
 const io = new Server(httpServer, {
@@ -37,43 +48,53 @@ const io = new Server(httpServer, {
 });
 
 let clientCount = 0;
-let cachedState: any = null;
+let cachedState: AutonomousState | null = null;
 let cachedStateJson = "";
 let lastPollAt: string | null = null;
 let nextJsReachable = false;
+let pollFailureCount = 0;
 
-// --- Single-owner request routing ---------------------------------------
-// socket.io's attach() added its own 'request' listener (and with
-// path: "/" it claims every URL). Capture it, remove ALL listeners,
-// then install ONE router: /health is answered here and NEVER reaches
-// engine.io; every other request is delegated untouched.
-const engineListeners = httpServer.listeners("request").slice(0) as
-  ((req: any, res: any) => void)[];
-httpServer.removeAllListeners("request");
+/**
+ * Handles incoming HTTP requests, intercepting /health checks
+ * and delegating all other requests to the Engine.IO socket handler.
+ */
+function configureRequestRouting(
+  server: ReturnType<typeof createServer>
+): void {
+  const engineListeners = server.listeners("request").slice(0) as ((
+    req: IncomingMessage,
+    res: ServerResponse
+  ) => void)[];
+  
+  server.removeAllListeners("request");
 
-httpServer.on("request", (req, res) => {
-  const url = (req.url ?? "").split("?")[0];
-  if (url === "/health" || url === "/health/") {
-    const body = JSON.stringify({
-      status: "ok",
-      port: PORT,
-      clients: clientCount,
-      lastPollAt,
-      nextJsReachable,
-      cachedStateReady: cachedState !== null,
-      socketIoPath: "/",
-    });
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(body);
-    return; // engine.io never sees this request
-  }
-  for (const listener of engineListeners) {
-    listener.call(httpServer, req, res);
-  }
-});
-// -------------------------------------------------------------------------
+  server.on("request", (req: IncomingMessage, res: ServerResponse) => {
+    const url = (req.url ?? "").split("?")[0];
+    if (url === "/health" || url === "/health/") {
+      const responseBody = JSON.stringify({
+        status: "ok",
+        port: PORT,
+        clients: clientCount,
+        lastPollAt,
+        nextJsReachable,
+        cachedStateReady: cachedState !== null,
+        socketIoPath: "/",
+      });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(responseBody);
+      return;
+    }
 
-io.on("connection", (socket) => {
+    for (const listener of engineListeners) {
+      listener.call(server, req, res);
+    }
+  });
+}
+
+/**
+ * Sets up Socket.IO connection event handlers.
+ */
+function configureSocketHandlers(socket: Socket): void {
   clientCount++;
   console.log(`[LOOP-WS] client connected: ${socket.id} (total=${clientCount})`);
 
@@ -81,35 +102,40 @@ io.on("connection", (socket) => {
     socket.emit("state", cachedState);
   }
 
-  socket.on("disconnect", (reason) => {
+  socket.on("disconnect", (reason: string) => {
     clientCount = Math.max(0, clientCount - 1);
     console.log(
       `[LOOP-WS] client disconnected: ${socket.id} reason=${reason} (total=${clientCount})`
     );
   });
 
-  socket.on("error", (err) => {
+  socket.on("error", (err: Error) => {
     console.error(`[LOOP-WS] socket error (${socket.id}):`, err);
   });
-});
+}
 
-let pollFailureCount = 0;
-
-async function pollNextJsState() {
+/**
+ * Polls the Next.js status endpoint and broadcasts state changes to connected clients.
+ */
+async function pollNextJsState(): Promise<void> {
   try {
-    const res = await fetch(NEXTJS_STATUS_URL, {
+    const response = await fetch(NEXTJS_STATUS_URL, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(3000),
     });
+    
     lastPollAt = new Date().toISOString();
-    if (!res.ok) {
+    
+    if (!response.ok) {
       nextJsReachable = false;
-      console.warn(`[LOOP-WS] /api/autonomous/status returned ${res.status}`);
+      console.warn(`[LOOP-WS] /api/autonomous/status returned ${response.status}`);
       return;
     }
+    
     nextJsReachable = true;
-    const newState = await res.json();
+    const newState = (await response.json()) as AutonomousState;
     const newJson = JSON.stringify(newState);
+    
     if (newJson !== cachedStateJson) {
       cachedState = newState;
       cachedStateJson = newJson;
@@ -117,22 +143,41 @@ async function pollNextJsState() {
       const summary = `status=${newState?.status} mode=${newState?.config?.mode} totalRuns=${newState?.stats?.totalRuns}`;
       console.log(`[LOOP-WS] state changed -> ${summary}`);
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     nextJsReachable = false;
     if (pollFailureCount % 10 === 0) {
-      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}): ${err?.message ?? err}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}): ${errorMessage}`);
     }
     pollFailureCount++;
   }
 }
 
+/**
+ * Gracefully terminates the server and all active socket connections.
+ */
+function initiateGracefulShutdown(signal: string): void {
+  console.log(`[LOOP-WS] ${signal} received, shutting down...`);
+  io.close(() => {
+    httpServer.close(() => {
+      console.log("[LOOP-WS] closed");
+      process.exit(0);
+    });
+  });
+}
+
+// --- Initialize Subsystems ----------------------------------------------
+configureRequestRouting(httpServer);
+io.on("connection", configureSocketHandlers);
+
 // A telemetry relay must stay alive: log unexpected errors loudly but
 // never let one bad request kill the process (that is what took this
 // service down before the routing fix).
-process.on("uncaughtException", (err) => {
+process.on("uncaughtException", (err: Error) => {
   console.error("[LOOP-WS] UNCAUGHT EXCEPTION (service stays up):", err);
 });
-process.on("unhandledRejection", (err) => {
+
+process.on("unhandledRejection", (err: unknown) => {
   console.error("[LOOP-WS] UNHANDLED REJECTION (service stays up):", err);
 });
 
@@ -140,28 +185,12 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`[LOOP-WS] WebSocket service listening on 0.0.0.0:${PORT}`);
   console.log(`[LOOP-WS] /health available at http://localhost:${PORT}/health`);
   console.log(`[LOOP-WS] Polling ${NEXTJS_STATUS_URL} every ${POLL_INTERVAL_MS}ms`);
+  
   pollNextJsState().catch(() => {});
   setInterval(() => {
     pollNextJsState().catch(() => {});
   }, POLL_INTERVAL_MS);
 });
 
-process.on("SIGTERM", () => {
-  console.log("[LOOP-WS] SIGTERM received, shutting down...");
-  io.close(() => {
-    httpServer.close(() => {
-      console.log("[LOOP-WS] closed");
-      process.exit(0);
-    });
-  });
-});
-
-process.on("SIGINT", () => {
-  console.log("[LOOP-WS] SIGINT received, shutting down...");
-  io.close(() => {
-    httpServer.close(() => {
-      console.log("[LOOP-WS] closed");
-      process.exit(0);
-    });
-  });
-});
+process.on("SIGTERM", () => initiateGracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => initiateGracefulShutdown("SIGINT"));
