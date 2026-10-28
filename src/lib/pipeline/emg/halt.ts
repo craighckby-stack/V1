@@ -89,6 +89,9 @@ export class SelfStoppingGovernor {
   }
 
   public setSaturatedTreeHash(hash: string): void {
+    if (!hash) {
+      throw new Error("setSaturatedTreeHash requires a non-empty string");
+    }
     this.saturatedTreeHash = hash;
   }
 
