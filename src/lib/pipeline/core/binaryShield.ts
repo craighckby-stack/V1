@@ -50,6 +50,8 @@ export class BinaryShield {
     } catch (error) {
       cipher.destroy();
       throw new Error(`Encryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      cipher.destroy();
     }
     
     const authTag = cipher.getAuthTag();
