@@ -106,12 +106,16 @@ export class SelfStoppingGovernor {
   }
 
   public recordResult(success: boolean, filePath?: string): HaltEvaluationState | null {
-    if (filePath && this.lastFilePath && this.lastFilePath !== filePath) {
-      this.currentCycle = 0;
-    }
+    // Update lastFilePath before checking for cycle reset
     if (filePath) {
       this.lastFilePath = filePath;
     }
+    
+    // Check if we should reset the cycle counter
+    if (filePath && this.lastFilePath && this.lastFilePath !== filePath) {
+      this.currentCycle = 0;
+    }
+    
     this.currentCycle++;
     if (this.currentCycle >= this.maxCycles) {
       return {
