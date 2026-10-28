@@ -152,7 +152,6 @@ class EmgRagMemory {
    */
   public async ensureSeeded(): Promise<void> {
     if (this.seeded) return;
-    this.seeded = true;
 
     try {
       if (!db.memoryEntry) {
@@ -172,13 +171,19 @@ class EmgRagMemory {
           timestamp: r.createdAt.getTime(),
         }));
       }
+      this.recomputeVectors();
+      // Mark seeded ONLY on success (audit 2, item 11): this used to be set
+      // BEFORE the query, so a transient DB failure at startup left memory
+      // permanently empty for the process lifetime — every later call
+      // returned immediately and never retried the load. Leaving it false
+      // on failure means the next query retries.
+      this.seeded = true;
     } catch (error) {
-      // DB unreachable — memory stays EMPTY (honest) rather than fabricated
+      // DB unreachable — memory stays EMPTY (honest) rather than fabricated.
+      // seeded stays false: the load is retried on the next query.
       console.error("Failed to load memory entries from database:", error);
       this.entries = [];
     }
-
-    this.recomputeVectors();
   }
 
   private entryDoc(e: VectorEntry): string {
@@ -283,8 +288,12 @@ class EmgRagMemory {
       return { entry, score };
     });
 
+    // Clean fixes for prompt injection: provenance "clean" AND not revoked
+    // (audit 2, item 12: a trust:"revoked" entry with clean provenance used
+    // to be ranked as a top fix — a retracted pattern surfaced as a
+    // validated one).
     const topFixes = scored
-      .filter((s) => s.entry.provenance === "clean")
+      .filter((s) => s.entry.provenance === "clean" && s.entry.trust !== "revoked")
       .sort((a, b) => b.score - a.score)
       .slice(0, MAX_RESULTS_PER_CATEGORY)
       .map((s) => s.entry);
@@ -301,7 +310,7 @@ class EmgRagMemory {
       .reduce((max, s) => Math.max(max, s.score), 0);
       
     const maxFixScore = scored
-      .filter((s) => s.entry.provenance === "clean")
+      .filter((s) => s.entry.provenance === "clean" && s.entry.trust !== "revoked")
       .reduce((max, s) => Math.max(max, s.score), 0);
       
     const friction = Math.min(

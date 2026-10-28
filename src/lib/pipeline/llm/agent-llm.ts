@@ -32,10 +32,19 @@ async function getZai(): Promise<ZAIType> {
 // ── Fix A: shared rate-limit gate ──────────────────────────────────────────
 // Module-level state shared by EVERY llmComplete caller (ratchet, enhance,
 // debate tribunal, task-executor, chat-task). When the provider returns a
-// sustained 429, we set `blockedUntil` to now + an escalating cooldown. All
-// callers see the same gate, so two parallel debate-llm calls (Promise.all at
-// debate-llm.ts:116) don't both hammer the API — the second sees the gate
-// the first just set and returns immediately.
+// sustained 429, we set `blockedUntil` to now + an escalating cooldown.
+//
+// ── Fix A2 (audit 2): serialized dispatch ────────────────────────────
+// The gate alone did NOT protect parallel callers: debate-llm launches its
+// Security and Architecture reviews with Promise.all, and BOTH calls passed
+// the gate check before either had finished its in-call retries — so both
+// hammered the API during an outage, both exhausted, and both incremented
+// `strikes`, turning ONE outage into a double escalation (2min gate, then
+// the next failure starting at 15min). llmComplete now runs on a module-
+// level promise queue: the second call doesn't start until the first
+// finishes, and if the first set the gate, the second returns immediately
+// with rateLimited:true — which is what the comment below used to claim
+// but couldn't actually guarantee.
 //
 // `strikes` is the escalation counter. Each gate-set uses strikes (capped at
 // 3) to pick a cooldown from COOLDOWNS_MS, then increments strikes. A single
@@ -44,6 +53,11 @@ async function getZai(): Promise<ZAIType> {
 let blockedUntil = 0;
 let strikes = 0;
 const COOLDOWNS_MS = [2, 5, 15, 30].map((m) => m * 60_000); // 2min, 5min, 15min, 30min
+
+// Serialization queue (Fix A2): exactly one llmComplete body executes at a
+// time, process-wide. Both outcomes advance the chain; the queue itself
+// never rejects — each caller gets its own result.
+let llmCallQueue: Promise<unknown> = Promise.resolve();
 
 /** Milliseconds until the gate opens. 0 means clear. Callers (the loop) can
  *  poll this to decide whether to attempt a call or sleep until it clears. */
@@ -103,11 +117,26 @@ export interface LlmCallResult {
 }
 
 /**
- * Single-shot LLM call with bounded retry.
- * Returns `ok: false` when the SDK is unavailable; callers must surface
- * that honestly (skip the stage / block the write) — never fabricate output.
+ * Single-shot LLM call with bounded retry. Returns `ok: false` when the
+ * SDK is unavailable; callers must surface that honestly (skip the stage /
+ * block the write) — never fabricate output.
+ *
+ * Dispatch is SERIALIZED (Fix A2): every call — including parallel callers
+ * such as debate-llm's Promise.all — executes through a single queue, so
+ * the shared rate-limit gate is checked with full knowledge of the previous
+ * call's outcome instead of racing it.
  */
-export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> {
+export function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> {
+  const run = llmCallQueue.then(() => performLlmComplete(opts));
+  // Advance the chain regardless of outcome; the queue itself never fails.
+  llmCallQueue = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> {
   const started = performance.now();
   let lastError: string | undefined;
 
@@ -177,7 +206,7 @@ export async function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
       };
     } catch (err) {
       lastError = (err as Error).message;
-      const isRateLimit = /429|Too many requests|rate limit/i.test(lastError);
+      const isRateLimit = /\b429\b|too many requests|rate.?limit/i.test(lastError);
       if (isRateLimit) sawRateLimit = true;
 
       if (attempt < maxAttempts) {

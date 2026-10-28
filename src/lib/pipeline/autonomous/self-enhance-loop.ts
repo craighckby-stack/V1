@@ -245,25 +245,11 @@ OUTPUT FORMAT (mandatory):
 - Then the complete test file in a single fenced \`\`\`typescript block.`;
 
 // Files the system should NOT modify (would break the loop itself).
-// Exported so the /api/self-enhance/files route can report the REAL
-// protected set (single source of truth — no duplicated lists to drift).
-export const PROTECTED_FILES = new Set([
-  "src/lib/pipeline/autonomous/loop-runtime.ts",
-  "src/lib/pipeline/autonomous/self-enhance-loop.ts",
-  "src/lib/pipeline/autonomous/loop-event-bus.ts",
-  "src/lib/pipeline/autonomous/push-target.ts", // protect the push auth path
-  "src/lib/pipeline/autonomous/in-memory-typecheck.ts", // protect the typecheck
-  "src/lib/pipeline/autonomous/verify-refactor.ts", // protect the verifier
-  "src/lib/pipeline/llm/agent-llm.ts", // protect the LLM wrapper
-  "src/lib/pipeline/llm/debate-llm.ts",
-  // UI control surface — the loop can change HOW things look (the mutable
-  // display layer in src/app/display/) but can NEVER touch the control
-  // surface: the buttons, the command input, the command parser, the state
-  // management, the polling. If the system could rewrite its own control
-  // surface, it could remove the STOP button and escape user oversight.
-  "src/app/page.tsx", // the control surface itself
-  "src/app/layout.tsx", // page metadata / shell
-]);
+// Imported from protected-files.ts — the SINGLE shared set (audit 2: the
+// loop's set and the task-generator's set had drifted apart). Re-exported
+// so the /api/self-enhance/files route keeps reporting the real set.
+export { PROTECTED_FILES } from "./protected-files";
+import { PROTECTED_FILES } from "./protected-files";
 
 export interface SelfEnhanceResult {
   filePath: string;
@@ -290,8 +276,6 @@ class SelfEnhanceLoop {
   // the DB only after the enhancement push succeeds — failed attempts don't
   // consume a branch number.
   private currentCycleBranch: string | null = null;
-  // Circuit breaker: track consecutive 429s to back off the whole cycle
-  private consecutiveRateLimits = 0;
   // Fix B: count consecutive cycles where every file was deferred due to the
   // shared LLM rate-limit gate. After 3 such cycles, log a loud "LLM quota
   // exhausted" message so the user knows the loop is alive but blocked (not
@@ -308,7 +292,7 @@ class SelfEnhanceLoop {
   // race: previously stop() set running=false, which (a) didn't break the
   // for-loop in runCycle (it kept iterating files for ~6min), and (b) defeated
   // the `if (this.running) return` guard so a new start could spawn a second
-  // concurrent cycle sharing currentCycleBranch / currentFile / consecutiveRateLimits.
+  // concurrent cycle sharing currentCycleBranch / currentFile.
   private runId = 0;
   // Ratchet: per-file test-writing attempt tracking. After 2 failed attempts
   // (bad tests, untestable module, LLM trouble), stop retrying — but forget
@@ -520,7 +504,7 @@ class SelfEnhanceLoop {
     originalCode: string,
     refactoredCode: string,
     changeSummary: string
-  ): Promise<{ approved: boolean; reason: string; verdict?: string }> {
+  ): Promise<{ approved: boolean; reason: string; verdict?: string; deferred?: boolean }> {
     try {
       const topic = `Proposed refactor of ${relative(PROJECT_ROOT, filePath)}: ${changeSummary.slice(0, 200)}`;
       const result = await conductLlmDebate(topic, refactoredCode, filePath);
@@ -536,8 +520,23 @@ class SelfEnhanceLoop {
         verdict: consensus,
       };
     } catch (err) {
-      // Debate unavailable — don't block the loop, the first gate passed
-      return { approved: true, reason: `Debate unavailable (skipped): ${(err as Error).message.slice(0, 100)}` };
+      // FAIL CLOSED (audit 2). This used to return approved:true so an LLM
+      // outage wouldn't block the loop — but that let refactors go live (and
+      // tests get pinned) with ZERO semantic review during exactly the
+      // moments the LLM layer is least trustworthy. It also contradicted
+      // debate-llm.ts's own "NO FALLBACK" contract. Now an unavailable
+      // tribunal DEFERS the file: no postmortem, no failure counter, no
+      // reverted stat — the loop's cooldown gate handles the wait and the
+      // file is retried when the tribunal can actually run.
+      const msg = (err as Error).message ?? "unknown error";
+      const rateLimited = /\b429\b|rate.?limit|cooldown|too many requests/i.test(msg);
+      return {
+        approved: false,
+        deferred: true,
+        reason: rateLimited
+          ? `Debate tribunal rate-limited — deferring: ${msg.slice(0, 100)}`
+          : `Debate tribunal unavailable — deferring (fail-closed): ${msg.slice(0, 100)}`,
+      };
     }
   }
 
@@ -690,8 +689,12 @@ class SelfEnhanceLoop {
    */
   private async writeTestsForFile(filePath: string): Promise<boolean> {
     const relPath = relative(PROJECT_ROOT, filePath);
-    const base = basename(filePath, ".ts");
-    const testPath = join(dirname(filePath), `${base}.test.ts`);
+    // Strip the real extension (.ts/.tsx) — same bug as findTestFilesFor:
+    // basename(p, ".ts") left .tsx sources with their extension attached, so
+    // the ratchet wrote/looked for `console-stream.tsx.test.ts`.
+    const ext = filePath.endsWith(".tsx") ? ".tsx" : ".ts";
+    const base = basename(filePath, ext);
+    const testPath = join(dirname(filePath), `${base}.test${ext}`);
 
     if (existsSync(testPath)) return false; // already pinned
     const now = Date.now();
@@ -710,7 +713,12 @@ class SelfEnhanceLoop {
     if (rec && rec.attempts >= 2) {
       return false; // known-failed recently — don't burn LLM budget retrying
     }
-    this.testWriteAttempts.set(relPath, { attempts: (rec?.attempts ?? 0) + 1, at: now });
+    // NOTE (audit 2): no pre-increment. The attempt counter is only bumped
+    // AFTER a real (non-rate-limited) LLM call completes below. Previously
+    // the increment happened before the call, so two gate deferrals (each
+    // returning instantly with rateLimited:true) burned both attempts and
+    // locked the module out for 30 minutes — against the "defer, don't
+    // burn an attempt" contract in agent-llm.ts.
 
     try {
       const source = readFileSync(filePath, "utf-8");
@@ -748,6 +756,16 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
           this.log(`LLM retry attempt ${info.attempt}/${info.maxAttempts} (${info.isRateLimit ? "429" : "err"} — backing off ${backoff}) for ratchet/${relPath}`, "info");
         },
       });
+      if (!llmResult.ok && llmResult.rateLimited) {
+        // Gate deferral — NOT an attempt. The runCycle loop sleeps out the
+        // cooldown and this module is retried fresh when the gate opens.
+        this.log(`Ratchet: deferring test-writing for ${relPath} — LLM on cooldown (${(llmResult.error ?? "").slice(0, 90)})`, "warn");
+        return false;
+      }
+      // A real LLM call was consumed — count it as an attempt NOW (success
+      // or failure): if this pin doesn't survive the gates below, the next
+      // try is attempt N+1, and after 2 the module is left alone for 30 min.
+      this.testWriteAttempts.set(relPath, { attempts: (rec?.attempts ?? 0) + 1, at: now });
       if (!llmResult.ok) {
         this.log(`Ratchet: test-writing LLM unavailable for ${relPath}: ${(llmResult.error ?? "").slice(0, 120)}`, "warn");
         return false;
@@ -807,7 +825,14 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       const debate = await this.debateGate(filePath, source, code, `characterization tests: ${summary.slice(0, 200)}`);
       if (!debate.approved) {
         rmSync(testPath);
-        this.log(`Ratchet: rejected test for ${relPath} by debate: ${debate.reason.slice(0, 150)}`, "warn");
+        if (debate.deferred) {
+          // Tribunal unavailable (429 window / parse failure) — fail-closed.
+          // The pin is retried on a later pass; it is NOT counted as a
+          // rejection (the attempt was already recorded above).
+          this.log(`Ratchet: deferring test pin for ${relPath} — debate tribunal unavailable, not auto-approving (fail-closed)`, "warn");
+        } else {
+          this.log(`Ratchet: rejected test for ${relPath} by debate: ${debate.reason.slice(0, 150)}`, "warn");
+        }
         return false;
       }
 
@@ -897,8 +922,12 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       }
 
       // Run-token checkpoint (Fix C): if stop() fired during the ratchet,
-      // bail before the LLM enhance call.
-      if (!this.continuous || myRun !== this.runId) {
+      // bail before the LLM enhance call. Token-only (audit 2): checking
+      // `!this.continuous` here is what broke the MANUAL trigger — a
+      // one-shot cycle runs with continuous=false and used to abort every
+      // file as "Stopped during ratchet". stop() always bumps runId, so the
+      // token alone covers both modes.
+      if (myRun !== this.runId) {
         result.reason = "Stopped during ratchet";
         this.log(`Aborting enhance for ${relPath} — stop requested`, "warn");
         return result;
@@ -982,19 +1011,16 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         if (llmResult.rateLimited) {
           const cd = llmCooldownMs();
           result.reason = `Deferred (LLM cooldown — ${Math.round(cd / 1000)}s)`;
-          this.log(`Deferring enhance for ${relPath} — LLM on cooldown (${Math.round(cd / 1000)}s)`, "warn");
+          this.log(`Deferring enhance for ${relPath} — LLM on cooldown (${Math.round(cd / 1000)}s remaining)`, "warn");
         } else {
-          // Non-rate-limit failure (network, parse, empty response). Reset
-          // the old per-call breaker — the gate doesn't cover these.
-          this.consecutiveRateLimits = 0;
+          // Non-rate-limit failure (network, parse, empty response).
           result.reason = `LLM unavailable: ${llmResult.error}`;
           this.log(`LLM unavailable for ${relPath}: ${llmResult.error}`, "warn");
         }
         return result;
       }
 
-      // LLM succeeded — reset the old per-call breaker (kept for non-429 use)
-      this.consecutiveRateLimits = 0;
+      // LLM succeeded — continue to verification
 
       // Extract the summary (what changed + why) AND the code from the response
       const { summary: changeSummary, code: refactoredCode } = extractSummaryAndCode(llmResult.content);
@@ -1030,7 +1056,9 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
           evidence: `Original: ${originalCode.length}b, Refactored: ${cleanCode.length}b. The LLM hit its output token limit before finishing.`,
           constraints: `The previous refactor of ${relPath} was truncated by the LLM's output limit. Make smaller, more targeted changes — do not rewrite the whole file.`,
         });
-        this.stats.totalReverted++;
+        // NOTE (audit 2): totalReverted is counted ONCE, in runCycle, for any
+        // result whose reason starts with "Rejected" — the per-site increment
+        // here double-counted truncation, debate and test-gate rejections.
         return result;
       }
 
@@ -1084,6 +1112,14 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       this.log(`Debating ${relPath} (second-LLM semantic review)...`, "info");
       const debate = await this.debateGate(filePath, originalCode, cleanCode, changeSummary);
       if (!debate.approved) {
+        if (debate.deferred) {
+          // Tribunal unavailable — fail-closed defer (see debateGate). Not a
+          // rejection: no postmortem, no reverted count; reason starts with
+          // "Deferred" so runCycle's deferred-counter tracks it.
+          result.reason = `Deferred (debate tribunal unavailable — ${debate.reason.slice(0, 120)})`;
+          this.log(`Deferring ${relPath} — debate tribunal unavailable, not auto-approving (fail-closed)`, "warn");
+          return result;
+        }
         this.log(`Rejected ${relPath} by debate: ${debate.reason}`, "warn");
         await postmortemStore.recordFailure({
           repo: "self",
@@ -1095,7 +1131,6 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
           constraints: `The previous refactor of ${relPath} was rejected by the debate tribunal (${debate.verdict}). Address the review feedback before retrying.`,
         });
         result.reason = `Rejected by debate (${debate.verdict})`;
-        this.stats.totalReverted++;
         return result;
       }
       this.log(`Debate approved ${relPath}: ${debate.reason}`, "success");
@@ -1117,7 +1152,8 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
           constraints: `The previous refactor of ${relPath} broke existing tests. Do not change observable behavior.`,
         });
         result.reason = `Rejected by test gate: ${testResult.reason}`;
-        this.stats.totalReverted++;
+        // totalReverted counted once in runCycle ("Rejected" prefix) — the
+        // inline increment double-counted (audit 2).
         return result;
       }
       if (testResult.testCount > 0) {
@@ -1216,22 +1252,23 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       let deferredThisCycle = 0;
 
       for (const file of files) {
-        // Run-token + continuous check inside the for-loop. Previously this
-        // loop only checked `this.running` (set false by stop()), which never
-        // broke the loop — it just defeated the re-entry guard above, letting
-        // a new start spawn a second concurrent cycle. Now we break out as
-        // soon as stop() fires, instead of iterating the remaining ~15 files.
-        if (!this.continuous || myRun !== this.runId) {
+        // Run-token check inside the for-loop. Token-ONLY (audit 2): the
+        // old `!this.continuous ||` here broke the MANUAL trigger — a
+        // one-shot cycle runs with continuous=false and used to break
+        // before the first file, reporting "Cycle complete: 0 files".
+        // stop() always bumps runId, so the token alone stops continuous
+        // cycles within ~1 file while letting manual cycles run to
+        // completion (or until an explicit stop).
+        if (myRun !== this.runId) {
           this.log("Stop requested — breaking out of cycle", "warn");
           break;
         }
-        // Fix B: gate check before each file. If the shared LLM gate is
-        // active (set by a 429 in a previous file's ratchet/enhance, or by a
-        // parallel debate-llm call), sleep until it opens instead of calling
-        // llmComplete (which would return instantly with rateLimited:true
-        // anyway). The wait is stoppable — stop() breaks it within 1s.
+        // Fix B: gate check before each file — but only for CONTINUOUS runs.
+        // A manual one-shot cycle should return fast: each file defers at
+        // the enhance checkpoint instead of the cycle sleeping out a
+        // possibly 30-minute cooldown.
         const cdBefore = llmCooldownMs();
-        if (cdBefore > 0) {
+        if (cdBefore > 0 && this.continuous) {
           this.log(`LLM cooldown active — pausing ${Math.round(cdBefore / 1000)}s before next file`, "warn");
           const cleared = await this.waitForCooldown(myRun);
           if (!cleared) {
@@ -1281,11 +1318,18 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
    */
   async runContinuous(onUpdate?: () => void): Promise<void> {
     this.continuous = true;
+    // Capture this loop's generation (audit 2): runCycle checks its own
+    // token, but the OUTER while-loop only checked `this.continuous` — so a
+    // stop-then-start during a cycle left TWO loops alive (the old one saw
+    // continuous=true again after the new start and kept cycling forever,
+    // interleaving with the new loop's cycles). With a token captured here,
+    // a stale loop exits for good once its current runCycle returns.
+    const myRun = this.runId;
     this.log("Starting continuous self-enhancement loop", "success");
-    while (this.continuous) {
+    while (this.continuous && myRun === this.runId) {
       await this.runCycle();
       if (onUpdate) onUpdate();
-      if (!this.continuous) break;
+      if (!(this.continuous && myRun === this.runId)) break;
       // Wait between cycles
       this.log("Waiting 5s before next cycle...", "info");
       await new Promise((r) => setTimeout(r, 5000));
@@ -1301,7 +1345,7 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
     // Setting it false here would (a) not break the for-loop in runCycle
     // (it doesn't check `running`), and (b) defeat the re-entry guard at
     // the top of runCycle, letting a new start spawn a second concurrent
-    // cycle sharing currentCycleBranch / currentFile / consecutiveRateLimits.
+    // cycle sharing currentCycleBranch / currentFile.
     this.continuous = false;
     this.runId++;
     this.log("Self-enhance loop stop requested", "warn");

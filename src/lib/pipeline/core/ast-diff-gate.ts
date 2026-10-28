@@ -72,37 +72,6 @@ function isExported(node: ts.Node): boolean {
   );
 }
 
-function symbolKindFromDeclaration(node: ts.Node): AstSymbol["type"] | null {
-  switch (node.kind) {
-    case ts.SyntaxKind.FunctionDeclaration:
-      return "function";
-    case ts.SyntaxKind.ClassDeclaration:
-      return "class";
-    case ts.SyntaxKind.InterfaceDeclaration:
-      return "interface";
-    case ts.SyntaxKind.TypeAliasDeclaration:
-      return "type";
-    case ts.SyntaxKind.EnumDeclaration:
-      return "enum";
-    case ts.SyntaxKind.ModuleDeclaration:
-      return "namespace";
-    case ts.SyntaxKind.VariableDeclaration:
-      return "const";
-    case ts.SyntaxKind.ArrowFunction:
-    case ts.SyntaxKind.FunctionExpression:
-      return "arrow";
-    case ts.SyntaxKind.MethodDeclaration:
-    case ts.SyntaxKind.GetAccessor:
-    case ts.SyntaxKind.SetAccessor:
-      return "method";
-    case ts.SyntaxKind.ExportSpecifier:
-    case ts.SyntaxKind.ExportAssignment:
-      return "reexport";
-    default:
-      return null;
-  }
-}
-
 function declarationName(node: ts.Node): string | null {
   if ("name" in node && node.name) {
     const name = (node as { name: ts.Identifier | ts.PrivateIdentifier | ts.StringLiteralLike }).name;
@@ -113,24 +82,84 @@ function declarationName(node: ts.Node): string | null {
   return null;
 }
 
+/**
+ * Extract the module's PUBLIC-API symbols from a parsed source file.
+ *
+ * Scope rules (audit 2 — "the AST gate rejects safe refactors"):
+ *   - Top-level declarations only. The old visitor recursed into function
+ *     BODIES, so a local `const` counted as a "public symbol": renaming 4
+ *     locals (exported API untouched) scored 2/100 with "dropped 4 symbols"
+ *     and 80% drift. Locals are not API — renaming them is a safe refactor.
+ *   - Class members ARE API: dropping a public method must be caught. Keys
+ *     are owner-qualified ("ClassName.method") — the old unqualified keys
+ *     made `A.run` and `B.run` indistinguishable, so dropping one of two
+ *     same-named methods went undetected.
+ *   - Namespace/module bodies are walked (exported inner declarations are
+ *     reachable API); function/method/arrow bodies are never entered.
+ */
 function extractSymbolsFromTs(sourceFile: ts.SourceFile): AstSymbol[] {
   const symbols: AstSymbol[] = [];
-  
-  const visit = (node: ts.Node): void => {
-    let kind: AstSymbol["type"] | null = null;
-    let name: string | null = null;
 
-    if (
-      ts.isFunctionDeclaration(node) ||
-      ts.isClassDeclaration(node) ||
-      ts.isInterfaceDeclaration(node) ||
-      ts.isTypeAliasDeclaration(node) ||
-      ts.isEnumDeclaration(node) ||
-      ts.isModuleDeclaration(node)
-    ) {
-      kind = symbolKindFromDeclaration(node);
-      name = declarationName(node);
-    } else if (ts.isVariableStatement(node)) {
+  const add = (name: string, type: AstSymbol["type"], node: ts.Node, exported: boolean) => {
+    symbols.push({
+      name,
+      type,
+      line: ts.getLineAndCharacterOfPosition(sourceFile, node.getStart()).line + 1,
+      exported,
+    });
+  };
+
+  const visitClassMembers = (cls: ts.ClassDeclaration): void => {
+    const owner = declarationName(cls) ?? "<anonymous>";
+    const classExported = isExported(cls);
+    for (const member of cls.members) {
+      if (
+        ts.isMethodDeclaration(member) ||
+        ts.isGetAccessorDeclaration(member) ||
+        ts.isSetAccessorDeclaration(member)
+      ) {
+        const name = declarationName(member);
+        if (name) add(`${owner}.${name}`, "method", member, classExported || isExported(member));
+      }
+    }
+  };
+
+  const visitStatement = (node: ts.Node): void => {
+    if (ts.isFunctionDeclaration(node)) {
+      const name = declarationName(node);
+      if (name) add(name, "function", node, isExported(node));
+      return; // do NOT descend into the body — locals are not API
+    }
+    if (ts.isClassDeclaration(node)) {
+      const name = declarationName(node);
+      if (name) add(name, "class", node, isExported(node));
+      visitClassMembers(node);
+      return;
+    }
+    if (ts.isInterfaceDeclaration(node)) {
+      const name = declarationName(node);
+      if (name) add(name, "interface", node, isExported(node));
+      return;
+    }
+    if (ts.isTypeAliasDeclaration(node)) {
+      add(node.name.text, "type", node, isExported(node));
+      return;
+    }
+    if (ts.isEnumDeclaration(node)) {
+      const name = declarationName(node);
+      if (name) add(name, "enum", node, isExported(node));
+      return;
+    }
+    if (ts.isModuleDeclaration(node)) {
+      const name = declarationName(node);
+      if (name) add(name, "namespace", node, isExported(node));
+      // Walk namespace bodies — exported inner declarations are API.
+      if (node.body && ts.isModuleBlock(node.body)) {
+        for (const stmt of node.body.statements) visitStatement(stmt);
+      }
+      return;
+    }
+    if (ts.isVariableStatement(node)) {
       const exported = isExported(node);
       for (const decl of node.declarationList.declarations) {
         const declName = ts.isIdentifier(decl.name) ? decl.name.text : null;
@@ -139,45 +168,24 @@ function extractSymbolsFromTs(sourceFile: ts.SourceFile): AstSymbol[] {
         if (decl.initializer && (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))) {
           varKind = "arrow";
         }
-        symbols.push({
-          name: declName,
-          type: varKind,
-          line: ts.getLineAndCharacterOfPosition(sourceFile, decl.getStart()).line + 1,
-          exported,
-        });
+        add(declName, varKind, decl, exported);
       }
-      ts.forEachChild(node, visit);
       return;
-    } else if (ts.isExportDeclaration(node) && node.exportClause && ts.isNamedExports(node.exportClause)) {
+    }
+    if (ts.isExportDeclaration(node) && node.exportClause && ts.isNamedExports(node.exportClause)) {
       for (const spec of node.exportClause.elements) {
-        const specName = spec.propertyName?.text ?? spec.name.text;
-        symbols.push({
-          name: specName,
-          type: "reexport",
-          line: ts.getLineAndCharacterOfPosition(sourceFile, spec.getStart()).line + 1,
-          exported: true,
-        });
+        // The EXPORTED name is spec.name (the alias). spec.propertyName is
+        // the local name — using it (as the old code did) pinned a name no
+        // importer can even reference for `export { a as b }`.
+        add(spec.name.text, "reexport", spec, true);
       }
-      ts.forEachChild(node, visit);
       return;
-    } else if (ts.isMethodDeclaration(node) || ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node)) {
-      kind = "method";
-      name = declarationName(node);
     }
-
-    if (kind && name) {
-      symbols.push({
-        name,
-        type: kind,
-        line: ts.getLineAndCharacterOfPosition(sourceFile, node.getStart()).line + 1,
-        exported: isExported(node),
-      });
-    }
-
-    ts.forEachChild(node, visit);
+    // Everything else (if/for/try/blocks/expression statements) contains
+    // only function-scoped declarations — not API. Skip.
   };
 
-  ts.forEachChild(sourceFile, visit);
+  for (const stmt of sourceFile.statements) visitStatement(stmt);
   return symbols;
 }
 

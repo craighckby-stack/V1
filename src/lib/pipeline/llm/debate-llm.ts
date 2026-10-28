@@ -94,6 +94,23 @@ function clamp(n: unknown, min = 0, max = 1): number {
   return Math.max(min, Math.min(max, x));
 }
 
+// The only reviewer stances the prompts define. Anything else is a malformed
+// response, not an endorsement (audit 2, item 18: any string other than
+// "OPPOSE" used to be coerced to "ENDORSE", so a garbled reply counted as a
+// positive review).
+const VALID_STANCES = new Set(["ENDORSE", "OPPOSE"]);
+
+// The only lead-verdict values the LEAD_SYSTEM prompt defines (audit 2,
+// item 19: the consensus used to be cast to the enum unchecked, with a
+// `?? "APPROVED"` default for undefined — an unparseable verdict could
+// surface as an approval).
+const VALID_CONSENSUS = new Set<string>([
+  "APPROVED",
+  "CONDITIONAL_APPROVAL",
+  "REQUIRES_REWRITE",
+  "REJECTED",
+]);
+
 /**
  * Run the LLM-driven debate tribunal.
  *
@@ -125,15 +142,15 @@ export async function conductLlmDebate(
   }
 
   const secJson = safeJsonParse(secRes.content);
-  if (!secJson || typeof secJson.stance !== "string") {
+  if (!secJson || typeof secJson.stance !== "string" || !VALID_STANCES.has(secJson.stance)) {
     throw new Error(
-      `Security Reviewer returned unparseable output — treating as review failure, not endorsement. Output: ${secRes.content.slice(0, 200)}`
+      `Security Reviewer returned an unparseable or invalid stance — treating as review failure, not endorsement. Output: ${secRes.content.slice(0, 200)}`
     );
   }
   const archJson = safeJsonParse(archRes.content);
-  if (!archJson || typeof archJson.stance !== "string") {
+  if (!archJson || typeof archJson.stance !== "string" || !VALID_STANCES.has(archJson.stance)) {
     throw new Error(
-      `Architecture Reviewer returned unparseable output — treating as review failure, not endorsement. Output: ${archRes.content.slice(0, 200)}`
+      `Architecture Reviewer returned an unparseable or invalid stance — treating as review failure, not endorsement. Output: ${archRes.content.slice(0, 200)}`
     );
   }
 
@@ -160,14 +177,15 @@ Synthesize a final verdict as JSON per your instructions.`;
   }
 
   const leadJson = safeJsonParse(leadRes.content);
-  if (!leadJson || typeof leadJson.consensus !== "string") {
+  if (!leadJson || typeof leadJson.consensus !== "string" || !VALID_CONSENSUS.has(leadJson.consensus)) {
     throw new Error(
-      `Lead Reviewer returned unparseable output — treating as review failure. Output: ${leadRes.content.slice(0, 200)}`
+      `Lead Reviewer returned an unparseable or invalid verdict — treating as review failure (never an approval). Output: ${leadRes.content.slice(0, 200)}`
     );
   }
 
-  // Build the DebateVerdict
-  const consensus = (leadJson.consensus as DebateVerdict["consensus"]) ?? "APPROVED";
+  // Build the DebateVerdict. Validated above — no `?? "APPROVED"` fallback:
+  // an undefined/invalid consensus throws instead of defaulting to approval.
+  const consensus = leadJson.consensus as DebateVerdict["consensus"];
   const consensusCoefficient = clamp(leadJson.consensusCoefficient);
   const cognitiveFriction = clamp(leadJson.cognitiveFriction);
 
@@ -187,7 +205,7 @@ Synthesize a final verdict as JSON per your instructions.`;
       speaker: "security",
       speakerName: "Security Reviewer",
       avatar: "🛡️",
-      stance: (secJson.stance === "OPPOSE" ? "OPPOSE" : "ENDORSE") as DebateArgument["stance"],
+      stance: secJson.stance as DebateArgument["stance"],
       statement: asStringArray(secJson.points).join(" ") || "No security findings.",
       citations: asStringArray(secJson.citations).length
         ? asStringArray(secJson.citations)
@@ -198,7 +216,7 @@ Synthesize a final verdict as JSON per your instructions.`;
       speaker: "architecture",
       speakerName: "Architecture Reviewer",
       avatar: "📐",
-      stance: (archJson.stance === "OPPOSE" ? "OPPOSE" : "ENDORSE") as DebateArgument["stance"],
+      stance: archJson.stance as DebateArgument["stance"],
       statement: asStringArray(archJson.points).join(" ") || "No architectural concerns.",
       citations: asStringArray(archJson.citations).length
         ? asStringArray(archJson.citations)

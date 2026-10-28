@@ -23,9 +23,11 @@ interface GitHubCommitResponse {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as CommitFileRequest;
-    if (!body.repo || !body.path || !body.branch || !body.content || !body.message) {
+    // Audit 2, item 17: `!body.content` rejected the legitimate empty-string
+    // file (a valid thing to commit). Type-check instead of truthiness.
+    if (!body.repo || !body.path || !body.branch || typeof body.content !== "string" || !body.message) {
       return NextResponse.json(
-        { error: "repo, path, branch, content, and message are required" },
+        { error: "repo, path, branch, content (string, may be empty), and message are required" },
         { status: 400 }
       );
     }

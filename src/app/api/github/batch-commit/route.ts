@@ -33,9 +33,11 @@ interface GitHubCommitResponse {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as BatchCommitRequest;
-    if (!body.repo || !body.branch || !Array.isArray(body.files) || !body.message) {
+    // Audit 2, item 16: an EMPTY files array passed validation and then
+    // reported success ("committed 0 of 0") — a no-op dressed as a success.
+    if (!body.repo || !body.branch || !Array.isArray(body.files) || body.files.length === 0 || !body.message) {
       return NextResponse.json(
-        { error: "repo, branch, files, and message are required" },
+        { error: "repo, branch, a non-empty files array, and message are required" },
         { status: 400 }
       );
     }

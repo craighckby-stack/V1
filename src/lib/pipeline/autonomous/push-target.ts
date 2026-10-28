@@ -411,8 +411,14 @@ export async function pushCurrentState(opts?: {
             stdio: "pipe",
             env: pushEnv,
           });
+          // Audit 2: the heal must merge the branch ACTUALLY BEING PUSHED
+          // (pushBranch, e.g. loop-NN). It used to merge the configured seed
+          // branch (target.branch, e.g. main): on a fresh auto-created repo
+          // there is no origin/main, so the heal always failed and surfaced
+          // a misleading "run push force" hint — and even when origin/main
+          // existed it did nothing to resolve the loop-NN divergence.
           execSync(
-            `git merge -s ours origin/${target.branch} -m "merge origin/${target.branch} (self-heal): remote history preserved as ancestors; local live state is authoritative"`,
+            `git merge -s ours origin/${pushBranch} -m "merge origin/${pushBranch} (self-heal): remote history preserved as ancestors; local live state is authoritative"`,
             { cwd: PROJECT_ROOT, timeout: 30000, stdio: "pipe" }
           );
           execSync(`git push origin ${refspec}`, {

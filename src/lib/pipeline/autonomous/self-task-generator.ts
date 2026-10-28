@@ -38,20 +38,12 @@ const DISPLAY_SRC_DIR = join(PROJECT_ROOT, "src/app/display");
 /**
  * Files the system must NOT modify (would break its own loop).
  * Tasks are never generated for these — the system doesn't queue work
- * it refuses to do.
+ * it refuses to do. Imported from protected-files.ts — the SINGLE shared
+ * set (audit 2: this local copy had drifted from the loop's set and was
+ * missing push-target.ts / in-memory-typecheck.ts / verify-refactor.ts, so
+ * tasks could be queued against the verifier and push path).
  */
-export const PROTECTED_FILES = new Set([
-  "src/lib/pipeline/autonomous/loop-runtime.ts",
-  "src/lib/pipeline/autonomous/self-enhance-loop.ts",
-  "src/lib/pipeline/autonomous/self-task-generator.ts",
-  "src/lib/pipeline/autonomous/loop-event-bus.ts",
-  "src/lib/pipeline/llm/agent-llm.ts",
-  "src/lib/pipeline/llm/debate-llm.ts",
-  // UI control surface — same protection as the loop's set. The task
-  // generator must not queue tasks for files the loop refuses to touch.
-  "src/app/page.tsx",
-  "src/app/layout.tsx",
-]);
+import { PROTECTED_FILES } from "./protected-files";
 
 export const TASK_KINDS = {
   "todo-comment": { priority: 1, method: "llm" as const },

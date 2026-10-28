@@ -13,3 +13,7 @@ db/*.db
 mini-services/*/service.log
 mini-services/*/ws.log
 tool-results/
+
+# runtime state — never commit process ids or service logs (audit 2)
+*.pid
+.zscripts/*.log

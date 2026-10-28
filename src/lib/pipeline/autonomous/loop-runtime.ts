@@ -139,21 +139,19 @@ class AutonomousLoopRuntime {
 
   // --- Token resolution (don't log the value) ---
   private resolveToken(clientToken?: string): string | null {
-    const candidate = (
-      clientToken ??
-      this.config.githubToken ??
-      process.env.GITHUB_TOKEN ??
-      ""
-    ).trim();
-    if (
-      !candidate ||
-      candidate.startsWith("MY_") ||
-      candidate === "undefined" ||
-      candidate.length < 8
-    ) {
-      return null;
+    // Fall through EVERY candidate in priority order, skipping empty/invalid
+    // values. This used to be a `??` chain, which treats "" as a value — so
+    // with the default config token of "", process.env.GITHUB_TOKEN was
+    // NEVER reached and resolution always failed (audit 2, item 2).
+    const candidates = [clientToken, this.config.githubToken, process.env.GITHUB_TOKEN];
+    for (const candidate of candidates) {
+      const value = (candidate ?? "").trim();
+      if (!value || value.startsWith("MY_") || value === "undefined" || value.length < 8) {
+        continue;
+      }
+      return value;
     }
-    return candidate;
+    return null;
   }
 
   private addLog(

@@ -524,12 +524,18 @@ export class UnifiedPipelineRunner {
       .catch(() => "UNPROVEN");
     const dur5 = Math.round(performance.now() - t5);
 
+    // Record the run in RAG memory — HONESTLY (audit 2): a run that failed
+    // the AST gate is a FAILURE pattern, not a validated clean one. This
+    // used to write provenance:"clean" / trust:"high" unconditionally, so
+    // rejected code entered topFixes() as a high-trust pattern that later
+    // runs were encouraged to imitate.
+    const runPassed = astDiffResult.passed;
     emgRagInstance.addEntry({
-      provenance: "clean",
-      trust: "high",
+      provenance: runPassed ? "clean" : "failure",
+      trust: runPassed ? "high" : "low",
       filePath: config.filePath,
-      content: `Code Refactoring Helper run for ${config.filePath}. AST Score: ${astDiffResult.astScore}, Proof Hash: ${proofCommitHash}`,
-      cleanSnippet: evolvedCode.slice(0, 150),
+      content: `Code Refactoring Helper run for ${config.filePath}. AST Score: ${astDiffResult.astScore}, Proof Hash: ${proofCommitHash}${runPassed ? "" : ", AST gate: FAILED"}`,
+      cleanSnippet: runPassed ? evolvedCode.slice(0, 150) : undefined,
       diagnosis: `Review: ${reviewVerdict.consensus}`,
     });
 
