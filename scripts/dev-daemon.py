@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """
 dev-daemon.py — start the Next.js dev server as a true daemon.
 
@@ -19,25 +21,26 @@ PID file: .dev-daemon.pid (project root). Log: dev.log (project root).
 """
 
 import os
-import sys
 import signal
 import subprocess
+import sys
 import time
+from pathlib import Path
 
-ROOT = "/home/z/my-project"
-PID_FILE = os.path.join(ROOT, ".dev-daemon.pid")
-LOG_FILE = os.path.join(ROOT, "dev.log")
+ROOT = Path("/home/z/my-project")
+PID_FILE = ROOT / ".dev-daemon.pid"
+LOG_FILE = ROOT / "dev.log"
 
 
-def read_pid():
+def read_pid() -> int | None:
     try:
-        with open(PID_FILE) as f:
-            return int(f.read().strip())
+        content = PID_FILE.read_text(encoding="utf-8").strip()
+        return int(content)
     except (FileNotFoundError, ValueError):
         return None
 
 
-def is_alive(pid):
+def is_alive(pid: int | None) -> bool:
     if pid is None:
         return False
     try:
@@ -47,18 +50,20 @@ def is_alive(pid):
         return False
 
 
-def start():
+def remove_pid_file() -> None:
+    try:
+        PID_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def start() -> None:
     pid = read_pid()
     if is_alive(pid):
         print(f"daemon already running (pid {pid})")
         return
 
-    # Flush any stale pid file
-    if pid is not None:
-        try:
-            os.remove(PID_FILE)
-        except FileNotFoundError:
-            pass
+    remove_pid_file()
 
     # --- Double-fork daemonization ---
     pid1 = os.fork()
@@ -76,8 +81,8 @@ def start():
             try:
                 os.chdir(ROOT)
                 # Write the pid file BEFORE exec so the spawner can see it
-                with open(PID_FILE, "w") as f:
-                    f.write(str(os.getpid()))
+                PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
+                
                 # Redirect stdio to the log, detach from the session's fds
                 logfd = os.open(LOG_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
                 os.dup2(logfd, 1)
@@ -86,14 +91,16 @@ def start():
                 os.dup2(devnull, 0)
                 os.close(logfd)
                 os.close(devnull)
+                
                 # Reset signal handlers the session may have set
                 signal.signal(signal.SIGHUP, signal.SIG_DFL)
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
                 signal.signal(signal.SIGINT, signal.SIG_IGN)
+                
                 # Exec the dev server — `next dev` directly (NOT `bun run dev`,
                 # whose `| tee` pipeline is another fragile process tree).
                 os.execv(
-                    os.path.join(ROOT, "node_modules/.bin/next"),
+                    str(ROOT / "node_modules/.bin/next"),
                     ["next", "dev", "-p", "3000"],
                 )
             except Exception as e:
@@ -120,7 +127,8 @@ def start():
                          "http://localhost:3000/"],
                         stdout=subprocess.PIPE,
                     ) as probe:
-                        code = probe.communicate(timeout=5)[0].decode().strip()
+                        output = probe.communicate(timeout=5)[0]
+                        code = output.decode().strip()
                     if code in ("200", "000"):
                         if code == "200":
                             print("dev server is UP on http://localhost:3000/")
@@ -134,31 +142,29 @@ def start():
     sys.exit(1)
 
 
-def stop():
+def stop() -> None:
     pid = read_pid()
     if not is_alive(pid):
         print("daemon not running")
         return
+    
+    assert pid is not None
     os.kill(pid, signal.SIGTERM)
+    
     # next dev forwards SIGTERM to its children; give it a moment
     for _ in range(15):
         time.sleep(1)
         if not is_alive(pid):
             print(f"daemon {pid} stopped")
-            try:
-                os.remove(PID_FILE)
-            except FileNotFoundError:
-                pass
+            remove_pid_file()
             return
+            
     os.kill(pid, signal.SIGKILL)
     print(f"daemon {pid} force-killed")
-    try:
-        os.remove(PID_FILE)
-    except FileNotFoundError:
-        pass
+    remove_pid_file()
 
 
-def status():
+def status() -> None:
     pid = read_pid()
     if is_alive(pid):
         print(f"daemon running (pid {pid})")
