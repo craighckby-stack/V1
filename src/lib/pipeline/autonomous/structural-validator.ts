@@ -156,10 +156,13 @@ function extractTopLevelExports(code: string): Set<string> {
         exports.add(m[1]);
         continue;
       }
-      if (exportDefaultRe.test(trimmed)) {
+      
+      // Check for export default but ensure it's not part of a larger export statement
+      if (exportDefaultRe.test(trimmed) && !trimmed.includes('export default')) {
         exports.add("default");
         continue;
       }
+      
       const braceMatch = trimmed.match(exportBraceRe);
       if (braceMatch && braceMatch[1]) {
         for (const name of braceMatch[1].split(",")) {
