@@ -40,21 +40,21 @@ export function validateStructure(
   const issues: StructureIssue[] = [];
 
   // Input validation
-  if (!filePath || typeof filePath !== 'string' || !filePath.trim()) {
+  if (typeof filePath !== 'string' || !filePath.trim()) {
     return {
       ok: false,
       issues: [{ code: "INVALID_INPUT", message: "filePath must be a non-empty string." }],
     };
   }
 
-  if (!originalCode || typeof originalCode !== 'string' || !originalCode.trim()) {
+  if (typeof originalCode !== 'string' || !originalCode.trim()) {
     return {
       ok: false,
       issues: [{ code: "INVALID_INPUT", message: "originalCode must be a non-empty string." }],
     };
   }
 
-  if (!refactoredCode || typeof refactoredCode !== 'string' || !refactoredCode.trim()) {
+  if (typeof refactoredCode !== 'string' || !refactoredCode.trim()) {
     return {
       ok: false,
       issues: [{ code: "INVALID_INPUT", message: "refactoredCode must be a non-empty string." }],
@@ -135,7 +135,7 @@ export function validateStructure(
  */
 function extractTopLevelExports(code: string): Set<string> {
   // Input validation
-  if (!code || typeof code !== 'string') {
+  if (typeof code !== 'string') {
     return new Set<string>();
   }
 
@@ -172,8 +172,8 @@ function extractTopLevelExports(code: string): Set<string> {
         continue;
       }
     } catch (error) {
-      // Continue processing if regex fails on a particular line
-      continue;
+      // Log error but continue processing other lines
+      console.error(`Error processing line in extractTopLevelExports: ${error}`);
     }
   }
   return exports;
