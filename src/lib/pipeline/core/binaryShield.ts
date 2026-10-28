@@ -90,7 +90,7 @@ export class BinaryShield {
     try {
       iv = Buffer.from(packet.iv, "base64");
     } catch (error) {
-      throw new Error("Invalid IV format - must be valid base64");
+      throw new Error(`Invalid IV format - must be valid base64: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
     
     if (iv.length !== IV_LENGTH) {
@@ -102,7 +102,7 @@ export class BinaryShield {
     try {
       combinedData = Buffer.from(packet.data, "base64");
     } catch (error) {
-      throw new Error("Invalid ciphertext format - must be valid base64");
+      throw new Error(`Invalid ciphertext format - must be valid base64: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
     
     if (combinedData.length < AUTH_TAG_LENGTH) {
@@ -122,6 +122,8 @@ export class BinaryShield {
     } catch (error) {
       decipher.destroy();
       throw new Error(`Decryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      decipher.destroy();
     }
   }
 
