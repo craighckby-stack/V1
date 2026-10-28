@@ -146,6 +146,12 @@ export function writePostmortemToDisk(rec: PostmortemRecord): void {
   // watcher) from reading a half-flushed file.
   const tmpPath = `${absPath}.tmp`;
   writeFileSync(tmpPath, json, "utf-8");
+  
+  // Check if file exists before renaming to prevent race condition
+  if (existsSync(absPath)) {
+    // If file exists, remove it first to ensure rename succeeds
+    require("fs").unlinkSync(absPath);
+  }
   renameSync(tmpPath, absPath);
 }
 
@@ -194,7 +200,9 @@ export function resolvePostmortemOnDisk(
     throw new Error("Repo, branch, and filePath cannot be null or undefined");
   }
   const existing = readPostmortemFromDisk(repo, branch, filePath);
-  if (!existing) return; // nothing to resolve
+  if (!existing) {
+    throw new Error(`Cannot resolve non-existent postmortem: ${repo}/${branch}/${filePath}`);
+  }
   if (existing.status === "resolved") return;
   existing.status = "resolved";
   existing.resolvedAt = nowIso();
@@ -250,14 +258,20 @@ function walkAndCollect(dir: string, branch: string, repoSlug: string, out: Post
         const raw = readFileSync(fullPath, "utf-8");
         const parsed = JSON.parse(raw) as PostmortemFile;
         if (parsed.schema !== SCHEMA_VERSION) continue;
+        
         // Reconstruct filePath from the path under postmortems/<repo>/<branch>/
         const rel = relative(join(POSTMORTEM_DIR, repoSlug, branch), fullPath)
           .replace(/\.json$/, ".ts") // default ext — see relativePathToPostmortemFile
           .split(sep)
           .join("/");
-        // Prefer the in-file filePath if it matches the path (it should);
-        // otherwise fall back to the reconstructed one.
-        const filePath = parsed.filePath || rel;
+        
+        // Use the filePath from the file if it exists and matches the expected path
+        // Otherwise fall back to the reconstructed path
+        let filePath = parsed.filePath;
+        if (!filePath || filePath !== rel) {
+          filePath = rel;
+        }
+        
         out.push(fromFileShape({ ...parsed, filePath }));
       } catch (error) {
         /* unreadable JSON — skip */
@@ -275,7 +289,7 @@ export async function rehydrateSqliteFromDisk(
   upsert: (rec: PostmortemRecord) => Promise<void>
 ): Promise<number> {
   if (upsert == null) {
-    throw new Error("Upsert function cannot be null or undefined");
+    throw new Error("Upsert function cannot be null or undefined - rehydration requires a valid upsert function");
   }
   const records = listAllPostmortemsFromDisk();
   let count = 0;
