@@ -1217,11 +1217,19 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
    * cleared, false if stop was requested during the wait.
    */
   private async waitForCooldown(myRun: number): Promise<boolean> {
+    let lastProgressLog = Date.now();
     while (this.continuous && myRun === this.runId) {
       const ms = llmCooldownMs();
       if (ms <= 0) return true; // gate clear
       const chunk = Math.min(ms, 1000);
       await new Promise((r) => setTimeout(r, chunk));
+      // Periodic progress log during long pauses (every 60s) so the
+      // terminal doesn't look frozen during a 30-min cooldown. The UI
+      // chip counts down every second; this keeps the log stream honest.
+      if (Date.now() - lastProgressLog >= 60_000) {
+        this.log(`LLM pause ongoing — ${Math.round(ms / 1000)}s remaining`, "warn");
+        lastProgressLog = Date.now();
+      }
     }
     return false; // stop requested
   }
@@ -1241,6 +1249,32 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
     const myRun = this.runId;
 
     try {
+      // ── Pause-before-scan (rate-limit gate) ──────────────────────────
+      // If the shared LLM gate is active at cycle start, pause the WHOLE
+      // cycle until it clears — do NOT scan and iterate files. Previously
+      // the loop iterated all ~17 files during a cooldown: each file's
+      // ratchet made a real LLM call that 429'd and RE-ESCALATED the gate
+      // (2→5→15→30min) within a single cycle, then the per-file wait slept
+      // the new cooldown, then the next file did it again. That churned
+      // 4× 429s and 50+ min of waiting into one cycle. Now: one pause at
+      // the top, then a fresh scan when the gate opens. Mid-cycle gate
+      // escalations (a file's ratchet 429s) BREAK the for-loop so the next
+      // cycle's start-pause handles the wait — one 429 per cooldown window.
+      // Manual one-shot cycles skip this (continuous=false) and defer fast
+      // at the enhanceFile checkpoint instead.
+      if (this.continuous) {
+        const cdAtStart = llmCooldownMs();
+        if (cdAtStart > 0) {
+          this.log(`LLM rate-limited — pausing cycle ${Math.round(cdAtStart / 1000)}s until cooldown clears (countdown in UI)`, "warn");
+          const cleared = await this.waitForCooldown(myRun);
+          if (!cleared) {
+            this.log("Stop during cycle-start pause — cycle aborted", "warn");
+            return { filesScanned: 0, filesEnhanced: 0, results: [] };
+          }
+          this.log("LLM cooldown cleared — starting cycle", "success");
+        }
+      }
+
       const files = this.scanFiles();
       // Cumulative scan count — increments every cycle so the counter visibly
       // moves (was `= files.length`, frozen at 16 forever, looked broken).
@@ -1263,22 +1297,18 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
           this.log("Stop requested — breaking out of cycle", "warn");
           break;
         }
-        // Fix B: gate check before each file — but only for CONTINUOUS runs.
-        // A manual one-shot cycle should return fast: each file defers at
-        // the enhance checkpoint instead of the cycle sleeping out a
-        // possibly 30-minute cooldown.
+        // Mid-cycle gate escalation: a previous file's ratchet 429'd and set
+        // the gate. DON'T wait per-file then call enhanceFile (that re-escalated
+        // 2→5→15→30min within one cycle — the churn). Instead BREAK the for-loop:
+        // the cycle ends early (honest "X/N files"), runContinuous waits 5s,
+        // and the NEXT cycle's start-of-cycle pause handles the cooldown.
+        // Net: one 429 per cooldown window, not 17.
+        // Manual one-shot cycles (continuous=false) skip this — they defer
+        // fast at the enhanceFile checkpoint and return quickly.
         const cdBefore = llmCooldownMs();
         if (cdBefore > 0 && this.continuous) {
-          this.log(`LLM cooldown active — pausing ${Math.round(cdBefore / 1000)}s before next file`, "warn");
-          const cleared = await this.waitForCooldown(myRun);
-          if (!cleared) {
-            this.log("Stop during cooldown wait — breaking out of cycle", "warn");
-            break;
-          }
-          // Observability: the pause→resume transition is now visible in the
-          // log stream (previously the wait just silently ended and the next
-          // file's ratchet logs appeared — "resumed" was implied, not shown).
-          this.log("LLM cooldown cleared — resuming cycle", "success");
+          this.log(`LLM cooldown escalated mid-cycle — ending cycle (will pause ${Math.round(cdBefore / 1000)}s before next cycle)`, "warn");
+          break;
         }
         const result = await this.enhanceFile(file);
         results.push(result);
@@ -1290,20 +1320,25 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         await new Promise((r) => setTimeout(r, 2000));
       }
 
-      // Fix B: track consecutive cycles where every file was deferred due
-      // to the gate. After 3, log a loud "quota exhausted" message (once).
-      // The loop does NOT auto-stop — when the gate clears, it resumes.
-      if (files.length > 0 && deferredThisCycle === files.length) {
+      // Track consecutive cycles that made NO progress (zero enhanced, at
+      // least one defer) due to the gate. After 3, log a loud "quota
+      // exhausted" message once. With the break-on-escalation behavior, a
+      // blocked cycle defers just 1 file (the probe that 429'd) then breaks
+      // — so we key on "enhanced===0 && deferredThisCycle>0" rather than
+      // "all files deferred" (which never happens now). The loop does NOT
+      // auto-stop; the start-of-cycle pause keeps it alive until the gate
+      // clears, and the UI shows the live countdown.
+      if (files.length > 0 && enhanced === 0 && deferredThisCycle > 0) {
         this.consecutiveCooldownCycles++;
         if (this.consecutiveCooldownCycles >= 3 && !this.quotaExhaustedLogged) {
-          this.log("LLM quota exhausted — loop alive but blocked on rate-limit gate (will resume when cooldown clears)", "error");
+          this.log("LLM quota exhausted — loop paused until cooldown clears (countdown in UI)", "error");
           this.quotaExhaustedLogged = true;
         } else {
-          this.log(`Cycle all-deferred (${this.consecutiveCooldownCycles} consecutive) — waiting on LLM gate`, "warn");
+          this.log(`Cycle blocked on LLM gate (${this.consecutiveCooldownCycles} consecutive) — pausing ${Math.round(llmCooldownMs() / 1000)}s`, "warn");
         }
       } else {
-        // At least one file attempted LLM — reset the counter and the
-        // "quota exhausted" message so it can fire again next outage.
+        // At least one file enhanced (or no defers) — reset the counter
+        // and the "quota exhausted" flag so it can fire again next outage.
         this.consecutiveCooldownCycles = 0;
         this.quotaExhaustedLogged = false;
       }
