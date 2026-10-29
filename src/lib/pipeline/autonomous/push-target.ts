@@ -15,8 +15,8 @@
  */
 
 import { execSync, execFileSync } from "child_process";
-import { readFileSync, writeFileSync, existsSync, renameSync, rmSync } from "fs";
-import { join } from "path";
+import { readFileSync, writeFileSync, existsSync, renameSync, rmSync, mkdirSync } from "fs";
+import { join, dirname } from "path";
 import { db } from "@/lib/db";
 
 const PROJECT_ROOT = "/home/z/my-project";
@@ -31,6 +31,19 @@ const SINGLETON_ID = "singleton";
 // the cache, the file is the source of truth, same pattern as the
 // postmortems (audit2-c). The file is NEVER committed — it holds a secret.
 const STATE_FILE = join(PROJECT_ROOT, ".loop-push-state.json");
+
+// ── Tier-3 persistent store: .git/info/loop-push-state.json ───────────
+// The sandbox this system runs in wipes both the DB file (db/custom.db) AND
+// the project-root state file (.loop-push-state.json) on every machine
+// restart — both are untracked files. The .git/ directory, however, MUST
+// persist across restarts (it holds commit history; losing it would lose
+// the whole repo). Files inside .git/info/ are ignored by git status and
+// survive restarts for free. We use this as a third-tier fallback: if both
+// the DB and the root state file are empty, recover from .git/info/. This
+// is the path that closes the "third PAT loss" gap observed on 2026-10-29.
+// Same 0o600 perms, same JSON shape, same never-committed invariant.
+const GIT_DIR = join(PROJECT_ROOT, ".git");
+const PERSISTENT_STATE_FILE = join(GIT_DIR, "info", "loop-push-state.json");
 
 interface LoopPushState {
   repo: string;
@@ -52,17 +65,50 @@ function readStateFile(): LoopPushState | null {
   }
 }
 
+// Tier-3 read: identical to readStateFile but against .git/info/. Used only
+// by seedDbFromStateFile when the root state file is missing (sandbox wiped
+// it on restart). .git/ is the one directory the sandbox restore guarantees
+// to preserve, so this is the durable last-resort store.
+function readPersistentStateFile(): LoopPushState | null {
+  try {
+    if (!existsSync(PERSISTENT_STATE_FILE)) return null;
+    const parsed = JSON.parse(readFileSync(PERSISTENT_STATE_FILE, "utf-8")) as LoopPushState;
+    if (!parsed.repo || !parsed.token || !parsed.branch) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function writeStateFile(state: LoopPushState): void {
   const tmp = `${STATE_FILE}.tmp`;
   // 0o600 — the file holds the PAT; never group/world-readable.
   writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
   renameSync(tmp, STATE_FILE); // atomic — never a half-written config
+
+  // Also write the tier-3 persistent copy inside .git/info/. mkdirSync is
+  // idempotent — .git/info usually exists, but we don't assume it. Same
+  // atomic-write pattern (tmp + rename). Best-effort: if .git is read-only
+  // for some reason, the root state file still serves as the fallback.
+  try {
+    mkdirSync(dirname(PERSISTENT_STATE_FILE), { recursive: true });
+    const ptmp = `${PERSISTENT_STATE_FILE}.tmp`;
+    writeFileSync(ptmp, JSON.stringify(state, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
+    renameSync(ptmp, PERSISTENT_STATE_FILE);
+  } catch {
+    /* best-effort — root state file is still the primary tier-2 store */
+  }
 }
 
 /** Seed the DB from the state file if the DB row is missing (the
- *  machine-restart recovery path). Best-effort, idempotent. */
+ *  machine-restart recovery path). Best-effort, idempotent.
+ *
+ *  Tries tier-2 (project-root state file) first; if missing, falls back
+ *  to tier-3 (.git/info/) — the path that survives sandbox restarts even
+ *  when untracked files at the project root are wiped. */
 async function seedDbFromStateFile(): Promise<LoopPushState | null> {
-  const state = readStateFile();
+  let state = readStateFile();
+  if (!state) state = readPersistentStateFile();
   if (!state) return null;
   try {
     await db.gitPushTarget.upsert({
@@ -77,6 +123,11 @@ async function seedDbFromStateFile(): Promise<LoopPushState | null> {
         lastBranchNumber: state.lastBranchNumber,
       },
     });
+    // If we recovered from tier-3, backfill tier-2 so the next read finds
+    // the root file and doesn't have to dip into .git/info/ every time.
+    if (!existsSync(STATE_FILE)) {
+      try { writeStateFile(state); } catch { /* best-effort */ }
+    }
   } catch {
     /* DB unavailable — the file alone still serves reads */
   }
