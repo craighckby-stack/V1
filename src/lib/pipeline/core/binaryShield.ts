@@ -10,7 +10,6 @@ export interface EncryptionPacket {
 export interface DecryptionPacket {
   readonly data: string;
   readonly iv: string;
-  readonly algorithm?: string;
 }
 
 const ALGORITHM = "aes-256-gcm";
@@ -71,10 +70,6 @@ export class BinaryShield {
       throw new Error("Decryption packet must be a valid object");
     }
     
-    if (!("data" in packet) || !("iv" in packet)) {
-      throw new Error("Decryption packet must contain data and iv fields");
-    }
-    
     if (packet.data === null || packet.data === undefined || packet.iv === null || packet.iv === undefined) {
       throw new Error("Decryption packet must contain non-null data and iv fields");
     }
@@ -93,7 +88,7 @@ export class BinaryShield {
     try {
       iv = Buffer.from(packet.iv, "base64");
     } catch (error) {
-      throw new Error(`Invalid IV format - must be valid base64: ${error instanceof Error ? error.message : "Unknown error"}`);
+      throw new Error("Invalid IV format - must be valid base64");
     }
     
     if (iv.length !== IV_LENGTH) {
@@ -105,11 +100,11 @@ export class BinaryShield {
     try {
       combinedData = Buffer.from(packet.data, "base64");
     } catch (error) {
-      throw new Error(`Invalid ciphertext format - must be valid base64: ${error instanceof Error ? error.message : "Unknown error"}`);
+      throw new Error("Invalid ciphertext format - must be valid base64");
     }
     
     if (combinedData.length < AUTH_TAG_LENGTH) {
-      throw new Error(`Ciphertext too short for ${ALGORITHM_NAME} - must include at least ${AUTH_TAG_LENGTH} bytes for authentication tag`);
+      throw new Error(`Ciphertext too short for ${ALGORITHM_NAME} - must include ${AUTH_TAG_LENGTH}-byte authentication tag`);
     }
     
     const authTag = combinedData.subarray(combinedData.length - AUTH_TAG_LENGTH);
@@ -123,6 +118,7 @@ export class BinaryShield {
       decryptedData = Buffer.concat([decryptedData, finalData]);
       return decryptedData.toString("utf8");
     } catch (error) {
+      decipher.destroy();
       throw new Error(`Decryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       decipher.destroy();

@@ -98,41 +98,28 @@ export interface ArchitecturalVote {
   recommendedPattern: string;
 }
 
-function containsKeyword(text: string | null | undefined, keywords: readonly string[] | null | undefined): boolean {
+function containsKeyword(text: string | null | undefined, keywords: readonly string[]): boolean {
   if (!text || typeof text !== 'string' || text.trim() === '') {
     return false;
   }
-  
-  if (!keywords || !Array.isArray(keywords)) {
-    return false;
-  }
-  
   const lowerText = text.toLowerCase();
   return keywords.some(keyword => keyword && typeof keyword === 'string' && lowerText.includes(keyword));
 }
 
 function isSecurityRelated(fileName: string | null | undefined, codeSnippet: string | null | undefined): boolean {
-  if (!fileName || typeof fileName !== 'string' || fileName.trim() === '') {
+  if (!fileName || typeof fileName !== 'string' || fileName.trim() === '' || 
+      !codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
     return false;
   }
-  
-  if (!codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
-    return false;
-  }
-  
   return containsKeyword(fileName, SECURITY_KEYWORDS) || 
          containsKeyword(codeSnippet, SECURITY_KEYWORDS);
 }
 
 function isAgentRelated(fileName: string | null | undefined, codeSnippet: string | null | undefined): boolean {
-  if (!fileName || typeof fileName !== 'string' || fileName.trim() === '') {
+  if (!fileName || typeof fileName !== 'string' || fileName.trim() === '' || 
+      !codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
     return false;
   }
-  
-  if (!codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
-    return false;
-  }
-  
   return containsKeyword(fileName, AGENT_KEYWORDS) || 
          containsKeyword(codeSnippet, AGENT_KEYWORDS);
 }

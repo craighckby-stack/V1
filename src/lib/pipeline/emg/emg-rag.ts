@@ -183,8 +183,6 @@ class EmgRagMemory {
       // seeded stays false: the load is retried on the next query.
       console.error("Failed to load memory entries from database:", error);
       this.entries = [];
-      this.idf.clear();
-      this.vectors.clear();
     }
   }
 
@@ -247,7 +245,6 @@ class EmgRagMemory {
         })
         .catch((error) => {
           console.error("Failed to save memory entry to database:", error);
-          throw new Error(`Database error while saving memory entry: ${error instanceof Error ? error.message : String(error)}`);
         });
     }
     
@@ -256,7 +253,7 @@ class EmgRagMemory {
 
   public query(queryText: string): EmgQueryResult {
     // Validate input
-    if (!queryText || typeof queryText !== "string" || !queryText.trim()) {
+    if (!queryText || !queryText.trim()) {
       return {
         topFailures: [],
         topFixes: [],
@@ -352,7 +349,6 @@ class EmgRagMemory {
     if (db.memoryEntry) {
       db.memoryEntry.deleteMany({}).catch((error) => {
         console.error("Failed to clear memory entries from database:", error);
-        throw new Error(`Database error while clearing memory entries: ${error instanceof Error ? error.message : String(error)}`);
       });
     }
   }

@@ -39,25 +39,10 @@ export function validateStructure(
 ): StructureResult {
   const issues: StructureIssue[] = [];
 
-  // Input validation
-  if (typeof filePath !== 'string' || !filePath.trim()) {
+  if (!refactoredCode || !refactoredCode.trim()) {
     return {
       ok: false,
-      issues: [{ code: "INVALID_INPUT", message: "filePath must be a non-empty string." }],
-    };
-  }
-
-  if (typeof originalCode !== 'string' || !originalCode.trim()) {
-    return {
-      ok: false,
-      issues: [{ code: "INVALID_INPUT", message: "originalCode must be a non-empty string." }],
-    };
-  }
-
-  if (typeof refactoredCode !== 'string' || !refactoredCode.trim()) {
-    return {
-      ok: false,
-      issues: [{ code: "INVALID_INPUT", message: "refactoredCode must be a non-empty string." }],
+      issues: [{ code: "EMPTY_FILE", message: "Refactored code is empty." }],
     };
   }
 
@@ -115,12 +100,10 @@ export function validateStructure(
   // 5. LICENSE HEADER STRIPPING — copyright/SPDX in the first 2000 chars of
   // original but missing in candidate.
   const licenseRe = /(?:SPDX-License-Identifier:|Copyright\s+(?:\([cC]\)|©)|Licensed\s+under\s+the|Permission\s+is\s+hereby\s+granted)/i;
-  const origHasLicense = licenseRe.test(originalCode.slice(0, 2000));
-  const candHasLicense = licenseRe.test(refactoredCode.slice(0, 2000));
-  if (origHasLicense && !candHasLicense) {
+  if (licenseRe.test(originalCode.slice(0, 2000)) && !licenseRe.test(refactoredCode.slice(0, 2000))) {
     issues.push({
       code: "LICENSE_STRIPPED",
-      message: `Original file in ${filePath} contained a license/copyright header; candidate removed it. License headers must be preserved.`,
+      message: "Original file contained a license/copyright header; candidate removed it. License headers must be preserved.",
     });
   }
 
@@ -134,46 +117,30 @@ export function validateStructure(
  * "export default" is included as the literal string "default".
  */
 function extractTopLevelExports(code: string): Set<string> {
-  // Input validation
-  if (typeof code !== 'string' || !code.trim()) {
-    return new Set<string>();
-  }
-
   const exports = new Set<string>();
   const lines = code.split("\n");
-  
-  // Cache regex patterns to avoid recompilation
+  // Match `export <kind> <name>` and `export { ... }`
   const exportRe = /^export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|var|interface|type|enum|abstract\s+class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/;
   const exportDefaultRe = /^export\s+default\b/;
   const exportBraceRe = /^export\s*\{([^}]+)\}/;
 
   for (const line of lines) {
     const trimmed = line.trim();
-    
-    try {
-      const m = trimmed.match(exportRe);
-      if (m && m[1]) {
-        exports.add(m[1]);
-        continue;
+    const m = trimmed.match(exportRe);
+    if (m && m[1]) {
+      exports.add(m[1]);
+      continue;
+    }
+    if (exportDefaultRe.test(trimmed)) {
+      exports.add("default");
+      continue;
+    }
+    const braceMatch = trimmed.match(exportBraceRe);
+    if (braceMatch && braceMatch[1]) {
+      for (const name of braceMatch[1].split(",")) {
+        const trimmedName = name.trim().split(/\s+as\s+/)[0];
+        if (trimmedName) exports.add(trimmedName);
       }
-      
-      // Check for export default
-      if (exportDefaultRe.test(trimmed)) {
-        exports.add("default");
-        continue;
-      }
-      
-      const braceMatch = trimmed.match(exportBraceRe);
-      if (braceMatch && braceMatch[1]) {
-        for (const name of braceMatch[1].split(",")) {
-          const trimmedName = name.trim().split(/\s+as\s+/)[0];
-          if (trimmedName) exports.add(trimmedName);
-        }
-        continue;
-      }
-    } catch (error) {
-      // Log error but continue processing other lines
-      console.error(`Error processing line in extractTopLevelExports: ${error}`);
     }
   }
   return exports;

@@ -86,38 +86,31 @@ export function calculateShannonEntropy(str: string): number {
 }
 
 function isLikelyEnvVarOrPath(s: string): boolean {
-  try {
-    // 1. ENV_VAR=value pattern (e.g. DYLD_FRAMEWORK_PATH=/override)
-    if (/^[A-Z][A-Z0-9_]*=/.test(s)) return true;
+  // 1. ENV_VAR=value pattern (e.g. DYLD_FRAMEWORK_PATH=/override)
+  if (/^[A-Z][A-Z0-9_]*=/.test(s)) return true;
 
-    // 2. Known env var prefixes
-    if (ENV_VAR_PREFIXES.some(prefix => s.startsWith(prefix))) return true;
+  // 2. Known env var prefixes
+  if (ENV_VAR_PREFIXES.some(prefix => s.startsWith(prefix))) return true;
 
-    // 3. File path (starts with / or contains / and has a file extension)
-    if (s.startsWith("/") || /^[a-z]:\//i.test(s)) return true;
-    if (s.includes("/") && /\.\w{1,5}$/.test(s)) return true;
+  // 3. File path (starts with / or contains / and has a file extension)
+  if (s.startsWith("/") || /^[a-z]:\//i.test(s)) return true;
+  if (s.includes("/") && /\.\w{1,5}$/.test(s)) return true;
 
-    // 4. URL
-    if (s.startsWith("http://") || s.startsWith("https://")) return true;
+  // 4. URL
+  if (s.startsWith("http://") || s.startsWith("https://")) return true;
 
-    // 5. Non-secret utility strings — alphabets, digit sequences, etc.
-    const unique = new Set(s).size;
-    if (unique === s.length && s.length >= MIN_UNIQUE_CHARS_FOR_UTILITY_STRING) {
-      // All characters are unique AND length >= 20 — could be alphabet or similar.
-      // Real secrets are NOT typically all-unique (they have repetition due to base64).
-      // Check if it's a known non-secret pattern:
-      if (/^[a-z]+$/i.test(s) && unique >= MIN_UNIQUE_CHARS_FOR_UTILITY_STRING) return true; // alphabet
-      if (/^[0-9]+$/i.test(s) && unique >= MIN_UNIQUE_DIGITS_FOR_UTILITY_STRING) return true;  // digit sequence
-      if (/^[a-z0-9]+$/i.test(s) && unique >= MIN_UNIQUE_ALPHANUMERIC_FOR_UTILITY_STRING && s.length <= MAX_ALPHANUMERIC_UTILITY_LENGTH) return true; // alphanumeric utility
-    }
-
-    return false;
-  } catch (error) {
-    // If any error occurs during validation, treat as not an env var/path
-    // Log the error for debugging purposes
-    console.error("Error in isLikelyEnvVarOrPath:", error);
-    return false;
+  // 5. Non-secret utility strings — alphabets, digit sequences, etc.
+  const unique = new Set(s).size;
+  if (unique === s.length && s.length >= MIN_UNIQUE_CHARS_FOR_UTILITY_STRING) {
+    // All characters are unique AND length >= 20 — could be alphabet or similar.
+    // Real secrets are NOT typically all-unique (they have repetition due to base64).
+    // Check if it's a known non-secret pattern:
+    if (/^[a-z]+$/i.test(s) && unique >= MIN_UNIQUE_CHARS_FOR_UTILITY_STRING) return true; // alphabet
+    if (/^[0-9]+$/i.test(s) && unique >= MIN_UNIQUE_DIGITS_FOR_UTILITY_STRING) return true;  // digit sequence
+    if (/^[a-z0-9]+$/i.test(s) && unique >= MIN_UNIQUE_ALPHANUMERIC_FOR_UTILITY_STRING && s.length <= MAX_ALPHANUMERIC_UTILITY_LENGTH) return true; // alphanumeric utility
   }
+
+  return false;
 }
 
 function isLikelyFixtureFile(filePath: string | null | undefined, code: string): boolean {
@@ -210,7 +203,7 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
       for (const literal of stringLiterals) {
         iterations++;
         if (iterations > MAX_ITERATIONS) {
-          violations.push("High entropy check exceeded maximum iterations - potential infinite loop prevented. Consider reducing the number of string literals in the code.");
+          violations.push("High entropy check exceeded maximum iterations - potential infinite loop prevented");
           break;
         }
 
