@@ -54,7 +54,8 @@ function readStateFile(): LoopPushState | null {
 
 function writeStateFile(state: LoopPushState): void {
   const tmp = `${STATE_FILE}.tmp`;
-  writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
+  // 0o600 — the file holds the PAT; never group/world-readable.
+  writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
   renameSync(tmp, STATE_FILE); // atomic — never a half-written config
 }
 
@@ -188,6 +189,24 @@ export async function getPushTargetPublic(): Promise<PushTargetPublic> {
     }
     return { configured: false };
   }
+  // Self-heal DB→file: the row exists but the state file is missing (file
+  // lost/never written by an older build). Backfill it so the NEXT DB wipe
+  // doesn't lose the token — this is the exact gap that forced the last
+  // re-configure. Best-effort, never blocks the read.
+  if (!existsSync(STATE_FILE)) {
+    try {
+      writeStateFile({
+        repo: row.repo,
+        token: row.token,
+        branch: row.branch,
+        createdRepo: row.createdRepo,
+        lastBranchNumber: row.lastBranchNumber ?? 0,
+        savedAt: new Date().toISOString(),
+      });
+    } catch {
+      /* best-effort backfill */
+    }
+  }
   return {
     configured: true,
     repo: row.repo,
@@ -303,15 +322,13 @@ export async function setPushTarget(opts: {
     throw new Error(`Repo check failed for ${repo}: ${body.message ?? `HTTP ${repoRes.status}`}`);
   }
 
-  // 3. Persist config (upsert the singleton row + durable state file)
-  await db.gitPushTarget.upsert({
-    where: { id: SINGLETON_ID },
-    update: { repo, token, branch: "main", createdRepo: created, lastPushError: null },
-    create: { id: SINGLETON_ID, repo, token, branch: "main", createdRepo: created },
-  });
-  // Write-through to the durable state file (survives DB wipes). The branch
-  // counter is preserved from the existing file so a re-configure doesn't
-  // reset loop-NN numbering mid-run.
+  // 3. Persist config — STATE FILE FIRST (audit2-d hardening). The sandbox's
+  // DB layer can be rolled back or recreated at any moment (it happened twice:
+  // the table simply vanished). The old order — DB upsert first, unguarded —
+  // meant a missing table threw AFTER GitHub verification but BEFORE the file
+  // was written, losing the just-validated token. Now: the durable file is
+  // written before anything can throw, and the DB upsert is best-effort (the
+  // file is the source of truth; reads fall back to it when the DB is empty).
   const prevState = readStateFile();
   try {
     writeStateFile({
@@ -319,12 +336,25 @@ export async function setPushTarget(opts: {
       token,
       branch: "main",
       createdRepo: created,
+      // Preserve the branch counter across a re-configure of the SAME repo so
+      // loop-NN numbering doesn't reset mid-run.
       lastBranchNumber: prevState?.repo === repo ? prevState.lastBranchNumber : 0,
       savedAt: new Date().toISOString(),
     });
   } catch (err) {
-    // Non-fatal: the DB row is written; the file is the durability bonus.
+    // Non-fatal ONLY if the DB write below succeeds — track it.
     console.error("[PUSH-TARGET] failed to write state file:", err);
+  }
+  try {
+    await db.gitPushTarget.upsert({
+      where: { id: SINGLETON_ID },
+      update: { repo, token, branch: "main", createdRepo: created, lastPushError: null },
+      create: { id: SINGLETON_ID, repo, token, branch: "main", createdRepo: created },
+    });
+  } catch (err) {
+    // DB unavailable/recreated — the state file already holds the config;
+    // reads rehydrate the DB from it. Don't fail the configure over a cache.
+    console.error("[PUSH-TARGET] DB upsert failed (state file already written):", err);
   }
 
   // 4. Point `origin` at the tokenless URL (safe to display in `git remote -v`)
@@ -347,11 +377,18 @@ export async function setPushTarget(opts: {
   return { repo, login, created };
 }
 
-/** Clear the push target: delete the DB row, remove the durable state
- *  file, and remove the remote. */
+/** Clear the push target: remove the durable state file, delete the DB row,
+ *  and remove the remote. FILE FIRST — if the DB table is missing (sandbox
+ *  rollback) the old order threw on deleteMany BEFORE rmSync, leaving the
+ *  PAT sitting in the file as a zombie credential. The file must go no
+ *  matter what the DB does. */
 export async function clearPushTarget(): Promise<{ cleared: boolean }> {
-  await db.gitPushTarget.deleteMany({ where: { id: SINGLETON_ID } });
   try { rmSync(STATE_FILE, { force: true }); } catch { /* best-effort */ }
+  try {
+    await db.gitPushTarget.deleteMany({ where: { id: SINGLETON_ID } });
+  } catch {
+    /* DB unavailable/missing table — the file (source of truth) is gone */
+  }
   try {
     execSync("git remote remove origin", { cwd: PROJECT_ROOT, timeout: 5000, stdio: "pipe" });
   } catch {
