@@ -1,0 +1,4 @@
+# Local env — never commit. Fly secrets live in `fly secrets set`.
+.env
+# Bun lockfile is fine to commit but not required (zero deps).
+bun.lock

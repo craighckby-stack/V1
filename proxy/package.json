@@ -1,0 +1,12 @@
+{
+  "name": "loop-gemini-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Gemini geo-bypass proxy for LOOP — runs in a supported region, injects the real API key server-side.",
+  "scripts": {
+    "start": "bun run index.ts",
+    "dev": "bun --hot index.ts"
+  },
+  "packageManager": "bun@1.3.14"
+}
