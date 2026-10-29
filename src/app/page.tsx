@@ -16,6 +16,20 @@ interface LlmGate {
   level: number; // 1=2min, 2=5min, 3=15min, 4=30min escalation
 }
 
+/** Per-file saturation state (phase 1: lockout-on-stable). Keyed by
+ *  repo-relative file path. A file is `lockedOut` after
+ *  SATURATION_THRESHOLD (3) consecutive no-growth cycles. The UI shows
+ *  a [unlock] button for locked files and "PASS COMPLETE" when all
+ *  eligible files are locked. */
+interface FileSaturation {
+  consecutiveNoGrowth: number;
+  lockedOut: boolean;
+  lockedAt: string | null;
+  lastNoGrowthReason: string | null;
+  enhancementsThisPass: number;
+}
+type SaturationMap = Record<string, FileSaturation>;
+
 interface SelfEnhanceStatus {
   running: boolean;
   stats: {
@@ -29,6 +43,7 @@ interface SelfEnhanceStatus {
   };
   logs: LogEntry[];
   currentFile: string | null;
+  saturation?: SaturationMap;
   llmGate?: LlmGate;
 }
 
@@ -412,6 +427,28 @@ export default function Home() {
     setCfgShowToken(false);
     // Return focus to the terminal
     inputRef.current?.focus();
+  }
+
+  /** Unlock a saturated file so the loop re-evaluates it next cycle.
+   *  Resets its no-growth counter — a fresh start. The user clicks this
+   *  in the saturation panel when they've reviewed a locked file and
+   *  want the loop to take another pass at it. */
+  async function unlockFile(filePath: string) {
+    try {
+      const res = await fetch("/api/self-enhance/unlock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filePath }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        // Refresh status so the panel updates immediately
+        const sres = await fetch("/api/self-enhance/status");
+        if (sres.ok) setStatus(await sres.json());
+      }
+    } catch {
+      /* best-effort — the next poll will catch up */
+    }
   }
 
   async function submitConfig() {
@@ -1192,6 +1229,92 @@ export default function Home() {
           </button>
         </div>
       </div>
+
+      {/* Saturation / lockout panel (phase 1). Shows per-file no-growth
+          counters and [unlock] buttons for locked files. When all
+          eligible files are locked, shows "PASS COMPLETE — review &
+          unlock" so the user knows the system has converged. The panel
+          is only visible when there's saturation data to show (at least
+          one file has been evaluated). Hidden until first cycle. */}
+      {(() => {
+        const sat = status?.saturation ?? {};
+        const entries = Object.entries(sat);
+        if (entries.length === 0) return null;
+        const lockedCount = entries.filter(([, s]) => s.lockedOut).length;
+        const allLocked = lockedCount === entries.length && lockedCount > 0;
+        return (
+          <div
+            aria-label={
+              allLocked
+                ? "Pass complete — all files locked out, review and unlock to start a new pass"
+                : `Saturation: ${lockedCount}/${entries.length} files locked out`
+            }
+            style={{
+              borderTop: `1px solid ${allLocked ? WARN_COLOR : DIM_COLOR}`,
+              borderBottom: `1px solid ${DIM_COLOR}`,
+              padding: "4px 8px",
+              background: "#000",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              flexWrap: "wrap",
+              fontSize: "11px",
+              color: DIM_COLOR,
+            }}
+          >
+            <span style={{ color: allLocked ? WARN_COLOR : DIM_COLOR, fontWeight: "bold" }}>
+              {allLocked ? "🎯 PASS COMPLETE" : "SATURATION"}
+            </span>
+            {entries.map(([path, s]) => {
+              const short = path.split("/").pop() ?? path;
+              return (
+                <span
+                  key={path}
+                  aria-label={`${short}: ${s.lockedOut ? "locked" : `${s.consecutiveNoGrowth}/${3} no-growth`}`}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    color: s.lockedOut ? WARN_COLOR : s.consecutiveNoGrowth > 0 ? PROMPT_COLOR : DIM_COLOR,
+                  }}
+                >
+                  <span aria-hidden>{s.lockedOut ? "🔒" : "▪"}</span>
+                  <span style={{ fontFamily: "inherit" }}>{short}</span>
+                  {!s.lockedOut && s.consecutiveNoGrowth > 0 && (
+                    <span style={{ color: DIM_COLOR, fontSize: "10px" }}>
+                      ({s.consecutiveNoGrowth}/3)
+                    </span>
+                  )}
+                  {s.lockedOut && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        unlockFile(path);
+                      }}
+                      aria-label={`Unlock ${short} for the next cycle`}
+                      style={{
+                        ...cfgBtnStyle,
+                        padding: "1px 6px",
+                        fontSize: "10px",
+                        color: PROMPT_COLOR,
+                        borderColor: PROMPT_COLOR,
+                      }}
+                    >
+                      [unlock]
+                    </button>
+                  )}
+                </span>
+              );
+            })}
+            {allLocked && (
+              <span style={{ color: DIM_COLOR, fontSize: "10px" }}>
+                review &amp; unlock to start a new pass
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Unified console — boot, commands, output, and live server logs all
           in one chronological stream. Rendered by the mutable display layer

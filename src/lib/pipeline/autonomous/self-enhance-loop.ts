@@ -22,6 +22,13 @@ import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopB
 import { db } from "@/lib/db";
 import { generateTasks } from "./self-task-generator";
 import { detectTruncation, stripComments, stripLiteralsAndComments } from "./code-analysis";
+import {
+  TARGET_FILES,
+  SATURATION_THRESHOLD,
+  type FileSaturation,
+  type SaturationMap,
+  classifyGrowth,
+} from "./saturation";
 
 const PIPELINE_SRC_DIR = "/home/z/my-project/src/lib/pipeline";
 const DISPLAY_SRC_DIR = "/home/z/my-project/src/app/display";
@@ -299,6 +306,12 @@ class SelfEnhanceLoop {
   // failures older than 30 minutes, so an intermittent 429 window doesn't
   // permanently skip a module for the rest of the server's life.
   private testWriteAttempts = new Map<string, { attempts: number; at: number }>();
+  // Per-file saturation state (phase 1: lockout-on-stable). Keyed by
+  // repo-relative path. A file is LOCKED OUT after SATURATION_THRESHOLD
+  // consecutive no-growth cycles. Locked files are skipped by runCycle —
+  // no LLM calls, no quota burn. The user unlocks via the UI (or a server
+  // restart resets everything, which is a natural "new pass" boundary).
+  private saturation = new Map<string, FileSaturation>();
   private stats = {
     totalScanned: 0,
     totalEnhanced: 0,
@@ -336,6 +349,16 @@ class SelfEnhanceLoop {
    *      (page.tsx, layout.tsx) is PROTECTED and never scanned.
    */
   private scanFiles(): string[] {
+    // Phase 1: TARGET_FILES allowlist. When non-empty, the loop ONLY
+    // mutates files in this list. This is the "focus" control — one file
+    // for the live-visible demo, more as the system proves itself. When
+    // empty, the loop is DISABLED (never fall back to scanning all
+    // pipeline files unsupervised — that was the unbounded-churn regime
+    // that burned quota re-reviewing 19 files every cycle).
+    if (TARGET_FILES.length === 0) {
+      return [];
+    }
+    const allowSet = new Set(TARGET_FILES);
     const files: string[] = [];
     const scan = (dir: string, extensions: string[]) => {
       let entries: import("fs").Dirent[];
@@ -356,7 +379,11 @@ class SelfEnhanceLoop {
             (extensions.includes(".tsx") && isTsx);
           if (matches) {
             const relPath = relative(PROJECT_ROOT, fullPath);
-            if (!PROTECTED_FILES.has(relPath)) {
+            // Two filters: (1) not protected, (2) in the allowlist. Both
+            // must pass. PROTECTED_FILES is the hard floor (engine + UI
+            // control surface); TARGET_FILES is the focus selection on
+            // top of it.
+            if (!PROTECTED_FILES.has(relPath) && allowSet.has(relPath)) {
               files.push(fullPath);
             }
           }
@@ -1284,6 +1311,7 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       const results: SelfEnhanceResult[] = [];
       let enhanced = 0;
       let deferredThisCycle = 0;
+      let lockedSkipped = 0;
 
       for (const file of files) {
         // Run-token check inside the for-loop. Token-ONLY (audit 2): the
@@ -1297,6 +1325,18 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
           this.log("Stop requested — breaking out of cycle", "warn");
           break;
         }
+        const relPath = relative(PROJECT_ROOT, file);
+
+        // ── Saturation lockout skip ──────────────────────────────────
+        // A locked-out file is NOT mutated — no LLM call, no quota burn.
+        // The user unlocked it (or restarted the server) to re-open it.
+        // We count it so the cycle log shows "X/N (Y locked)" honestly.
+        const sat = this.saturation.get(relPath);
+        if (sat?.lockedOut) {
+          lockedSkipped++;
+          continue;
+        }
+
         // Mid-cycle gate escalation: a previous file's ratchet 429'd and set
         // the gate. DON'T wait per-file then call enhanceFile (that re-escalated
         // 2→5→15→30min within one cycle — the churn). Instead BREAK the for-loop:
@@ -1316,8 +1356,58 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         if (result.reason.startsWith("Rejected")) this.stats.totalReverted++;
         if (result.reason.startsWith("Deferred")) deferredThisCycle++;
 
+        // ── Per-file saturation update ───────────────────────────────
+        // Classify this cycle's outcome for THIS file and update its
+        // saturation counter. Growth → reset. No-growth → increment,
+        // and lock out at SATURATION_THRESHOLD. Neutral (quota/transient)
+        // → don't touch the counter (don't punish a file for API limits).
+        const growth = classifyGrowth(result.reason);
+        const prev = this.saturation.get(relPath) ?? {
+          consecutiveNoGrowth: 0,
+          lockedOut: false,
+          lockedAt: null,
+          lastNoGrowthReason: null,
+          enhancementsThisPass: 0,
+        };
+        if (growth === "growth") {
+          prev.consecutiveNoGrowth = 0;
+          prev.lastNoGrowthReason = null;
+          prev.enhancementsThisPass++;
+        } else if (growth === "no-growth") {
+          prev.consecutiveNoGrowth++;
+          prev.lastNoGrowthReason = result.reason;
+          if (prev.consecutiveNoGrowth >= SATURATION_THRESHOLD && !prev.lockedOut) {
+            prev.lockedOut = true;
+            prev.lockedAt = new Date().toISOString();
+            this.log(
+              `🔒 ${relPath} LOCKED OUT — ${SATURATION_THRESHOLD} consecutive no-growth cycles (last: ${result.reason.slice(0, 80)})`,
+              "warn"
+            );
+            this.log(
+              `Pass will skip ${relPath} until you unlock it (UI button) or restart the server for a fresh pass`,
+              "info"
+            );
+          }
+        }
+        this.saturation.set(relPath, prev);
+
         // Brief pause between files to avoid hammering the LLM API
         await new Promise((r) => setTimeout(r, 2000));
+      }
+
+      // ── Pass-complete detection ─────────────────────────────────────
+      // When every eligible file is locked out, the pass is complete —
+      // the system is stable. This is the checkpoint the user reviews.
+      // The loop doesn't auto-stop (it'll keep cycling, but every file
+      // will skip); the UI shows "PASS COMPLETE — review & unlock" so
+      // the user knows the system has converged and it's their move.
+      const eligibleCount = files.length;
+      const lockedCount = Array.from(this.saturation.values()).filter((s) => s.lockedOut).length;
+      if (eligibleCount > 0 && lockedCount >= eligibleCount) {
+        this.log(
+          `🎯 PASS COMPLETE — all ${eligibleCount} file(s) locked out. Review & unlock in the UI to start a new pass.`,
+          "success"
+        );
       }
 
       // Track consecutive cycles that made NO progress (zero enhanced, at
@@ -1345,7 +1435,11 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
 
       this.stats.cyclesCompleted++;
       this.currentFile = null;
-      this.log(`Cycle complete: ${enhanced}/${files.length} files enhanced`, "success");
+      const lockedNow = Array.from(this.saturation.values()).filter((s) => s.lockedOut).length;
+      this.log(
+        `Cycle complete: ${enhanced}/${files.length} enhanced${lockedSkipped > 0 ? `, ${lockedSkipped} locked` : ""}${lockedNow >= files.length && files.length > 0 ? " — PASS COMPLETE" : ""}`,
+        "success"
+      );
       return { filesScanned: files.length, filesEnhanced: enhanced, results };
     } finally {
       this.running = false;
@@ -1402,6 +1496,36 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
 
   getStats() {
     return { ...this.stats };
+  }
+
+  /** Snapshot of per-file saturation state for the status API + UI.
+   *  Returns a plain object (not a Map) so it JSON-serializes cleanly. */
+  getSaturation(): SaturationMap {
+    const out: SaturationMap = {};
+    for (const [path, state] of this.saturation) {
+      out[path] = { ...state };
+    }
+    return out;
+  }
+
+  /** Unlock a locked-out file so it's eligible for the next cycle. Called
+   *  by the UI when the user clicks "unlock". Resets the no-growth counter
+   *  and the enhancements-this-pass counter — a fresh start. The file is
+   *  re-evaluated on the next cycle (its content may have changed since
+   *  lockout, so the LLM might find new improvements or might re-lock
+   *  immediately if nothing's changed in the underlying code). */
+  unlockFile(relPath: string): { unlocked: boolean; reason?: string } {
+    const state = this.saturation.get(relPath);
+    if (!state || !state.lockedOut) {
+      return { unlocked: false, reason: "not locked" };
+    }
+    state.lockedOut = false;
+    state.lockedAt = null;
+    state.consecutiveNoGrowth = 0;
+    state.lastNoGrowthReason = null;
+    state.enhancementsThisPass = 0;
+    this.log(`🔓 ${relPath} unlocked — eligible for next cycle`, "success");
+    return { unlocked: true };
   }
 
   getLogs() {
