@@ -49,6 +49,12 @@ const USER_INPUT_COLOR = "#ffffff";
 const DIM_COLOR = "#777777";
 
 export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
+  // Validate input lines
+  if (!Array.isArray(lines)) {
+    console.error("ConsoleStream: lines prop must be an array");
+    return null;
+  }
+
   return (
     <div
       ref={logRef}
@@ -59,6 +65,11 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
       }}
     >
       {lines.map((line) => {
+        // Skip invalid line entries
+        if (!line || typeof line !== "object" || !line.id || !line.type) {
+          return null;
+        }
+
         const color =
           line.type === "command"
             ? USER_INPUT_COLOR
