@@ -148,6 +148,16 @@ async function raiseSafeMode(setBy: string, reason: string): Promise<void> {
   }
 }
 
+/** Raise the safe-mode flag from OUTSIDE the duress module — e.g. the
+ *  gate-integrity probe (D5), which halts the loop when a deterministic
+ *  probe proves a gate stopped doing its job. Same two-tier write as the
+ *  internal path: runtime cache (honored by isSafeMode() at the top of
+ *  every cycle) + durable DB row (survives restarts). The operator
+ *  clears it through the normal path after verifying. */
+export async function raiseSafeModeFlag(setBy: string, reason: string): Promise<void> {
+  await raiseSafeMode(setBy, reason);
+}
+
 /** Clear the safe-mode flag (operator action). Clears BOTH tiers. */
 export async function clearSafeMode(by: string = "operator"): Promise<{ cleared: boolean }> {
   setRuntimeSafeMode(false, null);

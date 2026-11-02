@@ -100,11 +100,20 @@ model Postmortem {
   status       String   // active | resolved
   // Verification lifecycle — gates LLM-prompt injection. See model doc.
   verificationStatus String @default("verified") // verified | candidate | rejected
-  failureType  String   // AST_SYMBOL_DROPPED | AST_STRUCTURAL_DRIFT | REVIEW_REJECTED | SANITIZER_REDCTION | HEADER_STRIPPED | COMPILE_ERROR | OTHER
+  failureType  String   // AST_SYMBOL_DROPPED | AST_STRUCTURAL_DRIFT | REVIEW_REJECTED | SANITIZER_REDCTION | HEADER_STRIPPED | COMPILE_ERROR | WEAK_RATCHET | OTHER
   symptom      String   // human-readable one-line summary
   evidence     String   // machine-copied facts (AST violations, dropped symbols, etc.)
   constraints  String   // imperative instructions the LLM must follow
   attempts     Int      @default(1)  // how many times this file has failed
+  // ── D7: REFLEXION (concept: noahshinn/reflexion, NeurIPS 2023) ─────
+  // After a failed mutation, one cheap LLM call asks the model to
+  // articulate WHY its own reasoning produced the failure — a verbal
+  // self-diagnosis, stored here and injected with the next attempt's
+  // postmortem block. Reflexion's finding: self-reflection stored
+  // across trials materially reduces repetition of the same reasoning
+  // error. One per (filePath) — the newest reflection replaces the
+  // older, keeping the prompt bounded.
+  reflection    String?
   // Tamper-evident chain. parentHash = hash of the previous postmortem
   // (by createdAt) at THIS record's creation time. hash = sha256 over
   // (parentHash + canonical content), recomputed on every write. See
@@ -355,6 +364,46 @@ model Lesson {
   // Higher = broader evidence base = started with more trust.
   sourceCount Int    @default(1)
 
+  // ── D2: TWO-TRACK GRADUATION (concept: yungbose/upskill) ───────────
+  // A PROCEDURE is an always-true operating rule ("never remove error
+  // handling without a replacement") — it survives noisy judgment
+  // streaks, prunes at a stricter floor, and at high lapse counts is
+  // PROMOTED to the permanent Operating Constraints block (injected
+  // regardless of score, above the postmortem block). A JUDGMENT is a
+  // scorable prediction ("the LLM tends to drop exports on small
+  // files") — it lives and dies by helped/hindered like the original
+  // design. "advisory" marks a pruned procedure that was demoted
+  // instead of deactivated: its content stays visible to the distiller
+  // (never re-derived) but it no longer injects.
+  kind      String   @default("judgment") // judgment | procedure | advisory
+
+  // ── D1: LAPSE DETECTION (concept: pixle-codes/relapse) ─────────────
+  // A LAPSE is a failure where a lesson was injected into the prompt,
+  // the mutation failed anyway, AND the failure matches what the lesson
+  // covers — the LLM read the rule and ignored it. Aggregate scoring
+  // can't see this (a hindered verdict looks the same as an ignored
+  // one); the lapse counter can. At lapseCount >= 3 the lesson is
+  // re-injected with a HIGH-LAPSE warning prefix; at >= 6 it becomes a
+  // candidate for force re-distillation (sharper phrasing from its own
+  // lapse evidence).
+  lapseCount    Int      @default(0)
+  lastLapseAt   DateTime?
+  lastLapseFile String?
+
+  // ── D9: REVOCATION — the zombie-lesson kill switch (concept:
+  // EMG reconcileContradictoryMemories) ────────────────────────────────
+  // A lesson that earned a high score can go WRONG when the codebase
+  // shifts under it. 4 consecutive hindered after score >= 0.6 means
+  // reality contradicted the lesson: it is REVOKED (not merely pruned —
+  // pruned lessons didn't help, revoked lessons actively hurt). The
+  // distiller sees REVOKED lessons and is told not to re-derive
+  // anything resembling them without strong new evidence. Procedures
+  // are exempt (they demote via D2; a real procedure shouldn't be
+  // revoked by 4 noisy judgments).
+  consecutiveHindered Int      @default(0)
+  revokedAt            DateTime?
+  revocationReason     String?
+
   // Feedback counters — the measured half of the compounding loop.
   injected Int       @default(0) // times included in an enhance prompt
   helped   Int       @default(0) // of those, mutations that PASSED
@@ -372,4 +421,80 @@ model Lesson {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/// ── D4: MUTATION DIFF CORPUS (concepts: reef receipt-linked records,
+/// agent-flight-recorder per-session evidence, kai-evolve HMRD) ────────
+/// One row per mutation ATTEMPT (pass or fail). The distiller's aggregate
+/// digest shows failure-TYPE counts; the corpus shows the SHAPE of the
+/// failures — which transform the LLM actually attempted, which lessons
+/// were on board, which gate fired. Queryable forever: "across the last
+/// 30 AST_SYMBOL_DROPPED failures, what transform did the model try?"
+/// is a question this table can answer and the digest cannot.
+///
+/// Written by the runCycle wrapper (after the verdict lands) via
+/// mutation-corpus.ts. Read by the distiller's history digest and the
+/// meta-tuner's pass-rate windows. Protected in SCHEMA_PROTECTED_MODELS.
+model MutationCorpus {
+  id        String   @id @default(cuid())
+
+  // Which cycle and which loop-NN branch the attempt belonged to.
+  // branchNumber is null for attempts that never reached the push stage.
+  cycleNumber  Int
+  branchNumber Int?
+
+  filePath  String
+  // enhanced | typecheck-fail | debate-fail | test-fail | truncation |
+  // schema-rejected | no-change | cosmetic | deferred | llm-unavailable | error
+  gateOutcome String
+
+  // The postmortem failureType when the attempt failed at a gate (null
+  // for passes/defers) — read back from the postmortem table by the
+  // corpus writer, so the corpus and the scar log agree by construction.
+  failureType  String?
+
+  // sha256 (first 16 hex) of the pre-mutation source — provenance for
+  // "what did the file look like when this was attempted".
+  originalSha  String
+  mutatedSha   String?
+
+  // The postmortem row id for this file (latest), when one exists.
+  postmortemId String?
+
+  // JSON array of lesson ids injected into this attempt's prompt.
+  // String (not a list) — Prisma primitives only.
+  lessonIdsInjected String   @default("[]")
+
+  // One-line summary of what the mutation attempted (the LLM's own
+  // "## Changes" first line) — the transform signal.
+  transformSummary  String?
+
+  createdAt DateTime @default(now())
+}
+
+/// ── D8: META-LOOP PARAMETER TUNER (concepts: Raven Evolver, the L4
+/// meta-harness rung, genesis PromptEvolution) ──────────────────────────
+/// The loop's own knobs (DISTILL_INTERVAL, MAX_INJECTED, PRUNE_SCORE,
+/// MIN_OBSERVATIONS, SATURATION_THRESHOLD) were constants the system
+/// never questioned. MetaParam makes them rows: seeded at boot, read
+/// through a cached accessor by every consumer, and periodically tuned
+/// by meta-tuner.ts via a measured A/B trial (propose → 20-cycle trial
+/// window → accept only if pass-rate beats the prior window by ≥5pp,
+/// else rollback). A row in "trial" provenance at boot is an orphaned
+/// trial from a restart — reverted to its baseline.
+///
+/// The tuner file itself is in PROTECTED_FILES: the loop can never
+/// rewrite its own tuner. Protected in SCHEMA_PROTECTED_MODELS.
+model MetaParam {
+  key         String   @id           // DISTILL_INTERVAL | MAX_INJECTED | PRUNE_SCORE | MIN_OBSERVATIONS | SATURATION_THRESHOLD
+  value       String                 // serialized (int/float as string)
+  valueType   String   @default("int") // int | float
+  provenance  String   @default("seed") // seed | trial | meta-tuned
+  baselineValue String?              // last accepted value — the rollback target
+  proposedBy  String?                // "tuner-cycle-<N>" audit trail
+  acceptedAt  DateTime?
+  trialPassRate   Float?             // pass rate during the trial window
+  baselinePassRate Float?           // pass rate in the prior equal-length window
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

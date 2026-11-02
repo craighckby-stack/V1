@@ -36,7 +36,12 @@ import { readFileSync, writeFileSync } from "fs";
 const PROJECT_ROOT = "/home/z/my-project";
 const SCHEMA_PATH = `${PROJECT_ROOT}/prisma/schema.prisma`;
 
-/** Models the loop may never touch. The memory + learning substrate. */
+/** Models the loop may never touch. The memory + learning substrate:
+ *  the scar log, the lesson system, the push/LLM config, the prophecy
+ *  oracle, the runtime flags — plus (D4/D8) the mutation corpus and the
+ *  meta-parameter table. A self-improving system must not be able to
+ *  edit its own memory substrate, its learning substrate, its audit
+ *  trail, or the table that tunes its own loop knobs. */
 export const SCHEMA_PROTECTED_MODELS = new Set([
   "Postmortem",
   "Lesson",
@@ -44,6 +49,8 @@ export const SCHEMA_PROTECTED_MODELS = new Set([
   "LlmConfig",
   "Prophecy",
   "SystemFlag",
+  "MutationCorpus",
+  "MetaParam",
 ]);
 
 export interface SchemaCheckResult {

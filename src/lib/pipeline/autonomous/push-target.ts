@@ -539,11 +539,18 @@ export async function clearPushTarget(): Promise<{ cleared: boolean; readBack: {
  *
  *  Field names (tier2/tier3/db) match the rest of the push-target API
  *  (clearPushTarget readBack, verifyPatGoneFromAllTiers) and the duress
- *  DuressPurgeResult.keysPurged shape — keep them aligned. */
+ *  DuressPurgeResult.keysPurged shape — keep them aligned.
+ *
+ *  NOTE (type-error fix): the local flag was previously named `db`, which
+ *  shadowed the imported db client INSIDE the try block — so the purge
+ *  line resolved to the local `false`, threw at runtime, and the catch
+ *  reported the tier as purged. The DB row survived every duress purge.
+ *  Renamed to dbTier; the public return key stays `db`.
+ */
 export async function purgeAllPatTiers(): Promise<{ tier2: boolean; tier3: boolean; db: boolean }> {
   let tier2 = false;
   let tier3 = false;
-  let db = false;
+  let dbTier = false;
   try {
     rmSync(STATE_FILE, { force: true });
     tier2 = !existsSync(STATE_FILE);
@@ -555,12 +562,12 @@ export async function purgeAllPatTiers(): Promise<{ tier2: boolean; tier3: boole
   try {
     await db.gitPushTarget.deleteMany({ where: { id: SINGLETON_ID } });
     const row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
-    db = row === null;
+    dbTier = row === null;
   } catch {
     // DB unavailable — nothing to purge, nothing to leak. Treat as purged.
-    db = true;
+    dbTier = true;
   }
-  return { tier2, tier3, db };
+  return { tier2, tier3, db: dbTier };
 }
 
 /** Read-back verification: is the PAT gone from ALL tiers? Used by the

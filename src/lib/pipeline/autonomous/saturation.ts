@@ -66,9 +66,21 @@ export const SCAN_SCOPES: Array<{ dir: string; extensions: string[] }> = [
 export const SCHEMA_TARGET = "prisma/schema.prisma";
 
 /** Cycles a file must show NO growth before lockout. EMG used 3; we keep
- *  it. Tunable: too low and a file locks out before the LLM finds the real
- *  fix; too high and we burn quota re-reviewing a file that's done. */
+ *  it as the SEED. Tunable live via MetaParam (D8 meta-tuner): the
+ *  system reads this through meta-params every cycle — a value that
+ *  proves itself in an A/B trial replaces the seed. Too low and a file
+ *  locks out before the LLM finds the real fix; too high and we burn
+ *  quota re-reviewing a file that's done. */
 export const SATURATION_THRESHOLD = 3;
+
+/** The live lockout threshold (D8). Reads through the meta-params cache;
+ *  resolves to the SEED before the first boot seeds the table. Kept in
+ *  saturation.ts (not meta-params) so the churn-control semantics stay
+ *  documented where they're enforced. */
+export async function getSaturationThreshold(): Promise<number> {
+  const { getMetaInt } = await import("./meta-params");
+  return getMetaInt("SATURATION_THRESHOLD", SATURATION_THRESHOLD);
+}
 
 /** Per-file saturation state. Persisted in memory only (not the DB) —
  *  lockout is per-pass, resets on server restart, which is fine: a restart

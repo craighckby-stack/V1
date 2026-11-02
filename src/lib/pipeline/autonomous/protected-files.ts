@@ -28,6 +28,19 @@ export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/protected-files.ts", // protect the protection list
   "src/lib/pipeline/llm/agent-llm.ts", // protect the LLM wrapper
   "src/lib/pipeline/llm/debate-llm.ts",
+  // ── Compounding-intelligence integrity chain (D1-D8). The rule: a
+  // module is protected when a corrupted version of it could corrupt
+  // the LEARNING SUBstrate (what the system knows), the AUDIT trail
+  // (what the system can prove), or the TUNING (how the system improves
+  // itself). Advisory modules (dreamer, reflection) stay mutable —
+  // their outputs pass through the existing gates.
+  "src/lib/pipeline/autonomous/lapse-detector.ts", // D1: writes the lapse counts that drive promotion
+  "src/lib/pipeline/autonomous/meta-params.ts", // D8: the knob table the tuner writes
+  "src/lib/pipeline/autonomous/meta-tuner.ts", // D8: the loop can never rewrite its own tuner
+  "src/lib/pipeline/autonomous/mutation-corpus.ts", // D4: the audit trail of every attempt
+  "src/lib/pipeline/autonomous/lessons-markdown.ts", // D6: writes a file that gets committed and pushed
+  "src/lib/pipeline/red-team/test-attacker.ts", // D5: part of the integrity chain
+  "src/lib/pipeline/red-team/gate-integrity-probe.ts", // D5: part of the integrity chain
   // Hot-swap core — protect the swapper. If the loop could rewrite its
   // own hot-swap module, a bad mutation could break the swap mechanism
   // and the running process would never benefit from future fixes.

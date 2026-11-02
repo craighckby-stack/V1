@@ -220,6 +220,12 @@ export type PostmortemFailureType =
   | "HEADER_STRIPPED"
   | "COMPILE_ERROR"
   | "ZERO_DIFF_SATURATION"
+  // D5: the red-team test-attacker found an input where the source
+  // diverges from what a pinned ratchet test asserts (or a weakening
+  // mutation that keeps the test passing). Seeded as a candidate on the
+  // TEST file — kept as a watch list, never injected until this system
+  // observes the same weakness itself.
+  | "WEAK_RATCHET"
   | "OTHER";
 
 export interface PostmortemRecord {
@@ -238,6 +244,11 @@ export interface PostmortemRecord {
   evidence: string;
   constraints: string;
   attempts: number;
+  /** D7 (Reflexion): the LLM's verbal self-diagnosis of WHY its own
+   *  reasoning produced the latest failure. Stored after the verdict,
+   * injected with the next attempt's constraint block. null when the
+   *  reflection call hasn't run (or the DB predates the field). */
+  reflection?: string | null;
   /** Tamper-evident chain — parentHash of the previous record, hash of this
    *  one. null on records created before the chain existed or when the DB
    *  was unreachable at creation time. See verifyPostmortemChain. */
@@ -385,6 +396,15 @@ class PostmortemStore {
    * sees the constraints as hard requirements.
    */
   private formatPromptBlock(pm: PostmortemRecord): string {
+    // D7 (Reflexion): the prior self-diagnosis rides WITH the constraints —
+    // per the Reflexion finding, a stored self-reflection across trials
+    // materially reduces repetition of the same reasoning error. The
+    // reflection is the LLM's own words about its own reasoning, which
+    // lands differently from an externally imposed constraint.
+    const reflectionBlock = pm.reflection
+      ? `\nPRIOR REFLECTION (your own self-diagnosis from the last failure — you wrote this):
+${pm.reflection}\n`
+      : "";
     return `\n\n--- POSTMORTEM CONSTRAINTS (this file failed ${pm.attempts} time(s) before) ---
 FAILURE TYPE: ${pm.failureType}
 SYMPTOM: ${pm.symptom}
@@ -392,7 +412,34 @@ EVIDENCE:
 ${pm.evidence}
 CONSTRAINTS (MUST follow ALL of these):
 ${pm.constraints}
+${reflectionBlock}
 --- END POSTMORTEM CONSTRAINTS ---\n\n`;
+  }
+
+  /**
+   * D7 (Reflexion): store the LLM's verbal self-diagnosis on the file's
+   * postmortem row. One per file — the newest reflection replaces the
+   * older, keeping the injected prompt bounded. Reflection is a DB-only
+   * field (it is NOT part of the tamper-evident chain content and NOT
+   * written to the disk mirror): a lost reflection is re-generable on
+   * the next failure, and the chain/hash contract stays untouched.
+   * Best-effort — a reflection-write failure never fails the cycle.
+   */
+  async storeReflection(
+    repo: string,
+    branch: string,
+    filePath: string,
+    reflection: string
+  ): Promise<boolean> {
+    try {
+      await db.postmortem.update({
+        where: { targetRepo_branch_filePath: { targetRepo: repo, branch, filePath } },
+        data: { reflection: reflection.slice(0, 400) },
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -608,6 +655,7 @@ ${pm.constraints}
       evidence: r.evidence,
       constraints: r.constraints,
       attempts: r.attempts,
+      reflection: r.reflection ?? null,
       parentHash: r.parentHash,
       hash: r.hash,
       // Defensive instanceof kept: disk-rehydrated rows pass through here
@@ -833,10 +881,19 @@ export function parseMarkdownPostmortem(
       branch,
       filePath,
       status: "active",
+      // Externally-seeded markdown = candidate by the verification
+      // lifecycle: kept as a watch list, never injected into a prompt
+      // until this system observes the same failure itself.
+      verificationStatus: "candidate",
       failureType,
       symptom,
       evidence,
       constraints: constraints || `Avoid the failure described above when refactoring ${filePath}.`,
+      // No chain fields — these records enter the DB through
+      // recordFailure-style paths that compute chain hashes, or stay as
+      // watch-list rows.
+      parentHash: null,
+      hash: null,
     });
   }
   return results;

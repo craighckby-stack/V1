@@ -15,6 +15,7 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync, rmSync } from "fs";
 import { spawnSync } from "child_process";
 import { join, relative, resolve, basename, dirname } from "path";
+import { createHash } from "crypto";
 import { llmComplete, extractSummaryAndCode, llmCooldownMs } from "../llm/agent-llm";
 import { conductLlmDebate } from "../llm/debate-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
@@ -29,6 +30,7 @@ import {
   SCAN_SCOPES,
   SCHEMA_TARGET,
   SATURATION_THRESHOLD,
+  getSaturationThreshold,
   type FileSaturation,
   type SaturationMap,
   classifyGrowth,
@@ -36,17 +38,39 @@ import {
 import { isProtectedPath } from "./protected-files";
 import {
   getLessonsForPrompt,
+  getPromotedProcedures,
   formatLessonsBlock,
+  formatOperatingConstraintsBlock,
   markInjected,
   recordLessonOutcome,
   maybeDistill,
   seedLessons,
+  type LessonRow,
 } from "./lesson-store";
 import { applySchemaMutation } from "./schema-gate";
+// ── Compounding-intelligence v2 (D1-D8). The integrity-chain modules
+// (lapse-detector, meta-params, meta-tuner, mutation-corpus,
+// lessons-markdown, red-team/*) are PROTECTED — see protected-files.ts.
+// dreamer + reflection stay advisory/mutable: their outputs pass
+// through the existing gates.
+import { recordLessonLapse } from "./lapse-detector";
+import { maybeReflectAfterFailure } from "./reflection";
+import { classifyGateOutcome, recordMutationAttempt, firstMeaningfulLine } from "./mutation-corpus";
+import { maybeDream, getRatchetDraft } from "./dreamer";
+import { noteAttemptOutcome, maybeMetaTune } from "./meta-tuner";
+import { seedMetaParams } from "./meta-params";
+import { runTestAttacker, ATTACKER_INTERVAL } from "../red-team/test-attacker";
+import { runGateIntegrityProbes, PROBE_INTERVAL } from "../red-team/gate-integrity-probe";
 
 const PIPELINE_SRC_DIR = "/home/z/my-project/src/lib/pipeline";
 const DISPLAY_SRC_DIR = "/home/z/my-project/src/app/display";
 const PROJECT_ROOT = "/home/z/my-project";
+
+/** D4 (corpus): 16-hex sha of a source string — compact provenance for
+ *  "what did the file look like when this was attempted". */
+function sha16(s: string): string {
+  return createHash("sha256").update(s).digest("hex").slice(0, 16);
+}
 
 /**
  * Find test files that cover the given source file.
@@ -318,10 +342,21 @@ class SelfEnhanceLoop {
   // LESSON FEEDBACK channel: the ids of the lessons injected into the
   // CURRENT enhanceFile's prompt. Set at prompt-build time, consumed by
   // runCycle right after the verdict lands (pass → helped, fail →
-  // hindered). The loop is strictly serial (one file at a time), so an
-  // instance field is a safe hand-off. Cleared at the top of every
-  // enhanceFile so a stale list can never feed back twice.
+  // hindered; fail-matching-lesson → lapse, D1). The loop is strictly
+  // serial (one file at a time), so an instance field is a safe
+  // hand-off. Cleared at the top of every enhanceFile so a stale list
+  // can never feed back twice.
   private lastLessonIds: string[] = [];
+  // D4 (corpus): per-attempt provenance scratch, same hand-off pattern
+  // as lastLessonIds. Set inside enhanceFile/enhanceSchema at the
+  // points where the originals/proposals/summaries are in scope;
+  // consumed by runCycle's corpus writer after the verdict.
+  private lastAttemptInfo: {
+    originalSha: string;
+    mutatedSha: string | null;
+    transformSummary: string | null;
+    branchNumber: number | null;
+  } = { originalSha: "", mutatedSha: null, transformSummary: null, branchNumber: null };
   // Ratchet: per-file test-writing attempt tracking. After 2 failed attempts
   // (bad tests, untestable module, LLM trouble), stop retrying — but forget
   // failures older than 30 minutes, so an intermittent 429 window doesn't
@@ -782,6 +817,17 @@ class SelfEnhanceLoop {
       const exps = extractExports(source);
       const exportList = formatExportList(exps);
 
+      // D3 (dreamer): an idle-time DRAFT for this module may exist — a
+      // speculative characterization test drafted while the loop was
+      // waiting. ADVISORY ONLY: hand it over as a starting point. Every
+      // import and expectation still passes through the real ratchet
+      // gates below (anti-tautology, bun-test-pass, tsc, debate); a bad
+      // draft dies there and cost one prompt slot.
+      const draft = getRatchetDraft(relPath);
+      const draftBlock = draft
+        ? `\nA DRAFT from the idle-time dreamer (speculative, NEVER trusted blindly — verify every import against the export list above and every expected value against the implementation; discard anything that doesn't check out):\n\`\`\`typescript\n${draft.slice(0, 6000)}\n\`\`\`\n`
+        : "";
+
       const userPrompt = `Module to pin: ${relPath}
 
 This module exports EXACTLY these symbols (import ONLY from "./${base}", do NOT invent any other export names):
@@ -791,7 +837,7 @@ Source:
 \`\`\`typescript
 ${source}
 \`\`\`
-
+${draftBlock}
 Write ${base}.test.ts — a bun:test characterization suite pinning this module's current observable behavior. Compute expected values yourself from the implementation (read the logic, work out the output, assert that exact value). Every test() must contain at least one expect(). Output the summary first, then the test file.`;
 
       const llmResult = await llmComplete({
@@ -954,6 +1000,15 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // 1. Read the current file
       const originalCode = readFileSync(filePath, "utf-8");
       result.oldBytes = originalCode.length;
+      // D4 (corpus): provenance for this attempt — what the source looked
+      // like before anyone touched it. Set here (top of the attempt) so
+      // every downstream return path carries it via lastAttemptInfo.
+      this.lastAttemptInfo = {
+        originalSha: sha16(originalCode),
+        mutatedSha: null,
+        transformSummary: null,
+        branchNumber: thisN,
+      };
 
       // 1a. Skip files that are too large for the LLM to refactor without truncating.
       // The model's output token limit means files over ~12KB often get cut off
@@ -1040,12 +1095,21 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // component mutation). The ids ride on the instance so runCycle
       // can feed the verdict back — see the wrapper after the enhanceFile
       // call in runCycle. Serial loop ⇒ instance field is safe.
+      //
+      // D2 two-track: PROMOTED procedures (active, lapsed 6+ times)
+      // inject through a separate, unbounded Operating Constraints block
+      // ABOVE the postmortem block — non-negotiable by position. The
+      // bounded block carries the rest under a hard byte budget (D6).
+      let operatingBlock = "";
       let lessonsBlock = "";
       this.lastLessonIds = [];
       try {
+        const promoted: LessonRow[] = await getPromotedProcedures();
         const ls = await getLessonsForPrompt();
-        if (ls.length > 0) {
-          this.lastLessonIds = ls.map((x) => x.id);
+        const all = [...promoted, ...ls];
+        if (all.length > 0) {
+          this.lastLessonIds = all.map((x) => x.id);
+          operatingBlock = formatOperatingConstraintsBlock(promoted);
           lessonsBlock = formatLessonsBlock(ls);
           await markInjected(this.lastLessonIds);
         }
@@ -1084,7 +1148,7 @@ OUTPUT FORMAT (mandatory):
 \`\`\`typescript
 // the full file with fixes applied
 \`\`\`
-${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancestralBlock}${lessonsBlock}`;
+${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancestralBlock}${lessonsBlock}`;
 
       const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nFind real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in this file. Fix them. If nothing needs fixing, return the file unchanged. Output the summary first, then the code.`;
 
@@ -1123,6 +1187,12 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancest
 
       // Extract the summary (what changed + why) AND the code from the response
       const { summary: changeSummary, code: refactoredCode } = extractSummaryAndCode(llmResult.content);
+      // D4 (corpus): the transform signal — the first MEANINGFUL line of
+      // the LLM's change summary (header skipped). Set BEFORE the gates so
+      // rejected attempts carry them too (rejections are the corpus's main
+      // signal).
+      this.lastAttemptInfo.mutatedSha = refactoredCode ? sha16(refactoredCode) : null;
+      this.lastAttemptInfo.transformSummary = firstMeaningfulLine(changeSummary);
       if (!refactoredCode || refactoredCode.trim().length === 0) {
         result.reason = "LLM returned no code";
         this.log(`LLM returned no code for ${relPath}`, "warn");
@@ -1312,11 +1382,14 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancest
             }).then((swapResult) => {
               if (swapResult.swapped) {
                 this.log(
-                  `HOT-SWAP: ${swapResult.invalidatedCount} module(s) reloaded (${swapResult.durationMs}ms) — ` +
+                  `HOT-SWAP: ${swapResult.pinsCleared.length} module(s) reloaded (${swapResult.durationMs}ms) — ` +
                   `next cycle uses the new code`,
                   "success"
                 );
-              } else if (swapResult.fallbackError) {
+              } else if (!swapResult.pending) {
+                // Not swapped and not pending (pending = will complete on
+                // the next API request) — a real failure. Old code still
+                // running; the broken code on disk is what needs fixing.
                 this.log(
                   `HOT-SWAP FALLBACK: ${swapResult.reason} — old code still running, fix the broken code on disk`,
                   "error"
@@ -1414,6 +1487,13 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancest
     try {
       const original = readFileSync(filePath, "utf-8");
       result.oldBytes = original.length;
+      // D4 (corpus): same provenance scratch as the file path.
+      this.lastAttemptInfo = {
+        originalSha: sha16(original),
+        mutatedSha: null,
+        transformSummary: null,
+        branchNumber: thisN,
+      };
       if (original.length > 12000) {
         result.reason = `Skipped (file too large: ${original.length}b)`;
         this.log(`Skipped ${relPath} (${original.length}b — too large for LLM)`, "info");
@@ -1433,11 +1513,17 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancest
       const postmortem = await postmortemStore.getConstraintsForFile("self", "main", relPath);
 
       // Lessons — compounding applies to schema proposals as well.
+      // D2 two-track, same as the file path: promoted procedures ride
+      // the Operating Constraints block, the rest the bounded block.
+      let operatingBlock = "";
       let lessonsBlock = "";
       try {
+        const promoted: LessonRow[] = await getPromotedProcedures();
         const ls = await getLessonsForPrompt();
-        if (ls.length > 0) {
-          this.lastLessonIds = ls.map((x) => x.id);
+        const all = [...promoted, ...ls];
+        if (all.length > 0) {
+          this.lastLessonIds = all.map((x) => x.id);
+          operatingBlock = formatOperatingConstraintsBlock(promoted);
           lessonsBlock = formatLessonsBlock(ls);
           await markInjected(this.lastLessonIds);
         }
@@ -1467,7 +1553,7 @@ If there is NO genuinely useful additive change to make, output the original sch
 
 OUTPUT FORMAT:
 First a SHORT summary starting with "## Changes", then the COMPLETE schema in a single \`\`\`prisma fenced block.
-${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${lessonsBlock}`;
+${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${lessonsBlock}`;
 
       const user = `Current prisma/schema.prisma:\n\n\`\`\`prisma\n${original}\n\`\`\`\n\nPropose an additive-only improvement, or return it unchanged if none is genuinely useful.`;
 
@@ -1499,6 +1585,9 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${lesson
       }
 
       const { summary: changeSummary, code: proposed } = extractSummaryAndCode(llmResult.content);
+      // D4 (corpus): schema attempts carry the same transform signal.
+      this.lastAttemptInfo.mutatedSha = proposed ? sha16(proposed) : null;
+      this.lastAttemptInfo.transformSummary = firstMeaningfulLine(changeSummary);
       if (!proposed || proposed.trim().length === 0) {
         result.reason = "LLM returned no schema";
         return result;
@@ -1687,19 +1776,80 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${lesson
         if (result.reason.startsWith("Rejected")) this.stats.totalReverted++;
         if (result.reason.startsWith("Deferred")) deferredThisCycle++;
 
-        // ── LESSON FEEDBACK (the measured half of compounding) ────
-        // The lessons that were injected into this mutation's prompt now
-        // learn from the verdict: pass → helped, fail → hindered. Only
-        // counts when the LLM actually produced a proposal (llmUsed) — a
-        // deferred/unavailable call never saw the lessons in action.
-        if (result.llmUsed && this.lastLessonIds.length > 0) {
-          const ids = this.lastLessonIds;
-          this.lastLessonIds = [];
+        // ── COMPOUNDING FEEDBACK SUITE (D1/D4/D7/D8) ─────────────────
+        // All best-effort: a feedback failure must never fail the cycle.
+        // Only counts when the LLM actually produced a proposal (llmUsed)
+        // — a deferred/unavailable call never saw the lessons in action.
+        const hadRealProposal = result.llmUsed;
+        const ids = hadRealProposal && this.lastLessonIds.length > 0 ? [...this.lastLessonIds] : [];
+        this.lastLessonIds = [];
+        const attemptInfo = { ...this.lastAttemptInfo };
+
+        if (hadRealProposal) {
+          // D8: the tuner's measurement window — attempts vs passes.
+          noteAttemptOutcome(this.stats.cyclesCompleted + 1, true, result.enhanced);
+        }
+
+        // LESSON FEEDBACK (the measured half of compounding): pass →
+          // helped, fail → hindered …
+        if (ids.length > 0) {
           void recordLessonOutcome(ids, result.enhanced).catch(() => {
             /* feedback is best-effort */
           });
-        } else {
-          this.lastLessonIds = [];
+          // … and on a gate failure, D1 LAPSE DETECTION: did one of the
+          // injected lessons COVER this exact failure? Then the LLM read
+          // the rule and ignored it — the phrasing needs to get sharper,
+          // and at 6+ lapses a procedure graduates to the Operating
+          // Constraints block (D2 promotion).
+          if (!result.enhanced && result.reason.startsWith("Rejected")) {
+            void (async () => {
+              try {
+                const pm = await postmortemStore.getActivePostmortem("self", "main", relPath);
+                if (pm) {
+                  const lapse = await recordLessonLapse(ids, relPath, pm.failureType, pm.symptom);
+                  if (lapse.lapsed > 0) {
+                    this.log(
+                      `LAPSE: ${lapse.lapsed} injected lesson(s) covered this failure and were ignored (${lapse.details.map((d) => `#${d.lapseCount}`).join(", ")}) — phrasing will sharpen; at 6+ a procedure promotes to Operating Constraints`,
+                      "warn"
+                    );
+                  }
+                  // D7 REFLEXION: one self-diagnosis call on repeat failures
+                  // (attempts >= 2). Gate-checked inside; never steals quota.
+                  const refl = await maybeReflectAfterFailure({
+                    filePath: relPath,
+                    failureType: pm.failureType,
+                    symptom: pm.symptom,
+                    constraints: pm.constraints,
+                    attempts: pm.attempts,
+                  });
+                  if (refl.reflected) {
+                    this.log(`REFLEXION: stored self-diagnosis for ${relPath} — it rides the next attempt's constraint block`, "info");
+                  }
+                }
+              } catch {
+                /* best-effort */
+              }
+            })();
+          }
+        }
+
+        // D4 CORPUS: one row per attempt — the audit trail + the
+        // distiller's transform signal. Deferred/unavailable attempts
+        // are recorded too (they carry originalSha + outcome); only
+        // llmUsed=false ones have no transformSummary.
+        if (attemptInfo.originalSha) {
+          void recordMutationAttempt({
+            cycleNumber: this.stats.cyclesCompleted + 1,
+            branchNumber: attemptInfo.branchNumber,
+            filePath: relPath,
+            gateOutcome: classifyGateOutcome(result.reason),
+            originalSha: attemptInfo.originalSha,
+            mutatedSha: attemptInfo.mutatedSha,
+            lessonIdsInjected: ids,
+            transformSummary: attemptInfo.transformSummary,
+          }).catch(() => {
+            /* corpus is an amplifier, not a gate */
+          });
         }
 
         // ── Per-file saturation update ───────────────────────────────
@@ -1722,11 +1872,13 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${lesson
         } else if (growth === "no-growth") {
           prev.consecutiveNoGrowth++;
           prev.lastNoGrowthReason = result.reason;
-          if (prev.consecutiveNoGrowth >= SATURATION_THRESHOLD && !prev.lockedOut) {
+          // D8: the lockout threshold is meta-tunable — read the live value.
+          const threshold = await getSaturationThreshold();
+          if (prev.consecutiveNoGrowth >= threshold && !prev.lockedOut) {
             prev.lockedOut = true;
             prev.lockedAt = new Date().toISOString();
             this.log(
-              `🔒 ${relPath} LOCKED OUT — ${SATURATION_THRESHOLD} consecutive no-growth cycles (last: ${result.reason.slice(0, 80)})`,
+              `🔒 ${relPath} LOCKED OUT — ${threshold} consecutive no-growth cycles (last: ${result.reason.slice(0, 80)})`,
               "warn"
             );
             this.log(
@@ -1798,10 +1950,12 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${lesson
       );
 
       // ── LESSON DISTILLATION (the compounding half) ────────────
-      // Every DISTILL_INTERVAL cycles: one LLM pass over the aggregate
-      // failure history extracts general lessons. Fire-and-forget — a
-      // distillation failure must never fail the cycle. Skips itself
-      // when the LLM gate is closed (mutations own the quota first).
+      // Every DISTILL_INTERVAL cycles (meta-tunable, D8): one LLM pass
+      // over the aggregate failure history extracts general lessons.
+      // Fire-and-forget — a distillation failure must never fail the
+      // cycle. Skips itself when the LLM gate is closed (mutations own
+      // the quota first). D6: each pass also mirrors the lesson table
+      // to memory/lessons.md (inside distillLessons).
       const cycleNow = this.stats.cyclesCompleted;
       void maybeDistill(cycleNow)
         .then((added) => {
@@ -1812,6 +1966,75 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${lesson
         .catch(() => {
           /* distillation is best-effort */
         });
+
+      // ── D8 META-TUNER (the L4 rung) ──────────────────────────────
+      // Judge any in-flight trial (accept / roll back / early-abort)
+      // or, on a proposal cycle, start one. Never steals LLM quota (a
+      // trial START is deferred when the gate is closed, inside).
+      void maybeMetaTune(cycleNow)
+        .then((t) => {
+          if (t.action === "proposed" || t.action === "accepted" || t.action === "rolled-back" || t.action === "aborted") {
+            this.log(t.detail, t.action === "accepted" ? "success" : "info");
+          }
+        })
+        .catch(() => {
+          /* tuning is best-effort */
+        });
+
+      // ── D5 INTEGRITY CHECKS ──────────────────────────────────────
+      // Gate-integrity probes (deterministic, every PROBE_INTERVAL
+      // cycles): known-bad and known-good proposals against the REAL
+      // gate code. Any failure raises safe-mode — the loop halts until
+      // the operator clears it.
+      if (cycleNow % PROBE_INTERVAL === 0) {
+        try {
+          const probes = runGateIntegrityProbes();
+          if (probes.halted) {
+            this.log(
+              `🚨 GATE INTEGRITY FAILURE: ${probes.passed}/${probes.total} probes passed — SAFE-MODE raised, loop halted until the operator clears it`,
+              "error"
+            );
+          } else if (cycleNow % (PROBE_INTERVAL * 10) === 0) {
+            this.log(`Gate integrity: ${probes.passed}/${probes.total} probes passed`, "info");
+          }
+        } catch {
+          /* probes are best-effort but loud on failure */
+        }
+      }
+      // Test-attacker round (every ATTACKER_INTERVAL cycles, LLM,
+      // gate-checked inside — mutations own the quota first): tries to
+      // break the ratchet's own pins. Findings land as CANDIDATE
+      // postmortems on the test file (watch list, never injected).
+      if (cycleNow % ATTACKER_INTERVAL === 0) {
+        void runTestAttacker()
+          .then((round) => {
+            if (round.findings.length > 0) {
+              this.log(
+                `🔴 TEST-ATTACKER: ${round.findings.length} weak pin(s) found — ${round.findings.map((f) => `${f.testPath} (${f.kind})`).join("; ")}`,
+                "warn"
+              );
+            } else if (round.ran) {
+              this.log(`TEST-ATTACKER: ${round.attacked} pin(s) examined — pins held`, "info");
+            }
+          })
+          .catch(() => {
+            /* best-effort */
+          });
+      }
+
+      // ── D3 DREAMER (idle-time consolidation) ────────────────────
+      // One cheap advisory task per idle moment. Self-skips when the
+      // gate is closed (mutations own the quota); fires here (end of
+      // cycle, before the 5s inter-cycle gap) so an open gate gets used.
+      if (llmCooldownMs() === 0) {
+        void maybeDream()
+          .then((line) => {
+            if (line) this.log(line, "info");
+          })
+          .catch(() => {
+            /* dreams are best-effort */
+          });
+      }
 
       // Oracle auto-prophecy (fire-and-forget): the cycle is done, the
       // system has a fresh view of its own history — let it predict its
@@ -1837,6 +2060,13 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${lesson
     void seedLessons().catch(() => {
       /* table missing until first restart post-migration — dormant */
     });
+    // D8: seed the meta-param table once per process (idempotent). Also
+    // reverts any row left in "trial" provenance — a restart orphaned an
+    // in-flight A/B trial, and an unfinished trial never survives to be
+    // mistaken for an accepted tuning.
+    void seedMetaParams().catch(() => {
+      /* table missing until first restart post-migration — dormant */
+    });
     // Capture this loop's generation (audit 2): runCycle checks its own
     // token, but the OUTER while-loop only checked `this.continuous` — so a
     // stop-then-start during a cycle left TWO loops alive (the old one saw
@@ -1849,6 +2079,17 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${lesson
       await this.runCycle();
       if (onUpdate) onUpdate();
       if (!(this.continuous && myRun === this.runId)) break;
+      // D3: the inter-cycle gap is the other idle moment — one dream
+      // task if the gate happens to be open (it self-skips when closed).
+      if (llmCooldownMs() === 0) {
+        void maybeDream()
+          .then((line) => {
+            if (line) this.log(line, "info");
+          })
+          .catch(() => {
+            /* dreams are best-effort */
+          });
+      }
       // Wait between cycles
       this.log("Waiting 5s before next cycle...", "info");
       await new Promise((r) => setTimeout(r, 5000));

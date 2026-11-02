@@ -246,7 +246,9 @@ export function classifyCommitPairs(
     const c = eligible[i];
     if (c.verdict === "CORRECT") continue; // already labeled by a revert
     if (!FIX_PATTERN.test(c.subject) && !c.isRevert) continue;
-    if (c.verdict !== "NEUTRAL" && c.verdict !== "CORRECT") continue;
+    // (CORRECT was already skipped above; anything left that isn't
+    // NEUTRAL — e.g. an unpaired WRONG — has no fix to attribute.)
+    if (c.verdict !== "NEUTRAL") continue;
     c.verdict = "CORRECT";
     c.pairId = c.shortHash;
     for (let j = i - 1; j >= 0; j--) {
