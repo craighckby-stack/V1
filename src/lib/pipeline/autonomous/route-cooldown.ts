@@ -41,6 +41,15 @@ export function assertRouteCooldown(
   route: string,
   minIntervalMs: number
 ): { ok: boolean; retryAfterMs: number } {
+  // Input validation
+  if (typeof route !== 'string' || route.trim() === '') {
+    throw new Error('Route must be a non-empty string');
+  }
+  
+  if (typeof minIntervalMs !== 'number' || minIntervalMs <= 0) {
+    throw new Error('minIntervalMs must be a positive number');
+  }
+
   const now = Date.now();
   const entry = routeCooldowns.get(route);
   if (entry && entry.intervalMs === minIntervalMs) {
