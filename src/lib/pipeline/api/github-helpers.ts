@@ -48,11 +48,20 @@ export function githubHeaders(token: string | null): Record<string, string> {
     throw new Error(`Invalid token provided: must be a string, received ${typeof token}. Please check your configuration.`);
   }
 
-  // Since getUsableToken() already validates the token, we only need to trim it here
+  // Trim the token before validation
   const trimmedToken = token.trim();
 
   if (!trimmedToken) {
     throw new Error(`Invalid token provided: must be a non-empty string after trimming. Please check your token configuration.`);
+  }
+
+  // Additional validation to ensure token meets requirements
+  if (trimmedToken.length < MIN_TOKEN_LENGTH) {
+    throw new Error(`Invalid token provided: token length must be at least ${MIN_TOKEN_LENGTH} characters. Please check your token configuration.`);
+  }
+
+  if (isInvalidToken(trimmedToken)) {
+    throw new Error(`Invalid token provided: token contains invalid patterns. Please check your token configuration.`);
   }
 
   const headers: Record<string, string> = {
