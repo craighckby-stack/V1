@@ -5,6 +5,7 @@ import { ConsoleStream, type ConsoleLine } from "./display/console-stream";
 import { OraclePanel } from "@/components/pipeline/oracle-panel";
 import { DefensePanel } from "@/components/pipeline/defense-panel";
 import { BranchesPanel } from "@/components/pipeline/branches-panel";
+import { BootSplash } from "@/components/pipeline/boot-splash";
 
 interface LogEntry {
   timestamp: string;
@@ -212,6 +213,11 @@ function HeaderBtn(props: {
 export default function Home() {
   const [status, setStatus] = useState<SelfEnhanceStatus | null>(null);
   const [pushTarget, setPushTarget] = useState<PushTargetInfo | null>(null);
+  // Boot splash — true until the observer enters the Loop. Rendered from
+  // the very first paint (opaque black overlay, so there is no flash of
+  // the system underneath); BootSplash itself decides cold vs warm boot
+  // from the session flag after mount.
+  const [bootSplash, setBootSplash] = useState(true);
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
@@ -2000,6 +2006,19 @@ export default function Home() {
       <OraclePanel open={oracleOpen} onClose={() => setOracleOpen(false)} />
       <DefensePanel open={defenseOpen} onClose={() => setDefenseOpen(false)} />
       <BranchesPanel open={branchesOpen} onClose={() => setBranchesOpen(false)} />
+
+      {/* Boot splash — the CRT cold/warm boot ceremony. Sits above
+          everything (z-1000) until the observer presses ENTER THE LOOP.
+          On entry, hand focus to the terminal prompt so the system is
+          immediately typable. */}
+      {bootSplash && (
+        <BootSplash
+          onEnter={() => {
+            setBootSplash(false);
+            inputRef.current?.focus();
+          }}
+        />
+      )}
     </div>
   );
 }
