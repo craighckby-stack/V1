@@ -17,6 +17,26 @@ export type LoopEvent =
       cycleId: string;
       filePath: string;
       stage: PipelineStageState;
+    }
+  | {
+      // Push-lifecycle events: surface the TOCTOU conflict + heal path so
+      // the console stream can narrate "remote moved mid-cycle, refetched,
+      // retried, committed" instead of a bare "409 — skipped". The UI
+      // already renders `log` events; this richer kind is for future
+      // per-file push-status panels. Existing listeners switch on `kind`
+      // so adding this variant is non-breaking.
+      kind: "push";
+      timestamp: number;
+      cycleId: string;
+      filePath: string;
+      outcome:
+        | "committed" // PUT succeeded (first attempt or after a TOCTOU heal)
+        | "toctou_conflict" // 409 detected — refetching to compare content
+        | "toctou_healed" // 409 + remote content unchanged → retried with fresh sha → committed
+        | "skipped_remote_changed" // 409 + remote content CHANGED → skipped to avoid clobbering
+        | "failed"; // non-409 error or 409 persisted across retries
+      sha?: string; // the committed sha (on committed/healed) or last-seen remote sha
+      attempt?: number; // which retry attempt produced this outcome (0-indexed)
     };
 
 type LoopEventListener = (evt: LoopEvent) => void;

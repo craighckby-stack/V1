@@ -608,45 +608,33 @@ class AutonomousLoopRuntime {
           const hasRealChange = !isZeroDiffSaturation;
 
           if (gatesPassed && hasRealChange && this.config.autoPush && token) {
-            try {
-              const commitUrl = `https://api.github.com/repos/${this.config.targetRepo}/contents/${blob.path}`;
-              const commitPayload: Record<string, unknown> = {
-                message: `Autonomous self-enhancement #${cycleNumber} — ${blob.path} (AST ${report.astDiffResult.astScore}, proof ${report.proofCommitHash})`,
-                content: Buffer.from(report.evolvedCode).toString("base64"),
-                branch: this.config.evolutionBranch,
-              };
-              if (fileData.sha) commitPayload.sha = fileData.sha;
-              const commitRes = await fetch(commitUrl, {
-                method: "PUT",
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  "Content-Type": "application/json",
-                  "User-Agent": "Architecture-Helper-Pipeline",
-                  Accept: "application/vnd.github.v3+json",
-                },
-                body: JSON.stringify(commitPayload),
-              });
-              if (commitRes.ok) {
-                pushed = true;
-                committed++;
-                // Track this path so future cycles skip it.
-                this.previouslyCommittedPaths.add(blob.path);
-                this.addLog(
-                  `Pushed ${blob.path} → ${this.config.evolutionBranch} (proof ${report.proofCommitHash})`,
-                  "success",
-                  "github"
-                );
-              } else {
-                const errBody = await commitRes.json().catch(() => ({}));
-                this.addLog(
-                  `Commit failed for ${blob.path}: ${(errBody as { message?: string })?.message ?? `HTTP ${commitRes.status}`}`,
-                  "error",
-                  "github"
-                );
-              }
-            } catch (err) {
+            const pushResult = await this.putFileWithToctouRetry({
+              token,
+              filePath: blob.path,
+              rawContent,
+              evolvedCode: report.evolvedCode,
+              baseSha: fileData.sha,
+              cycleId,
+              cycleNumber,
+              proofHash: report.proofCommitHash,
+              astScore: report.astDiffResult.astScore,
+            });
+            if (pushResult.pushed) {
+              pushed = true;
+              committed++;
+              // Track this path so future cycles skip it.
+              this.previouslyCommittedPaths.add(blob.path);
               this.addLog(
-                `Commit dispatch error for ${blob.path}: ${(err as Error).message}`,
+                `Pushed ${blob.path} → ${this.config.evolutionBranch} (proof ${report.proofCommitHash})${pushResult.toctouHealed ? " [TOCTOU-healed]" : ""}`,
+                "success",
+                "github"
+              );
+            } else if (pushResult.skippedDueToRemoteChange) {
+              // Already logged inside the helper — the next cycle will
+              // fetch the fresh remote content and refactor it anew.
+            } else {
+              this.addLog(
+                `Commit failed for ${blob.path}: ${pushResult.error ?? "unknown"}`,
                 "error",
                 "github"
               );
@@ -762,6 +750,279 @@ class AutonomousLoopRuntime {
     }
 
     return this.currentCycle;
+  }
+
+  /**
+   * TOCTOU-safe Contents-API PUT (concept: Aether_Forge Ω repo's
+   * force:false ref retry, adapted for the Contents API).
+   *
+   * The GitHub Contents API is optimistic-concurrency on `sha`: the PUT
+   * must include the sha of the file as it was when we READ it, and if
+   * the file changed in between, GitHub returns 409. The old code logged
+   * "Commit failed" and dropped the enhancement — even though the
+   * pipeline (LLM + AST + debate) had already validated it.
+   *
+   * This helper retries the 409 with a critical correctness guard:
+   *
+   *   1. On 409, REFETCH the file's current content + sha from the
+   *      evolution branch.
+   *   2. If the refetched content is BYTE-IDENTICAL to the `rawContent`
+   *      we based the refactor on, the sha drift is metadata-only (a
+   *      bot touched the sha, or someone committed-then-reverted). The
+   *      refactor is still valid → retry the PUT with the fresh sha.
+   *   3. If the refetched content DIFFERS, a real concurrent change
+   *      landed. Our refactor was based on STALE input — committing it
+   *      would CLOBBER the remote change. Skip HONESTLY: log it, mark
+   *      skippedDueToRemoteChange, and let the next cycle refactor the
+   *      fresh content from scratch.
+   *
+   * This is stricter than Aether_Forge's blind retry (their push is of
+   * GENERATED content not derived from the remote file's previous
+   * content, so clobbering isn't a concern there). For LOOP, the LLM
+   * refactor IS derived from the remote file — so a content-changed
+   * 409 must NOT retry.
+   *
+   * Emits `push` events on the loop event bus at each lifecycle point
+   * (committed / toctou_conflict / toctou_healed / skipped_remote_changed
+   * / failed) so the console stream can narrate the heal path.
+   */
+  private async putFileWithToctouRetry(params: {
+    token: string;
+    filePath: string;
+    rawContent: string; // original content the refactor was based on
+    evolvedCode: string; // the LLM-refactored code to commit
+    baseSha: string; // sha of rawContent as fetched at pipeline start
+    cycleId: string;
+    cycleNumber: number;
+    proofHash: string;
+    astScore: number;
+  }): Promise<{
+    pushed: boolean;
+    toctouHealed: boolean;
+    skippedDueToRemoteChange: boolean;
+    error?: string;
+  }> {
+    const {
+      token,
+      filePath,
+      rawContent,
+      evolvedCode,
+      baseSha,
+      cycleId,
+      cycleNumber,
+      proofHash,
+      astScore,
+    } = params;
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "User-Agent": "Architecture-Helper-Pipeline",
+      Accept: "application/vnd.github.v3+json",
+    };
+    const commitUrl = `https://api.github.com/repos/${this.config.targetRepo}/contents/${filePath}`;
+    const fileUrl = `https://api.github.com/repos/${this.config.targetRepo}/contents/${filePath}?ref=${this.config.evolutionBranch}`;
+    const message = `Autonomous self-enhancement #${cycleNumber} — ${filePath} (AST ${astScore}, proof ${proofHash})`;
+    const contentB64 = Buffer.from(evolvedCode).toString("base64");
+    let currentSha = baseSha;
+    const MAX_TOCTOU_RETRIES = 3;
+
+    for (let attempt = 0; attempt <= MAX_TOCTOU_RETRIES; attempt++) {
+      const commitPayload: Record<string, unknown> = {
+        message,
+        content: contentB64,
+        branch: this.config.evolutionBranch,
+      };
+      if (currentSha) commitPayload.sha = currentSha;
+
+      let commitRes: Response;
+      try {
+        commitRes = await fetch(commitUrl, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify(commitPayload),
+        });
+      } catch (err) {
+        loopEventBus.emit({
+          kind: "push",
+          timestamp: Date.now(),
+          cycleId,
+          filePath,
+          outcome: "failed",
+          attempt,
+        });
+        return {
+          pushed: false,
+          toctouHealed: false,
+          skippedDueToRemoteChange: false,
+          error: `dispatch error: ${(err as Error).message}`,
+        };
+      }
+
+      if (commitRes.ok) {
+        const body = (await commitRes.json().catch(() => ({}))) as {
+          commit?: { sha?: string };
+        };
+        const sha = body.commit?.sha?.slice(0, 7);
+        loopEventBus.emit({
+          kind: "push",
+          timestamp: Date.now(),
+          cycleId,
+          filePath,
+          outcome: attempt === 0 ? "committed" : "toctou_healed",
+          sha,
+          attempt,
+        });
+        return {
+          pushed: true,
+          toctouHealed: attempt > 0,
+          skippedDueToRemoteChange: false,
+        };
+      }
+
+      // Non-409 errors don't retry — they're real failures (auth, 404,
+      // 422, validation). Surface them and bail.
+      if (commitRes.status !== 409) {
+        const errBody = (await commitRes.json().catch(() => ({}))) as {
+          message?: string;
+        };
+        loopEventBus.emit({
+          kind: "push",
+          timestamp: Date.now(),
+          cycleId,
+          filePath,
+          outcome: "failed",
+          attempt,
+        });
+        return {
+          pushed: false,
+          toctouHealed: false,
+          skippedDueToRemoteChange: false,
+          error: `${errBody.message ?? `HTTP ${commitRes.status}`}`,
+        };
+      }
+
+      // 409 — TOCTOU conflict. Emit the conflict event, then refetch to
+      // decide whether the remote content actually changed.
+      loopEventBus.emit({
+        kind: "push",
+        timestamp: Date.now(),
+        cycleId,
+        filePath,
+        outcome: "toctou_conflict",
+        attempt,
+      });
+
+      if (attempt === MAX_TOCTOU_RETRIES) {
+        loopEventBus.emit({
+          kind: "push",
+          timestamp: Date.now(),
+          cycleId,
+          filePath,
+          outcome: "failed",
+          attempt,
+        });
+        return {
+          pushed: false,
+          toctouHealed: false,
+          skippedDueToRemoteChange: false,
+          error: `409 persisted across ${MAX_TOCTOU_RETRIES + 1} attempts`,
+        };
+      }
+
+      // Exponential backoff before the refetch (1s, 2s, 4s) — gives a
+      // concurrent committer time to settle so we don't refetch mid-flux.
+      await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+
+      let refetchRes: Response;
+      try {
+        refetchRes = await fetch(fileUrl, { headers });
+      } catch (err) {
+        loopEventBus.emit({
+          kind: "push",
+          timestamp: Date.now(),
+          cycleId,
+          filePath,
+          outcome: "failed",
+          attempt,
+        });
+        return {
+          pushed: false,
+          toctouHealed: false,
+          skippedDueToRemoteChange: false,
+          error: `refetch dispatch error: ${(err as Error).message}`,
+        };
+      }
+      if (!refetchRes.ok) {
+        loopEventBus.emit({
+          kind: "push",
+          timestamp: Date.now(),
+          cycleId,
+          filePath,
+          outcome: "failed",
+          attempt,
+        });
+        return {
+          pushed: false,
+          toctouHealed: false,
+          skippedDueToRemoteChange: false,
+          error: `refetch failed (HTTP ${refetchRes.status})`,
+        };
+      }
+      const refetchData = (await refetchRes.json().catch(() => ({}))) as {
+        content?: string;
+        sha: string;
+      };
+      const refetchedContent = refetchData.content
+        ? Buffer.from(refetchData.content, "base64").toString("utf-8")
+        : "";
+
+      if (refetchedContent !== rawContent) {
+        // Remote content CHANGED since we fetched — our refactor is
+        // based on stale input. Committing would clobber the remote
+        // change. Skip honestly; the next cycle fetches fresh content
+        // and refactors anew. This is the key correctness guard that
+        // makes the TOCTOU retry safe for derived-from-remote commits.
+        loopEventBus.emit({
+          kind: "push",
+          timestamp: Date.now(),
+          cycleId,
+          filePath,
+          outcome: "skipped_remote_changed",
+          sha: refetchData.sha,
+          attempt,
+        });
+        this.addLog(
+          `Skipping ${filePath}: remote content changed mid-cycle (TOCTOU). Refactor based on stale input — would clobber remote change. Next cycle will refactor the fresh content.`,
+          "warn",
+          "github"
+        );
+        return {
+          pushed: false,
+          toctouHealed: false,
+          skippedDueToRemoteChange: true,
+          error: "remote content changed mid-cycle (skipped to avoid clobber)",
+        };
+      }
+
+      // Remote content byte-identical — the sha drift is metadata-only
+      // (someone committed-then-reverted, or a bot touched the sha
+      // without changing content). Retry the PUT with the fresh sha;
+      // the refactor is still valid against this content.
+      currentSha = refetchData.sha;
+      this.addLog(
+        `TOCTOU heal: remote content unchanged, sha drifted. Retrying ${filePath} with fresh sha ${(refetchData.sha ?? "").slice(0, 7)} (attempt ${attempt + 2}/${MAX_TOCTOU_RETRIES + 1}).`,
+        "info",
+        "github"
+      );
+    }
+
+    // Unreachable (the loop returns on every path), but TS needs a return.
+    return {
+      pushed: false,
+      toctouHealed: false,
+      skippedDueToRemoteChange: false,
+      error: "exhausted",
+    };
   }
 
   private finalizeCycle(
