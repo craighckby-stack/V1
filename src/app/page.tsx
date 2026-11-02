@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ConsoleStream, type ConsoleLine } from "./display/console-stream";
 import { OraclePanel } from "@/components/pipeline/oracle-panel";
 import { DefensePanel } from "@/components/pipeline/defense-panel";
+import { BranchesPanel } from "@/components/pipeline/branches-panel";
 
 interface LogEntry {
   timestamp: string;
@@ -218,6 +219,12 @@ export default function Home() {
   // Defense panel: duress/safe-mode + red-team + secret-scan. The panel
   // owns its own polling like OraclePanel. See docs/CONCEPTS-GRAFTED.md.
   const [defenseOpen, setDefenseOpen] = useState(false);
+
+  // BranchesPanel — the loop's mutation history on GitHub (each loop-NN
+  // branch = one successful self-enhancement). On-demand fetch (not
+  // polled) so it doesn't burn GitHub API quota. Opened from the
+  // [BRANCHES] header button.
+  const [branchesOpen, setBranchesOpen] = useState(false);
   // Hot-swap indicator — shows the running pipeline fingerprint + swap
   // count next to [START], so the operator can see the system is live-
   //   swapping its own code. Polled alongside the self-enhance status.
@@ -1497,6 +1504,18 @@ export default function Home() {
           >
             [DEFENSE]
           </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setBranchesOpen(true);
+            }}
+            aria-label="Open the Branches panel — the loop's mutation history on GitHub"
+            title="Branches — every loop-NN branch is one successful self-enhancement the loop pushed to GitHub"
+            style={cfgBtnStyle}
+          >
+            [BRANCHES]
+          </button>
         </div>
       </div>
 
@@ -1855,6 +1874,7 @@ export default function Home() {
           owns the open/close state. */}
       <OraclePanel open={oracleOpen} onClose={() => setOracleOpen(false)} />
       <DefensePanel open={defenseOpen} onClose={() => setDefenseOpen(false)} />
+      <BranchesPanel open={branchesOpen} onClose={() => setBranchesOpen(false)} />
     </div>
   );
 }

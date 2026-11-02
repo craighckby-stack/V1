@@ -896,11 +896,64 @@ export async function pushCurrentState(opts?: {
 }
 
 /**
+ * Query GitHub for the highest existing `loop-NN` branch. Used by
+ * `getLastBranchNumber` as a final reconciliation fallback: after a
+ * sandbox reboot that wipes BOTH the DB AND the durable state files,
+ * the local counter is 0 but GitHub still holds the real mutation
+ * branches (e.g. loop-01..loop-38). Without this check, the loop would
+ * compute `loop-{0+1}` = `loop-01` and PUSH A NEW MUTATION ONTO THE
+ * EXISTING loop-01 — contaminating a previously-completed mutation's
+ * branch with a new commit, destroying the "one branch per mutation"
+ * invariant and making the audit trail untrustworthy.
+ *
+ * Returns the highest N such that `loop-NN` exists on the remote, or 0
+ * if no loop branches exist (genuinely first run) or the query fails
+ * (fail-open: returns 0, same as before, but logged).
+ */
+export async function reconcileBranchNumberFromGitHub(): Promise<number> {
+  try {
+    const target = await getStoredTarget();
+    if (!target || !target.token) return 0;
+    const res = await fetch(
+      `https://api.github.com/repos/${target.repo}/branches?per_page=100`,
+      {
+        headers: {
+          Authorization: `Bearer ${target.token}`,
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "Architecture-Helper-Pipeline",
+        },
+      }
+    );
+    if (!res.ok) return 0;
+    const branches = (await res.json()) as Array<{ name: string }>;
+    let max = 0;
+    for (const b of branches) {
+      // Match "loop-NN" where NN is 1+ digits. Handles both the
+      // zero-padded (loop-01..loop-09) and unpadded (loop-100+) forms.
+      const m = /^loop-(\d+)$/.exec(b.name);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n > max) max = n;
+      }
+    }
+    return max;
+  } catch {
+    return 0; // fail-open
+  }
+}
+
+/**
  * Read the last successful enhancement's branch number from the DB.
  * Returns 0 when no push target is configured or the counter has never
  * been bumped (i.e. no enhancement has fully succeeded yet).
  *
  * The next enhancement will push to `loop-{N+1}` (zero-padded to 2).
+ *
+ * RECONCILIATION: if the local counter is 0 (DB wiped + state files
+ * wiped/stale — the exact scenario after a hard sandbox reboot), we
+ * fall back to querying GitHub for the highest existing `loop-NN`
+ * branch. This prevents the loop from reusing a completed mutation's
+ * branch. See `reconcileBranchNumberFromGitHub`.
  */
 export async function getLastBranchNumber(): Promise<number> {
   let row: Awaited<ReturnType<typeof db.gitPushTarget.findUnique>> = null;
@@ -909,12 +962,56 @@ export async function getLastBranchNumber(): Promise<number> {
   } catch {
     /* DB unavailable — fall through */
   }
-  if (row) return row.lastBranchNumber ?? 0;
-  // DB wiped — the durable state files carry the counter. Tier-2 first,
-  // then tier-3: after a sandbox restart tier-2 is wiped and .git/info/ is
-  // the ONLY surviving copy — reading tier-2 alone returned 0, so the next
-  // mutation pushed to loop-01 again and collided with the existing branch.
-  return (readStateFile() ?? readPersistentStateFile())?.lastBranchNumber ?? 0;
+  if (row && (row.lastBranchNumber ?? 0) > 0) return row.lastBranchNumber ?? 0;
+  // DB wiped or zero — the durable state files carry the counter. Tier-2
+  // first, then tier-3: after a sandbox restart tier-2 is wiped and
+  // .git/info/ is the ONLY surviving copy — reading tier-2 alone returned 0,
+  // so the next mutation pushed to loop-01 again and collided with the
+  // existing branch.
+  const fileCount =
+    (readStateFile() ?? readPersistentStateFile())?.lastBranchNumber ?? 0;
+  if (fileCount > 0) return fileCount;
+  // ── FINAL FALLBACK: reconcile with GitHub ──────────────────────────
+  // Both the DB AND all durable state files report 0. This happens after
+  // a hard sandbox reboot that wiped everything EXCEPT the remote repo.
+  // The remote still has the real mutation branches (loop-01..loop-N),
+  // so query it for the highest N and use that — otherwise the loop would
+  // target loop-01 again and contaminate an existing mutation branch.
+  const reconciled = await reconcileBranchNumberFromGitHub();
+  if (reconciled > 0) {
+    // WRITE-THROUGH the reconciled value so future reads don't re-query
+    // GitHub (rate-limit friendly) AND the UI/DB reflect reality. We
+    // write directly rather than calling setLastBranchNumber (which
+    // guards "next > current" and would no-op since current=0=next).
+    try {
+      const state = readStateFile() ?? readPersistentStateFile();
+      if (state) {
+        writeStateFile({
+          ...state,
+          lastBranchNumber: reconciled,
+          savedAt: new Date().toISOString(),
+        });
+      }
+      await db.gitPushTarget
+        .upsert({
+          where: { id: SINGLETON_ID },
+          update: { lastBranchNumber: reconciled },
+          create: {
+            id: SINGLETON_ID,
+            repo: state?.repo ?? "craighckby-stack/V1",
+            token: state?.token ?? "",
+            branch: state?.branch ?? "main",
+            lastBranchNumber: reconciled,
+          },
+        })
+        .catch(() => {
+          /* best-effort — state file write is the durable copy */
+        });
+    } catch {
+      /* best-effort — the in-memory reconciled value still protects this run */
+    }
+  }
+  return reconciled;
 }
 
 /**
