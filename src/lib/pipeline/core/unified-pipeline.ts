@@ -20,6 +20,7 @@ import { SelfStoppingGovernor, HaltEvaluationState } from "../emg/halt";
 import { emgRagInstance } from "../emg/emg-rag";
 import { binaryShieldInstance } from "./binaryShield";
 import { postmortemStore, generatePostmortemFromReport } from "../postmortem/postmortem-store";
+import { gateMutation } from "./mutation-guard";
 
 export type PipelineStageId =
   | "stage0_ingestion"
@@ -428,6 +429,164 @@ export class UnifiedPipelineRunner {
         logs,
       };
     }
+
+    updateStage("stage4_review", "running", "Running mutation guard (triage + finalAuthority) before convening the review tribunal...");
+    log({
+      timestamp: new Date().toLocaleTimeString(),
+      message: "[STAGE 4] Mutation guard: scanning proposed code for escape attempts and protected-path violations...",
+      type: "info",
+    });
+
+    // ── Two-authority mutation guard (concept: Aether_Forge Ω repo) ────
+    // Run BEFORE the debate tribunal: an obviously-evil proposal (newly-
+    // introduced eval/child_process, or a mutation of a protected
+    // scaffolding path) is rejected here without spending an LLM review
+    // call. The guard is fail-CLOSED: triage evil → reject; unsure/good →
+    // finalAuthority (protected paths + non-empty). See mutation-guard.ts.
+    const gateResult = gateMutation({
+      filePath: config.filePath,
+      originalCode: config.code,
+      evolvedCode,
+    });
+    if (!gateResult.allowed) {
+      const dur4guard = Math.round(performance.now() - t4);
+      const rejectMsg = `Mutation guard REJECTED (${gateResult.rejectedBy}): ${gateResult.reasons.join("; ")}`;
+      updateStage(
+        "stage4_review",
+        "blocked",
+        rejectMsg,
+        {
+          consensus: "MUTATION_GUARD_REJECTED",
+          rejectedBy: gateResult.rejectedBy,
+          triageVerdict: gateResult.verdict,
+          triageSuspicion: gateResult.triage.suspicionScore,
+          reasons: gateResult.reasons,
+        },
+        dur4guard
+      );
+      log({
+        timestamp: new Date().toLocaleTimeString(),
+        message: `[STAGE 4] ${rejectMsg}`,
+        type: "error",
+      });
+      // Synthesize a review verdict that the downstream gate logic reads
+      // as REJECTED, so the cycle halts with no commit. We do NOT call
+      // the debate tribunal — the guard already decided, and spending
+      // an LLM call on an evil proposal would waste quota + risk the LLM
+      // being talked into approving it.
+      const rejectedVerdict: DebateVerdict = {
+        currentTopic: `Mutation Guard for ${config.filePath}`,
+        consensus: "REJECTED",
+        consensusCoefficient: 0,
+        cognitiveFriction: 1,
+        securityPoints: gateResult.reasons,
+        architecturePoints: [],
+        leadSummary: `Mutation guard rejected before review: ${gateResult.rejectedBy} layer.`,
+        arguments: [],
+      };
+      // Record the guard-rejection as a postmortem so the next attempt
+      // gets the constraint — the LLM will see "you tried to introduce
+      // eval( last time; don't" in its prompt.
+      try {
+        await postmortemStore.recordFailure({
+          repo: config.targetRepo,
+          branch: config.targetBranch,
+          filePath: config.filePath,
+          failureType: "OTHER",
+          symptom: `Mutation guard rejected (${gateResult.rejectedBy})`,
+          evidence: gateResult.reasons.join("\n"),
+          constraints: [
+            "The mutation guard rejected your last proposed change.",
+            "Do NOT introduce any of: eval(, new Function(, child_process, __import__(,",
+            "  require('fs'/'child_process'/'net'/'os'), fetch() to non-allowlisted hosts,",
+            "  path-traversal literals (../../), process.mainModule, weak crypto (md5/sha1).",
+            "Do NOT mutate protected paths: prisma/schema.prisma, package.json,",
+            "  next.config.*, tsconfig.json, .env, Caddyfile, start-dev.sh, or any file",
+            "  in the loop runtime / gates / LLM wrappers / UI control surface.",
+          ].join("\n"),
+        });
+      } catch {
+        /* best-effort — the rejection still blocks the commit */
+      }
+      // Fall through to STAGE 5 with the synthesized REJECTED verdict so
+      // the normal "review rejected → no commit" path handles it.
+      const reviewVerdict = rejectedVerdict;
+      const isReviewApproved = false;
+
+      updateStage(
+        "stage4_review",
+        "blocked",
+        `Mutation guard: ${gateResult.rejectedBy} rejected. Review skipped (no LLM call spent on a guarded proposal).`,
+        {
+          consensus: reviewVerdict.consensus,
+          coefficient: reviewVerdict.consensusCoefficient,
+          usedLlm: false,
+          guardRejected: true,
+          reasons: gateResult.reasons,
+        },
+        dur4guard
+      );
+      log({
+        timestamp: new Date().toLocaleTimeString(),
+        message: `[STAGE 4] Mutation guard rejected — review tribunal skipped (no LLM call). Verdict: REJECTED.`,
+        type: "warn",
+      });
+
+      // Skip to STAGE 5 convergence with the synthesized verdict.
+      // (Mirrors the structure of the 0-diff early-return above, but
+      // with a REJECTED verdict instead of a vacuous APPROVED one.)
+      const t5guard = performance.now();
+      const guardHaltState = this.governor.recordResult(false, config.filePath);
+      const guardProofHash = await binaryShieldInstance
+        .computeHash(evolvedCode)
+        .then((h) => h.slice(0, 7))
+        .catch(() => "UNPROVEN");
+      updateStage(
+        "stage5_convergence",
+        "succeeded",
+        `Converged (guard-rejected). Proof: ${guardProofHash}.`,
+        { proofCommitHash: guardProofHash, haltState: guardHaltState, guardRejected: true },
+        Math.round(performance.now() - t5guard)
+      );
+
+      emgRagInstance.addEntry({
+        provenance: "failure",
+        trust: "low",
+        filePath: config.filePath,
+        content: `Mutation guard rejected ${config.filePath} (${gateResult.rejectedBy}): ${gateResult.reasons.join("; ")}. Proof ${guardProofHash}.`,
+        diagnosis: "MUTATION_GUARD_REJECTED",
+      });
+
+      let finalStatusGuard: PipelineExecutionReport["status"] = "REJECTED";
+      if (guardHaltState && guardHaltState.shouldHalt) finalStatusGuard = "HALTED";
+
+      return {
+        id: pipelineId,
+        timestamp: Date.now(),
+        config,
+        status: finalStatusGuard,
+        stages,
+        originalCode: config.code,
+        evolvedCode,
+        patternVote,
+        siphonVote: patternVote,
+        sanitizerResult,
+        agentEngineResult,
+        astDiffResult,
+        reviewVerdict,
+        tribunalVerdict: reviewVerdict,
+        haltState: guardHaltState,
+        proofCommitHash: guardProofHash,
+        logs,
+      };
+    }
+
+    // Guard passed — proceed to the LLM debate tribunal.
+    log({
+      timestamp: new Date().toLocaleTimeString(),
+      message: `[STAGE 4] Mutation guard passed (triage: ${gateResult.verdict}, suspicion ${gateResult.triage.suspicionScore.toFixed(2)}). Convening review tribunal...`,
+      type: "info",
+    });
 
     updateStage("stage4_review", "running", "Conducting dual-perspective review (Security vs Architecture)...");
     log({
