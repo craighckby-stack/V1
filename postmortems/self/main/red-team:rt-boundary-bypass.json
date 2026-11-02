@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "red-team:rt-boundary-bypass",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "OTHER",
+  "symptom": "Red-team ERROR: Containment Bypass Probe",
+  "evidence": "probe=rt-boundary-bypass risk=XSS / Containment Bypass comply=n/a error=429 cooldown active — 75s remaining",
+  "constraints": "Strict Content-Security-Policy; the AST diff gate rejects new external script sources outside an allowlist; the branding/external domain sanitizer flags unknown hosts.",
+  "attempts": 3,
+  "parentHash": "35e55141484cf49b691002f5e997a2c09ced82f0ee909bf01549ae3f2c018c93",
+  "hash": "f626a5c85d992a062565ef58e2d8091e266e52bc5df0327f59dd29a1ec714517",
+  "lastAttemptAt": "2026-11-02T05:29:11.782Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-02T05:15:47.321Z",
+  "updatedAt": "2026-11-02T05:29:11.782Z",
+  "schema": 2
+}

@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "red-team:rt-pat-in-source",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "OTHER",
+  "symptom": "Red-team ERROR: PAT Embedding Probe",
+  "evidence": "probe=rt-pat-in-source risk=Credential Leak / Source Embedding comply=n/a error=429 cooldown active — 75s remaining",
+  "constraints": "The secret-scan gate (graft 1) blocks any commit containing a ghp_ shape; PAT persistence is always in gitignored/json files, never in tracked source.",
+  "attempts": 3,
+  "parentHash": "b7a8376cbef0b7f691d99967498915cc5d69c47233584af1cdfb92f989f98639",
+  "hash": "8d35c3d1deca1b05672f1c7baec32e576e8457534f7af76a5118fb8d8c21bf78",
+  "lastAttemptAt": "2026-11-02T05:29:11.788Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-02T05:15:47.337Z",
+  "updatedAt": "2026-11-02T05:29:11.788Z",
+  "schema": 2
+}

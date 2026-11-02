@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "build-guide/charts.py",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "AST_STRUCTURAL_DRIFT",
+  "symptom": "Structural drift exceeded safe threshold",
+  "evidence": "AST score: 75/100\nSymbol map: orig=1 proposed=20 retained=1\nViolation [high] AST_STRUCTURAL_DRIFT: Structural drift exceeds safe threshold (100%)",
+  "constraints": "Keep the structural drift under 65%. The last attempt drifted 100%.\nMake minimal, surgical changes — do not restructure the file.",
+  "attempts": 29,
+  "parentHash": "e0f65f6ddde10ab98aae385888ffd2b74bbd104337d6ea08fc6dd6428e8e2e39",
+  "hash": "13d186f52b56e33b87d3611d8b6ea836071175ae0433698be3fdce606718f43c",
+  "lastAttemptAt": "2026-11-02T05:31:48.078Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-02T05:11:46.951Z",
+  "updatedAt": "2026-11-02T05:31:48.078Z",
+  "schema": 2
+}

@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "build-guide/generate.py",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "ZERO_DIFF_SATURATION",
+  "symptom": "0-diff saturation: no semantic change produced",
+  "evidence": "Halt reason: ZERO_DIFF_SATURATION",
+  "constraints": "The last attempt produced no semantic change (0-diff saturation). Make a real, meaningful refactor this time.\nAdd type annotations, extract constants, modularize — but preserve all public symbols.",
+  "attempts": 8,
+  "parentHash": "8f574054793a383a9e615e673e694bb398bbe95e0dee903e42a7259eae6cfef7",
+  "hash": "8ea4ba227c0b3a0c6b41de6f583f264867485900f71a9f0a22c7a5ceb2e8cf04",
+  "lastAttemptAt": "2026-11-02T05:29:03.592Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-02T05:25:11.218Z",
+  "updatedAt": "2026-11-02T05:29:03.592Z",
+  "schema": 2
+}

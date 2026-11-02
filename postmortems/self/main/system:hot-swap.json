@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "system:hot-swap",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Hot-swap re-import threw — broken code on disk",
+  "evidence": "reason=manual end-to-end verification err=Cannot find module '@/lib/pipeline/autonomous/loop-runtime'\nRequire stack:\n- /home/z/my-project/src/lib/pipeline/core/hot-swap.ts",
+  "constraints": "The new code failed to import. The autonomous loop's running instance was stopped for the swap and could not be restarted. An operator must fix the broken code on disk (check the dev log for the import error) and then trigger a manual swap or restart the dev server. Until then, the autonomous loop is NOT running.",
+  "attempts": 1,
+  "parentHash": "730527d7e133092389d2fa51f6d8d50cd0b53b6141aee5cd5ed410e96c61f755",
+  "hash": "8f574054793a383a9e615e673e694bb398bbe95e0dee903e42a7259eae6cfef7",
+  "lastAttemptAt": "2026-11-02T05:24:28.143Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-02T05:24:28.144Z",
+  "updatedAt": "2026-11-02T05:24:28.144Z",
+  "schema": 2
+}
