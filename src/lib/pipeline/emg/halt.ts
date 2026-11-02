@@ -54,17 +54,18 @@ export class SelfStoppingGovernor {
 
   constructor(options?: { maxConsecutiveFailures?: number; maxCycles?: number }) {
     this.maxConsecutiveFailures = options?.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
-    this.maxCycles = options?.maxCycles ?? DEFAULT_MAX_CYCLES;
     
     // Validate maxCycles
-    if (typeof this.maxCycles !== "number" || this.maxCycles <= 0) {
+    if (typeof options?.maxCycles !== "number" || options.maxCycles <= 0) {
       this.maxCycles = DEFAULT_MAX_CYCLES;
+    } else {
+      this.maxCycles = Math.min(MAX_ALLOWED_CYCLES, options.maxCycles);
     }
   }
 
   public computeTreeFingerprint(files: TreeFileDescriptor[]): string {
     if (!files || !Array.isArray(files)) {
-      throw new Error("computeTreeFingerprint requires an array of TreeFileDescriptor");
+      throw new Error("computeTreeFingerprint requires a non-empty array of TreeFileDescriptor");
     }
     
     const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
@@ -95,6 +96,10 @@ export class SelfStoppingGovernor {
   }
 
   public checkZeroDiffSaturation(originalCode: string, proposedCode: string): HaltEvaluationState | null {
+    if (typeof originalCode !== "string" || typeof proposedCode !== "string") {
+      throw new Error("checkZeroDiffSaturation requires string inputs for both originalCode and proposedCode");
+    }
+    
     const normOriginal = normalizeCode(originalCode);
     const normProposed = normalizeCode(proposedCode);
     if (normOriginal === normProposed) {
@@ -108,6 +113,10 @@ export class SelfStoppingGovernor {
   }
 
   public recordResult(success: boolean, filePath?: string): HaltEvaluationState | null {
+    if (typeof success !== "boolean") {
+      throw new Error("recordResult requires a boolean value for success");
+    }
+    
     if (filePath && this.lastFilePath && this.lastFilePath !== filePath) {
       this.currentCycle = 0;
     }

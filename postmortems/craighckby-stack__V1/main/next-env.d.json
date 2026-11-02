@@ -2,7 +2,7 @@
   "targetRepo": "craighckby-stack/V1",
   "branch": "main",
   "filePath": "next-env.d.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "AST_STRUCTURAL_DRIFT",
   "symptom": "Structural drift exceeded safe threshold",
@@ -12,8 +12,8 @@
   "parentHash": null,
   "hash": "23324b9925c53d2f88c91c82b00985610a4dc4dcfbc0a801199463b86f7ac663",
   "lastAttemptAt": "2026-11-02T17:13:39.710Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-02T17:54:04.169Z",
   "createdAt": "2026-11-02T15:04:59.921Z",
-  "updatedAt": "2026-11-02T17:13:39.710Z",
+  "updatedAt": "2026-11-02T17:54:04.169Z",
   "schema": 2
 }
