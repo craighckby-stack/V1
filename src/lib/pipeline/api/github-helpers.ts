@@ -20,7 +20,9 @@ function isInvalidToken(token: string): boolean {
 }
 
 export function getUsableToken(clientToken?: string): string | null {
-  const candidate = (clientToken ?? (process.env?.GITHUB_TOKEN ?? "")).trim();
+  // Handle undefined environment variables more safely
+  const envToken = process.env?.GITHUB_TOKEN ?? "";
+  const candidate = (clientToken ?? envToken).trim();
   
   if (
     !candidate ||
@@ -43,14 +45,14 @@ export function githubHeaders(token: string | null): Record<string, string> {
 
   // Validate token is actually a string
   if (typeof token !== 'string') {
-    throw new Error(`Invalid token provided: must be a string, received ${typeof token}`);
+    throw new Error(`Invalid token provided: must be a string, received ${typeof token}. Please check your configuration.`);
   }
 
   // Since getUsableToken() already validates the token, we only need to trim it here
   const trimmedToken = token.trim();
 
   if (!trimmedToken) {
-    throw new Error(`Invalid token provided: must be a non-empty string after trimming.`);
+    throw new Error(`Invalid token provided: must be a non-empty string after trimming. Please check your token configuration.`);
   }
 
   const headers: Record<string, string> = {
