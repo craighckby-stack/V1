@@ -79,5 +79,13 @@ export function hasCoreSourceFiles(files: string[]): boolean {
   if (files.length === 0) {
     throw new Error('Invalid files: array is empty');
   }
+  
+  // Check each file to ensure it's a valid string before processing
+  for (const file of files) {
+    if (typeof file !== 'string') {
+      throw new Error(`Invalid file in array: expected string but received ${typeof file}`);
+    }
+  }
+  
   return files.some((f) => !isLockfileOrGeneratedFile(f) && !isLedgerOrMetaFile(f));
 }
