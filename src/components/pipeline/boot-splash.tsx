@@ -16,20 +16,22 @@
  * one → the LOOP sigil scrambles out of noise → the machine addresses the
  * observer and offers [ ▶ ENTER THE LOOP ].
  *
- * THE PRANK (per the owner, verbatim: "for shits and giggles"): entering
- * the Loop first drops the observer into a BLUE SCREEN OF DEATH reading
- * "404 — NOT EVER" with a progress bar that stalls at 99% and a floppy
- * drive seeking in the background. Ten seconds later the screen tips
- * back and the STAR WARS OPENING CRAWL explains what this system is,
- * scored by a synthesized Imperial March (master volume pinned at 1.0,
- * no mute — owner's orders). When the crawl clears the top, a happy POST
- * beep fires and the terminal finally loads. ESC is the hidden mercy.
- * The prank is cold-boot only and disabled under prefers-reduced-motion.
+ * THE PRANK (per the owner, verbatim: "for shits and giggles"): pressing
+ * ENTER drops the observer into a BLUE SCREEN OF DEATH reading "404 — NOT
+ * EVER" with a progress bar that stalls at 99% and a floppy drive seeking
+ * in the background. Ten seconds later the screen tips back and the STAR
+ * WARS OPENING CRAWL explains what this system is, scored by a synthesized
+ * Imperial March (master volume pinned at 1.0, no mute — owner's orders,
+ * "each time"). When the crawl clears the top, a happy POST beep fires
+ * and the terminal finally loads. ESC is the hidden mercy.
  *
- * Any key/click skips the SPLASH ahead; Enter/click at the invite starts
- * the descent. Warm boots (already entered this browser session) skip
- * straight in — the ceremony is for first contact, not every refresh.
- * Force the full rite with ?boot=force.
+ * The rite fires on EVERY entry — warm boot or cold — because the owner
+ * said each time. There is no back door into the terminal: warm boots
+ * (already entered this browser session) take the fast path — one SESSION
+ * RESUMED line — but still end at the invite, and ENTER always detonates
+ * the prank. prefers-reduced-motion flattens the fancy animation (the
+ * crawl loses its 3D tilt, the CRT effects go static) but does NOT cancel
+ * the ceremony. Force the full cold POST with ?boot=force.
  *
  * Aesthetic: amber phosphor CRT (the terminal inside is white-on-black;
  * the amber screen is the machine's "face" before it lets you in).
@@ -196,7 +198,6 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   const intervals = useRef<number[]>([]);
   const enteredRef = useRef(false);
   const reducedRef = useRef(false);
-  const warmRef = useRef(false);
   const phaseRef = useRef<Phase>("flash");
   const btnRef = useRef<HTMLButtonElement>(null);
   const onEnterRef = useRef(onEnter);
@@ -209,9 +210,6 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
-  useEffect(() => {
-    warmRef.current = warm;
-  }, [warm]);
 
   const later = useCallback((fn: () => void, ms: number) => {
     timers.current.push(window.setTimeout(fn, ms));
@@ -236,11 +234,9 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     // legitimizes the soundtrack under autoplay policy. Volume is pinned
     // at 1.0 by the owner's decree; there is no mute.
     ensureAudio();
-    // Reduced motion → no motion-heavy prank; warm boot → already seen it.
-    if (reducedRef.current || warmRef.current) {
-      onEnterRef.current();
-      return;
-    }
+    // No exemptions, no back door: the rite fires on EVERY entry — warm
+    // or cold, reduced motion or not (the CSS already flattens the fancy
+    // animation for reduced-motion observers). ESC is the only mercy.
     setPhase("exit");
     // ── Act I: BSOD ── after the CRT collapse, the lie begins.
     later(() => {
@@ -259,7 +255,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
           onEnterRef.current();
         }, CRAWL_TOTAL_MS);
       }, BSOD_MS);
-    }, 720);
+    }, reducedRef.current ? 120 : 720);
   }, [clearTimers, later]);
 
   /** Hidden mercy: ESC during the prank fast-forwards to the terminal. */
@@ -303,22 +299,20 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
     reducedRef.current = mq.matches;
 
-    const vitalsP = fetchVitals()
-      .then((v) => setVitals(v))
-      .catch(() => setVitals(UNKNOWN_VITALS));
+    // Warm boots never show vitals (one SESSION RESUMED line only), so
+    // don't even fetch them — the fast path stays fast and quiet.
+    const vitalsP = isWarm
+      ? Promise.resolve(UNKNOWN_VITALS)
+      : fetchVitals()
+          .then((v) => setVitals(v))
+          .catch(() => setVitals(UNKNOWN_VITALS));
 
     if (isWarm) {
-      // Warm boot: quick phosphor flash + one line, then straight in.
+      // Warm boot: quick phosphor flash + one line — but the machine
+      // still asks. There is no auto-enter: ENTER always runs the full
+      // rite (owner's "each time" decree), so the invite is the stop.
       later(() => setPhase("post"), reducedRef.current ? 100 : 650);
-      later(() => setPhase((p) => (p === "post" ? "exit" : p)), reducedRef.current ? 250 : 1350);
-      later(() => {
-        try {
-          sessionStorage.setItem("loop-booted", "1");
-        } catch {
-          /* noop */
-        }
-        onEnterRef.current();
-      }, reducedRef.current ? 300 : 2100);
+      later(() => setPhase((p) => (p === "post" ? "invite" : p)), reducedRef.current ? 250 : 1350);
     } else {
       // Cold boot: wait for CRT warm-up AND vitals (≤1.8s), then POST.
       Promise.race([vitalsP, new Promise((r) => window.setTimeout(r, 1850))]).then(() => {
