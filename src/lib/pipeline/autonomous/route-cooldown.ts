@@ -46,7 +46,7 @@ export function assertRouteCooldown(
     throw new Error('Route must be a non-empty string');
   }
   
-  if (typeof minIntervalMs !== 'number' || !Number.isFinite(minIntervalMs) || minIntervalMs <= 0) {
+  if (typeof minIntervalMs !== 'number' || minIntervalMs <= 0 || !Number.isFinite(minIntervalMs)) {
     throw new Error('minIntervalMs must be a positive finite number');
   }
 
@@ -59,13 +59,9 @@ export function assertRouteCooldown(
     if (elapsed < minIntervalMs) {
       return { ok: false, retryAfterMs: Math.ceil((minIntervalMs - elapsed) / 1000) };
     }
-    
-    // Atomic update: set the timestamp only after we've confirmed it's safe
-    entry.lastFired = now;
-    return { ok: true, retryAfterMs: 0 };
   }
   
-  // Create new entry if none exists or interval differs
+  // Atomic update: set the timestamp only after we've confirmed it's safe
   routeCooldowns.set(route, { intervalMs: minIntervalMs, lastFired: now });
   return { ok: true, retryAfterMs: 0 };
 }
