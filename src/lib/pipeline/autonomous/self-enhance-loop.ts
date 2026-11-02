@@ -18,6 +18,7 @@ import { join, relative, resolve, basename, dirname } from "path";
 import { llmComplete, extractSummaryAndCode, llmCooldownMs } from "../llm/agent-llm";
 import { conductLlmDebate } from "../llm/debate-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
+import { queryRelevantPostmortems, formatAncestralPromptBlock } from "../postmortem/ancestral-rag";
 import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopBranch } from "./push-target";
 import { db } from "@/lib/db";
 import { generateTasks } from "./self-task-generator";
@@ -980,6 +981,29 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
         relPath
       );
 
+      // 2b. Ancestral RAG (concept: DARLEK_CAAN queryAncestralWisdom / GRAFT 3).
+      // The per-file postmortem (above) only sees THIS file's history.
+      // The ancestral query pulls VERIFIED postmortems from OTHER files
+      // whose symptom/evidence/constraints match a keyword derived
+      // from this file's path + (if present) its current symptom. So a
+      // syntax-drop failure on foo.ts teaches a constraint that surfaces
+      // when enhancing bar.ts. Local, synchronous, zero LLM cost.
+      const ancestralKeyword =
+        (postmortem.symptom ? postmortem.symptom + " " : "") +
+        relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
+      let ancestralBlock = "";
+      try {
+        const ancestral = await queryRelevantPostmortems({
+          keyword: ancestralKeyword,
+          excludeFilePath: relPath,
+          repo: "self",
+          limit: 5,
+        });
+        ancestralBlock = formatAncestralPromptBlock(ancestral);
+      } catch {
+        /* best-effort — ancestral RAG is an enhancement, not a gate */
+      }
+
       // 3. LLM improvement — ask for REAL improvements, not cosmetic refactoring
       this.log(`Improving ${relPath}...`, "info");
       const refactorSystem = `You are a senior code reviewer improving a TypeScript file inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
@@ -1013,7 +1037,7 @@ OUTPUT FORMAT (mandatory):
 \`\`\`typescript
 // the full file with fixes applied
 \`\`\`
-${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
+${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancestralBlock}`;
 
       const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nFind real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in this file. Fix them. If nothing needs fixing, return the file unchanged. Output the summary first, then the code.`;
 
