@@ -258,6 +258,11 @@ export default function Home() {
   const [cfgError, setCfgError] = useState<string | null>(null);
   const [cfgStatusMsg, setCfgStatusMsg] = useState<string | null>(null);
   const [cfgTarget, setCfgTarget] = useState<PushTargetInfo | null>(null);
+  // Repo visibility — drives the MAKE PUBLIC / MAKE PRIVATE button so the
+  // share-link 404 (private repo → unauthenticated viewers can't open
+  // commit links) is fixable in one click without leaving the terminal.
+  const [cfgRepoPrivate, setCfgRepoPrivate] = useState<boolean | null>(null);
+  const [cfgVisLoading, setCfgVisLoading] = useState(false);
 
   // Oracle panel state — the system's prophecy/evaluation subsystem.
   // open/close is the only state page.tsx owns; the panel manages its
@@ -530,6 +535,7 @@ export default function Home() {
     setCfgError(null);
     setCfgStatusMsg(null);
     setCfgLoading(false);
+    setCfgRepoPrivate(null);
     // Fetch the current target state for the panel
     try {
       const res = await fetch("/api/self-enhance/push-target");
@@ -537,6 +543,16 @@ export default function Home() {
         const t = (await res.json()) as PushTargetInfo;
         setCfgTarget(t);
         if (t.configured && t.repo) setCfgRepo(t.repo);
+        // Pull current visibility from GitHub so the button reflects the
+        // real state (the owner may have flipped it on github.com).
+        if (t.configured) {
+          fetch("/api/self-enhance/visibility")
+            .then((r) => r.json())
+            .then((v: { private?: boolean; error?: string }) => {
+              if (typeof v.private === "boolean") setCfgRepoPrivate(v.private);
+            })
+            .catch(() => { /* best-effort — button just stays neutral */ });
+        }
       }
     } catch {
       /* best-effort */
@@ -668,6 +684,36 @@ export default function Home() {
       setCfgError((e as Error).message);
     } finally {
       setCfgLoading(false);
+    }
+  }
+
+  /** Flip the GitHub repo's visibility via the stored PAT. The share-link
+   *  404 (private repo → commit links only work for collaborators) is the
+   *  whole reason this exists — MAKE PUBLIC turns the BRANCHES dialog's
+   *  commit links into real shareable URLs for anyone. */
+  async function setRepoVisibility(makePrivate: boolean) {
+    setCfgVisLoading(true);
+    setCfgError(null);
+    setCfgStatusMsg(null);
+    try {
+      const res = await fetch("/api/self-enhance/visibility", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ private: makePrivate }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setCfgRepoPrivate(data.private);
+        const next = data.private ? "PRIVATE" : "PUBLIC";
+        setCfgStatusMsg(`Repo is now ${next}. Commit links ${data.private ? "are 404 to non-collaborators again" : "will resolve for anyone you share them with"}.`);
+        emitOutput([`[CONFIG] github.com/${data.repo} visibility → ${next}.`]);
+      } else {
+        setCfgError(data.error ?? "Visibility change failed");
+      }
+    } catch (e) {
+      setCfgError((e as Error).message);
+    } finally {
+      setCfgVisLoading(false);
     }
   }
 
@@ -1969,6 +2015,53 @@ export default function Home() {
                   }}
                 >
                   [ DISCONNECT ]
+                </button>
+              )}
+              {cfgTarget?.configured && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (cfgRepoPrivate === null) return;
+                    // Going TO public is the dangerous direction (history
+                    // leaves the building) — confirm. Going back to private
+                    // is a safe re-hide, no confirmation needed.
+                    if (cfgRepoPrivate /* currently private → making public */) {
+                      if (
+                        !window.confirm(
+                          "Make github.com/" + cfgTarget.repo + " PUBLIC?\n\n" +
+                          "Anyone on the internet will be able to read the code, the postmortems, the branch history — everything the loop has ever pushed.\n\n" +
+                          "This is reversible (you can make it private again), but anything anyone clones or forks while it's public is theirs.\n\n" +
+                          "Proceed?"
+                        )
+                      ) return;
+                    }
+                    setRepoVisibility(!cfgRepoPrivate);
+                  }}
+                  disabled={cfgVisLoading || cfgRepoPrivate === null}
+                  style={{
+                    ...cfgBtnStyle,
+                    opacity: cfgVisLoading || cfgRepoPrivate === null ? 0.5 : 1,
+                    cursor: cfgVisLoading ? "wait" : "pointer",
+                    // Amber when the next action is dangerous (making public),
+                    // dim when it's a safe re-hide.
+                    borderColor: cfgRepoPrivate ? "#ff6a3d" : DIM_COLOR,
+                    color: cfgRepoPrivate ? "#ff6a3d" : DIM_COLOR,
+                  }}
+                  title={
+                    cfgRepoPrivate === null
+                      ? "Fetching current visibility from GitHub…"
+                      : cfgRepoPrivate
+                        ? "Make this repo public so the BRANCHES commit links resolve for anyone you share them with"
+                        : "Make this repo private again — commit links will 404 for non-collaborators"
+                  }
+                >
+                  {cfgVisLoading
+                    ? "[ … ]"
+                    : cfgRepoPrivate === null
+                      ? "[ VISIBILITY? ]"
+                      : cfgRepoPrivate
+                        ? "[ MAKE PUBLIC ]"
+                        : "[ MAKE PRIVATE ]"}
                 </button>
               )}
               <button type="button" onClick={closeConfig} style={cfgBtnStyle}>

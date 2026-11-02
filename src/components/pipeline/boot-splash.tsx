@@ -52,13 +52,17 @@ import {
 type Phase = "flash" | "post" | "title" | "invite" | "exit" | "bsod" | "crawl";
 
 // Prank timeline (ms, after the ENTER gesture):
-//   0–720   CRT power-off collapse (existing)
-//   720–10720  BLUE SCREEN — 404 NOT EVER, progress stalls at 99%
-//   10720+2400 "A long time ago..." intro zooms while the crawl enters
-//   +15600  crawl clears the top of the screen
+//   0–720       CRT power-off collapse (existing)
+//   720–10720   BLUE SCREEN — 404 NOT EVER, progress stalls at 99%
+//   10720+2400  "A long time ago..." intro zooms while the crawl enters
+//   +24000      crawl finishes — the end translateY(-100%) lands the text
+//               bottom exactly at the viewport top as the animation ends,
+//               so there's NO dead air between the last line scrolling off
+//               and the terminal loading.
 const BSOD_MS = 10_000;
 const CRAWL_INTRO_MS = 2_400;
-const CRAWL_ANIM_MS = 15_600;
+// 24s vs the old 15.6s — ~1.5× slower scroll, readable at SW pace.
+const CRAWL_ANIM_MS = 24_000;
 const CRAWL_TOTAL_MS = CRAWL_INTRO_MS + CRAWL_ANIM_MS;
 
 type Json = Record<string, unknown>;
@@ -760,7 +764,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         }
         @keyframes bsp-crawl-up {
           from { transform: translateX(-50%) rotateX(26deg) translateY(105vh); }
-          to   { transform: translateX(-50%) rotateX(26deg) translateY(-190%); }
+          to   { transform: translateX(-50%) rotateX(26deg) translateY(-100%); }
         }
         @keyframes bsp-intro {
           0%   { opacity: 0; transform: scale(.82); }
@@ -783,7 +787,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
           .bsp-crawl-intro { animation: none; opacity: 0; }
           @keyframes bsp-crawl-up {
             from { transform: translateX(-50%) translateY(105vh); }
-            to   { transform: translateX(-50%) translateY(-190%); }
+            to   { transform: translateX(-50%) translateY(-100%); }
           }
         }
       `}</style>
