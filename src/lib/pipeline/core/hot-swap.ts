@@ -121,6 +121,17 @@ export interface LoopSnapshot {
   };
   previouslyCommittedPaths: string[];
   previouslyFailedPaths: Array<[string, number]>;
+  /**
+   * Stable-file cooldown map (ZERO_DIFF_SATURATION paths). Mirrors
+   * `previouslyFailedPaths` shape but for files the LLM declared
+   * stable — they get a LONG cooldown (50 cycles, not 5) so quota
+   * belongs to files that might actually change. Added to the
+   * snapshot so a hot-swap doesn't lose the stable state (otherwise
+   * the next cycle would re-call the LLM on a file the previous
+   * instance just declared stable, re-introducing the churn the map
+   * exists to prevent).
+   */
+  previouslyStablePaths: Array<[string, number]>;
   swappableReason: string;
 }
 
@@ -181,6 +192,9 @@ function snapshotLoop(): LoopSnapshot | null {
         : [],
       previouslyFailedPaths: rt.previouslyFailedPaths
         ? Array.from((rt.previouslyFailedPaths as Map<string, number>).entries())
+        : [],
+      previouslyStablePaths: rt.previouslyStablePaths
+        ? Array.from((rt.previouslyStablePaths as Map<string, number>).entries())
         : [],
       swappableReason: "",
     };

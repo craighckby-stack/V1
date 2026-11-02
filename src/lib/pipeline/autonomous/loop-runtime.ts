@@ -161,12 +161,14 @@ class AutonomousLoopRuntime {
   private previouslyCommittedPaths: Set<string> = new Set();
   /**
    * Set of file paths that FAILED in a prior cycle (AST-rejected,
-   * zero-diff saturation, debate-rejected, or threw). Skipped for a
-   * cooldown period so the loop doesn't get stuck retrying the same
-   * un-improvable file every cycle (which is what was happening with
-   * the build-guide Python files — the LLM can't improve them further,
-   * the zero-diff governor fires, but the next cycle picked them again
-   * because only committed paths were tracked).
+   * debate-rejected, or threw). Skipped for a cooldown period so the
+   * loop doesn't get stuck retrying the same un-improvable file every
+   * cycle. (Zero-diff saturation is tracked separately — see
+   * `previouslyStablePaths`; it is NOT a failure, so it does not belong
+   * here. The old code lumped them together and burned 1 LLM call per
+   * stable file every 5 cycles forever — visible in the dev log as
+   * build-guide/*.py stuck at attempt #7+ and contributing to the 429
+   * rate-limits.)
    *
    * Each entry is `{path, failedAt}` so the cooldown can expire. A file
    * that failed 5 cycles ago gets re-tried; one that failed last cycle
@@ -174,6 +176,30 @@ class AutonomousLoopRuntime {
    */
   private previouslyFailedPaths: Map<string, number> = new Map();
   private static readonly FAILED_FILE_COOLDOWN_CYCLES = 5;
+  /**
+   * Set of file paths the LLM declared STABLE in a prior cycle
+   * (ZERO_DIFF_SATURATION — produced no semantic change). Skipped for a
+   * LONG cooldown (`STABLE_FILE_COOLDOWN_CYCLES`, 50 cycles) so quota
+   * belongs to files that might actually change. 50 cycles = ~5
+   * distillation passes (DISTILL_INTERVAL=10), enough for the lesson
+   * store to evolve new prompts that might tip the LLM to find a real
+   * refactor when the file is re-tried.
+   *
+   * Same `{path, stableAt}` shape as `previouslyFailedPaths`. The long
+   * cooldown is the fix for the "stable file churn" bug — the old code
+   * used the 5-cycle FAILED cooldown for zero-diff too, which kept
+   * calling the LLM on files it had already declared stable.
+   *
+   * The postmortem for a stable file is recorded ONCE (the first time
+   * we see zero-diff on it) so the next attempt gets a "make a real
+   * refactor" constraint. REPEATED zero-diffs do NOT bump `attempts`
+   * and do NOT rewrite the on-disk postmortem — the postmortem already
+   * says "stable", and churning it every cycle just creates git noise
+   * (the postmortems/<repo>/<branch>/*.json files were modified every
+   * cycle in the dev log). Once is enough.
+   */
+  private previouslyStablePaths: Map<string, number> = new Map();
+  private static readonly STABLE_FILE_COOLDOWN_CYCLES = 50;
   /** Auto-arm guard — the constructor arms the scheduler exactly once on
    *  the first instance. A hot-swap re-imports the module, creating a
    *  fresh instance, which re-arms. The re-arm respects the snapshot's
@@ -247,6 +273,14 @@ class AutonomousLoopRuntime {
           if (Array.isArray(snap.previouslyFailedPaths)) {
             this.previouslyFailedPaths = new Map(snap.previouslyFailedPaths);
           }
+          // Restore the stable-file cooldown map too — without this, a
+          // hot-swap would lose the "this file is stable for 50 cycles"
+          // state, and the next cycle would re-call the LLM on a file
+          // the previous instance just declared stable (re-introducing
+          // the very churn this map exists to prevent).
+          if (Array.isArray(snap.previouslyStablePaths)) {
+            this.previouslyStablePaths = new Map(snap.previouslyStablePaths);
+          }
           // A swap happened — reset the auto-arm flag so THIS fresh
           // instance can auto-arm. Without this, the flag (set true by
           // the previous generation) would prevent the new instance
@@ -255,7 +289,7 @@ class AutonomousLoopRuntime {
           this.resetAutoArmFlag();
           // Log the restore so the swap is visible in the loop's own log.
           this.addLog(
-            `HOT-SWAP RESTORE: resumed from snapshot (cycle #${snap.stats?.totalRuns ?? 0}, ${snap.previouslyCommittedPaths?.length ?? 0} committed, ${snap.previouslyFailedPaths?.length ?? 0} failed). Reason: ${snap.swappableReason ?? "(none)"}`,
+            `HOT-SWAP RESTORE: resumed from snapshot (cycle #${snap.stats?.totalRuns ?? 0}, ${snap.previouslyCommittedPaths?.length ?? 0} committed, ${snap.previouslyFailedPaths?.length ?? 0} failed, ${snap.previouslyStablePaths?.length ?? 0} stable). Reason: ${snap.swappableReason ?? "(none)"}`,
             "success"
           );
         }
@@ -790,11 +824,30 @@ class AutonomousLoopRuntime {
       // Skip files that failed recently (cooldown) so the loop doesn't
       // get stuck retrying an un-improvable file every cycle. A file that
       // failed >= FAILED_FILE_COOLDOWN_CYCLES ago is re-tried.
+      //
+      // ALSO skip files declared stable recently (zero-diff saturation).
+      // Stable files get a LONG cooldown (STABLE_FILE_COOLDOWN_CYCLES,
+      // 50) — see previouslyStablePaths for why. The two cooldowns are
+      // independent: a stable file is not a failure, and a failed file
+      // is not stable. A file in EITHER map is skipped until its cooldown
+      // expires.
       const currentCycleNum = this.stats.totalRuns;
       const cooledDown = (path: string): boolean => {
         const failedAt = this.previouslyFailedPaths.get(path);
-        if (failedAt === undefined) return true; // never failed
-        return currentCycleNum - failedAt >= AutonomousLoopRuntime.FAILED_FILE_COOLDOWN_CYCLES;
+        if (
+          failedAt !== undefined &&
+          currentCycleNum - failedAt < AutonomousLoopRuntime.FAILED_FILE_COOLDOWN_CYCLES
+        ) {
+          return false;
+        }
+        const stableAt = this.previouslyStablePaths.get(path);
+        if (
+          stableAt !== undefined &&
+          currentCycleNum - stableAt < AutonomousLoopRuntime.STABLE_FILE_COOLDOWN_CYCLES
+        ) {
+          return false;
+        }
+        return true;
       };
       const codeBlobs = tree
         .filter(
@@ -810,7 +863,7 @@ class AutonomousLoopRuntime {
       this.currentCycle!.filesScanned = codeBlobs.length;
       this.stats.totalFilesScanned += codeBlobs.length;
       this.addLog(
-        `Selected ${codeBlobs.length} code file(s) for pipeline processing (${alreadyCommitted.size} already committed in prior cycles, skipped).`,
+        `Selected ${codeBlobs.length} code file(s) for pipeline processing (${alreadyCommitted.size} already committed, ${this.previouslyFailedPaths.size} in failed-cooldown, ${this.previouslyStablePaths.size} in stable-cooldown — all skipped).`,
         "info"
       );
 
@@ -1059,7 +1112,77 @@ class AutonomousLoopRuntime {
               .catch(() => {
                 /* ignore */
               });
-          } else if (!astPassed || !reviewApproved || isZeroDiffSaturation) {
+          } else if (isZeroDiffSaturation) {
+            // ── Stable-file branch (the bug fix) ────────────────────────
+            // The LLM produced no semantic change. This is NOT a failure
+            // (it's the model correctly identifying the file as already
+            // good). The old code lumped zero-diff in with real AST/review
+            // failures here, which meant:
+            //   1. `attempts` got bumped every cycle (build-guide/*.py hit
+            //      attempt #7+ in the dev log) — pure noise.
+            //   2. The on-disk postmortem JSON got rewritten every cycle
+            //      (7+ files showed up as modified in `git status` every
+            //      pass) — git churn with no information gain.
+            //   3. The file got the 5-cycle FAILED cooldown, so the loop
+            //      re-called the LLM on it every 5 cycles forever — quota
+            //      waste that contributed to the 429 rate-limits.
+            //
+            // The fix:
+            //   - Apply the LONG stable cooldown (50 cycles) so quota
+            //     belongs to files that might actually change.
+            //   - Record the ZERO_DIFF_SATURATION postmortem ONCE (so the
+            //     next attempt gets the "make a real refactor" constraint).
+            //     On REPEATED zero-diff, the existing postmortem already
+            //     says "stable" — don't rewrite it. The attempts counter
+            //     stops ticking up once the file is recognized as stable.
+            //   - Do NOT add to previouslyFailedPaths — a stable file is
+            //     not a failure.
+            this.previouslyStablePaths.set(blob.path, this.stats.totalRuns);
+            postmortemStore
+              .getActivePostmortem(repo, branch, blob.path)
+              .then((existing) => {
+                if (existing && existing.failureType === "ZERO_DIFF_SATURATION") {
+                  // Already recorded as stable — don't churn the postmortem.
+                  this.addLog(
+                    `File ${blob.path} still stable (0-diff saturation, attempt #${existing.attempts}). Long cooldown ${AutonomousLoopRuntime.STABLE_FILE_COOLDOWN_CYCLES} cycles — quota preserved.`,
+                    "info"
+                  );
+                  return null;
+                }
+                // First time we've seen this file as stable (or it
+                // previously failed for a different reason and is now
+                // stable). Record a fresh ZERO_DIFF_SATURATION postmortem
+                // so the next attempt gets the "make a real refactor"
+                // constraint instead of the old AST/review constraint.
+                const pm = generatePostmortemFromReport({
+                  filePath: blob.path,
+                  astDiffResult: report.astDiffResult,
+                  sanitizerResult: report.sanitizerResult,
+                  reviewVerdict: report.reviewVerdict,
+                  haltReason: report.haltState?.reason,
+                });
+                return postmortemStore.recordFailure({
+                  repo,
+                  branch,
+                  filePath: blob.path,
+                  failureType: pm.failureType,
+                  symptom: pm.symptom,
+                  evidence: pm.evidence,
+                  constraints: pm.constraints,
+                });
+              })
+              .then((record) => {
+                if (record) {
+                  this.addLog(
+                    `File ${blob.path} marked stable (0-diff saturation, postmortem attempt #${record.attempts}). Long cooldown ${AutonomousLoopRuntime.STABLE_FILE_COOLDOWN_CYCLES} cycles — next retry will see evolved lessons.`,
+                    "info"
+                  );
+                }
+              })
+              .catch(() => {
+                /* best-effort — stable cooldown still set above */
+              });
+          } else if (!astPassed || !reviewApproved) {
             // A real failure — record/update the postmortem so the next
             // attempt gets the constraints.
             const pm = generatePostmortemFromReport({
@@ -1092,9 +1215,8 @@ class AutonomousLoopRuntime {
             // Record this path in previouslyFailedPaths with the current
             // cycle number. The next cycle's file selector (see
             // cooledDown() above) skips it for FAILED_FILE_COOLDOWN_CYCLES
-            // cycles, then re-tries. Without this, the loop kept picking
-            // the same un-improvable build-guide Python files every
-            // cycle because only COMMITTED paths were tracked.
+            // cycles, then re-tries. (Zero-diff files are NOT added here
+            // — they go to previouslyStablePaths with a longer cooldown.)
             this.previouslyFailedPaths.set(blob.path, this.stats.totalRuns);
           }
 
