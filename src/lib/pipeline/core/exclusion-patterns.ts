@@ -55,10 +55,16 @@ export const LEDGER_OR_META_PATTERNS: ReadonlyArray<RegExp> = [
 ];
 
 export function isLockfileOrGeneratedFile(path: string): boolean {
+  if (typeof path !== 'string') {
+    return false;
+  }
   return LOCKFILE_AND_GENERATED_PATTERNS.some((p) => p.test(path));
 }
 
 export function isLedgerOrMetaFile(path: string): boolean {
+  if (typeof path !== 'string') {
+    return false;
+  }
   return LEDGER_OR_META_PATTERNS.some((p) => p.test(path));
 }
 
@@ -67,6 +73,9 @@ export function isLedgerOrMetaFile(path: string): boolean {
  *  (it would otherwise pollute the wrong/correct counts). Returns true
  *  when the commit has at least one REAL source file. */
 export function hasCoreSourceFiles(files: string[]): boolean {
+  if (!Array.isArray(files)) {
+    return false;
+  }
   if (files.length === 0) return false;
   return files.some((f) => !isLockfileOrGeneratedFile(f) && !isLedgerOrMetaFile(f));
 }
