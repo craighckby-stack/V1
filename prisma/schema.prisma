@@ -286,3 +286,22 @@ model Prophecy {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }
+
+/// Generic key/value runtime flag store. Used by the duress/purge protocol
+/// (concept grafted from craighckby-stack/PKM — see docs/CONCEPTS-GRAFTED.md
+/// GRAFT 2) to persist a "safe-mode" flag the autonomous loop reads before
+/// each cycle. When set, the loop refuses to mutate or push until an
+/// operator clears it.
+///
+/// Singleton-per-key: each key has exactly one row. value is a short
+/// string ("true"/"false"/a reason). setAt is when the flag was last
+/// raised. setBy records which subsystem raised it (e.g. "duress",
+/// "red-team", "operator"). reason is a human-readable explanation.
+model SystemFlag {
+  key       String   @id           // e.g. "safe-mode"
+  value     String                 // "true" | "false"
+  setBy     String   @default("system")  // "duress" | "red-team" | "operator" | "system"
+  reason    String?                // why the flag was raised
+  setAt     DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
