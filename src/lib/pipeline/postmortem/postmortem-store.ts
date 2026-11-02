@@ -17,6 +17,7 @@
  * POSTMORTEMS.md produced by another enhancer) via parseMarkdownPostmortem().
  */
 
+import { createHash } from "crypto";
 import { db } from "@/lib/db";
 import type { Postmortem as PostmortemRow } from "@prisma/client";
 import type { AstDiffResult } from "../core/ast-diff-gate";
@@ -29,6 +30,186 @@ import {
   listFromDisk,
   rehydrateSqliteFromDisk,
 } from "./postmortem-repo";
+
+// ── Tamper-evident chain helpers (concept: Aether_Forge Ω darlekRAG) ────
+// The chain is a single global sequence ordered by createdAt. Each record's
+// `parentHash` is the `hash` of the previously-created record; `hash` is
+// sha256 over (parentHash + canonical(content)). Recomputed on every write
+// so a direct DB edit (without recomputing) is detectable as a content
+// mismatch — see verifyPostmortemChain.
+
+/** The content a postmortem's hash covers. Excludes timestamps, ids, and
+ *  the hashes themselves (those are derived). Deterministic key order via
+ *  object-literal insertion order (preserved by JSON.stringify for string
+ *  keys), so the same logical record always produces the same canonical
+ *  string regardless of how the caller constructed it. */
+interface PostmortemChainContent {
+  targetRepo: string;
+  branch: string;
+  filePath: string;
+  failureType: string;
+  symptom: string;
+  evidence: string;
+  constraints: string;
+  attempts: number;
+  status: string;
+  verificationStatus: string;
+}
+
+function canonicalPostmortemContent(c: PostmortemChainContent): string {
+  // Fixed key order — do NOT reorder these without a schema bump.
+  return JSON.stringify({
+    targetRepo: c.targetRepo,
+    branch: c.branch,
+    filePath: c.filePath,
+    failureType: c.failureType,
+    symptom: c.symptom,
+    evidence: c.evidence,
+    constraints: c.constraints,
+    attempts: c.attempts,
+    status: c.status,
+    verificationStatus: c.verificationStatus,
+  });
+}
+
+function computePostmortemHash(parentHash: string | null, canonical: string): string {
+  return createHash("sha256")
+    .update(`${parentHash ?? ""}|${canonical}`)
+    .digest("hex");
+}
+
+/** The hash of the most recently created postmortem (by createdAt desc).
+ *  Used as the parentHash when appending a new record to the chain. Returns
+ *  null when the chain is empty or the DB is unreachable. */
+async function getLatestPostmortemHash(): Promise<string | null> {
+  try {
+    const latest = await db.postmortem.findFirst({
+      orderBy: { createdAt: "desc" },
+      select: { hash: true },
+    });
+    return latest?.hash ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Walk the entire postmortem table in createdAt order and verify the chain.
+ *  Returns:
+ *   - linkBreaks: count of records whose parentHash ≠ their predecessor's
+ *     CURRENT hash. Happens whenever an older record is updated in place
+ *     after a younger one was created (expected on repeat failures — the
+ *     older record's hash changes, but the younger's parentHash still
+ *     points at the pre-update hash). Informational, NOT an attack signal.
+ *   - contentMismatches: count of records whose stored hash ≠ recomputed
+ *     hash. This means someone edited the row directly in the DB WITHOUT
+ *     recomputing the hash — a tamper alarm.
+ * `ok` is true only when both counts are zero. Callers (the API + UI) can
+ *  surface both numbers so the operator can tell "records were updated in
+ *  place" (linkBreaks, fine) from "the DB was tampered with"
+ *  (contentMismatches, alarm). */
+export async function verifyPostmortemChain(): Promise<{
+  ok: boolean;
+  total: number;
+  linkBreaks: number;
+  contentMismatches: number;
+  firstBreakAt: number | null;
+}> {
+  try {
+    const records = await db.postmortem.findMany({
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true, hash: true, parentHash: true,
+        targetRepo: true, branch: true, filePath: true,
+        failureType: true, symptom: true, evidence: true, constraints: true,
+        attempts: true, status: true, verificationStatus: true,
+      },
+    });
+    let linkBreaks = 0;
+    let contentMismatches = 0;
+    let firstBreakAt: number | null = null;
+    let prevHash: string | null = null;
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+      const canonical = canonicalPostmortemContent({
+        targetRepo: r.targetRepo, branch: r.branch, filePath: r.filePath,
+        failureType: r.failureType, symptom: r.symptom, evidence: r.evidence,
+        constraints: r.constraints, attempts: r.attempts,
+        status: r.status, verificationStatus: r.verificationStatus,
+      });
+      const recomputed = computePostmortemHash(r.parentHash, canonical);
+      if (r.hash && r.hash !== recomputed) {
+        contentMismatches++;
+        if (firstBreakAt === null) firstBreakAt = i;
+      }
+      if (i > 0 && r.parentHash && r.parentHash !== prevHash) {
+        linkBreaks++;
+        if (firstBreakAt === null) firstBreakAt = i;
+      }
+      prevHash = r.hash ?? null;
+    }
+    return {
+      ok: linkBreaks === 0 && contentMismatches === 0,
+      total: records.length,
+      linkBreaks,
+      contentMismatches,
+      firstBreakAt,
+    };
+  } catch {
+    return { ok: false, total: 0, linkBreaks: 0, contentMismatches: 0, firstBreakAt: null };
+  }
+}
+
+/** Retroactively compute parentHash + hash for every postmortem that
+ *  predates the chain (null hash) or whose stored hash disagrees with the
+ *  recomputed one. Walks createdAt-asc, threading the parentHash through
+ *  each record so the whole table becomes a single continuous chain.
+ *
+ *  Idempotent: a second call finds no records to backfill (all hashes are
+ *  valid) and returns 0. Safe to run on a populated DB — it only writes
+ *  the two hash columns, never the content columns.
+ *
+ *  Returns the number of records that were (re)hashed. */
+export async function backfillPostmortemChain(): Promise<{
+  backfilled: number;
+  total: number;
+}> {
+  try {
+    const records = await db.postmortem.findMany({
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true, hash: true, parentHash: true,
+        targetRepo: true, branch: true, filePath: true,
+        failureType: true, symptom: true, evidence: true, constraints: true,
+        attempts: true, status: true, verificationStatus: true,
+      },
+    });
+    let backfilled = 0;
+    let prevHash: string | null = null;
+    for (const r of records) {
+      const canonical = canonicalPostmortemContent({
+        targetRepo: r.targetRepo, branch: r.branch, filePath: r.filePath,
+        failureType: r.failureType, symptom: r.symptom, evidence: r.evidence,
+        constraints: r.constraints, attempts: r.attempts,
+        status: r.status, verificationStatus: r.verificationStatus,
+      });
+      const expectedHash = computePostmortemHash(prevHash, canonical);
+      // Only write if the record is missing its hash OR has a stale hash
+      // (different parentHash threading or content drift). This makes the
+      // call idempotent and minimizes DB churn on a healthy chain.
+      if (r.hash !== expectedHash || r.parentHash !== prevHash) {
+        await db.postmortem.update({
+          where: { id: r.id },
+          data: { parentHash: prevHash, hash: expectedHash },
+        });
+        backfilled++;
+      }
+      prevHash = expectedHash;
+    }
+    return { backfilled, total: records.length };
+  } catch {
+    return { backfilled: 0, total: 0 };
+  }
+}
 
 export type PostmortemFailureType =
   | "AST_SYMBOL_DROPPED"
@@ -47,11 +228,21 @@ export interface PostmortemRecord {
   branch: string;
   filePath: string;
   status: "active" | "resolved";
+  /** verified = observed by this system. candidate = seeded from external
+   *  markdown, unconfirmed. rejected = a candidate contradicted by a
+   *  successful commit. Only `verified` postmortems are injected into the
+   *  LLM prompt — see getConstraintsForFile. */
+  verificationStatus: "verified" | "candidate" | "rejected";
   failureType: PostmortemFailureType;
   symptom: string;
   evidence: string;
   constraints: string;
   attempts: number;
+  /** Tamper-evident chain — parentHash of the previous record, hash of this
+   *  one. null on records created before the chain existed or when the DB
+   *  was unreachable at creation time. See verifyPostmortemChain. */
+  parentHash: string | null;
+  hash: string | null;
   lastAttemptAt: string;
   resolvedAt: string | null;
   createdAt: string;
@@ -164,6 +355,16 @@ class PostmortemStore {
     if (!pm) {
       return { hasActivePostmortem: false, constraints: [], promptBlock: "" };
     }
+    // Verification gate: only VERIFIED postmortems are injected. A
+    // candidate (seeded from external markdown) is kept as a watch list
+    // but never shapes the LLM prompt until this system observes the
+    // same failure (which upgrades it to verified). A rejected
+    // candidate (file succeeded without the claimed failure) is also
+    // skipped. This prevents an unverified external claim from steering
+    // the refactor.
+    if (pm.verificationStatus !== "verified") {
+      return { hasActivePostmortem: false, constraints: [], promptBlock: "" };
+    }
     const constraintLines = pm.constraints
       .split("\n")
       .map((l) => l.trim())
@@ -212,8 +413,12 @@ ${pm.constraints}
     symptom: string;
     evidence: string;
     constraints: string;
+    /** verified = observed by this system (default). candidate = seeded
+     *  from external markdown, not yet observed. See model doc. */
+    verificationStatus?: "verified" | "candidate";
   }): Promise<PostmortemRecord> {
     const { repo, branch, filePath, failureType, symptom, evidence, constraints } = params;
+    const verificationStatus = params.verificationStatus ?? "verified";
     let record: PostmortemRecord;
     try {
       const existing = await db.postmortem.findUnique({
@@ -222,54 +427,69 @@ ${pm.constraints}
         },
       });
       if (existing) {
+        // Update in place. A real failure (verified) UPGRADES a candidate
+        // to verified — we just observed the claimed failure ourselves,
+        // so the external claim is now confirmed. Recompute the content
+        // hash with the existing parentHash so the record's content
+        // integrity stays self-consistent. (The chain link from any
+        // LATER record to this one will now be stale — verifyPostmortemChain
+        // reports that as an expected linkBreak, not a content mismatch.)
+        const nextVerification =
+          existing.verificationStatus === "candidate" ? "verified" : verificationStatus;
+        const canonical = canonicalPostmortemContent({
+          targetRepo: repo, branch, filePath, failureType, symptom, evidence, constraints,
+          attempts: existing.attempts + 1, status: "active",
+          verificationStatus: nextVerification,
+        });
+        const newHash = computePostmortemHash(existing.parentHash, canonical);
         const updated = await db.postmortem.update({
           where: { id: existing.id },
           data: {
             status: "active",
-            failureType,
-            symptom,
-            evidence,
-            constraints,
+            failureType, symptom, evidence, constraints,
             attempts: { increment: 1 },
             lastAttemptAt: new Date(),
             resolvedAt: null,
+            verificationStatus: nextVerification,
+            hash: newHash,
             updatedAt: new Date(),
           },
         });
         record = this.mapRecord(updated);
       } else {
+        // Append to the chain: parentHash = latest existing hash, hash =
+        // sha256(parentHash + canonical content). This makes the whole
+        // failure memory a tamper-evident ledger — see verifyPostmortemChain.
+        const parentHash = await getLatestPostmortemHash();
+        const canonical = canonicalPostmortemContent({
+          targetRepo: repo, branch, filePath, failureType, symptom, evidence, constraints,
+          attempts: 1, status: "active", verificationStatus,
+        });
+        const hash = computePostmortemHash(parentHash, canonical);
         const created = await db.postmortem.create({
           data: {
-            targetRepo: repo,
-            branch,
-            filePath,
-            status: "active",
-            failureType,
-            symptom,
-            evidence,
-            constraints,
-            attempts: 1,
-            lastAttemptAt: new Date(),
+            targetRepo: repo, branch, filePath,
+            status: "active", verificationStatus,
+            failureType, symptom, evidence, constraints,
+            attempts: 1, lastAttemptAt: new Date(),
+            parentHash, hash,
           },
         });
         record = this.mapRecord(created);
       }
     } catch (err) {
       // DB unavailable — build an in-memory record and STILL write it to
-      // disk. The previous code returned an in-memory record that nothing
-      // could recall (getActivePostmortem only read from DB). Now the disk
-      // write means the next getActivePostmortem finds it even with a dead DB.
+      // disk. The chain fields are unknown without the DB (we can't read
+      // the latest hash), so they're null — the disk write still preserves
+      // the failure memory; the chain just resumes on the next DB-available
+      // create.
       record = {
         id: `pm_${Date.now()}`,
-        targetRepo: repo,
-        branch,
-        filePath,
-        status: "active",
-        failureType,
-        symptom,
-        evidence,
-        constraints,
+        targetRepo: repo, branch, filePath,
+        status: "active", verificationStatus,
+        failureType, symptom, evidence, constraints,
         attempts: 1,
+        parentHash: null, hash: null,
         lastAttemptAt: new Date().toISOString(),
         resolvedAt: null,
         createdAt: new Date().toISOString(),
@@ -294,7 +514,16 @@ ${pm.constraints}
    * "failed then fixed" instead of staying active forever.
    */
   async markResolved(repo: string, branch: string, filePath: string): Promise<void> {
+    // Two-phase update so a CANDIDATE being resolved is REJECTED (the
+    // external claim was contradicted — the file succeeded without the
+    // claimed failure). A VERIFIED record being resolved stays verified
+    // (the failure was real; it's now fixed — the verification status is
+    // about whether the failure was OBSERVED, not whether it's active).
     try {
+      await db.postmortem.updateMany({
+        where: { targetRepo: repo, branch, filePath, status: "active", verificationStatus: "candidate" },
+        data: { status: "resolved", verificationStatus: "rejected", resolvedAt: new Date(), updatedAt: new Date() },
+      });
       await db.postmortem.updateMany({
         where: { targetRepo: repo, branch, filePath, status: "active" },
         data: { status: "resolved", resolvedAt: new Date(), updatedAt: new Date() },
@@ -373,11 +602,14 @@ ${pm.constraints}
       branch: r.branch,
       filePath: r.filePath,
       status: r.status as "active" | "resolved",
+      verificationStatus: (r.verificationStatus as PostmortemRecord["verificationStatus"]) ?? "verified",
       failureType: r.failureType as PostmortemFailureType,
       symptom: r.symptom,
       evidence: r.evidence,
       constraints: r.constraints,
       attempts: r.attempts,
+      parentHash: r.parentHash,
+      hash: r.hash,
       // Defensive instanceof kept: disk-rehydrated rows pass through here
       // as ISO strings in some paths, and a future schema change to string
       // dates would otherwise break serialization silently.
@@ -631,6 +863,12 @@ export async function seedPostmortemsFromMarkdown(
         symptom: entry.symptom,
         evidence: entry.evidence,
         constraints: entry.constraints,
+        // Seeded from external markdown = CANDIDATE: someone else claimed
+        // this file fails this way, but this system hasn't observed it.
+        // Candidates are NOT injected into the LLM prompt until this
+        // system records the same failure (upgrading to verified) or the
+        // file succeeds (rejecting the claim). See getConstraintsForFile.
+        verificationStatus: "candidate",
       });
       count++;
     } catch {

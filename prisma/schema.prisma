@@ -65,17 +65,52 @@ model MemoryEntry {
 /// One record per (repo, branch, filePath). Active postmortems feed constraints
 /// into the LLM refactorer before mutation. Resolved postmortems are kept for
 /// history but skipped during constraint injection.
+///
+/// ── Tamper-evident chain (concept: Aether_Forge Ω darlekRAG) ──────────
+/// `parentHash` is the `hash` of the previously-created postmortem (ordered
+/// by createdAt). `hash` is sha256(parentHash + canonical(record content)),
+/// recomputed on every write. verifyLineageChain() walks the chain and
+/// reports (a) link breaks — a child's parentHash ≠ its predecessor's
+/// current hash, which happens whenever an older record is UPDATED in
+/// place (informational, expected on repeat failures), and (b) content
+/// mismatches — a record's stored hash ≠ recomputed hash, which means
+/// someone tampered with the row directly in the DB (alarm). The chain
+/// makes the failure memory auditable: you can prove the order records
+/// were created in, and detect direct DB edits, without a separate log.
+///
+/// ── Verification lifecycle (concept: Aether_Forge CANDIDATE→VERIFIED) ─
+/// `verificationStatus` gates whether a postmortem's constraints are
+/// injected into the LLM prompt:
+///   - verified   — recorded from a REAL pipeline failure observed by
+///                  this system. Safe to inject. (recordFailure default.)
+///   - candidate  — seeded from an EXTERNAL markdown file (someone else
+///                  claimed this file fails this way). Kept as a watch
+///                  list; NOT injected until this system observes the
+///                  same failure (which upgrades it to verified) or the
+///                  file succeeds (which rejects it).
+///   - rejected   — a candidate that was contradicted by reality (the
+///                  file was successfully committed without the claimed
+///                  failure occurring). Kept for history; not injected.
+/// getConstraintsForFile only injects active + verified postmortems.
 model Postmortem {
   id           String   @id @default(cuid())
   targetRepo   String
   branch       String
   filePath     String
   status       String   // active | resolved
+  // Verification lifecycle — gates LLM-prompt injection. See model doc.
+  verificationStatus String @default("verified") // verified | candidate | rejected
   failureType  String   // AST_SYMBOL_DROPPED | AST_STRUCTURAL_DRIFT | REVIEW_REJECTED | SANITIZER_REDCTION | HEADER_STRIPPED | COMPILE_ERROR | OTHER
   symptom      String   // human-readable one-line summary
   evidence     String   // machine-copied facts (AST violations, dropped symbols, etc.)
   constraints  String   // imperative instructions the LLM must follow
   attempts     Int      @default(1)  // how many times this file has failed
+  // Tamper-evident chain. parentHash = hash of the previous postmortem
+  // (by createdAt) at THIS record's creation time. hash = sha256 over
+  // (parentHash + canonical content), recomputed on every write. See
+  // model doc for the link-break vs content-mismatch distinction.
+  parentHash   String?
+  hash         String?
   lastAttemptAt DateTime @default(now())
   resolvedAt   DateTime?
   createdAt    DateTime @default(now())

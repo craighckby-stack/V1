@@ -59,27 +59,36 @@ interface DiscoveredRecord {
 
 /** Shape written to disk. Stable, hand-readable, git-diff-friendly.
  *  Matches PostmortemRecord but with ISO timestamp strings (no Date
- *  objects in JSON) and no `id` field (the path IS the id). */
+ *  objects in JSON) and no `id` field (the path IS the id).
+ *
+ *  Schema 2 (added 2026-10-29): adds verificationStatus, parentHash, hash
+ *  for the tamper-evident chain + CANDIDATE→VERIFIED lifecycle. Schema-1
+ *  files are still readable (the new fields default to verified/null),
+ *  so a repo with old on-disk postmortems doesn't need a migration. */
 interface PostmortemFile {
   targetRepo: string;
   branch: string;
   filePath: string;
   status: "active" | "resolved";
+  verificationStatus?: "verified" | "candidate" | "rejected"; // schema 2+; defaults to "verified" for schema-1 files
   failureType: PostmortemFailureType;
   symptom: string;
   evidence: string;
   constraints: string;
   attempts: number;
+  parentHash?: string | null; // schema 2+; null for schema-1 files
+  hash?: string | null;         // schema 2+; null for schema-1 files
   lastAttemptAt: string; // ISO
   resolvedAt: string | null; // ISO or null
   createdAt: string; // ISO
   updatedAt: string; // ISO
   /** Schema version — bump if the shape ever changes, so old files can be
    *  migrated or rejected cleanly instead of misparsed. */
-  schema: 1;
+  schema: 1 | 2;
 }
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2 as const;
+const COMPATIBLE_SCHEMAS = new Set<number>([1, 2]);
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -91,11 +100,14 @@ function toFileShape(rec: PostmortemRecord): PostmortemFile {
     branch: rec.branch,
     filePath: rec.filePath,
     status: rec.status,
+    verificationStatus: rec.verificationStatus,
     failureType: rec.failureType,
     symptom: rec.symptom,
     evidence: rec.evidence,
     constraints: rec.constraints,
     attempts: rec.attempts,
+    parentHash: rec.parentHash,
+    hash: rec.hash,
     lastAttemptAt: rec.lastAttemptAt,
     resolvedAt: rec.resolvedAt,
     createdAt: rec.createdAt,
@@ -113,11 +125,18 @@ function fromFileShape(f: PostmortemFile): PostmortemRecord {
     branch: f.branch,
     filePath: f.filePath,
     status: f.status,
+    // Schema-1 files predate the verification lifecycle — treat them as
+    // verified (they were all recorded from real observed failures).
+    verificationStatus: f.verificationStatus ?? "verified",
     failureType: f.failureType,
     symptom: f.symptom,
     evidence: f.evidence,
     constraints: f.constraints,
     attempts: f.attempts,
+    // Schema-1 files predate the chain — null hashes are honest (the
+    // chain just resumes from the next schema-2 record).
+    parentHash: f.parentHash ?? null,
+    hash: f.hash ?? null,
     lastAttemptAt: f.lastAttemptAt,
     resolvedAt: f.resolvedAt,
     createdAt: f.createdAt,
@@ -152,7 +171,7 @@ export function readPostmortemFromDisk(
   try {
     const raw = readFileSync(absPath, "utf-8");
     const parsed = JSON.parse(raw) as PostmortemFile;
-    if (parsed.schema !== SCHEMA_VERSION) {
+    if (!COMPATIBLE_SCHEMAS.has(parsed.schema)) {
       // Unknown schema — ignore rather than misparse. A future migration
       // path can read + upgrade; for now, the SQLite cache still serves
       // and the next recordFailure will overwrite with the current shape.
@@ -172,7 +191,12 @@ export function readPostmortemFromDisk(
 /** Mark an on-disk postmortem as resolved (status + resolvedAt timestamp).
  *  Does NOT delete the file — resolved records stay in git history as
  *  "this file failed, then was fixed" audit trail. getActivePostmortem
- *  skips resolved records; listActive can optionally include them. */
+ *  skips resolved records; listActive can optionally include them.
+ *
+ *  Also flips a CANDIDATE to REJECTED on resolve: the external claim was
+ *  contradicted by the file succeeding without the claimed failure
+ *  occurring. (A VERIFIED record stays verified — the failure was real,
+ *  it's now fixed.) Mirrors the DB-side markResolved two-phase update. */
 export function resolvePostmortemOnDisk(
   repo: string,
   branch: string,
@@ -182,6 +206,9 @@ export function resolvePostmortemOnDisk(
   if (!existing) return; // nothing to resolve
   if (existing.status === "resolved") return;
   existing.status = "resolved";
+  if (existing.verificationStatus === "candidate") {
+    existing.verificationStatus = "rejected";
+  }
   existing.resolvedAt = nowIso();
   existing.updatedAt = nowIso();
   writePostmortemToDisk(existing);
@@ -232,7 +259,7 @@ function walkAndCollect(dir: string, branch: string, repoSlug: string, out: Post
       try {
         const raw = readFileSync(fullPath, "utf-8");
         const parsed = JSON.parse(raw) as PostmortemFile;
-        if (parsed.schema !== SCHEMA_VERSION) continue;
+        if (!COMPATIBLE_SCHEMAS.has(parsed.schema)) continue;
         // Reconstruct filePath from the path under postmortems/<repo>/<branch>/
         const rel = relative(join(POSTMORTEM_DIR, repoSlug, branch), fullPath)
           .replace(/\.json$/, ".ts") // default ext — see relativePathToPostmortemFile
