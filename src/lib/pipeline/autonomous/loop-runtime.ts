@@ -507,6 +507,16 @@ class AutonomousLoopRuntime {
     // The cycle itself already catches its own errors, but a defensive
     // try/catch around the whole loop body guarantees a future refactor
     // can't accidentally make one uncaught throw kill the loop forever.
+    //
+    // DYNAMIC COOLDOWN: the base cooldown is 1.5s, but when the LLM is
+    // rate-limited (429 gate active), the cooldown extends to avoid
+    // hammering the API. Without this, the loop starts a new cycle every
+    // 1.5s even while the LLM gate is on a 150s cooldown — each cycle
+    // immediately hits the gate, returns "deferred", and the loop tries
+    // again 1.5s later. That saturates the event loop (every cycle does
+    // a GitHub tree fetch + 3 file reads + gate check before deferring)
+    // and the HTTP server stops responding to requests. With the backoff,
+    // the loop waits for the gate to clear before starting the next cycle.
     while (
       this.continuousLoopRunning &&
       this.config.enabled &&
@@ -539,11 +549,31 @@ class AutonomousLoopRuntime {
           "error"
         );
       }
-      // Brief cooldown between continuous cycles. 1.5s keeps the loop
-      // responsive (a cycle takes ~10-60s anyway, so the cooldown is a
-      // rounding error) without burning the LLM quota on back-to-back
-      // cycles when there's nothing to do.
-      await new Promise((r) => setTimeout(r, 1500));
+      // Dynamic cooldown: check the LLM rate-limit gate. If it's active,
+      // wait for it to clear (poll every 5s) instead of hammering every
+      // 1.5s. This is what prevents the event-loop saturation that
+      // killed the HTTP server when the LLM was rate-limited.
+      let cooldownMs = 1500;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { llmIsCoolingDown, llmCooldownMs } = require("../llm/agent-llm") as {
+          llmIsCoolingDown?: () => boolean;
+          llmCooldownMs?: () => number;
+        };
+        if (typeof llmIsCoolingDown === "function" && llmIsCoolingDown()) {
+          const remaining = typeof llmCooldownMs === "function" ? llmCooldownMs() : 30000;
+          // Wait until the gate clears, polling every 5s. Cap at 5min so
+          // a stuck gate doesn't pause the loop forever.
+          cooldownMs = Math.min(Math.max(remaining + 2000, 5000), 300000);
+          this.addLog(
+            `LLM rate-limit gate active — backing off ${(cooldownMs / 1000).toFixed(0)}s before next cycle (HTTP server freed up).`,
+            "warn"
+          );
+        }
+      } catch {
+        /* agent-llm not yet loaded — use base cooldown */
+      }
+      await new Promise((r) => setTimeout(r, cooldownMs));
     }
     this.continuousLoopRunning = false;
   }
