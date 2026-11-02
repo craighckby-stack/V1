@@ -341,12 +341,11 @@ function executeUnusedImport(task: TaskRow, code: string): TaskExecutionResult {
 function removeImportLine(code: string, decl: ts.ImportDeclaration, sf: ts.SourceFile): string {
   const start = decl.getStart(sf);
   const end = decl.getEnd();
-  // Extend to include the trailing newline if present
-  let newCode = code.slice(0, start) + code.slice(end);
-  // Remove the now-orphaned newline
-  if (newCode[start] === "\n") newCode = newCode.slice(0, start) + newCode.slice(start + 1);
-  else if (newCode[start - 1] === "\n" && newCode[start] !== "\n") {
-    // line started at start, keep the leading newline handling clean
+  // Cut the declaration, then consume the now-orphaned newline (if the
+  // line had one) so no blank line is left behind.
+  const newCode = code.slice(0, start) + code.slice(end);
+  if (newCode[start] === "\n") {
+    return newCode.slice(0, start) + newCode.slice(start + 1);
   }
   return newCode;
 }

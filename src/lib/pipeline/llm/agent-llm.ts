@@ -299,8 +299,9 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
 /**
  * Strip an LLM response down to just the code block. Handles ```lang\n...\n```
  * fences as well as raw code. If the model adds commentary before/after the
- * code, this isolates the largest fenced block. If there are no fences,
- * returns the trimmed original.
+ * code, this isolates the FIRST fenced block (the code the model leads with
+ * is the answer; later fences are usually illustrative examples or repeats).
+ * If there are no fences, returns the trimmed original.
  */
 export function extractCodeBlock(raw: string): string {
   if (!raw) return "";

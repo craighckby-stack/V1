@@ -133,7 +133,9 @@ export function performArchitecturalVote(fileName: string, codeSnippet: string):
     throw new Error("Invalid input: codeSnippet must be a non-empty string");
   }
   
-  // Cache source lookups to avoid repeated array searches
+  // Resolve category anchors once per call (6-element array — trivial,
+  // but keeps the intent explicit). A missing category is a config
+  // integrity error and is thrown, never silently substituted.
   const securitySource = SIPHON_SOURCES.find(source => source.category === "verification");
   const agentSource = SIPHON_SOURCES.find(source => source.category === "runtime");
   const defaultSource = SIPHON_SOURCES.find(source => source.category === "orchestration");

@@ -18,6 +18,7 @@
  */
 
 import { db } from "@/lib/db";
+import type { Postmortem as PostmortemRow } from "@prisma/client";
 import type { AstDiffResult } from "../core/ast-diff-gate";
 import type { SecuritySanitizerResult } from "../emg/sanitizer";
 import type { DebateVerdict } from "../emg/debate";
@@ -361,7 +362,11 @@ ${pm.constraints}
     return result.count > 0;
   }
 
-  private mapRecord(r: any): PostmortemRecord {
+  // Typed against the generated Prisma row — was `any`, which silently
+  // opted this mapping out of every type check the rest of the codebase
+  // enjoys (a renamed column would have surfaced as undefined at runtime
+  // instead of a compile error here).
+  private mapRecord(r: PostmortemRow): PostmortemRecord {
     return {
       id: r.id,
       targetRepo: r.targetRepo,
@@ -373,6 +378,9 @@ ${pm.constraints}
       evidence: r.evidence,
       constraints: r.constraints,
       attempts: r.attempts,
+      // Defensive instanceof kept: disk-rehydrated rows pass through here
+      // as ISO strings in some paths, and a future schema change to string
+      // dates would otherwise break serialization silently.
       lastAttemptAt: r.lastAttemptAt instanceof Date ? r.lastAttemptAt.toISOString() : r.lastAttemptAt,
       resolvedAt: r.resolvedAt instanceof Date ? r.resolvedAt.toISOString() : r.resolvedAt,
       createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,

@@ -42,19 +42,23 @@ export class BinaryShield {
     const iv = randomBytes(IV_LENGTH);
     const cipher = createCipheriv(ALGORITHM, key, iv);
     let encryptedData: Buffer;
-    
+    let authTag: Buffer;
+
     try {
       encryptedData = cipher.update(plainText, "utf8");
       const finalData = cipher.final();
       encryptedData = Buffer.concat([encryptedData, finalData]);
+      // Read the auth tag while the cipher is still alive — the old
+      // code read it AFTER the finally-block ran cipher.destroy(),
+      // which reads state from a destroyed object. It happened to work
+      // in Node, but it was luck, not contract.
+      authTag = cipher.getAuthTag();
     } catch (error) {
-      cipher.destroy();
       throw new Error(`Encryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       cipher.destroy();
     }
-    
-    const authTag = cipher.getAuthTag();
+
     const combinedData = Buffer.concat([encryptedData, authTag]);
     
     return {
@@ -118,7 +122,6 @@ export class BinaryShield {
       decryptedData = Buffer.concat([decryptedData, finalData]);
       return decryptedData.toString("utf8");
     } catch (error) {
-      decipher.destroy();
       throw new Error(`Decryption failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       decipher.destroy();

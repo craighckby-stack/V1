@@ -203,6 +203,7 @@ class AutonomousLoopRuntime {
     const oldMode = this.config.mode;
     const oldRepo = this.config.targetRepo;
     const oldBranch = this.config.evolutionBranch;
+    const oldToken = this.config.githubToken;
     this.config = { ...this.config, ...patch };
     // If the target repo or evolution branch changed, clear the committed-
     // paths cache — those commits don't apply to the new target.
@@ -216,12 +217,13 @@ class AutonomousLoopRuntime {
         "info"
       );
     }
-    // If token was passed as "[REDACTED]" keep previous one (UI never re-sends real value).
-    if (patch.githubToken === "[REDACTED]") {
-      // Keep the previously-stored token; UI never overwrites with real value during edits.
-      // Note: when user submits a *new* real token, that string won't equal "[REDACTED]" so it persists.
-      // Re-load previously-stored token from closure (we already overwrote it above).
-      // To avoid losing it, only overwrite when caller passed a real token. We handle this in API route.
+    // If token was passed as "[REDACTED]" keep the previous one (the UI
+    // re-sends the placeholder when the user didn't edit the field). The
+    // API route normally strips it before calling here; this guard is
+    // defense-in-depth so a future caller that bypasses the route can't
+    // silently destroy the stored token with the placeholder.
+    if (this.config.githubToken && patch.githubToken === "[REDACTED]") {
+      this.config.githubToken = oldToken;
     }
     this.addLog(
       `Configuration updated: mode=${this.config.mode}, interval=${this.config.intervalMinutes}m, repo=${this.config.targetRepo}, autoPush=${this.config.autoPush}`,
@@ -397,7 +399,12 @@ class AutonomousLoopRuntime {
           "info"
         );
         cycleStatus = "halted";
-        this.finalizeCycle(cycleId, cycleStatus, null);
+        // NOTE: no finalizeCycle() call here — the try/finally below is
+        // the SINGLE finalize point. The old code called finalizeCycle()
+        // explicitly on this path, so the finally block ran it a second
+        // time: the same cycle was double-inserted into recentCycles
+        // (the second DB insert failed on the duplicate id, but the
+        // in-memory list kept both copies).
         return this.currentCycle!;
       }
       this.stats.lastTreeFingerprint = fp;

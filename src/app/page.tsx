@@ -217,6 +217,7 @@ export default function Home() {
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const cfgTokenRef = useRef<HTMLInputElement>(null);
+  const cfgRepoRef = useRef<HTMLInputElement>(null);
   // Dedup set for server logs — once a log (timestamp|message) is in the
   // unified stream, it's never re-added even if it reappears in a later poll
   // (the server sends a fixed-size log buffer on every poll).
@@ -466,10 +467,13 @@ export default function Home() {
     } catch {
       /* best-effort */
     }
-    // Focus the token input after the modal renders (or the repo if already connected)
+    // Focus the most useful field after the modal renders: token when
+    // configuring fresh, repo when reconfiguring an existing connection
+    // (the old code had an empty branch here — a comment promising focus
+    // that never happened).
     setTimeout(() => {
       if (cfgTarget?.configured) {
-        // already connected — focus the repo field for reconfiguration
+        cfgRepoRef.current?.focus();
       } else {
         cfgTokenRef.current?.focus();
       }
@@ -1652,6 +1656,7 @@ export default function Home() {
                 Repository (owner/name)
               </div>
               <input
+                ref={cfgRepoRef}
                 type="text"
                 value={cfgRepo}
                 onChange={(e) => setCfgRepo(e.target.value)}

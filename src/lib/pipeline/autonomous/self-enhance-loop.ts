@@ -1403,7 +1403,14 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
       // will skip); the UI shows "PASS COMPLETE — review & unlock" so
       // the user knows the system has converged and it's their move.
       const eligibleCount = files.length;
-      const lockedCount = Array.from(this.saturation.values()).filter((s) => s.lockedOut).length;
+      // Honest counting (fix): locked-among-THIS-scan, not the whole-map
+      // count. The saturation map remembers files from earlier passes
+      // (older TARGET_FILES allowlists, since-removed display files) —
+      // stale entries could fire "PASS COMPLETE" while current files
+      // are still eligible (overcount bug).
+      const lockedCount = files.filter(
+        (f) => this.saturation.get(relative(PROJECT_ROOT, f))?.lockedOut
+      ).length;
       if (eligibleCount > 0 && lockedCount >= eligibleCount) {
         this.log(
           `🎯 PASS COMPLETE — all ${eligibleCount} file(s) locked out. Review & unlock in the UI to start a new pass.`,
@@ -1436,7 +1443,10 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
 
       this.stats.cyclesCompleted++;
       this.currentFile = null;
-      const lockedNow = Array.from(this.saturation.values()).filter((s) => s.lockedOut).length;
+      // Same honest counting: locked-among-scanned, not whole-map.
+      const lockedNow = files.filter(
+        (f) => this.saturation.get(relative(PROJECT_ROOT, f))?.lockedOut
+      ).length;
       this.log(
         `Cycle complete: ${enhanced}/${files.length} enhanced${lockedSkipped > 0 ? `, ${lockedSkipped} locked` : ""}${lockedNow >= files.length && files.length > 0 ? " — PASS COMPLETE" : ""}`,
         "success"

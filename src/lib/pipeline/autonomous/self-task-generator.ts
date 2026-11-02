@@ -218,10 +218,13 @@ function analyzeFile(absPath: string): Finding[] {
       if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
         bindings.push({ name: clause.namedBindings.name.text, localName: clause.namedBindings.name.text });
       }
+      // Compute the "rest of file" ONCE per import declaration — the old
+      // loop re-split the entire file text for every binding (O(bindings ×
+      // file length) per import, quadratic on import-heavy modules).
+      const fileLines = text.split("\n");
+      const restOfFile = fileLines.filter((_, i) => i !== importLineNo - 1).join("\n");
       for (const b of bindings) {
         // Check if localName appears as an identifier outside this import line
-        const fileLines = text.split("\n");
-        const restOfFile = fileLines.filter((_, i) => i !== importLineNo - 1).join("\n");
         const re = new RegExp(`\\b${b.localName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
         if ((restOfFile.match(re) ?? []).length === 0) {
           push("unused-import", node.getStart());

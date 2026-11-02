@@ -12,12 +12,13 @@
  * This is Direction 1 from DIRECTIONS.md — the user IS the feedback signal.
  */
 
-import { readFileSync, writeFileSync, readdirSync, statSync } from "fs";
+import { readFileSync, writeFileSync, readdirSync, statSync, rmSync } from "fs";
 import { execSync } from "child_process";
 import { join, relative } from "path";
 import { llmComplete, extractCodeBlock } from "../llm/agent-llm";
 import { pushCurrentState } from "./push-target";
 import { detectTruncation } from "./code-analysis";
+import { typecheckRefactor } from "./in-memory-typecheck";
 
 const PROJECT_ROOT = "/home/z/my-project";
 
@@ -250,6 +251,13 @@ export async function applyTaskPlan(plan: ChatTaskPlan): Promise<ChatTaskApplyRe
   }
 
   const results: ChatTaskApplyResult["results"] = [];
+  // Per-file rollback journal: what this task wrote, and how to undo it.
+  // The old failure path ran `git checkout -- .` — a blunt instrument that
+  // reverted EVERYTHING dirty in the worktree, including changes made by
+  // other processes (a concurrent enhancement cycle, operator edits, an
+  // in-flight ratchet pin). Rollback is now scoped to exactly the files this
+  // task touched, and only those.
+  const rollback: Array<{ fullPath: string; original: string | null }> = [];
 
   for (const file of plan.files) {
     if (!file.path || file.path.trim().length === 0) {
@@ -353,9 +361,32 @@ Output the COMPLETE new content for this file that achieves the goal.`;
       continue;
     }
 
-    // Write the file
+    // Write the file — but ONLY after the in-memory typecheck passes.
+    // This is the same "broken code never touches disk" contract the rest
+    // of the system enforces (verify-refactor.ts, task-executor.ts): the
+    // old flow wrote the LLM output to the LIVE file first and typechecked
+    // the whole project afterwards, so Turbopack's watcher saw broken code
+    // during the ~30s window and a final tsc failure nuked unrelated dirty
+    // state with `git checkout -- .`.
+    const check = typecheckRefactor(fullPath, newCode);
+    if (!check.ok) {
+      results.push({
+        path: file.path,
+        applied: false,
+        reason: `Rejected (in-memory typecheck failed: ${check.errors.slice(0, 2).join(" | ").slice(0, 180)})`,
+        diffBytes: 0,
+      });
+      continue;
+    }
+
     try {
       writeFileSync(fullPath, newCode, "utf-8");
+      rollback.push({
+        fullPath,
+        // null = the file did not exist before this task (created) —
+        // rollback for it is deletion, not content restore.
+        original: file.action === "modify" ? originalCode : null,
+      });
       const diffBytes = Math.abs(newCode.length - originalCode.length);
       results.push({
         path: file.path,
@@ -373,31 +404,36 @@ Output the COMPLETE new content for this file that achieves the goal.`;
     }
   }
 
-  // Verify the project still compiles
+  // Belt-and-braces final compile. With the per-file in-memory gate above this
+  // should never fail, but if it does, the rollback is SCOPED: only the files
+  // this task wrote are restored (content for modified files, deletion for
+  // created files). Never `git checkout -- .` — that reverts unrelated dirty
+  // state in the worktree.
   let compiled = false;
   try {
-    execSync("npx tsc --noEmit 2>&1", {
+    execSync("bunx tsc --noEmit 2>&1", {
       cwd: PROJECT_ROOT,
-      timeout: 30000,
+      timeout: 120000,
       stdio: "pipe",
     });
     compiled = true;
-  } catch (err) {
+  } catch {
     compiled = false;
   }
 
   if (!compiled) {
-    // Revert all changes
-    try {
-      execSync("git checkout -- .", { 
-        cwd: PROJECT_ROOT, 
-        timeout: 5000, 
-        stdio: "pipe",
-        killSignal: "SIGTERM"
-      });
-    } catch (err) {
-      // ignore but log for debugging
-      console.error("Error reverting changes:", (err as Error).message);
+    for (const entry of rollback) {
+      try {
+        if (entry.original === null) {
+          rmSync(entry.fullPath, { force: true });
+        } else {
+          writeFileSync(entry.fullPath, entry.original, "utf-8");
+        }
+      } catch (err) {
+        // Log, don't throw: we must still report the failure honestly,
+        // and a partial rollback is better than aborting mid-rollback.
+        console.error("Error rolling back", entry.fullPath, (err as Error).message);
+      }
     }
     return {
       ok: false,

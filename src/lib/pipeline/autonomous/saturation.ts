@@ -74,18 +74,29 @@ export type GrowthClassification = "growth" | "no-growth" | "neutral";
 export function classifyGrowth(reason: string): GrowthClassification {
   // Enhancement — growth (resets counter)
   if (reason.startsWith("Enhanced")) return "growth";
-  // Quota / transient — neutral (don't punish the file for API limits)
+  // Quota / transient — neutral (don't punish the file for API limits).
+  // NOTE: this deliberately includes "Deferred (debate tribunal
+  // unavailable...)" — the fail-closed defer design treats an unavailable
+  // tribunal as a transient condition: the file is retried when the
+  // tribunal can actually run, so it is NOT a verdict on the file. (The
+  // old line classifying it as no-growth was dead code — unreachable
+  // under this prefix — and contradicted the defer design.)
   if (reason.startsWith("Deferred")) return "neutral";
   if (reason.startsWith("LLM unavailable")) return "neutral";
   if (reason.startsWith("Stopped")) return "neutral";
-  if (reason.startsWith("Skipped (file too large")) return "neutral";
   // LLM looked and found nothing, or proposed trivial/bad change — no-growth
   if (reason === "No issues found") return "no-growth";
   if (reason.startsWith("Skipped (only cosmetic")) return "no-growth";
   if (reason.startsWith("LLM returned no code")) return "no-growth";
   if (reason.startsWith("Rejected")) return "no-growth";
-  if (reason.startsWith("Deferred (debate")) return "no-growth";
   if (reason.startsWith("Error")) return "no-growth";
+  // Deterministic skip — same outcome every cycle by construction.
+  // Classified as no-growth (not neutral) so a permanently-too-large file
+  // actually locks out after SATURATION_THRESHOLD cycles; otherwise it
+  // never locks, the loop re-tests it forever, and PASS COMPLETE can never
+  // fire while such a file is in TARGET_FILES. A human shrinking the file
+  // later is covered by unlock (or restart, the natural new-pass boundary).
+  if (reason.startsWith("Skipped (file too large")) return "no-growth";
   // Unknown — be conservative (don't count either way)
   return "neutral";
 }

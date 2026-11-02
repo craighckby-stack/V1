@@ -43,6 +43,7 @@
     "mini-services",
     "tests",
     "download",
+    "proxy",
     ".next/cache"
   ]
 }

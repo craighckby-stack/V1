@@ -380,7 +380,12 @@ export async function setPushTarget(opts: {
   // was written, losing the just-validated token. Now: the durable file is
   // written before anything can throw, and the DB upsert is best-effort (the
   // file is the source of truth; reads fall back to it when the DB is empty).
-  const prevState = readStateFile();
+  //
+  // The counter-preservation read below checks tier-2 AND tier-3: after a
+  // sandbox restart the tier-2 file is gone and only .git/info/ survives —
+  // reading tier-2 alone would reset the loop-NN counter to 0 mid-run and
+  // collide with the existing loop-NN branch on the remote.
+  const prevState = readStateFile() ?? readPersistentStateFile();
   try {
     writeStateFile({
       repo,
@@ -693,8 +698,11 @@ export async function getLastBranchNumber(): Promise<number> {
     /* DB unavailable — fall through */
   }
   if (row) return row.lastBranchNumber ?? 0;
-  // DB wiped — the durable state file carries the counter.
-  return readStateFile()?.lastBranchNumber ?? 0;
+  // DB wiped — the durable state files carry the counter. Tier-2 first,
+  // then tier-3: after a sandbox restart tier-2 is wiped and .git/info/ is
+  // the ONLY surviving copy — reading tier-2 alone returned 0, so the next
+  // mutation pushed to loop-01 again and collided with the existing branch.
+  return (readStateFile() ?? readPersistentStateFile())?.lastBranchNumber ?? 0;
 }
 
 /**
@@ -710,8 +718,11 @@ export async function setLastBranchNumber(next: number): Promise<void> {
     where: { id: SINGLETON_ID },
     data: { lastBranchNumber: next },
   }).catch(() => { /* non-fatal — counter is best-effort audit */ });
-  // Write-through to the durable state file (survives DB wipes).
-  const state = readStateFile();
+  // Write-through to the durable state files (survives DB wipes). Tier-2
+  // first, then tier-3: after a restart only .git/info/ survives — without
+  // the fallback the write-through silently skipped and the counter in the
+  // file stayed stale. writeStateFile() rewrites BOTH tiers atomically.
+  const state = readStateFile() ?? readPersistentStateFile();
   if (state) {
     try {
       writeStateFile({ ...state, lastBranchNumber: next, savedAt: new Date().toISOString() });
