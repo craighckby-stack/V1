@@ -21,6 +21,7 @@ import { unifiedPipelineRunnerInstance } from "../core/unified-pipeline";
 import { db } from "@/lib/db";
 import { loopEventBus, LoopEvent } from "./loop-event-bus";
 import { postmortemStore, generatePostmortemFromReport } from "../postmortem/postmortem-store";
+import { autoProphecyAfterCycle } from "../oracle/oracle-auto";
 
 export type LoopMode = "scheduled" | "watch" | "continuous" | "manual";
 export type LoopStatus = "idle" | "running" | "paused" | "error";
@@ -1069,6 +1070,25 @@ class AutonomousLoopRuntime {
       proofHash,
     });
     if (this.recentCycles.length > 25) this.recentCycles.length = 25;
+
+    // Oracle background integration: after every completed/halted cycle,
+    // give the system the chance to predict its OWN next turn. This is what
+    // makes the Oracle a participant in the loop's rhythm instead of a
+    // manual toy — every cycle ends with "what happens next?" committed to
+    // a falsifiable answer BEFORE the next cycle runs. autoProphecyAfterCycle
+    // is fire-and-forget, LLM-gate-aware, bounded (≤5 pending prophecies),
+    // and never throws — it can't take down the loop. (Previously this was
+    // wired into self-enhance-loop.ts but NOT loop-runtime.ts — the
+    // autonomous loop ran cycles without ever generating prophecies.)
+    if (status === "completed" || status === "halted") {
+      try {
+        autoProphecyAfterCycle();
+      } catch {
+        // Defensive: autoProphecyAfterCycle already swallows internally,
+        // but a defensive try here guarantees a future refactor can't
+        // accidentally make the oracle take down the autonomous loop.
+      }
+    }
   }
 
   private computeTreeFingerprint(
