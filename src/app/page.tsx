@@ -144,7 +144,7 @@ const DIM_COLOR = "#777777";
 const USER_INPUT_COLOR = "#ffffff";
 const ERROR_COLOR = "#ff4444";
 const WARN_COLOR = "#ffaa33"; // LLM cooldown countdown + other warn-state chips
-const OK_COLOR = "#44dd88"; // hot-swap indicator when swaps have happened
+// (the hot-swap chip's green lives in the .lswap[data-hot] CSS rule below)
 
 // Shared styles for the config panel (kept DOS-themed to match the terminal)
 const cfgInputStyle = {
@@ -167,6 +167,47 @@ const cfgBtnStyle = {
   padding: "4px 10px",
   cursor: "pointer",
 };
+
+/** Header chrome button — DOS-styled square key. Shared CSS lives in the
+ *  <style> block inside the header (.lbtn family). Dialog openers get
+ *  aria-haspopup/aria-expanded plus an inverted "pressed key" look while
+ *  their panel is open, so the header doubles as a status strip: you can
+ *  always see which panels are on screen. */
+function HeaderBtn(props: {
+  label: string;
+  onClick: () => void;
+  title?: string;
+  /** The button opens a dialog → expose dialog semantics. */
+  dialog?: boolean;
+  /** The dialog is currently open → render the inverted pressed look. */
+  active?: boolean;
+  /** Utility commands (CLEAR) get the dimmest tier of the hierarchy. */
+  ghost?: boolean;
+}) {
+  const { label, onClick, title, dialog, active, ghost } = props;
+  const cls = [
+    "lbtn",
+    ghost ? "lbtn--ghost" : "",
+    active ? "lbtn--on" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <button
+      type="button"
+      className={cls}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      title={title}
+      aria-label={title ?? label}
+      {...(dialog ? { "aria-haspopup": "dialog" as const, "aria-expanded": !!active } : {})}
+    >
+      [{label}]
+    </button>
+  );
+}
 
 export default function Home() {
   const [status, setStatus] = useState<SelfEnhanceStatus | null>(null);
@@ -1362,6 +1403,8 @@ export default function Home() {
           alignItems: "center",
           justifyContent: "space-between",
           gap: "8px",
+          rowGap: "6px",
+          flexWrap: "wrap",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
@@ -1420,8 +1463,125 @@ export default function Home() {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.35; }
           }
+
+          /* ── Header button system (.lbtn) ──────────────────────────────
+             DOS chrome: square keys, 1px border, invert on press.
+             Hierarchy: primary (START) brightest · danger (STOP) red alarm
+             · ghost (CLEAR) dimmest · everything else standard white.
+             Dialog openers (.lbtn--on) invert while their panel is open,
+             so the header doubles as a which-panel-is-open strip. */
+          .lbtn-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            row-gap: 6px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            min-width: 0;
+          }
+          .lbtn {
+            appearance: none;
+            background: #000;
+            border: 1px solid #777;
+            color: #e0e0e0;
+            font-family: inherit;
+            font-size: 12px;
+            letter-spacing: 0.5px;
+            line-height: 1;
+            padding: 6px 10px;
+            min-height: 26px;
+            cursor: pointer;
+            white-space: nowrap;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            transition:
+              background 120ms ease,
+              border-color 120ms ease,
+              color 120ms ease,
+              box-shadow 120ms ease;
+          }
+          .lbtn:hover {
+            background: rgba(224, 224, 224, 0.08);
+            border-color: #e0e0e0;
+            color: #ffffff;
+          }
+          .lbtn:active {
+            background: rgba(224, 224, 224, 0.18);
+            transform: translateY(1px);
+          }
+          .lbtn:focus-visible {
+            outline: 1px dashed #e0e0e0;
+            outline-offset: 2px;
+          }
+          .lbtn:disabled {
+            opacity: 0.45;
+            cursor: wait;
+            transform: none;
+          }
+          /* Primary = START while idle — brightest idle chrome. */
+          .lbtn--primary {
+            border-color: #e0e0e0;
+            color: #ffffff;
+            box-shadow: 0 0 8px rgba(224, 224, 224, 0.18);
+          }
+          .lbtn--primary:hover {
+            box-shadow: 0 0 10px rgba(224, 224, 224, 0.32);
+          }
+          /* Danger = STOP while running — the single red alarm accent. */
+          .lbtn--danger {
+            border-color: rgba(255, 68, 68, 0.6);
+            color: #ff4444;
+          }
+          .lbtn--danger:hover {
+            background: rgba(255, 68, 68, 0.12);
+            border-color: #ff4444;
+            color: #ff6666;
+            box-shadow: 0 0 8px rgba(255, 68, 68, 0.3);
+          }
+          .lbtn--danger:active {
+            background: rgba(255, 68, 68, 0.22);
+          }
+          /* Ghost = utility (CLEAR) — dimmest tier until hovered. */
+          .lbtn--ghost {
+            border-color: #555;
+            color: #b8b8b8;
+          }
+          /* Open dialog → inverted pressed key. */
+          .lbtn--on,
+          .lbtn--on:hover {
+            background: #e0e0e0;
+            border-color: #e0e0e0;
+            color: #000;
+          }
+          .lbtn--on:active {
+            background: #cccccc;
+          }
+          /* Hot-swap counter chip — same chrome height as the keys. */
+          .lswap {
+            color: #777;
+            font-size: 12px;
+            line-height: 1;
+            padding: 6px 8px;
+            border: 1px solid #555;
+            white-space: nowrap;
+            user-select: none;
+          }
+          .lswap[data-hot] {
+            color: #44dd88;
+            border-color: rgba(68, 221, 136, 0.5);
+          }
+          @media (max-width: 640px) {
+            .lbtn-row { gap: 4px; }
+            .lbtn { font-size: 11px; padding: 5px 8px; }
+            .lswap { font-size: 11px; padding: 5px 6px; }
+          }
+          /* Coarse pointers (phones/tablets): 44px touch targets. */
+          @media (pointer: coarse) {
+            .lbtn { min-height: 44px; padding: 10px 16px; }
+          }
         `}</style>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+        <div className="lbtn-row">
           {/* Hot-swap indicator — shows the running pipeline fingerprint +
               swap count. Pulled from /api/hot-swap/status. When the swap
               count ticks up, the system just replaced its own running
@@ -1429,14 +1589,8 @@ export default function Home() {
           {hotSwapStatus && (
             <span
               title={`Hot-swap: ${hotSwapStatus.swapCount} swap(s) since boot. Running pipeline fingerprint: ${hotSwapStatus.runningFingerprint}. The system replaces its own pipeline code between cycles — no restart needed.`}
-              style={{
-                color: hotSwapStatus.swapCount > 0 ? OK_COLOR : DIM_COLOR,
-                fontSize: "0.85em",
-                fontFamily: "inherit",
-                padding: "2px 6px",
-                border: `1px solid ${DIM_COLOR}`,
-                whiteSpace: "nowrap",
-              }}
+              className="lswap"
+              data-hot={hotSwapStatus.swapCount > 0 || undefined}
             >
               ⟳{hotSwapStatus.swapCount}
             </span>
@@ -1449,73 +1603,44 @@ export default function Home() {
             }}
             disabled={loopBusy}
             aria-label={running ? "Stop the self-enhancement loop" : "Start the self-enhancement loop"}
-            style={{
-              ...cfgBtnStyle,
-              opacity: loopBusy ? 0.5 : 1,
-              cursor: loopBusy ? "wait" : "pointer",
-              color: running ? ERROR_COLOR : PROMPT_COLOR,
-            }}
+            className={running ? "lbtn lbtn--danger" : "lbtn lbtn--primary"}
           >
             [{running ? "STOP" : "START"}]
           </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              clearConsole();
-            }}
-            aria-label="Clear the terminal"
-            style={cfgBtnStyle}
-          >
-            [CLEAR]
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              openConfig();
-            }}
-            aria-label="Open Git push configuration"
-            style={cfgBtnStyle}
-          >
-            [CONFIG]
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setOracleOpen(true);
-            }}
-            aria-label="Open the Oracle panel — the system's prophecies and track record"
+          <HeaderBtn
+            label="CLEAR"
+            onClick={clearConsole}
+            title="Clear the terminal"
+            ghost
+          />
+          <HeaderBtn
+            label="CONFIG"
+            onClick={openConfig}
+            title="Open Git push configuration"
+            dialog
+            active={configOpen}
+          />
+          <HeaderBtn
+            label="ORACLE"
+            onClick={() => setOracleOpen(true)}
             title="Oracle — the system predicts its own future"
-            style={cfgBtnStyle}
-          >
-            [ORACLE]
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setDefenseOpen(true);
-            }}
-            aria-label="Open the Defense panel — duress purge, red-team adversarial suite, secret scanner"
+            dialog
+            active={oracleOpen}
+          />
+          <HeaderBtn
+            label="DEFENSE"
+            onClick={() => setDefenseOpen(true)}
             title="Defense — duress · red-team · secret-scan (concepts grafted from your GitHub repos)"
-            style={cfgBtnStyle}
-          >
-            [DEFENSE]
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setBranchesOpen(true);
-            }}
-            aria-label="Open the Branches panel — the loop's mutation history on GitHub"
+            dialog
+            active={defenseOpen}
+          />
+          <HeaderBtn
+            label="BRANCHES"
+            onClick={() => setBranchesOpen(true)}
             title="Branches — every loop-NN branch is one successful self-enhancement the loop pushed to GitHub"
-            style={cfgBtnStyle}
-          >
-            [BRANCHES]
-          </button>
+            dialog
+            active={branchesOpen}
+          />
         </div>
       </div>
 
