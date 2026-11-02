@@ -56,14 +56,14 @@ export const LEDGER_OR_META_PATTERNS: ReadonlyArray<RegExp> = [
 
 export function isLockfileOrGeneratedFile(path: string): boolean {
   if (typeof path !== 'string') {
-    return false;
+    throw new Error(`Invalid path: expected string but received ${typeof path}`);
   }
   return LOCKFILE_AND_GENERATED_PATTERNS.some((p) => p.test(path));
 }
 
 export function isLedgerOrMetaFile(path: string): boolean {
   if (typeof path !== 'string') {
-    return false;
+    throw new Error(`Invalid path: expected string but received ${typeof path}`);
   }
   return LEDGER_OR_META_PATTERNS.some((p) => p.test(path));
 }
@@ -74,8 +74,10 @@ export function isLedgerOrMetaFile(path: string): boolean {
  *  when the commit has at least one REAL source file. */
 export function hasCoreSourceFiles(files: string[]): boolean {
   if (!Array.isArray(files)) {
-    return false;
+    throw new Error(`Invalid files: expected array but received ${typeof files}`);
   }
-  if (files.length === 0) return false;
+  if (files.length === 0) {
+    throw new Error('Invalid files: array is empty');
+  }
   return files.some((f) => !isLockfileOrGeneratedFile(f) && !isLedgerOrMetaFile(f));
 }
