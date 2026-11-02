@@ -83,9 +83,16 @@ export function hasCoreSourceFiles(files: string[]): boolean {
   // Check each file to ensure it's a valid string before processing
   for (const file of files) {
     if (typeof file !== 'string') {
-      throw new Error(`Invalid file in array: expected string but received ${typeof file} at index ${files.indexOf(file)}`);
+      throw new Error(`Invalid file in array: expected string but received ${typeof file} (${JSON.stringify(file)}) at index ${files.indexOf(file)}`);
     }
   }
   
-  return files.some((f) => !isLockfileOrGeneratedFile(f) && !isLedgerOrMetaFile(f));
+  // Early return optimization: as soon as we find a real source file, return true
+  for (const file of files) {
+    if (!isLockfileOrGeneratedFile(file) && !isLedgerOrMetaFile(file)) {
+      return true;
+    }
+  }
+  
+  return false;
 }
