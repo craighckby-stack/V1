@@ -196,8 +196,11 @@ function validTokenFormat(token: string): boolean {
   return token.length >= 20 && !/\s/.test(token);
 }
 
-/** Read the stored target (with token) — server-side only. */
-async function getStoredTarget(): Promise<StoredTarget | null> {
+/** Read the stored target (with token) — server-side only. Exported so
+ *  sibling server modules (commit-archaeology's token resolution) can
+ *  reuse the same DB → state-file → tier-3 fallback chain instead of
+ *  re-implementing it. NEVER call from a client component. */
+export async function getStoredTarget(): Promise<StoredTarget | null> {
   let row: Awaited<ReturnType<typeof db.gitPushTarget.findUnique>> = null;
   try {
     row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
