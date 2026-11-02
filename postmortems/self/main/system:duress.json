@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "system:duress",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "OTHER",
+  "symptom": "Duress purge executed",
+  "evidence": "{\"keysPurged\":{\"tier2\":true,\"tier3\":true,\"db\":true},\"readBack\":{\"tier2Gone\":true,\"tier3Gone\":true,\"dbGone\":true,\"allGone\":true},\"safeModeRaised\":true,\"reason\":\"lifecycle test\"}",
+  "constraints": "The system executed a duress purge. Reason: lifecycle test. PAT is confirmed purged. Safe-mode is raised. An operator must clear it via the API after verifying the PAT situation.",
+  "attempts": 2,
+  "parentHash": null,
+  "hash": "fc3c23e4fa1d6f45e8674f57bcb98339011a7c3836f74a2b2cc2e0dc8bca6acb",
+  "lastAttemptAt": "2026-11-02T04:33:06.362Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-02T04:28:19.638Z",
+  "updatedAt": "2026-11-02T04:33:06.362Z",
+  "schema": 2
+}
