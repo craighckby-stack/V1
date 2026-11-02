@@ -40,6 +40,13 @@ export function validateStructure(
   const issues: StructureIssue[] = [];
 
   // Input validation
+  if (!filePath || typeof filePath !== "string" || !filePath.trim()) {
+    return {
+      ok: false,
+      issues: [{ code: "INVALID_INPUT", message: "File path is empty, null, or not a string." }],
+    };
+  }
+
   if (!originalCode || typeof originalCode !== "string" || !originalCode.trim()) {
     return {
       ok: false,
@@ -140,8 +147,9 @@ function extractTopLevelExports(code: string): Set<string> {
     const m = trimmed.match(exportRe);
     if (m && m[1]) {
       // Validate the export name is properly formed
-      if (m[1] && m[1].length > 0 && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(m[1])) {
-        exports.add(m[1]);
+      const exportName = m[1];
+      if (exportName && exportName.length > 0 && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(exportName)) {
+        exports.add(exportName);
       }
       continue;
     }
