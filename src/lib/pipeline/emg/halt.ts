@@ -34,6 +34,9 @@ const SPECIAL_CHARACTERS_REGEX = /\s*([{};:,=()])\s*/g;
  * ZERO_DIFF_SATURATION (audit 2, item 10).
  */
 export function normalizeCode(code: string): string {
+  if (typeof code !== "string") {
+    throw new Error("normalizeCode requires a string input");
+  }
   return stripComments(code)
     .replace(WHITESPACE_REGEX, " ")
     .replace(SPECIAL_CHARACTERS_REGEX, "$1")
@@ -52,9 +55,18 @@ export class SelfStoppingGovernor {
   constructor(options?: { maxConsecutiveFailures?: number; maxCycles?: number }) {
     this.maxConsecutiveFailures = options?.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
     this.maxCycles = options?.maxCycles ?? DEFAULT_MAX_CYCLES;
+    
+    // Validate maxCycles
+    if (typeof this.maxCycles !== "number" || this.maxCycles <= 0) {
+      this.maxCycles = DEFAULT_MAX_CYCLES;
+    }
   }
 
   public computeTreeFingerprint(files: TreeFileDescriptor[]): string {
+    if (!files || !Array.isArray(files)) {
+      throw new Error("computeTreeFingerprint requires an array of TreeFileDescriptor");
+    }
+    
     const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
     const raw = sorted.map(f => `${f.path}:${f.sha ?? f.size ?? 0}`).join("|");
     let hash = 0;
@@ -76,6 +88,9 @@ export class SelfStoppingGovernor {
   }
 
   public setSaturatedTreeHash(hash: string): void {
+    if (typeof hash !== "string") {
+      throw new Error("setSaturatedTreeHash requires a string input");
+    }
     this.saturatedTreeHash = hash;
   }
 
@@ -142,9 +157,10 @@ export class SelfStoppingGovernor {
   }
 
   public setMaxCycles(max: number): void {
-    if (typeof max === "number" && max > 0) {
-      this.maxCycles = Math.min(MAX_ALLOWED_CYCLES, max);
+    if (typeof max !== "number" || max <= 0) {
+      throw new Error("setMaxCycles requires a positive number");
     }
+    this.maxCycles = Math.min(MAX_ALLOWED_CYCLES, max);
   }
 
   public reset(): void {
