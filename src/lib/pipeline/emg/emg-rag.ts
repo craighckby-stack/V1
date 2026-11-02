@@ -221,6 +221,23 @@ class EmgRagMemory {
       throw new Error("Invalid entry: trust must be one of 'high', 'medium', 'low', or 'revoked'");
     }
 
+    // Validate optional fields
+    if (entry.filePath !== undefined && typeof entry.filePath !== "string") {
+      throw new Error("Invalid entry: filePath must be a string if provided");
+    }
+
+    if (entry.ruleToAvoid !== undefined && typeof entry.ruleToAvoid !== "string") {
+      throw new Error("Invalid entry: ruleToAvoid must be a string if provided");
+    }
+
+    if (entry.diagnosis !== undefined && typeof entry.diagnosis !== "string") {
+      throw new Error("Invalid entry: diagnosis must be a string if provided");
+    }
+
+    if (entry.cleanSnippet !== undefined && typeof entry.cleanSnippet !== "string") {
+      throw new Error("Invalid entry: cleanSnippet must be a string if provided");
+    }
+
     const newEntry: VectorEntry = {
       ...entry,
       id: `vec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
