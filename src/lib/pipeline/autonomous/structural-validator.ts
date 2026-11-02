@@ -40,17 +40,17 @@ export function validateStructure(
   const issues: StructureIssue[] = [];
 
   // Input validation
-  if (!originalCode || !originalCode.trim()) {
+  if (!originalCode || typeof originalCode !== "string" || !originalCode.trim()) {
     return {
       ok: false,
-      issues: [{ code: "INVALID_INPUT", message: "Original code is empty or null." }],
+      issues: [{ code: "INVALID_INPUT", message: "Original code is empty, null, or not a string." }],
     };
   }
 
-  if (!refactoredCode || !refactoredCode.trim()) {
+  if (!refactoredCode || typeof refactoredCode !== "string" || !refactoredCode.trim()) {
     return {
       ok: false,
-      issues: [{ code: "EMPTY_FILE", message: "Refactored code is empty." }],
+      issues: [{ code: "EMPTY_FILE", message: "Refactored code is empty, null, or not a string." }],
     };
   }
 
@@ -139,7 +139,10 @@ function extractTopLevelExports(code: string): Set<string> {
     const trimmed = line.trim();
     const m = trimmed.match(exportRe);
     if (m && m[1]) {
-      exports.add(m[1]);
+      // Validate the export name is properly formed
+      if (m[1] && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(m[1])) {
+        exports.add(m[1]);
+      }
       continue;
     }
     
@@ -152,7 +155,10 @@ function extractTopLevelExports(code: string): Set<string> {
     if (braceMatch && braceMatch[1]) {
       for (const name of braceMatch[1].split(",")) {
         const trimmedName = name.trim().split(/\s+as\s+/)[0];
-        if (trimmedName) exports.add(trimmedName);
+        // Validate the export name is properly formed
+        if (trimmedName && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmedName)) {
+          exports.add(trimmedName);
+        }
       }
     }
   }
