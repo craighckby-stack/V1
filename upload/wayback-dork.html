@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wayback Dork – Search & Pull from Archive.org</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --border: #2a2f3d;
+      --text: #e6e9f0;
+      --muted: #8b93a7;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 2rem;
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 1.85rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.35rem;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--muted);
+      margin-bottom: 0.4rem;
+    }
+
+    input[type="text"],
+    input[type="date"],
+    select {
+      width: 100%;
+      padding: 0.7rem 0.9rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input:focus, select:focus {
+      border-color: var(--accent);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    @media (max-width: 640px) {
+      .row { grid-template-columns: 1fr; }
+    }
+
+    .full { grid-column: 1 / -1; }
+
+    .btn-row {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-top: 1.25rem;
+    }
+
+    button {
+      padding: 0.7rem 1.25rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    button:active { transform: scale(0.98); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+    .btn-primary:hover { background: var(--accent-hover); }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: var(--border); }
+
+    .btn-danger {
+      background: transparent;
+      color: var(--danger);
+      border: 1px solid var(--danger);
+    }
+
+    .status {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      display: none;
+    }
+
+    .status.info { background: #1e3a5f; color: #93c5fd; display: block; }
+    .status.error { background: #3f1d1d; color: #fca5a5; display: block; }
+    .status.success { background: #14532d; color: #86efac; display: block; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+
+    th {
+      text-align: left;
+      padding: 0.75rem 0.9rem;
+      background: var(--bg);
+      color: var(--muted);
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+    }
+
+    td {
+      padding: 0.7rem 0.9rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    tr:hover td { background: rgba(59, 130, 246, 0.06); }
+
+    .timestamp { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.82rem; }
+    .status-code { font-weight: 600; }
+    .status-200 { color: var(--success); }
+    .status-3xx { color: var(--warning); }
+    .status-4xx, .status-5xx { color: var(--danger); }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    a:hover { text-decoration: underline; }
+
+    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: var(--border);
+      color: var(--muted);
+    }
+
+    .table-wrap {
+      max-height: 520px;
+      overflow: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .empty {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--muted);
+    }
+
+    .help {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 0.75rem;
+      line-height: 1.55;
+    }
+
+    .help code {
+      background: var(--bg);
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      font-size: 0.78rem;
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 2.5rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    /* Modal for pulled content */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 1rem;
+    }
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 800px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .modal-header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-body {
+      padding: 1.25rem;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .modal-body pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 0.85rem;
+      background: var(--bg);
+      padding: 1rem;
+      border-radius: 8px;
+      max-height: 400px;
+      overflow: auto;
+    }
+
+    .close-btn {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 1.4rem;
+      cursor: pointer;
+      line-height: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Wayback Dork</h1>
+      <p class="subtitle">Search Archive.org CDX · List all snapshots · Pull basic page info</p>
+    </header>
+
+    <div class="card">
+      <div class="row">
+        <div class="full">
+          <label for="url">Target URL or domain</label>
+          <input type="text" id="url" placeholder="https://example.com  or  example.com/*" value="" />
+        </div>
+
+        <div>
+          <label for="from">From date (optional)</label>
+          <input type="date" id="from" />
+        </div>
+        <div>
+          <label for="to">To date (optional)</label>
+          <input type="date" id="to" />
+        </div>
+
+        <div>
+          <label for="matchType">Match type</label>
+          <select id="matchType">
+            <option value="exact">Exact URL</option>
+            <option value="prefix" selected>Prefix (domain + path*)</option>
+            <option value="domain">Domain (all subdomains)</option>
+            <option value="host">Host only</option>
+          </select>
+        </div>
+        <div>
+          <label for="limit">Max results</label>
+          <select id="limit">
+            <option value="100">100</option>
+            <option value="500" selected>500</option>
+            <option value="1000">1000</option>
+            <option value="2000">2000</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn-primary" id="searchBtn">Search Wayback CDX</button>
+        <button class="btn-secondary" id="clearBtn">Clear</button>
+      </div>
+
+      <div class="help">
+        Uses the public <code>web.archive.org/cdx/search/cdx</code> API.<br>
+        Tips: use <code>example.com/*</code> + Prefix for all paths, or <code>*.example.com</code> + Domain for subdomains.<br>
+        Rate limits apply — be respectful of archive.org.
+      </div>
+
+      <div id="status" class="status"></div>
+    </div>
+
+    <div class="card" id="resultsCard" style="display:none;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h2 style="font-size:1.1rem;">Snapshots <span id="countBadge" class="badge">0</span></h2>
+        <button class="btn-secondary" id="exportBtn" style="padding:0.4rem 0.8rem; font-size:0.8rem;">Export JSON</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Original URL</th>
+              <th>Status</th>
+              <th>MIME</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <footer>
+      Client-side only · Data from archive.org CDX API · Not affiliated with Internet Archive
+    </footer>
+  </div>
+
+  <!-- Modal for pulled info -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal">
+      <div class="modal-header">
+        <strong id="modalTitle">Page Info</strong>
+        <button class="close-btn" id="closeModal">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    let lastResults = [];
+
+    function showStatus(msg, type = "info") {
+      const el = $("status");
+      el.textContent = msg;
+      el.className = "status " + type;
+    }
+
+    function clearStatus() {
+      $("status").className = "status";
+      $("status").textContent = "";
+    }
+
+    function formatTimestamp(ts) {
+      if (!ts || ts.length < 14) return ts;
+      return `${ts.slice(0,4)}-${ts.slice(4,6)}-${ts.slice(6,8)} ${ts.slice(8,10)}:${ts.slice(10,12)}:${ts.slice(12,14)}`;
+    }
+
+    function statusClass(code) {
+      if (!code) return "";
+      const c = parseInt(code, 10);
+      if (c >= 200 && c < 300) return "status-200";
+      if (c >= 300 && c < 400) return "status-3xx";
+      if (c >= 400 && c < 500) return "status-4xx";
+      if (c >= 500) return "status-5xx";
+      return "";
+    }
+
+    function buildCdxUrl() {
+      let url = $("url").value.trim();
+      if (!url) throw new Error("Please enter a URL or domain");
+
+      // Strip protocol for cleaner matching if user pasted full URL
+      // but keep it if they want exact
+      const matchType = $("matchType").value;
+      const limit = $("limit").value;
+      const from = $("from").value.replace(/-/g, "");
+      const to = $("to").value.replace(/-/g, "");
+
+      const params = new URLSearchParams({
+        url: url,
+        output: "json",
+        fl: "timestamp,original,statuscode,mimetype,length,digest",
+        limit: limit,
+        matchType: matchType,
+        filter: "!statuscode:429"   // skip pure rate-limit responses
+      });
+
+      if (from) params.set("from", from);
+      if (to) params.set("to", to);
+
+      // Collapse near-duplicates by digest (optional but cleaner)
+      params.set("collapse", "digest");
+
+      return `https://web.archive.org/cdx/search/cdx?${params.toString()}`;
+    }
+
+    async function search() {
+      clearStatus();
+      $("resultsCard").style.display = "none";
+      $("resultsBody").innerHTML = "";
+      lastResults = [];
+
+      let cdxUrl;
+      try {
+        cdxUrl = buildCdxUrl();
+      } catch (e) {
+        showStatus(e.message, "error");
+        return;
+      }
+
+      showStatus("Querying Wayback CDX API…", "info");
+      $("searchBtn").disabled = true;
+
+      try {
+        const res = await fetch(cdxUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status} – ${res.statusText}`);
+
+        const data = await res.json();
+
+        if (!Array.isArray(data) || data.length < 2) {
+          showStatus("No snapshots found for that URL / filters.", "error");
+          return;
+        }
+
+        // First row is header
+        const header = data[0];
+        const rows = data.slice(1);
+
+        lastResults = rows.map(r => {
+          const obj = {};
+          header.forEach((h, i) => obj[h] = r[i]);
+          return obj;
+        });
+
+        renderTable(lastResults);
+        $("countBadge").textContent = lastResults.length;
+        $("resultsCard").style.display = "block";
+        showStatus(`Found ${lastResults.length} unique snapshots.`, "success");
+      } catch (err) {
+        console.error(err);
+        showStatus("Error: " + err.message + " (CORS or rate limit possible – try again later)", "error");
+      } finally {
+        $("searchBtn").disabled = false;
+      }
+    }
+
+    function renderTable(rows) {
+      const tbody = $("resultsBody");
+      tbody.innerHTML = "";
+
+      if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="empty">No results</td></tr>`;
+        return;
+      }
+
+      rows.forEach((row, idx) => {
+        const ts = row.timestamp;
+        const original = row.original || "";
+        const status = row.statuscode || "";
+        const mime = row.mimetype || "";
+        const archiveUrl = `https://web.archive.org/web/${ts}/${original}`;
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td class="timestamp">${formatTimestamp(ts)}</td>
+          <td style="max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${original}">${original}</td>
+          <td class="status-code ${statusClass(status)}">${status}</td>
+          <td>${mime}</td>
+          <td class="actions">
+            <a href="${archiveUrl}" target="_blank" rel="noopener">Open</a>
+            <a href="#" data-idx="${idx}" class="pull-link">Pull info</a>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // Attach pull handlers
+      tbody.querySelectorAll(".pull-link").forEach(a => {
+        a.addEventListener("click", e => {
+          e.preventDefault();
+          const idx = parseInt(a.dataset.idx, 10);
+          pullInfo(lastResults[idx]);
+        });
+      });
+    }
+
+    async function pullInfo(row) {
+      const ts = row.timestamp;
+      const original = row.original;
+      const archiveUrl = `https://web.archive.org/web/${ts}id_/${original}`; // id_ = raw
+      const viewUrl = `https://web.archive.org/web/${ts}/${original}`;
+
+      $("modalTitle").textContent = `Info · ${formatTimestamp(ts)}`;
+      $("modalBody").innerHTML = `<p style="color:var(--muted)">Fetching raw archived content…</p>`;
+      $("modal").classList.add("open");
+
+      try {
+        // Try to fetch the raw archived page
+        // Note: many browsers block this due to CORS. We fall back to metadata only.
+        const res = await fetch(archiveUrl, { mode: "cors" });
+        if (!res.ok) throw new Error("Could not fetch raw content (CORS or missing)");
+
+        const text = await res.text();
+        const titleMatch = text.match(/<title[^>]*>([^<]*)<\/title>/i);
+        const title = titleMatch ? titleMatch[1].trim() : "(no title)";
+
+        // Simple text extraction (strip tags roughly)
+        const clean = text
+          .replace(/<script[\s\S]*?<\/script>/gi, "")
+          .replace(/<style[\s\S]*?<\/style>/gi, "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 3000);
+
+        $("modalBody").innerHTML = `
+          <p><strong>Original:</strong> <a href="${original}" target="_blank">${original}</a></p>
+          <p><strong>Archive:</strong> <a href="${viewUrl}" target="_blank">${viewUrl}</a></p>
+          <p><strong>Status:</strong> ${row.statuscode || "?"} · <strong>MIME:</strong> ${row.mimetype || "?"}</p>
+          <p><strong>Title:</strong> ${title}</p>
+          <p style="margin-top:1rem;"><strong>Text preview (first ~3k chars):</strong></p>
+          <pre>${clean || "(empty)"}</pre>
+        `;
+      } catch (err) {
+        // Fallback – just show the metadata we already have
+        $("modalBody").innerHTML = `
+          <p style="color:var(--warning)">Could not pull full page content from the browser (CORS restriction is common).</p>
+          <p>You can still open the snapshot directly:</p>
+          <p><a href="${viewUrl}" target="_blank" rel="noopener">${viewUrl}</a></p>
+          <hr style="border-color:var(--border); margin:1rem 0;">
+          <p><strong>Timestamp:</strong> ${formatTimestamp(ts)}</p>
+          <p><strong>Original URL:</strong> ${original}</p>
+          <p><strong>HTTP Status:</strong> ${row.statuscode || "n/a"}</p>
+          <p><strong>MIME type:</strong> ${row.mimetype || "n/a"}</p>
+          <p><strong>Digest:</strong> ${row.digest || "n/a"}</p>
+          <p><strong>Length:</strong> ${row.length || "n/a"} bytes</p>
+        `;
+      }
+    }
+
+    function exportJson() {
+      if (!lastResults.length) return;
+      const blob = new Blob([JSON.stringify(lastResults, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `wayback-cdx-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    // Event listeners
+    $("searchBtn").addEventListener("click", search);
+    $("clearBtn").addEventListener("click", () => {
+      $("url").value = "";
+      $("from").value = "";
+      $("to").value = "";
+      $("resultsCard").style.display = "none";
+      clearStatus();
+    });
+    $("exportBtn").addEventListener("click", exportJson);
+    $("closeModal").addEventListener("click", () => $("modal").classList.remove("open"));
+    $("modal").addEventListener("click", e => {
+      if (e.target === $("modal")) $("modal").classList.remove("open");
+    });
+
+    // Enter key
+    $("url").addEventListener("keydown", e => {
+      if (e.key === "Enter") search();
+    });
+  </script>
+</body>
+</html>

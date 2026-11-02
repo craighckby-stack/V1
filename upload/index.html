@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wayback Dork</title>
+<style>
+:root{--bg:#eef2f6;--panel:#fff;--ink:#14213d;--mute:#5b6b82;--line:#d3dbe6;--acc:#2f4bdc;--on:#fff;--bad:#b3261e;--chip:#e3e9f5;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1522;--panel:#151f31;--ink:#e6ecf7;--mute:#8d9bb3;--line:#26344d;--acc:#8ea2ff;--on:#0e1522;--bad:#ff8a80;--chip:#1e2b45;color-scheme:dark}}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1040px;margin:0 auto;padding:32px 20px 64px}
+h1{font-size:2rem;letter-spacing:-.02em;margin:0 0 4px}
+h2{font-size:1.15rem;margin:0 0 12px}
+.lead{color:var(--mute);margin:0 0 28px;max-width:62ch}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:24px}
+.mono,input,textarea,td.u{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+input,select{font-size:.95rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:9px 11px}
+input[type=text]{width:100%}
+input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+button{font:inherit;font-size:.92rem;cursor:pointer;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px}
+button.go{background:var(--acc);color:var(--on);border-color:var(--acc);font-weight:600}
+button:disabled{opacity:.55;cursor:wait}
+.chip{background:var(--chip);border:0;border-radius:999px;padding:3px 11px;font-size:.82rem}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}
+.row label{display:flex;gap:6px;align-items:center;font-size:.9rem;color:var(--mute)}
+.row input[type=number],.row input.yr{width:92px}
+.status{margin:14px 0 0;font-size:.92rem;color:var(--mute);min-height:1.4em}
+.status.err{color:var(--bad)}
+.tablewrap{overflow-x:auto;margin-top:14px;border:1px solid var(--line);border-radius:8px;max-height:560px;overflow-y:auto}
+table{border-collapse:collapse;width:100%;font-size:.86rem}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{position:sticky;top:0;background:var(--panel);font-weight:600}
+td.u{max-width:480px;overflow:hidden;text-overflow:ellipsis}
+a{color:var(--acc)}
+details{border-top:1px solid var(--line);padding:8px 0}
+summary{cursor:pointer;font-weight:600}
+summary span{color:var(--mute);font-weight:400}
+ul.l{margin:8px 0 0;padding-left:18px;max-height:260px;overflow:auto;font-size:.86rem;word-break:break-all}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:2px 14px;font-size:.88rem;margin-top:12px}
+.kv b{color:var(--mute);font-weight:500}
+.note{font-size:.85rem;color:var(--mute);margin-top:22px}
+@media (max-width:560px){main{padding:20px 14px}section{padding:14px}}
+</style>
+</head>
+<body>
+<main>
+<h1>Wayback Dork</h1>
+<p class="lead">Search the Internet Archive with Google-style operators, then pull the title, links, emails, forms and more out of any archived page. Everything runs in your browser.</p>
+
+<section>
+<h2>Search the archive</h2>
+<input type="text" id="q" value="site:example.com filetype:pdf" aria-label="Dork query" spellcheck="false" autocomplete="off">
+<div class="row" id="chips">
+<button class="chip" data-add="filetype:pdf">filetype:pdf</button>
+<button class="chip" data-add="filetype:doc|docx|xls|xlsx|csv">office files</button>
+<button class="chip" data-add="filetype:sql|bak|zip|tar|gz">backups</button>
+<button class="chip" data-add="filetype:log|txt|conf|env|ini">logs and configs</button>
+<button class="chip" data-add="filetype:xml|json">xml, json</button>
+<button class="chip" data-add="inurl:admin">inurl:admin</button>
+<button class="chip" data-add="inurl:login">inurl:login</button>
+<button class="chip" data-add="inurl:upload">inurl:upload</button>
+<button class="chip" data-add="-inurl:css -inurl:js">hide css and js</button>
+</div>
+<div class="row">
+<label>Limit <input type="number" id="limit" value="500" min="1" max="10000"></label>
+<label>From <input class="yr" type="text" id="from" placeholder="2010"></label>
+<label>To <input class="yr" type="text" id="to" placeholder="2024"></label>
+<label><input type="checkbox" id="ok" checked> Only 200 OK</label>
+<label><input type="checkbox" id="uniq" checked> Unique URLs</label>
+<button class="go" id="sbtn">Search archive</button>
+</div>
+<p class="status" id="sstat" role="status"></p>
+<div id="rbox" hidden>
+<div class="row" style="margin-top:0">
+<input type="text" id="rfilter" placeholder="Filter results" aria-label="Filter results" style="max-width:280px">
+<button id="csv">Export CSV</button><button id="copy">Copy URLs</button>
+</div>
+<div class="tablewrap"><table><thead><tr><th>Date</th><th>Status</th><th>Type</th><th>URL</th><th></th></tr></thead><tbody id="tb"></tbody></table></div>
+</div>
+<p class="note">Operators: <span class="mono">site: filetype: ext: inurl: mime: status: after: before:</span> and a leading <span class="mono">-</span> to exclude. Separate several extensions with <span class="mono">|</span>. The archive stores URLs, not page titles, so intitle: and intext: are not available.</p>
+</section>
+
+<section>
+<h2>Pull information from a link</h2>
+<div class="row" style="margin-top:0">
+<input type="text" id="xurl" placeholder="https://example.com/page" aria-label="URL to extract" style="flex:1;min-width:240px" spellcheck="false">
+<button class="go" id="xbtn">Extract</button>
+</div>
+<div class="row" id="snapbox" hidden><label>Snapshot <select id="snapsel"></select></label><button id="jdl">Download JSON</button><button id="jcp">Copy JSON</button></div>
+<p class="status" id="xstat" role="status"></p>
+<div id="xout"></div>
+</section>
+
+<p class="note">Use this for research, journalism and checking your own sites. Archived pages can still contain personal data, so handle what you find responsibly. The Internet Archive rate-limits heavy use, so keep limits modest.</p>
+</main>
+
+<script>
+const $=s=>document.querySelector(s);
+const API='https://web.archive.org/cdx/search/cdx';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const rx=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+const fmt=t=>t.slice(0,4)+'-'+t.slice(4,6)+'-'+t.slice(6,8);
+const snapUrl=(t,u,raw)=>'https://web.archive.org/web/'+t+(raw?'id_':'')+'/'+u;
+const uniq=a=>[...new Set(a)];
+const say=(id,m,err)=>{const e=$(id);e.textContent=m;e.className='status'+(err?' err':'')};
+
+async function cdx(qs,ms=60000){
+  const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);
+  try{
+    const r=await fetch(API+'?'+qs,{signal:c.signal});
+    if(!r.ok)throw new Error('The archive answered with status '+r.status+'. Wait a moment and try again.');
+    const txt=(await r.text()).trim();
+    return txt?JSON.parse(txt).slice(1):[];
+  }catch(e){
+    if(e.name==='AbortError')throw new Error('The archive took too long. Lower the limit or narrow the query.');
+    throw e;
+  }finally{clearTimeout(t)}
+}
+
+function parseDork(q){
+  const p={url:'',matchType:'domain',filters:[],from:'',to:'',skipped:[]};
+  const toks=q.match(/-?\w+:"[^"]*"|-?\w+:\S*|-?"[^"]+"|\S+/g)||[];
+  for(let t of toks){
+    const neg=t[0]==='-'&&t.length>1;if(neg)t=t.slice(1);
+    const bang=neg?'!':'';
+    const m=t.match(/^(\w+):(.*)$/);
+    if(!m){p.filters.push(bang+'original:.*'+rx(t.replace(/"/g,''))+'.*');continue}
+    const k=m[1].toLowerCase(),v=m[2].replace(/^"|"$/g,'');
+    if(/^https?$/.test(k)){p.url=t.replace(/^https?:\/\//i,'');p.matchType=p.url.replace(/\/$/,'').includes('/')?'prefix':'domain'}
+    else if(k==='site'){p.url=v.replace(/^https?:\/\//i,'').replace(/^\*\./,'');p.matchType=p.url.replace(/\/$/,'').includes('/')?'prefix':'domain'}
+    else if(k==='filetype'||k==='ext'){const e=v.split(/[|,]/).map(x=>rx(x.replace(/^\./,''))).filter(Boolean).join('|');if(e)p.filters.push(bang+'original:.*\\.('+e+')(\\?.*)?')}
+    else if(k==='inurl'){p.filters.push(bang+'original:.*'+rx(v)+'.*')}
+    else if(k==='mime'){p.filters.push(bang+'mimetype:'+v)}
+    else if(k==='status'){p.filters.push(bang+'statuscode:'+v)}
+    else if(k==='after'){p.from=v.replace(/\D/g,'')}
+    else if(k==='before'){p.to=v.replace(/\D/g,'')}
+    else p.skipped.push(k+':');
+  }
+  return p;
+}
+
+let rows=[];
+async function search(){
+  const p=parseDork($('#q').value.trim());
+  if(!p.url){say('#sstat','Add a target first, for example site:example.com',true);return}
+  const qs=new URLSearchParams({url:p.url,matchType:p.matchType,output:'json',fl:'timestamp,original,mimetype,statuscode',limit:$('#limit').value||'500'});
+  if($('#uniq').checked)qs.set('collapse','urlkey');
+  if($('#ok').checked)qs.append('filter','statuscode:200');
+  p.filters.forEach(f=>qs.append('filter',f));
+  const from=p.from||$('#from').value.replace(/\D/g,''),to=p.to||$('#to').value.replace(/\D/g,'');
+  if(from)qs.set('from',from);if(to)qs.set('to',to);
+  $('#sbtn').disabled=true;say('#sstat','Searching the archive…');
+  try{
+    rows=await cdx(qs);
+    const skip=p.skipped.length?' Ignored unsupported operators: '+p.skipped.join(' ')+'.':'';
+    $('#rbox').hidden=!rows.length;
+    say('#sstat',rows.length?rows.length+' results.'+skip:'No results. Try removing a filter, or untick Only 200 OK.'+skip,!rows.length&&false);
+    draw();
+  }catch(e){say('#sstat',e.message,true)}
+  $('#sbtn').disabled=false;
+}
+
+function visible(){const f=$('#rfilter').value.toLowerCase();return f?rows.filter(r=>r[1].toLowerCase().includes(f)||r[2].includes(f)):rows}
+function draw(){
+  const v=visible();
+  $('#tb').innerHTML=v.slice(0,1000).map((r,i)=>'<tr><td>'+fmt(r[0])+'</td><td>'+esc(r[3])+'</td><td>'+esc(r[2])+'</td><td class="u" title="'+esc(r[1])+'">'+esc(r[1])+'</td><td><a href="'+esc(snapUrl(r[0],r[1]))+'" target="_blank" rel="noopener">Open</a> <button class="chip" data-x="'+esc(r[1])+'" data-t="'+r[0]+'">Extract</button></td></tr>').join('');
+  if(v.length>1000)say('#sstat',rows.length+' results, showing the first 1,000. Use the filter or export to see the rest.');
+}
+function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+
+let versions=[],last=null;
+const norm=u=>/^https?:\/\//i.test(u)?u:'http://'+u;
+async function lookup(preferTs){
+  const url=$('#xurl').value.trim();if(!url){say('#xstat','Paste a URL first.',true);return}
+  $('#xbtn').disabled=true;say('#xstat','Looking up snapshots…');$('#xout').innerHTML='';
+  try{
+    versions=await cdx(new URLSearchParams({url:url.replace(/^https?:\/\//i,''),matchType:'exact',output:'json',fl:'timestamp,statuscode,mimetype,digest',collapse:'digest',limit:'3000'}));
+    if(!versions.length){say('#xstat','No snapshots for that exact URL. Try adding or removing www or the trailing slash.',true);$('#snapbox').hidden=true;$('#xbtn').disabled=false;return}
+    const ok=versions.filter(s=>s[1]==='200'),list=(ok.length?ok:versions).slice().reverse();
+    $('#snapsel').innerHTML=list.map(s=>'<option value="'+s[0]+'">'+fmt(s[0])+' · '+esc(s[2])+'</option>').join('');
+    if(preferTs)$('#snapsel').value=preferTs;
+    $('#snapbox').hidden=false;
+    await pull();
+  }catch(e){say('#xstat',e.message,true)}
+  $('#xbtn').disabled=false;
+}
+
+async function pull(){
+  const url=norm($('#xurl').value.trim()),ts=$('#snapsel').value;
+  say('#xstat','Fetching the '+fmt(ts)+' snapshot…');
+  try{
+    const r=await fetch(snapUrl(ts,url,true));
+    const type=r.headers.get('content-type')||'';
+    const body=await r.text();
+    const info={url,snapshot:fmt(ts),snapshotLink:snapUrl(ts,url),versionsFound:versions.length,firstSeen:fmt(versions[0][0]),lastSeen:fmt(versions.at(-1)[0]),contentType:type,bytes:body.length};
+    if(!/html|xml/i.test(type)){last=info;show(info,null);say('#xstat','This snapshot is not an HTML page, so only file details are shown.');return}
+    const doc=new DOMParser().parseFromString(body,'text/html');
+    last=Object.assign(info,analyze(doc,body,url));
+    show(last,true);
+    say('#xstat',versions.length+' distinct versions, '+info.firstSeen+' to '+info.lastSeen+'.');
+  }catch(e){say('#xstat','Could not fetch the snapshot in the browser ('+e.message+'). Open it directly: '+snapUrl(ts,url),true)}
+}
+
+function analyze(doc,html,base){
+  const abs=h=>{try{return new URL(h,base).href}catch{return null}};
+  const host=u=>new URL(u).hostname.replace(/^www\./,'');
+  const all=(sel,fn)=>[...doc.querySelectorAll(sel)].map(fn).filter(Boolean);
+  const text=(doc.body?doc.body.textContent:'').replace(/\s+/g,' ').trim();
+  const links=uniq(all('a[href]',a=>abs(a.getAttribute('href'))).filter(h=>/^https?:/.test(h)));
+  const internal=links.filter(h=>host(h)===host(base)),external=links.filter(h=>!internal.includes(h));
+  const comments=[],it=doc.createNodeIterator(doc,NodeFilter.SHOW_COMMENT);
+  for(let n;(n=it.nextNode());){const c=n.nodeValue.trim();if(c)comments.push(c.slice(0,300))}
+  const canon=doc.querySelector('link[rel=canonical]');
+  return{
+    title:doc.title.trim(),language:doc.documentElement.lang||'',canonical:canon?abs(canon.getAttribute('href')):'',
+    words:text?text.split(' ').length:0,preview:text.slice(0,500),
+    meta:all('meta',m=>{const k=m.getAttribute('name')||m.getAttribute('property')||m.getAttribute('http-equiv');return k&&m.content?k+': '+m.content:null}),
+    headings:all('h1,h2,h3',h=>h.tagName.toLowerCase()+': '+h.textContent.replace(/\s+/g,' ').trim()).filter(x=>x.length>4),
+    emails:uniq((html.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g)||[]).filter(e=>!/\.(png|jpe?g|gif|svg|webp)$/i.test(e))),
+    phones:uniq((text.match(/\+?\d[\d\s().-]{7,}\d/g)||[]).filter(p=>{const d=p.replace(/\D/g,'').length;return d>=9&&d<=15&&/[+\s().-]/.test(p)})),
+    socialLinks:external.filter(h=>/facebook|twitter|x\.com|instagram|linkedin|youtube|github|tiktok|t\.me|reddit/i.test(h)),
+    internalLinks:internal,externalLinks:external,
+    forms:all('form',f=>(f.method||'get').toUpperCase()+' '+(f.getAttribute('action')||'(same page)')+'  fields: '+[...f.elements].map(e=>e.name).filter(Boolean).join(', ')),
+    scripts:uniq(all('script[src]',s=>abs(s.getAttribute('src')))),
+    stylesheets:uniq(all('link[rel~=stylesheet]',l=>abs(l.getAttribute('href')))),
+    images:uniq(all('img[src]',i=>abs(i.getAttribute('src')))),
+    iframes:uniq(all('iframe[src]',i=>abs(i.getAttribute('src')))),
+    comments
+  };
+}
+
+function show(d,html){
+  const kv=[['Snapshot','<a href="'+esc(d.snapshotLink)+'" target="_blank" rel="noopener">'+esc(d.snapshot)+'</a>'],['Versions',d.versionsFound+' ('+d.firstSeen+' to '+d.lastSeen+')'],['Content type',esc(d.contentType)],['Size',d.bytes.toLocaleString()+' characters']];
+  if(html){kv.push(['Title',esc(d.title)||'(none)'],['Language',esc(d.language)||'(not set)'],['Canonical',esc(d.canonical)||'(none)'],['Words',d.words.toLocaleString()],['Preview',esc(d.preview)])}
+  let out='<div class="kv">'+kv.map(([k,v])=>'<b>'+k+'</b><span>'+v+'</span>').join('')+'</div>';
+  if(html){
+    const isUrl=new Set(['internalLinks','externalLinks','socialLinks','scripts','stylesheets','images','iframes']);
+    const secs=[['meta','Meta tags'],['headings','Headings'],['emails','Email addresses'],['phones','Phone numbers'],['socialLinks','Social links'],['internalLinks','Internal links'],['externalLinks','External links'],['forms','Forms'],['scripts','Scripts'],['stylesheets','Stylesheets'],['images','Images'],['iframes','Iframes'],['comments','HTML comments']];
+    out+='<div style="margin-top:14px">'+secs.map(([k,t])=>{const a=d[k];
+      return '<details><summary>'+t+' <span>('+a.length+')</span></summary>'+(a.length?'<ul class="l">'+a.map(x=>'<li>'+(isUrl.has(k)?'<a href="'+esc(x)+'" target="_blank" rel="noopener">'+esc(x)+'</a>':esc(x))+'</li>').join('')+'</ul>':'<p class="status">None found.</p>')+'</details>'}).join('')+'</div>';
+  }
+  $('#xout').innerHTML=out;
+}
+
+$('#sbtn').onclick=search;
+$('#q').onkeydown=e=>{if(e.key==='Enter')search()};
+$('#chips').onclick=e=>{const a=e.target.dataset.add;if(a){const q=$('#q');q.value=(q.value.trim()+' '+a).trim();q.focus()}};
+$('#rfilter').oninput=draw;
+$('#tb').onclick=e=>{const b=e.target.closest('button[data-x]');if(b){$('#xurl').value=b.dataset.x;lookup(b.dataset.t);$('#xurl').scrollIntoView({behavior:'smooth',block:'center'})}};
+$('#csv').onclick=()=>download('wayback-results.csv','timestamp,status,type,url\n'+visible().map(r=>[r[0],r[3],r[2],'"'+r[1].replace(/"/g,'""')+'"'].join(',')).join('\n'),'text/csv');
+$('#copy').onclick=async()=>{try{await navigator.clipboard.writeText(visible().map(r=>r[1]).join('\n'));say('#sstat','Copied '+visible().length+' URLs.')}catch{say('#sstat','Copy was blocked by the browser. Use Export CSV instead.',true)}};
+$('#xbtn').onclick=()=>lookup();
+$('#xurl').onkeydown=e=>{if(e.key==='Enter')lookup()};
+$('#snapsel').onchange=pull;
+$('#jdl').onclick=()=>last&&download('wayback-extract.json',JSON.stringify(last,null,2),'application/json');
+$('#jcp').onclick=async()=>{try{await navigator.clipboard.writeText(JSON.stringify(last,null,2));say('#xstat','JSON copied.')}catch{say('#xstat','Copy was blocked by the browser. Use Download JSON instead.',true)}};
+</script>
+</body>
+</html>
