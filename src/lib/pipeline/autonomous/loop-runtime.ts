@@ -171,8 +171,60 @@ class AutonomousLoopRuntime {
    *  fresh instance, which re-arms. The re-arm respects the snapshot's
    *  `enabled` flag so a stopped loop stays stopped across a swap. */
   private autoArmed = false;
+  /** STATIC auto-arm guard — across ALL instances in this process. When
+   *  the globalThis pin is cleared (by a hot-swap), Turbopack may create
+   *  several fresh instances before one re-pins itself. Without a
+   *  static guard, each would schedule its own 2s setTimeout and they'd
+   *  arm multiple timers (multiple cycles running in parallel = chaos).
+   *  The static guard ensures only ONE auto-arm fires per process boot,
+   *  no matter how many instances are transiently created. */
+  private static autoArmFired = false;
 
   constructor() {
+    // ── Hot-swap restore ────────────────────────────────────────────
+    // If a hot-swap stashed a snapshot before this constructor ran (i.e.
+    // a fresh instance is being created to replace one that was paused),
+    // consume the snapshot + restore its state. This is what makes the
+    // swap state-continuous: the new instance picks up the cycle count,
+    // config, stats, and the committed/failed-path sets the old one had.
+    // See core/hot-swap.ts.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { consumeStashedSnapshot } = require("../core/hot-swap") as {
+        consumeStashedSnapshot?: () => any;
+      };
+      if (typeof consumeStashedSnapshot === "function") {
+        const snap = consumeStashedSnapshot();
+        if (snap) {
+          if (snap.config) {
+            this.config = { ...this.config, ...snap.config };
+          }
+          if (snap.stats) {
+            this.stats = { ...this.stats, ...snap.stats };
+          }
+          if (Array.isArray(snap.previouslyCommittedPaths)) {
+            this.previouslyCommittedPaths = new Set(snap.previouslyCommittedPaths);
+          }
+          if (Array.isArray(snap.previouslyFailedPaths)) {
+            this.previouslyFailedPaths = new Map(snap.previouslyFailedPaths);
+          }
+          // A swap happened — reset the static autoArmFired flag so THIS
+          // fresh instance can auto-arm. Without this, the static guard
+          // (set true by the first boot's instance) would prevent the
+          // new instance from arming, and the loop would stay paused
+          // after every swap.
+          AutonomousLoopRuntime.autoArmFired = false;
+          // Log the restore so the swap is visible in the loop's own log.
+          this.addLog(
+            `HOT-SWAP RESTORE: resumed from snapshot (cycle #${snap.stats?.totalRuns ?? 0}, ${snap.previouslyCommittedPaths?.length ?? 0} committed, ${snap.previouslyFailedPaths?.length ?? 0} failed). Reason: ${snap.swappableReason ?? "(none)"}`,
+            "success"
+          );
+        }
+      }
+    } catch {
+      /* hot-swap module not yet loaded — first boot, no snapshot */
+    }
+
     // Auto-arm on construction. The singleton is created at module load
     // (server boot), so this starts the autonomous loop WITHOUT requiring
     // an operator to press [START]. A deferred 2-second setTimeout lets
@@ -180,10 +232,24 @@ class AutonomousLoopRuntime {
     // safe-mode rehydrate) settle before the first cycle fires — otherwise
     // the first cycle can race the duress rehydrate and miss a safe-mode
     // flag that should pause it.
-    if (!this.autoArmed) {
-      this.autoArmed = true;
+    //
+    // The STATIC autoArmFired guard is the key: when the globalThis pin
+    // is cleared (by a hot-swap), Turbopack may create several fresh
+    // instances before one re-pins itself. The static guard ensures
+    // only the FIRST instance schedules an auto-arm; the rest no-op.
+    // This prevents multiple timers (and thus multiple parallel cycles).
+    if (!AutonomousLoopRuntime.autoArmFired) {
+      AutonomousLoopRuntime.autoArmFired = true;
       setTimeout(() => {
         try {
+          // Re-check the pin: if another instance already armed + is
+          // running, this one should no-op. The pin is set by the
+          // singleton export below.
+          const g = globalThis as unknown as { __autonomousLoopRuntime?: any };
+          if (g.__autonomousLoopRuntime && g.__autonomousLoopRuntime !== this) {
+            // Another instance won the race. Don't arm a second timer.
+            return;
+          }
           // Respect duress safe-mode: if it's raised at boot (e.g. a prior
           // session left it raised), don't auto-start. The recovery probe
           // or the operator will clear it.

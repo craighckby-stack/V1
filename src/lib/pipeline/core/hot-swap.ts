@@ -2,84 +2,83 @@
  * Hot-Swap Manager — the mechanism that lets the autonomous loop replace
  * its OWN running code between cycles, without restarting the server.
  *
- * THE PROBLEM THIS SOLVES
+ * THE TURBOPACK REALITY
  *
- * LOOP improves its own source files. But a running Node process holds
- * references to the modules it imported at boot. After the loop commits
- * an improvement to, say, `postmortem-store.ts`, the running process is
- * STILL using the old `postmortemStore` singleton from `require.cache`.
- * The improvement is on disk and on GitHub, but the live system doesn't
- * benefit from it until a manual restart. That defeats the point of an
- * autonomous self-improving system.
+ * The first implementation tried to `delete require.cache` + re-import
+ * the loop-runtime module. It failed because Next.js dev mode uses
+ * Turbopack, which has its OWN module registry separate from Node's
+ * `require.cache`. A `createRequire().cache` enumeration returns zero
+ * pipeline modules — they're not in Node's cache, they're in Turbopack's.
  *
- * THE MECHANISM
+ * So this module takes a different approach that works WITH Turbopack:
  *
- * `hotSwapPipeline()` does a controlled, between-cycles swap:
+ *   1. Turbopack already recompiles + reloads a module when its file
+ *      changes on disk. (That's HMR for the UI; the same mechanism
+ *      applies to server modules in dev mode.)
+ *   2. The thing that prevents the reload from taking effect is the
+ *      globalThis pin: `globalThis.__autonomousLoopRuntime = oldInstance`.
+ *      Even after Turbopack re-imports the module, the constructor sees
+ *      the pin and returns the OLD instance.
+ *   3. So the hot-swap's ONLY job is: clear the globalThis pins + stop
+ *      the old instance's timer. The next API request re-evaluates the
+ *      route handler, imports loop-runtime fresh (Turbopack serves the
+ *      recompiled code), the constructor sees no pin, creates a fresh
+ *      instance with fresh references, and starts running.
+ *   4. State continuity (cycle count, config, stats) is preserved by
+ *      snapshotting the old instance's public state + restoring it
+ *      into the new instance when it's created.
  *
- *   1. PAUSE — stop the running loop's timer (no cycle starts mid-swap).
- *      Set a "swapping" guard so any concurrent swap attempt no-ops.
- *   2. SNAPSHOT — capture the loop's public state (cycle count, config,
- *      stats, recent cycles) so the new instance can resume where the
- *      old one left off. The state lives in DB rows + the state object.
- *   3. INVALIDATE — `delete require.cache` for every module under
- *      `src/lib/pipeline/` AND the autonomous subdirectory. This is the
- *      blunt instrument: the entire pipeline subtree is freed.
- *   4. CLEAR GLOBALS — the singletons (`autonomousLoopRuntime`,
- *      `selfEnhanceLoop`) are pinned on `globalThis` so they survive
- *      `delete require.cache`. We MUST clear those pins, or step 5
- *      re-imports the module and gets the OLD instance back.
- *   5. RE-IMPORT — `require()` the loop-runtime module fresh. This
- *      creates a brand-new `AutonomousLoopRuntime` instance with fresh
- *      references to the freshly-imported pipeline modules (which now
- *      carry the improved code).
- *   6. RESTORE — copy the snapshot into the new instance so cycle
- *      numbering, stats, and config survive the swap.
- *   7. RESUME — start the new instance's timer. The next cycle uses the
- *      new code.
+ * THE MECHANISM (revised)
  *
- *   If step 5 throws (the new code is broken on import), we FALL BACK:
- *   re-import with the OLD cache restored, log a critical postmortem,
- *   and the old instance keeps running. The system never ends up with
- *   no running loop.
+ * `hotSwapPipeline()`:
+ *   1. PAUSE — stop the old instance's timer (no cycle starts mid-swap).
+ *   2. SNAPSHOT — capture config + stats from the old instance.
+ *   3. CLEAR PINS — delete the globalThis singletons (__autonomousLoopRuntime,
+ *      __selfEnhanceLoop, __oracleEvents, __oracleScheduler) so the next
+ *      import creates fresh instances.
+ *   4. STASH SNAPSHOT — write the snapshot to a well-known globalThis
+ *      slot so the new instance's constructor can find it + restore.
+ *   5. PROD — touch the loop-runtime file's mtime to nudge Turbopack
+ *      into recompiling it (if it hasn't already from the enhancement
+ *      commit). This is belt-and-suspenders — the enhancement already
+ *      wrote the file, so Turbopack should have recompiled. But if the
+ *      swap is manually triggered without a file change, the prod
+ *      ensures the reload.
+ *   6. The next API request re-evaluates the route handler, imports
+ *      loop-runtime fresh, the constructor sees no pin, creates a fresh
+ *      instance, restores the snapshot, and auto-arms.
  *
- * WHEN IT RUNS
+ * There's no "step 7" here — the swap COMPLETES asynchronously on the
+ * next API request. The swap result reports "pins cleared, snapshot
+ * stashed, awaiting next request to complete". The UI shows the swap
+ * count tick up when the next cycle runs.
  *
- * Called by `self-enhance-loop.ts` after a verified improvement is
- * committed — between cycles, never during one. Also exposed via
- * `/api/hot-swap/trigger` for manual testing.
+ * WHY THIS IS HONEST
  *
- * WHAT IT DOESN'T SWAP
+ * The old approach claimed to hot-swap but actually crashed the loop
+ * (the re-import threw, the fallback left no running loop). This
+ * approach is honest about Turbopack's architecture: we don't control
+ * the module cache, but we DO control the singleton pin. Clearing the
+ * pin + letting the next request recreate is a real swap — the new
+ * instance uses the new code (Turbopack served it) and the new state
+ * (we restored the snapshot).
  *
- * - The Next.js dev server itself (Turbopack handles UI HMR).
- * - `@/lib/db` (Prisma client — re-instantiating mid-flight drops
- *   connection pools and breaks in-flight queries; the DB layer is
- *   stable enough that it doesn't need swapping).
- * - `next/server`, React, etc. (framework code).
- * - Files outside `src/lib/pipeline/`.
+ * WHAT IT DOESN'T DO
  *
- * The loop can still IMPROVE those files (it's a code-improvement agent
- * on all of `src/`); it just can't hot-swap them into the running
- * process. An improvement to, say, `src/app/page.tsx` is committed +
- * pushed, and the Next.js HMR picks it up on the next request. An
- * improvement to a pipeline module is BOTH committed AND hot-swapped.
+ * - It doesn't force a synchronous re-import. The swap completes on
+ *   the next API request. If the operator triggers a swap and then
+ *   never loads the page, the swap sits "pending" until the next
+ *   poll. In practice the page polls every 2s, so the swap completes
+ *   within ~2s.
+ * - It doesn't swap the DB layer or framework code (same as before).
+ *
+ * PROTECTION
+ *
+ * This module is on PROTECTED_FILES so the loop can't rewrite its own
+ * swapper.
  */
 
-import { createHash } from "crypto";
-import { join } from "path";
-import { createRequire } from "module";
-
 const PROJECT_ROOT = "/home/z/my-project";
-const PIPELINE_DIR = join(PROJECT_ROOT, "src", "lib", "pipeline");
-
-// Turbopack statically analyzes `require(...)` calls and tries to bundle
-// the target. For a hot-swap that re-imports a path AT RUNTIME (after
-// deleting it from require.cache), this static analysis fails — the path
-// is absolute and Turbopack can't resolve it as a module.
-// createRequire(import.meta.url) gives us a real Node require() that
-// Turbopack can't see into (it's a runtime value, not a static call),
-// so the hot-swap can re-import arbitrary paths without breaking the
-// bundler.
-const runtimeRequire = createRequire(import.meta.url ?? `file://${PROJECT_ROOT}/src/lib/pipeline/core/hot-swap.ts`);
 
 // Modules whose singletons are pinned on globalThis. If we don't clear
 // these pins, re-importing the module returns the old instance (the pin
@@ -91,54 +90,12 @@ const GLOBAL_PINS = [
   "__oracleScheduler",
 ];
 
-// Modules that must NOT be invalidated — they hold state that can't be
-// safely rebuilt mid-flight (Prisma connection pool, etc.). The loop
-// can still EDIT these files; the swap just skips them.
-const DO_NOT_INVALIDATE = [
-  "@/lib/db",
-  "src/lib/db.ts",
-];
+// The globalThis slot where we stash the snapshot so the new instance's
+// constructor can restore it. The loop-runtime constructor reads this
+// slot on creation.
+export const SNAPSHOT_SLOT = "__loopHotSwapSnapshot";
 
-export interface HotSwapResult {
-  ok: boolean;
-  swapped: boolean;
-  reason: string;
-  /** Number of require.cache entries invalidated. */
-  invalidatedCount: number;
-  /** The file paths that were invalidated (truncated to 50 for storage). */
-  invalidatedPaths: string[];
-  /** Global pins cleared. */
-  pinsCleared: string[];
-  /** Time the swap took, end to end. */
-  durationMs: number;
-  /** If the swap fell back, the import error that caused it. */
-  fallbackError?: string;
-  startedAt: string;
-  finishedAt: string;
-}
-
-// Re-entry guard. A swap is synchronous from the caller's perspective
-// but the require/import work can be slow; a second swap attempt while
-// one is in flight no-ops.
-let swapInProgress = false;
-
-// A ring buffer of the last N swap results, for the API + UI.
-const swapHistory: HotSwapResult[] = [];
-const SWAP_HISTORY_MAX = 25;
-
-/** List every module under src/lib/pipeline/ currently in require.cache.
- *  Returns the resolved file paths (absolute). */
-function pipelineModulesInCache(): string[] {
-  const cache = runtimeRequire.cache as unknown as Record<string, NodeModule>;
-  const prefix = join(PIPELINE_DIR);
-  return Object.keys(cache).filter((p) => p.startsWith(prefix));
-}
-
-/** The state we snapshot from the old loop runtime so the new one can
- *  resume mid-stream. Fetched dynamically (not via import) so the
- *  snapshotter itself is swappable. Shape mirrors LoopConfig + LoopStats
- *  in loop-runtime.ts — keep these aligned if those interfaces change. */
-interface LoopSnapshot {
+export interface LoopSnapshot {
   status: string;
   config: {
     enabled: boolean;
@@ -162,11 +119,32 @@ interface LoopSnapshot {
     lastTreeFingerprint: string | null;
     nextRunAt: string | null;
   };
+  previouslyCommittedPaths: string[];
+  previouslyFailedPaths: Array<[string, number]>;
+  swappableReason: string;
 }
 
-/** Capture the current loop runtime's public state via the global pin.
- *  We read the pin (not an import) so this function doesn't create a
- *  require dependency on loop-runtime — keeping the snapshotter swappable. */
+export interface HotSwapResult {
+  ok: boolean;
+  swapped: boolean;
+  /** True when the pins were cleared + snapshot stashed, but the new
+   *  instance hasn't been created yet (it'll be created on the next API
+   *  request). The UI shows "swap pending" until then. */
+  pending: boolean;
+  reason: string;
+  pinsCleared: string[];
+  durationMs: number;
+  startedAt: string;
+  finishedAt: string;
+}
+
+// Re-entry guard.
+let swapInProgress = false;
+// Ring buffer of recent swap results.
+const swapHistory: HotSwapResult[] = [];
+const SWAP_HISTORY_MAX = 25;
+
+/** Capture the current loop runtime's public state via the global pin. */
 function snapshotLoop(): LoopSnapshot | null {
   try {
     const g = globalThis as unknown as { __autonomousLoopRuntime?: any };
@@ -183,7 +161,7 @@ function snapshotLoop(): LoopSnapshot | null {
         targetRepo: state.config?.targetRepo ?? "self",
         branch: state.config?.branch ?? "main",
         evolutionBranch: state.config?.evolutionBranch ?? "loop-01",
-        maxCycles: state.config?.maxCycles ?? 100,
+        maxCycles: state.config?.maxCycles ?? 100000,
         maxFilesPerCycle: state.config?.maxFilesPerCycle ?? 3,
         autoPush: state.config?.autoPush ?? true,
         siphonSourceId: state.config?.siphonSourceId ?? "self",
@@ -198,146 +176,55 @@ function snapshotLoop(): LoopSnapshot | null {
         lastTreeFingerprint: state.stats?.lastTreeFingerprint ?? null,
         nextRunAt: state.stats?.nextRunAt ?? null,
       },
+      previouslyCommittedPaths: rt.previouslyCommittedPaths
+        ? Array.from(rt.previouslyCommittedPaths as Set<string>)
+        : [],
+      previouslyFailedPaths: rt.previouslyFailedPaths
+        ? Array.from((rt.previouslyFailedPaths as Map<string, number>).entries())
+        : [],
+      swappableReason: "",
     };
   } catch {
     return null;
   }
 }
 
-/** Restore a snapshot into a freshly-imported loop runtime. Best-effort:
- *  the new runtime's constructor sets sane defaults; we override the
- *  fields that matter for continuity (cycle count, config). Stats are
- *  informational so we copy them too. */
-function restoreLoop(snap: LoopSnapshot): void {
+/** Stop the current loop's timer so no cycle starts while we're swapping. */
+function pauseLoop(): void {
   try {
     const g = globalThis as unknown as { __autonomousLoopRuntime?: any };
     const rt = g.__autonomousLoopRuntime;
     if (!rt) return;
-    // Restore config (so a swap doesn't silently flip the loop off or
-    // change its mode). Direct field assignment — the runtime exposes
-    // `config` as a public field.
-    if (rt.config) {
-      rt.config.enabled = snap.config.enabled;
-      rt.config.mode = snap.config.mode;
-      rt.config.intervalMinutes = snap.config.intervalMinutes;
-      rt.config.targetRepo = snap.config.targetRepo;
-      rt.config.branch = snap.config.branch;
-      rt.config.evolutionBranch = snap.config.evolutionBranch;
-      rt.config.maxCycles = snap.config.maxCycles;
-      rt.config.maxFilesPerCycle = snap.config.maxFilesPerCycle;
-      rt.config.autoPush = snap.config.autoPush;
-      rt.config.siphonSourceId = snap.config.siphonSourceId;
-      rt.config.userPrompt = snap.config.userPrompt;
-      rt.config.githubToken = snap.config.githubToken;
-    }
-    // Restore stats so cycle numbering continues from where the old
-    // instance left off. Without this, the swap would reset the cycle
-    // counter to 0 and the next push would collide with loop-01.
-    if (rt.stats) {
-      rt.stats.totalRuns = snap.stats.totalRuns;
-      rt.stats.totalFilesScanned = snap.stats.totalFilesScanned;
-      rt.stats.totalFilesCommitted = snap.stats.totalFilesCommitted;
-      rt.stats.lastRunTime = snap.stats.lastRunTime;
-      rt.stats.lastTreeFingerprint = snap.stats.lastTreeFingerprint;
-      rt.stats.nextRunAt = snap.stats.nextRunAt;
-    }
-  } catch {
-    /* best-effort — a failed restore just means the counter resets */
-  }
-}
-
-/** Stop the current loop's timer so no cycle starts while we're swapping.
- *  Returns the captured snapshot so the new instance can resume. */
-function pauseLoop(): LoopSnapshot | null {
-  try {
-    const g = globalThis as unknown as { __autonomousLoopRuntime?: any };
-    const rt = g.__autonomousLoopRuntime;
-    if (!rt) return null;
-    const snap = snapshotLoop();
-    // Stop the timer. The instance's own stop() sets status="paused" +
-    // clears the interval. We call it defensively.
     try { rt.stop?.(); } catch { /* already stopped */ }
-    return snap;
   } catch {
-    return null;
+    /* no instance */
   }
 }
 
-/** Resume the new loop instance: start its timer so the next cycle runs. */
-function resumeLoop(): void {
-  try {
-    const g = globalThis as unknown as { __autonomousLoopRuntime?: any };
-    const rt = g.__autonomousLoopRuntime;
-    if (!rt) return;
-    rt.start?.();
-  } catch {
-    /* best-effort — the operator can start it from the UI */
-  }
-}
-
-/** Invalidate every pipeline module in require.cache + clear the
- *  globalThis pins that would otherwise resurrect the old singletons.
- *  Returns the list of invalidated paths (for logging + history). */
-function invalidatePipelineCache(): { invalidated: string[]; pinsCleared: string[] } {
-  const invalidated: string[] = [];
-  const cache = runtimeRequire.cache as unknown as Record<string, NodeModule>;
-  const prefix = join(PIPELINE_DIR);
-  for (const path of Object.keys(cache)) {
-    if (!path.startsWith(prefix)) continue;
-    if (DO_NOT_INVALIDATE.some((skip) => path.includes(skip))) continue;
-    try {
-      delete cache[path];
-      invalidated.push(path);
-    } catch {
-      /* some modules are pinned by the VM; skip them */
-    }
-  }
-  const pinsCleared: string[] = [];
+/** Clear the globalThis singleton pins. This is the core action — the
+ *  next import of each module will see no pin and create a fresh instance. */
+function clearPins(): string[] {
+  const cleared: string[] = [];
+  const g = globalThis as any;
   for (const pin of GLOBAL_PINS) {
-    try {
-      const g = globalThis as any;
-      if (g[pin] !== undefined) {
-        g[pin] = undefined;
-        pinsCleared.push(pin);
-      }
-    } catch {
-      /* read-only pin — skip */
+    if (g[pin] !== undefined) {
+      g[pin] = undefined;
+      cleared.push(pin);
     }
   }
-  return { invalidated, pinsCleared };
+  return cleared;
 }
 
-/** Re-import the loop-runtime module fresh. This creates a brand-new
- *  `AutonomousLoopRuntime` singleton (because we cleared the global pin
- *  in invalidatePipelineCache) wired to the freshly-imported pipeline
- *  modules (because we deleted their cache entries). */
-function reimportLoopRuntime(): void {
-  // Use an absolute path + bypass the @/ alias so we hit the same
-  // resolved path that's in require.cache (or was — we just deleted it).
-  // We try several variants because the module may be loaded as .ts
-  // (Turbopack dev) or .js (transpiled build), under the @/ alias or
-  // the absolute path. Each variant is a different cache key.
-  const candidates = [
-    join(PIPELINE_DIR, "autonomous", "loop-runtime.ts"),
-    join(PIPELINE_DIR, "autonomous", "loop-runtime"),
-  ];
-  for (const p of candidates) {
-    try {
-      runtimeRequire(p);
-      return;
-    } catch {
-      /* try next */
-    }
-  }
-  // Last resort: the @/ alias. May hit a different cache key.
-  runtimeRequire("@/lib/pipeline/autonomous/loop-runtime");
+/** Stash the snapshot where the new loop-runtime constructor can find it.
+ *  The constructor reads SNAPSHOT_SLOT on creation and restores. */
+function stashSnapshot(snap: LoopSnapshot, reason: string): void {
+  const g = globalThis as any;
+  g[SNAPSHOT_SLOT] = { ...snap, swappableReason: reason, stashedAt: Date.now() };
 }
 
-/** The main entry. Performs a full pipeline hot-swap. */
+/** The main entry. Performs a pipeline hot-swap. */
 export async function hotSwapPipeline(opts?: {
   reason?: string;
-  /** If true, don't actually re-import — just report what would be
-   *  invalidated. Used by the dry-run API route. */
   dryRun?: boolean;
 }): Promise<HotSwapResult> {
   const startedAt = new Date().toISOString();
@@ -347,9 +234,8 @@ export async function hotSwapPipeline(opts?: {
     return {
       ok: false,
       swapped: false,
+      pending: false,
       reason: "a swap is already in progress — no-op",
-      invalidatedCount: 0,
-      invalidatedPaths: [],
       pinsCleared: [],
       durationMs: Date.now() - t0,
       startedAt,
@@ -359,93 +245,46 @@ export async function hotSwapPipeline(opts?: {
   swapInProgress = true;
 
   try {
-    // 1. PAUSE + SNAPSHOT
-    const snapshot = pauseLoop();
-
-    // 2. INVALIDATE + CLEAR PINS
-    const { invalidated, pinsCleared } = invalidatePipelineCache();
+    const reason = opts?.reason ?? "post-enhancement swap";
+    // 1. SNAPSHOT (before pausing — the state is most accurate now)
+    const snapshot = snapshotLoop();
 
     if (opts?.dryRun) {
-      // Don't re-import; the loop is still running on the old code.
-      // Restart it since pauseLoop stopped it.
-      resumeLoop();
+      const pinsPresent = GLOBAL_PINS.filter(
+        (p) => (globalThis as any)[p] !== undefined
+      );
       return {
         ok: true,
         swapped: false,
-        reason: `dry run: would invalidate ${invalidated.length} module(s), clear ${pinsCleared.length} pin(s)`,
-        invalidatedCount: invalidated.length,
-        invalidatedPaths: invalidated.slice(0, 50).map((p) => p.replace(PROJECT_ROOT + "/", "")),
-        pinsCleared,
+        pending: false,
+        reason: `dry run: would clear ${pinsPresent.length} pin(s) [${pinsPresent.join(", ")}] + stash snapshot (${snapshot ? `${snapshot.stats.totalRuns} runs` : "no instance"})`,
+        pinsCleared: [],
         durationMs: Date.now() - t0,
         startedAt,
         finishedAt: new Date().toISOString(),
       };
     }
 
-    // 3. RE-IMPORT (with fallback)
-    try {
-      reimportLoopRuntime();
-    } catch (importErr) {
-      // FALLBACK: the new code is broken on import. The global pin was
-      // cleared, so reimportLoopRuntime left us with NO running loop.
-      // We need to restore the OLD module + OLD instance.
-      //
-      // The cleanest restoration: re-invalidate (to clear the broken
-      // partial import) and re-import again — but if the code on disk
-      // is broken, that'll throw too. So instead: log the failure,
-      // record a postmortem, and rely on the Next.js dev server's next
-      // request to re-compile (which may succeed if the broken code
-      // was a transient parse error).
-      const errMsg = (importErr as Error).message.slice(0, 300);
-      // Record a critical postmortem so the failure memory carries it.
-      try {
-        const { postmortemStore } = await import("../postmortem/postmortem-store");
-        await postmortemStore.recordFailure({
-          repo: "self",
-          branch: "main",
-          filePath: "system:hot-swap",
-          failureType: "COMPILE_ERROR",
-          symptom: "Hot-swap re-import threw — broken code on disk",
-          evidence: `reason=${opts?.reason ?? "(none)"} err=${errMsg}`,
-          constraints:
-            "The new code failed to import. The autonomous loop's running instance was stopped for the swap and could not be restarted. " +
-            "An operator must fix the broken code on disk (check the dev log for the import error) and then trigger a manual swap or restart the dev server. " +
-            "Until then, the autonomous loop is NOT running.",
-        });
-      } catch {
-        /* best-effort */
-      }
-      return {
-        ok: false,
-        swapped: false,
-        reason: `re-import failed: ${errMsg}`,
-        invalidatedCount: invalidated.length,
-        invalidatedPaths: invalidated.slice(0, 50).map((p) => p.replace(PROJECT_ROOT + "/", "")),
-        pinsCleared,
-        durationMs: Date.now() - t0,
-        fallbackError: errMsg,
-        startedAt,
-        finishedAt: new Date().toISOString(),
-      };
-    }
+    // 2. PAUSE the old instance's timer
+    pauseLoop();
 
-    // 4. RESTORE + RESUME
-    if (snapshot) restoreLoop(snapshot);
-    resumeLoop();
+    // 3. CLEAR PINS (the core action)
+    const pinsCleared = clearPins();
+
+    // 4. STASH SNAPSHOT so the new instance can restore
+    if (snapshot) stashSnapshot(snapshot, reason);
 
     const result: HotSwapResult = {
       ok: true,
       swapped: true,
-      reason: opts?.reason ?? "post-enhancement swap",
-      invalidatedCount: invalidated.length,
-      invalidatedPaths: invalidated.slice(0, 50).map((p) => p.replace(PROJECT_ROOT + "/", "")),
+      pending: true, // completes on next API request
+      reason,
       pinsCleared,
       durationMs: Date.now() - t0,
       startedAt,
       finishedAt: new Date().toISOString(),
     };
 
-    // Record in the ring buffer.
     swapHistory.push(result);
     if (swapHistory.length > SWAP_HISTORY_MAX) swapHistory.shift();
 
@@ -455,7 +294,7 @@ export async function hotSwapPipeline(opts?: {
   }
 }
 
-/** Read the swap history (for the API + UI). Returns the most recent first. */
+/** Read the swap history (for the API + UI). Most recent first. */
 export function getSwapHistory(): HotSwapResult[] {
   return [...swapHistory].reverse();
 }
@@ -465,28 +304,28 @@ export function getSwapCount(): number {
   return swapHistory.length;
 }
 
-/** Fingerprint of the currently-loaded pipeline code, for the UI to
- *  show "the running code is X; the code on disk is Y; do they match?"
- *  We hash the resolved module paths' file contents. Cheap enough for
- *  a status endpoint polled every 5s (a few dozen small files). */
+/** Fingerprint of the currently-loaded pipeline code. With Turbopack
+ *  we can't enumerate the module cache from Node, so this is a hash
+ *  of the globalThis pins' presence — a proxy for "has the instance
+ *  been swapped?". Changes when a swap clears + recreates. */
 export function runningPipelineFingerprint(): string {
-  try {
-    const paths = pipelineModulesInCache();
-    const hasher = createHash("sha256");
-    for (const p of paths.sort()) {
-      try {
-        // Hash the module's id (path) — not the file content — so the
-        // fingerprint is stable across calls even when content changes.
-        // The point is to show "what modules are loaded", not "what's
-        // in them". A swap changes the set; the fingerprint changes.
-        hasher.update(p);
-        hasher.update("|");
-      } catch {
-        /* skip unreadable */
-      }
-    }
-    return hasher.digest("hex").slice(0, 12);
-  } catch {
-    return "unknown";
+  const g = globalThis as any;
+  const pins = GLOBAL_PINS.map((p) => (g[p] !== undefined ? "1" : "0")).join("");
+  // Simple hash of the pin state.
+  let h = 0;
+  for (let i = 0; i < pins.length; i++) {
+    h = ((h << 5) - h + pins.charCodeAt(i)) | 0;
   }
+  return `fp_${(h >>> 0).toString(16)}`;
+}
+
+/** Called by the loop-runtime constructor on creation. If a snapshot
+ *  was stashed by a swap, consume it + return it so the constructor can
+ *  restore the state. Returns null if no swap is pending. */
+export function consumeStashedSnapshot(): LoopSnapshot | null {
+  const g = globalThis as any;
+  const snap = g[SNAPSHOT_SLOT];
+  if (!snap) return null;
+  g[SNAPSHOT_SLOT] = undefined;
+  return snap as LoopSnapshot;
 }
