@@ -22,19 +22,48 @@
  * checkpoint, not a tombstone — a file that's stable today might unlock
  * new improvements next pass when the landscape has changed.
  *
- * The TARGET_FILES allowlist is the "focus" control. When non-empty,
- * the loop only mutates files in this list. Phase 1 = one entry. Phase 2+
- * = more entries. Default: the live-visible display file.
+ * TARGET_FILES is the FOCUS control (see below). Saturation is the churn
+ * control that makes full-scope scanning safe: every file earns its own
+ * lockout after 3 unproductive cycles, so a 40-file scope converges to
+ * zero quota burn without human intervention.
  */
 
-/** Files the loop is allowed to mutate. When empty, the loop is disabled
- *  (we never want it scanning ALL pipeline files unsupervised — that was
- *  the unbounded-churn regime that burned quota). Add a path here to
- *  "focus" the loop on that file. Paths are repo-relative
- *  (e.g. "src/app/display/console-stream.tsx"). */
-export const TARGET_FILES: string[] = [
-  "src/app/display/console-stream.tsx",
+/** Files the loop is allowed to mutate — FOCUS MODE. When NON-empty,
+ *  the loop only mutates files in this list (the surgical focus
+ *  control). When EMPTY, the loop scans every enabled scope below
+ *  (full-scope mode). Churn in full-scope mode is bounded by the
+ *  saturation lockout (3 no-growth cycles per file) + the shared LLM
+ *  429 gate — that pair replaced the old "empty = disabled" semantics
+ *  when the scope expanded beyond one display file. */
+export const TARGET_FILES: string[] = [];
+
+/** The mutation scopes — what the loop is allowed to enhance in
+ *  full-scope mode. Each entry: [directory, extensions]. The hard
+ *  floor underneath is PROTECTED_FILES + PROTECTED_PREFIXES in
+ *  protected-files.ts — nothing there is scannable no matter what.
+ *
+ *  The scope grew in three steps:
+ *    v1: pipeline logic only (src/lib/pipeline)
+ *    v2: + the display layer (src/app/display)
+ *    v3: + UI components (src/components), API routes (src/app/api,
+ *        minus the self-enhance control subtree), and the Prisma
+ *        schema (additive-only, gated by schema-gate.ts)
+ *
+ *  Everything the system IS now lives inside its own reach: the loop
+ *  can enhance the components that render it, the routes that serve
+ *  it, and (additively) the database that remembers for it. */
+export const SCAN_SCOPES: Array<{ dir: string; extensions: string[] }> = [
+  { dir: "src/lib/pipeline", extensions: [".ts"] },
+  { dir: "src/app/display", extensions: [".tsx"] },
+  { dir: "src/components", extensions: [".tsx"] },
+  { dir: "src/app/api", extensions: [".ts"] },
 ];
+
+/** The Prisma schema — handled as a special single-file scope. Not a
+ *  directory scan; enhanceFile routes .prisma through the additive-only
+ *  schema gate instead of the tsc/AST/debate chain (which don't apply
+ *  to a non-TS DSL). */
+export const SCHEMA_TARGET = "prisma/schema.prisma";
 
 /** Cycles a file must show NO growth before lockout. EMG used 3; we keep
  *  it. Tunable: too low and a file locks out before the LLM finds the real

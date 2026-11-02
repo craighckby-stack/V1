@@ -305,3 +305,71 @@ model SystemFlag {
   setAt     DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+/// ── COMPOUNDING INTELLIGENCE ─────────────────────────────────────────
+/// A GENERAL lesson distilled from the system's accumulated experience.
+///
+/// Postmortems are per-file and reactive: they only fire for the exact
+/// file that failed, and only after the failure. That's a scar log, not
+/// intelligence — knowing `halt.ts` hates function removal doesn't help
+/// when the loop picks `sanitizer.ts`.
+///
+/// Lessons are the transfer layer. Periodically (every DISTILL_INTERVAL
+/// cycles) the loop asks the LLM to look at AGGREGATE failure patterns +
+/// recent successful change summaries and extract up to 3 GENERAL rules
+/// ("across 14 failures, 9 were the LLM deleting error-handling branches
+/// — never remove try/catch blocks"). These inject into EVERY enhance
+/// prompt, not just the failing file's.
+///
+/// The compounding loop is distill → inject → measure → prune:
+///   - distill: LLM extracts general rules from aggregate history
+///   - inject: top-K lessons by trust score go into every prompt
+///   - measure: every mutation verdict feeds back — pass → helped++,
+///     fail → hindered++ for the lessons that were injected
+///   - prune: score = helped/(helped+hindered); a lesson below 0.35
+///     after >= 4 observations is deactivated (it didn't transfer)
+///
+/// This is meta-learning with a real feedback signal: the system learns
+/// WHICH of its own lessons actually raise the pass rate, and keeps only
+/// those. That's what makes it compound — each surviving lesson makes
+/// future mutations more likely to succeed, which the score proves.
+///
+/// This model is in the SCHEMA-PROTECTED list: the loop can never edit
+/// or drop it (the additive-only schema gate rejects any diff touching
+/// it). A self-improving system must not be able to forget its own
+/// learning substrate.
+model Lesson {
+  id        String   @id @default(cuid())
+
+  // The general imperative rule. One or two sentences, applies ACROSS
+  // files, phrased so it can be injected verbatim into any enhance
+  // prompt. e.g. "Never remove error-handling branches — the debate
+  // gate rejects 'simplification' of try/catch blocks."
+  content   String
+
+  // Where it came from: "distilled" (LLM pass over aggregate history)
+  // or "seed" (hand-planted at schema-creation time).
+  sourceType String  @default("distilled")
+
+  // How many postmortems/events fed the distillation that produced it.
+  // Higher = broader evidence base = started with more trust.
+  sourceCount Int    @default(1)
+
+  // Feedback counters — the measured half of the compounding loop.
+  injected Int       @default(0) // times included in an enhance prompt
+  helped   Int       @default(0) // of those, mutations that PASSED
+  hindered Int       @default(0) // of those, mutations that FAILED
+
+  // Trust score = helped/(helped+hindered), recomputed on every verdict.
+  // Starts at 1.0 (benefit of the doubt). Lessons are selected for
+  // injection in descending score order.
+  score    Float     @default(1.0)
+
+  // False once pruned (score fell below threshold with enough
+  // observations). Kept for history — the distiller sees pruned lessons
+  // so it doesn't re-derive a rule that already failed to transfer.
+  active   Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

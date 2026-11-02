@@ -23,6 +23,9 @@ export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/push-target.ts", // protect the push auth path
   "src/lib/pipeline/autonomous/in-memory-typecheck.ts", // protect the typecheck
   "src/lib/pipeline/autonomous/verify-refactor.ts", // protect the verifier
+  "src/lib/pipeline/autonomous/lesson-store.ts", // protect the compounding engine
+  "src/lib/pipeline/autonomous/schema-gate.ts", // protect the schema gate
+  "src/lib/pipeline/autonomous/protected-files.ts", // protect the protection list
   "src/lib/pipeline/llm/agent-llm.ts", // protect the LLM wrapper
   "src/lib/pipeline/llm/debate-llm.ts",
   // Hot-swap core — protect the swapper. If the loop could rewrite its
@@ -38,4 +41,34 @@ export const PROTECTED_FILES = new Set([
   // surface, it could remove the STOP button and escape user oversight.
   "src/app/page.tsx", // the control surface itself
   "src/app/layout.tsx", // page metadata / shell
+  // The database client — a mutation here could break every db.* call
+  // site at once, including the postmortem and lesson stores.
+  "src/lib/db.ts",
 ]);
+
+/** Directory subtrees the loop must never touch — same contract as
+ *  PROTECTED_FILES but for whole prefixes (individual listing would be
+ *  brittle: every new route file would need a matching entry here, and
+ *  forgetting one would open the control surface).
+ *
+ *  - api/self-enhance/** — the backend of the control surface. start /
+ *    stop / push / push-target / llm-config / visibility. If the loop
+ *    could rewrite these routes, a "successful" mutation could break
+ *    the STOP button's API or weaken the push path — the same escape
+ *    hatch as rewriting page.tsx, one layer down.
+ */
+export const PROTECTED_PREFIXES = [
+  "src/app/api/self-enhance/",
+  "src/app/api/health", // healthz — the sandbox's uptime probe
+];
+
+/** Full protection check: exact file OR protected prefix. This is the
+ *  single predicate scanFiles uses — keeping it here means adding a
+ *  prefix or file protects it everywhere at once. */
+export function isProtectedPath(relPath: string): boolean {
+  if (PROTECTED_FILES.has(relPath)) return true;
+  for (const p of PROTECTED_PREFIXES) {
+    if (relPath.startsWith(p)) return true;
+  }
+  return false;
+}

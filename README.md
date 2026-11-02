@@ -136,16 +136,59 @@ As of this README:
 - **38 mutation branches** on GitHub (`loop-01` through `loop-38`), next will be `loop-39`.
 - **28 postmortems** in the chain, **0 broken links** (every postmortem traces to a real commit).
 - **9 prophecies** seeded by the Oracle, **9 pending** evaluation.
-- **0 hot-swaps** this boot.
+- **136 files in mutation scope** — pipeline logic, UI components, API routes, and the Prisma schema (see below).
 - The repo (`craighckby-stack/V1`) is **public** — commit links in the BRANCHES dialog resolve for anyone.
 
 The system is currently running against a free-tier LLM API, which rate-limits frequently. When it does, the loop backs off honestly — each retry fires a log line in real time rather than going silent. No fake progress.
 
 ---
 
-## Repo visibility
+## Compounding intelligence — the Lesson system
 
-The repo is private by default when auto-created. To make the BRANCHES commit links shareable, open the CONFIG dialog and click **`[ MAKE PUBLIC ]`** — it uses the same stored PAT to flip the GitHub repo's visibility via the REST API. Confirm before going public (git history leaves the building); no confirm needed to re-private.
+Postmortems are per-file and reactive: a scar log. Knowing `halt.ts` hates function removal doesn't help when the loop picks `sanitizer.ts`. **Lessons** are the transfer layer — general rules distilled from AGGREGATE history that inject into EVERY enhance prompt:
+
+```
+--- LEARNED LESSONS (general rules this system distilled from its own history) ---
+1. Never remove error-handling branches or empty catch blocks without
+   replacing them with equal-or-better handling — the debate tribunal
+   rejects 'simplification' of error paths...
+--- END LEARNED LESSONS ---
+```
+
+The loop is **distill → inject → measure → prune**:
+
+1. **Distill** — every 10 cycles, one LLM pass over aggregate failure patterns (failure-type counts, most-attempted files, recent successes) extracts up to 3 general rules. Deduped against existing lessons, including PRUNED ones (a rule that already failed to transfer isn't re-derived).
+2. **Inject** — top 5 lessons by trust score go into every prompt. Global, not per-file. A lesson from pipeline failures shapes a UI component mutation.
+3. **Measure** — every mutation verdict feeds back: pass → `helped++`, fail → `hindered++` for exactly the lessons that were injected.
+4. **Prune** — score = helped/(helped+hindered). Below 0.35 after ≥4 observations → deactivated. The lesson didn't transfer; it stops costing prompt tokens.
+
+This is meta-learning with a real feedback signal: the system learns WHICH of its own lessons actually raise the pass rate, keeps only those, and the score proves it. That's what compounds — each surviving lesson makes future mutations more likely to succeed, measurably.
+
+---
+
+## The mutation scope — 136 files
+
+| Scope | Files | Gate chain |
+|---|---|---|
+| Pipeline logic (`src/lib/pipeline/`) | 33 | ratchet pin → tsc + AST → debate → test gate |
+| Display layer (`src/app/display/`) | 1 | same |
+| UI components (`src/components/`) | 63 | same |
+| API routes (`src/app/api/`) | 38 | same |
+| Prisma schema (`prisma/schema.prisma`) | 1 | **additive-only gate** (see below) |
+
+Everything the system IS lives inside its own reach: the loop can enhance the components that render it, the routes that serve it, and (additively) the database that remembers for it. Churn is bounded by the saturation lockout — 3 no-growth cycles per file and it locks out until the operator unlocks it.
+
+### The additive-only schema gate
+
+The most dangerous thing the loop could touch is its own memory substrate. A bad schema change can destroy the postmortem DB. So schema mutations pass through the strictest gate in the pipeline:
+
+- **Allowed**: new model blocks; new nullable/`@default()` fields on non-protected models (existing rows backfill).
+- **Rejected**: any removal, rename, or type change; ANY edit to the protected memory models (Postmortem, Lesson, GitPushTarget, LlmConfig, Prophecy, SystemFlag).
+- **Chain**: structural diff check → `prisma validate` → `db push` → canary round-trip (a fresh child process reads the memory tables through the regenerated client). Any step failing → the original schema is restored and re-pushed. The loop can GROW its memory but never EDIT or FORGET it.
+
+### What stays protected
+
+The loop's own brain (gate chain, loop runtime, push auth, LLM wrappers, the lesson store, the schema gate, the protection list itself), the UI control surface (`page.tsx` — your STOP button), the control API subtree (`api/self-enhance/**` — the backend of the kill switch), the health probe, and `src/lib/db.ts`. A self-improving system must not be able to rewrite its own OFF switch, its own judges, or its own memory.
 
 ---
 
@@ -182,7 +225,7 @@ To configure the push target (so mutations land on GitHub), type `config` or cli
 
 - **The LLM has to be reachable.** The loop depends on an external LLM endpoint. When it returns 429s, the loop backs off honestly — each retry fires a log line. If the endpoint is hard-down, every cycle completes structurally (scan → attempt → fail → next) but produces zero mutations.
 - **The first attempt at any file is the dumbest.** The postmortem is written only after the first failure. Every subsequent attempt is informed.
-- **The "self-improvement" is incremental, not compounding.** 38 branches = 38 small validated patches, not 38× smarter. Each mutation is a discrete, compiler-gated diff to one source file. The system is not rewriting its own core loop logic in a way that would exponentiate.
+- **The compounding is real but bounded.** The Lesson system adds measured transfer (general rules that raise the pass rate across files, with a score that proves it) — but it compounds prompt-context quality, not capability. The system gets better at making mutations that PASS; it does not get better at understanding code beyond what the LLM already understood. The ceiling is the LLM; the lessons just stop you paying for the same mistake twice.
 - **The intelligence is outsourced.** The LLM does the generation; the system's actual cleverness is in the gating — TypeScript compiler, structural validator, postmortem chain, push pipeline. The system is a well-built scaffold around an LLM that proposes diffs.
 - **The postmortem chain is the system vouching for itself.** "Verified" means the LLM checked its own work and the validator passed — not external verification. Same with the Oracle: it predicts its own operational outcomes, which is a neat closed loop but self-referential, not external-world modeling.
 - **Push target has to be configured to see branches on GitHub.** Without a configured PAT + repo, the loop falls back to commit-only (local commits, no `loop-NN` branches on a remote).

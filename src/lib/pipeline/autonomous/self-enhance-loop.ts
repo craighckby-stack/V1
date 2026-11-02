@@ -26,11 +26,23 @@ import { detectTruncation, stripComments, stripLiteralsAndComments } from "./cod
 import { autoProphecyAfterCycle } from "../oracle/oracle-auto";
 import {
   TARGET_FILES,
+  SCAN_SCOPES,
+  SCHEMA_TARGET,
   SATURATION_THRESHOLD,
   type FileSaturation,
   type SaturationMap,
   classifyGrowth,
 } from "./saturation";
+import { isProtectedPath } from "./protected-files";
+import {
+  getLessonsForPrompt,
+  formatLessonsBlock,
+  markInjected,
+  recordLessonOutcome,
+  maybeDistill,
+  seedLessons,
+} from "./lesson-store";
+import { applySchemaMutation } from "./schema-gate";
 
 const PIPELINE_SRC_DIR = "/home/z/my-project/src/lib/pipeline";
 const DISPLAY_SRC_DIR = "/home/z/my-project/src/app/display";
@@ -303,6 +315,13 @@ class SelfEnhanceLoop {
   // the `if (this.running) return` guard so a new start could spawn a second
   // concurrent cycle sharing currentCycleBranch / currentFile.
   private runId = 0;
+  // LESSON FEEDBACK channel: the ids of the lessons injected into the
+  // CURRENT enhanceFile's prompt. Set at prompt-build time, consumed by
+  // runCycle right after the verdict lands (pass → helped, fail →
+  // hindered). The loop is strictly serial (one file at a time), so an
+  // instance field is a safe hand-off. Cleared at the top of every
+  // enhanceFile so a stale list can never feed back twice.
+  private lastLessonIds: string[] = [];
   // Ratchet: per-file test-writing attempt tracking. After 2 failed attempts
   // (bad tests, untestable module, LLM trouble), stop retrying — but forget
   // failures older than 30 minutes, so an intermittent 429 window doesn't
@@ -343,23 +362,16 @@ class SelfEnhanceLoop {
     console.log(`[SELF-ENHANCE] ${prefix} ${message}`);
   }
 
-  /**
-   * Scan for files to enhance. Two scopes:
-   *   1. src/lib/pipeline/ — the system's own logic (.ts only)
-   *   2. src/app/display/ — the mutable UI display layer (.tsx — colors,
-   *      layout, formatting, visualizations). The control surface
-   *      (page.tsx, layout.tsx) is PROTECTED and never scanned.
-   */
+/**
+ * Scan for files to enhance. Full-scope mode (TARGET_FILES empty):
+ * every enabled SCAN_SCOPE, minus protected paths, plus the Prisma
+ * schema as a special single-file target. Focus mode (TARGET_FILES
+ * non-empty): only the listed files. Either way, PROTECTED_FILES /
+ * PROTECTED_PREFIXES are the hard floor — isProtectedPath filters
+ * every candidate.
+ */
   private scanFiles(): string[] {
-    // Phase 1: TARGET_FILES allowlist. When non-empty, the loop ONLY
-    // mutates files in this list. This is the "focus" control — one file
-    // for the live-visible demo, more as the system proves itself. When
-    // empty, the loop is DISABLED (never fall back to scanning all
-    // pipeline files unsupervised — that was the unbounded-churn regime
-    // that burned quota re-reviewing 19 files every cycle).
-    if (TARGET_FILES.length === 0) {
-      return [];
-    }
+    const focus = TARGET_FILES.length > 0;
     const allowSet = new Set(TARGET_FILES);
     const files: string[] = [];
     const scan = (dir: string, extensions: string[]) => {
@@ -367,7 +379,7 @@ class SelfEnhanceLoop {
       try {
         entries = readdirSync(dir, { withFileTypes: true });
       } catch {
-        return; // directory doesn't exist yet (e.g. display/ on first boot)
+        return; // directory doesn't exist yet
       }
       for (const entry of entries) {
         const fullPath = join(dir, entry.name);
@@ -381,19 +393,25 @@ class SelfEnhanceLoop {
             (extensions.includes(".tsx") && isTsx);
           if (matches) {
             const relPath = relative(PROJECT_ROOT, fullPath);
-            // Two filters: (1) not protected, (2) in the allowlist. Both
-            // must pass. PROTECTED_FILES is the hard floor (engine + UI
-            // control surface); TARGET_FILES is the focus selection on
-            // top of it.
-            if (!PROTECTED_FILES.has(relPath) && allowSet.has(relPath)) {
+            // Two filters: (1) not protected (the hard floor — engine,
+            // control surface, control API subtree), (2) in the allowlist
+            // when focus mode is on.
+            if (!isProtectedPath(relPath) && (!focus || allowSet.has(relPath))) {
               files.push(fullPath);
             }
           }
         }
       }
     };
-    scan(PIPELINE_SRC_DIR, [".ts"]);
-    scan(DISPLAY_SRC_DIR, [".tsx"]);
+    for (const scope of SCAN_SCOPES) {
+      scan(join(PROJECT_ROOT, scope.dir), scope.extensions);
+    }
+    // The Prisma schema — only in full-scope mode, never in focus mode
+    // (focus means the operator named specific files; the schema is never
+    // named by accident).
+    if (!focus && existsSync(join(PROJECT_ROOT, SCHEMA_TARGET))) {
+      files.push(join(PROJECT_ROOT, SCHEMA_TARGET));
+    }
     return files;
   }
 
@@ -901,6 +919,15 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
     // the full ~150s backoff + typecheck + push against a stale run.
     const myRun = this.runId;
 
+    // ── SCHEMA PATH ── prisma/schema.prisma doesn't go through the
+    // tsc/AST/debate chain (none of those apply to a non-TS DSL). It
+    // gets its own prompt and the additive-only schema gate. Routed
+    // here, before the ratchet — you can't characterization-test a
+    // schema, and the schema gate IS the gate.
+    if (relPath === SCHEMA_TARGET) {
+      return this.enhanceSchema(filePath, myRun);
+    }
+
     // Compute this enhancement's branch: loop-{N+1} where N is the last
     // successful enhancement's number. Stored on the instance so every
     // gitPush in this enhanceFile (test pin + enhancement) targets the
@@ -1006,6 +1033,26 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
 
       // 3. LLM improvement — ask for REAL improvements, not cosmetic refactoring
       this.log(`Improving ${relPath}...`, "info");
+
+      // 3-lessons. COMPOUNDING INTELLIGENCE — general lessons distilled
+      // from aggregate history inject into EVERY enhance prompt (that's
+      // the transfer: a lesson from pipeline failures shapes a UI
+      // component mutation). The ids ride on the instance so runCycle
+      // can feed the verdict back — see the wrapper after the enhanceFile
+      // call in runCycle. Serial loop ⇒ instance field is safe.
+      let lessonsBlock = "";
+      this.lastLessonIds = [];
+      try {
+        const ls = await getLessonsForPrompt();
+        if (ls.length > 0) {
+          this.lastLessonIds = ls.map((x) => x.id);
+          lessonsBlock = formatLessonsBlock(ls);
+          await markInjected(this.lastLessonIds);
+        }
+      } catch {
+        /* lessons are an amplifier, not a gate */
+      }
+
       const refactorSystem = `You are a senior code reviewer improving a TypeScript file inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
 
 Your job: find and fix REAL issues. Do NOT make cosmetic changes (type annotations, magic numbers, syntax modernization). Those are pointless. Instead, look for:
@@ -1037,7 +1084,7 @@ OUTPUT FORMAT (mandatory):
 \`\`\`typescript
 // the full file with fixes applied
 \`\`\`
-${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancestralBlock}`;
+${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancestralBlock}${lessonsBlock}`;
 
       const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nFind real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in this file. Fix them. If nothing needs fixing, return the file unchanged. Output the summary first, then the code.`;
 
@@ -1323,6 +1370,229 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancest
   }
 
   /**
+   * ── SCHEMA MUTATION PATH ─────────────────────────────────────────
+   * prisma/schema.prisma — the system's own memory substrate, mutated
+   * under the strictest gate in the pipeline. The tsc/AST/debate chain
+   * doesn't apply (not TypeScript); instead:
+   *
+   *   1. Postmortem check (same as files — the schema can carry scars)
+   *   2. Lesson injection (same as files — compounding applies here too)
+   *   3. LLM proposes an ADDITIVE change (new model or new defaulted
+   *      field — the prompt states the contract)
+   *   4. schema-gate: additive-only structural diff → prisma validate →
+   *      db push → canary round-trip → auto-revert on any failure
+   *   5. Debate gate on the semantic question (does this model make
+   *      sense?) — AFTER the schema gate, so a bad structure never
+   *      even reaches the tribunal
+   *   6. Pass → commit + push like any other mutation
+   *
+   * The schema-gate's protected-model list (Postmortem, Lesson, etc.)
+   * means the loop can GROW its memory but never EDIT or FORGET it.
+   */
+  private async enhanceSchema(filePath: string, myRun: number): Promise<SelfEnhanceResult> {
+    const relPath = relative(PROJECT_ROOT, filePath);
+    // Same branch contract as enhanceFile: this mutation targets
+    // loop-{N+1}, bumped only on successful push.
+    const lastN = await getLastBranchNumber();
+    const thisN = lastN + 1;
+    this.currentCycleBranch = formatLoopBranch(thisN);
+    this.log(`Branch for this mutation: ${this.currentCycleBranch}`, "info");
+    const result: SelfEnhanceResult = {
+      filePath: relPath,
+      enhanced: false,
+      reason: "",
+      oldBytes: 0,
+      newBytes: 0,
+      diffBytes: 0,
+      llmUsed: false,
+      llmLatencyMs: 0,
+      compiled: false,
+      pushed: false,
+    };
+    this.lastLessonIds = [];
+
+    try {
+      const original = readFileSync(filePath, "utf-8");
+      result.oldBytes = original.length;
+      if (original.length > 12000) {
+        result.reason = `Skipped (file too large: ${original.length}b)`;
+        this.log(`Skipped ${relPath} (${original.length}b — too large for LLM)`, "info");
+        return result;
+      }
+
+      // LLM gate check — same contract as the file path.
+      const cd = llmCooldownMs();
+      if (cd > 0) {
+        result.reason = `Deferred (LLM cooldown — ${Math.round(cd / 1000)}s)`;
+        this.log(`Deferring schema mutation — LLM on cooldown (${Math.round(cd / 1000)}s)`, "warn");
+        return result;
+      }
+
+      // Postmortem constraints — the schema can fail too (a past
+      // proposal that broke validate leaves a scar).
+      const postmortem = await postmortemStore.getConstraintsForFile("self", "main", relPath);
+
+      // Lessons — compounding applies to schema proposals as well.
+      let lessonsBlock = "";
+      try {
+        const ls = await getLessonsForPrompt();
+        if (ls.length > 0) {
+          this.lastLessonIds = ls.map((x) => x.id);
+          lessonsBlock = formatLessonsBlock(ls);
+          await markInjected(this.lastLessonIds);
+        }
+      } catch {
+        /* amplifier, not a gate */
+      }
+
+      this.log(`Proposing schema mutation for ${relPath}...`, "info");
+      const system = `You are modifying the Prisma schema of a self-improving system — the schema IS the system's memory. This is the most dangerous file you can touch.
+
+THE CONTRACT (the gate enforces this mechanically — violations are auto-reverted):
+- ADDITIVE ONLY: you may ADD a whole new model block, or ADD new fields to an existing NON-PROTECTED model.
+- New fields MUST be nullable (?) or carry @default() — existing rows must backfill.
+- NEVER: remove a model, remove/rename a field, change a field type, touch the Postmortem/Lesson/GitPushTarget/LlmConfig/Prophecy/SystemFlag models, or edit the generator/datasource blocks.
+
+A GOOD schema mutation:
+- Adds a model the system's own pipeline would genuinely use (e.g. a new tracking table that some existing pipeline stage could read/write)
+- Has a clear purpose stated in a /// doc comment on the model
+- Uses sensible Prisma types + @default values
+
+A BAD schema mutation:
+- Renames or "cleans up" anything (destructive — instant revert)
+- Adds a model nothing will ever read (dead weight)
+- Duplicates an existing model's purpose
+
+If there is NO genuinely useful additive change to make, output the original schema unchanged.
+
+OUTPUT FORMAT:
+First a SHORT summary starting with "## Changes", then the COMPLETE schema in a single \`\`\`prisma fenced block.
+${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${lessonsBlock}`;
+
+      const user = `Current prisma/schema.prisma:\n\n\`\`\`prisma\n${original}\n\`\`\`\n\nPropose an additive-only improvement, or return it unchanged if none is genuinely useful.`;
+
+      const llmResult = await llmComplete({
+        systemPrompt: system,
+        userPrompt: user,
+        temperature: 0.2,
+        onRetry: (info) => {
+          this.log(`LLM retry ${info.attempt}/${info.maxAttempts} (${info.isRateLimit ? "429" : "err"}) for schema mutation`, "info");
+        },
+      });
+      result.llmLatencyMs = llmResult.latencyMs;
+
+      if (!llmResult.ok) {
+        if (llmResult.rateLimited) {
+          const cd2 = llmCooldownMs();
+          result.reason = `Deferred (LLM cooldown — ${Math.round(cd2 / 1000)}s)`;
+          this.log(`Deferring schema mutation — LLM on cooldown`, "warn");
+        } else {
+          result.reason = `LLM unavailable: ${llmResult.error}`;
+          this.log(`LLM unavailable for schema: ${llmResult.error}`, "warn");
+        }
+        return result;
+      }
+
+      if (myRun !== this.runId) {
+        result.reason = "Stopped during schema proposal";
+        return result;
+      }
+
+      const { summary: changeSummary, code: proposed } = extractSummaryAndCode(llmResult.content);
+      if (!proposed || proposed.trim().length === 0) {
+        result.reason = "LLM returned no schema";
+        return result;
+      }
+      if (proposed.trim() === original.trim()) {
+        result.reason = "No issues found";
+        this.log(`No schema change proposed (LLM found nothing worth adding)`, "info");
+        return result;
+      }
+      result.llmUsed = true;
+      result.newBytes = proposed.length;
+      result.diffBytes = Math.abs(proposed.length - original.length);
+
+      // ── THE SCHEMA GATE: additive check → validate → push → canary ──
+      // Any failure auto-reverts the file AND re-pushes the original, so
+      // the live DB and the file never desync.
+      this.log(`Schema gate: checking additive-only diff...`, "info");
+      const gate = applySchemaMutation(proposed);
+      if (!gate.ok) {
+        this.log(`Rejected schema mutation: ${gate.reason}`, "warn");
+        await postmortemStore.recordFailure({
+          repo: "self",
+          branch: "main",
+          filePath: relPath,
+          failureType: "OTHER",
+          symptom: `Schema gate rejected: ${gate.reason.slice(0, 160)}`,
+          evidence: `Proposal ${proposed.length}b vs original ${original.length}b. ${gate.reason}`,
+          constraints: `The previous schema proposal was rejected by the additive-only gate. Only NEW models or NEW defaulted/nullable fields on non-protected models are allowed. Never remove, rename, or retype anything.`,
+        });
+        result.reason = `Rejected by schema gate (${gate.reason.slice(0, 80)})`;
+        return result;
+      }
+      result.compiled = true; // gate chain (validate+push+canary) passed
+      this.log(`Schema gate PASSED: ${gate.reason}`, "success");
+
+      // ── DEBATE: does this model actually make sense? ──
+      const debate = await this.debateGate(filePath, original, proposed, changeSummary);
+      if (!debate.approved) {
+        if (debate.deferred) {
+          // Revert the applied schema — a deferred tribunal is not an
+          // approval, and the DB now carries a change nobody reviewed.
+          const revert = applySchemaMutation(original);
+          this.log(`Reverted schema (tribunal deferred): ${revert.ok ? "clean" : revert.reason}`, "warn");
+          result.reason = `Deferred (debate tribunal unavailable)`;
+          return result;
+        }
+        const revert = applySchemaMutation(original);
+        this.log(`Rejected by debate, schema reverted (${revert.ok ? "clean" : revert.reason}): ${debate.reason}`, "warn");
+        await postmortemStore.recordFailure({
+          repo: "self",
+          branch: "main",
+          filePath: relPath,
+          failureType: "REVIEW_REJECTED",
+          symptom: `Debate rejected the schema change: ${debate.reason.slice(0, 160)}`,
+          evidence: `Change summary: ${changeSummary.slice(0, 400)}`,
+          constraints: `The previous schema change was rejected by the debate tribunal. Only propose models the pipeline genuinely needs.`,
+        });
+        result.reason = `Rejected by debate (${debate.verdict})`;
+        return result;
+      }
+
+      // ── PASSED — the schema is live. Commit + push like any mutation. ──
+      result.enhanced = true;
+      result.reason = changeSummary ? "Enhanced and live" : "Enhanced and live (no summary)";
+      this.stats.totalEnhanced++;
+      this.stats.lastEnhancementAt = new Date().toISOString();
+      const shortSummary = changeSummary
+        ? changeSummary.split("\n").slice(0, 3).join(" | ").slice(0, 200)
+        : "no summary provided";
+      this.log(`Enhanced ${relPath} (${result.diffBytes}b diff): ${shortSummary}`, "success");
+
+      const commitMessage = changeSummary
+        ? `Self-enhancement: ${relPath}\n\n${changeSummary}\n\n(schema gate verified, ${result.diffBytes}b diff)`
+        : `Self-enhancement: ${relPath} (schema gate verified, ${result.diffBytes}b diff)`;
+      const pushResult = await this.gitPush(commitMessage);
+      result.pushed = pushResult.pushed;
+      result.commitSha = pushResult.commitSha;
+      if (pushResult.pushed) {
+        this.stats.totalPushed++;
+        await setLastBranchNumber(thisN);
+        this.log(`Schema mutation pinned to branch ${this.currentCycleBranch}`, "success");
+      } else if (!pushResult.pushed) {
+        this.log(`Schema push did not land (no changes or push declined) — schema file is still live, only the remote proof is missing`, "warn");
+      }
+
+      return result;
+    } catch (e) {
+      result.reason = `Error: ${(e as Error).message}`;
+      this.log(`Schema mutation error: ${(e as Error).message}`, "error");
+      return result;
+    }
+  }
+
+  /**
    * Run one cycle: scan files, enhance each one sequentially.
    */
   async runCycle(): Promise<{ filesScanned: number; filesEnhanced: number; results: SelfEnhanceResult[] }> {
@@ -1416,6 +1686,21 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancest
         if (result.enhanced) enhanced++;
         if (result.reason.startsWith("Rejected")) this.stats.totalReverted++;
         if (result.reason.startsWith("Deferred")) deferredThisCycle++;
+
+        // ── LESSON FEEDBACK (the measured half of compounding) ────
+        // The lessons that were injected into this mutation's prompt now
+        // learn from the verdict: pass → helped, fail → hindered. Only
+        // counts when the LLM actually produced a proposal (llmUsed) — a
+        // deferred/unavailable call never saw the lessons in action.
+        if (result.llmUsed && this.lastLessonIds.length > 0) {
+          const ids = this.lastLessonIds;
+          this.lastLessonIds = [];
+          void recordLessonOutcome(ids, result.enhanced).catch(() => {
+            /* feedback is best-effort */
+          });
+        } else {
+          this.lastLessonIds = [];
+        }
 
         // ── Per-file saturation update ───────────────────────────────
         // Classify this cycle's outcome for THIS file and update its
@@ -1512,6 +1797,22 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancest
         "success"
       );
 
+      // ── LESSON DISTILLATION (the compounding half) ────────────
+      // Every DISTILL_INTERVAL cycles: one LLM pass over the aggregate
+      // failure history extracts general lessons. Fire-and-forget — a
+      // distillation failure must never fail the cycle. Skips itself
+      // when the LLM gate is closed (mutations own the quota first).
+      const cycleNow = this.stats.cyclesCompleted;
+      void maybeDistill(cycleNow)
+        .then((added) => {
+          if (added > 0) {
+            this.log(`🧠 Distilled ${added} new lesson(s) from aggregate history (cycle ${cycleNow})`, "success");
+          }
+        })
+        .catch(() => {
+          /* distillation is best-effort */
+        });
+
       // Oracle auto-prophecy (fire-and-forget): the cycle is done, the
       // system has a fresh view of its own history — let it predict its
       // next turn. All guards (LLM gate, pending cap) live inside
@@ -1530,6 +1831,12 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancest
    */
   async runContinuous(onUpdate?: () => void): Promise<void> {
     this.continuous = true;
+    // Seed the lesson store once per process — the compounding loop's
+    // starting capital, from knowledge the system's own history already
+    // proved. Idempotent (skips if a seed row exists); fire-and-forget.
+    void seedLessons().catch(() => {
+      /* table missing until first restart post-migration — dormant */
+    });
     // Capture this loop's generation (audit 2): runCycle checks its own
     // token, but the OUTER while-loop only checked `this.continuous` — so a
     // stop-then-start during a cycle left TWO loops alive (the old one saw
