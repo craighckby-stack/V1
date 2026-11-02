@@ -18,6 +18,14 @@ import { execSync, execFileSync } from "child_process";
 import { readFileSync, writeFileSync, existsSync, renameSync, rmSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { db } from "@/lib/db";
+import {
+  scanDiff,
+  scanCommitMessage,
+  summarizeFindings,
+  isIgnoredScanPath,
+  type SecretFinding,
+} from "../core/secret-scan";
+import { recordPushSuccess, recordPushAuthFailure } from "../core/duress";
 
 const PROJECT_ROOT = "/home/z/my-project";
 const SINGLETON_ID = "singleton";
@@ -80,24 +88,52 @@ function readPersistentStateFile(): LoopPushState | null {
   }
 }
 
-function writeStateFile(state: LoopPushState): void {
+function writeStateFile(state: LoopPushState): { tier2Ok: boolean; tier3Ok: boolean } {
   const tmp = `${STATE_FILE}.tmp`;
   // 0o600 — the file holds the PAT; never group/world-readable.
   writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
   renameSync(tmp, STATE_FILE); // atomic — never a half-written config
 
+  // ── Load-bearing read-back (concept: PKM pkm_orchestrator.c phase_wp) ──
+  // "Set without confirm = PKM_FAILED (post-mortem #4). The wall only
+  // exists if the query says so." A write that isn't read back is an
+  // assumption, not a fact. The sandbox's restart-on-rollback behavior
+  // (which silently dropped the PAT 3× across sessions) is exactly the
+  // kind of failure a read-back catches at write time instead of at the
+  // next push. We read tier-2 back and confirm the token round-tripped.
+  let tier2Ok = true;
+  try {
+    const readBack = readStateFile();
+    if (!readBack || readBack.token !== state.token || readBack.repo !== state.repo) {
+      tier2Ok = false;
+      console.error("[PUSH-TARGET] tier-2 read-back MISMATCH — write did not round-trip");
+    }
+  } catch (err) {
+    tier2Ok = false;
+    console.error("[PUSH-TARGET] tier-2 read-back failed:", err);
+  }
+
   // Also write the tier-3 persistent copy inside .git/info/. mkdirSync is
   // idempotent — .git/info usually exists, but we don't assume it. Same
   // atomic-write pattern (tmp + rename). Best-effort: if .git is read-only
   // for some reason, the root state file still serves as the fallback.
+  let tier3Ok = true;
   try {
     mkdirSync(dirname(PERSISTENT_STATE_FILE), { recursive: true });
     const ptmp = `${PERSISTENT_STATE_FILE}.tmp`;
     writeFileSync(ptmp, JSON.stringify(state, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
     renameSync(ptmp, PERSISTENT_STATE_FILE);
+    // Read-back the tier-3 file too — same load-bearing principle.
+    const readBack3 = readPersistentStateFile();
+    if (!readBack3 || readBack3.token !== state.token || readBack3.repo !== state.repo) {
+      tier3Ok = false;
+      console.error("[PUSH-TARGET] tier-3 read-back MISMATCH — .git/info write did not round-trip");
+    }
   } catch {
     /* best-effort — root state file is still the primary tier-2 store */
+    tier3Ok = false;
   }
+  return { tier2Ok, tier3Ok };
 }
 
 /** Seed the DB from the state file if the DB row is missing (the
@@ -440,9 +476,18 @@ export async function setPushTarget(opts: {
  *  and remove the remote. FILE FIRST — if the DB table is missing (sandbox
  *  rollback) the old order threw on deleteMany BEFORE rmSync, leaving the
  *  PAT sitting in the file as a zombie credential. The file must go no
- *  matter what the DB does. */
-export async function clearPushTarget(): Promise<{ cleared: boolean }> {
+ *  matter what the DB does.
+ *
+ *  BUGFIX (concept: PKM phase-4 load-bearing read-back): the prior version
+ *  removed the tier-2 root file but NOT the tier-3 `.git/info/loop-push-state.json`
+ *  file. After a "clear", the PAT survived as a zombie credential inside
+ *  .git/info/ — the one directory the sandbox guarantees to preserve across
+ *  restarts — so a "cleared" system wasn't actually cleared. This now
+ *  removes ALL THREE tiers (root file + DB row + .git/info file) AND
+ *  read-back-verifies the PAT is gone from every tier. */
+export async function clearPushTarget(): Promise<{ cleared: boolean; readBack: { tier2Gone: boolean; tier3Gone: boolean; dbGone: boolean } }> {
   try { rmSync(STATE_FILE, { force: true }); } catch { /* best-effort */ }
+  try { rmSync(PERSISTENT_STATE_FILE, { force: true }); } catch { /* best-effort — tier-3 may not exist */ }
   try {
     await db.gitPushTarget.deleteMany({ where: { id: SINGLETON_ID } });
   } catch {
@@ -453,7 +498,117 @@ export async function clearPushTarget(): Promise<{ cleared: boolean }> {
   } catch {
     /* no origin to remove */
   }
-  return { cleared: true };
+  // Load-bearing read-back: confirm the PAT is actually gone from every
+  // tier. "Cleared" is a fact only if the query says so.
+  const tier2Gone = readStateFile() === null;
+  const tier3Gone = readPersistentStateFile() === null;
+  let dbGone = true;
+  try {
+    const row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
+    dbGone = row === null;
+  } catch {
+    dbGone = true; // DB unavailable = nothing to leak
+  }
+  return { cleared: true, readBack: { tier2Gone, tier3Gone, dbGone } };
+}
+
+/** Purge ALL THREE tiers of PAT persistence WITHOUT touching the git remote.
+ *  Used by the duress/purge protocol (duress.ts) — unlike clearPushTarget
+ *  this is the PKM §3 Phase-1 KEYS step: pure destruction, no remote
+ *  management, called when the system believes the PAT may be compromised.
+ *  Returns which tiers were actually purged so the caller can read-back. */
+export async function purgeAllPatTiers(): Promise<{ tier2Purged: boolean; tier3Purged: boolean; dbPurged: boolean }> {
+  let tier2Purged = false;
+  let tier3Purged = false;
+  let dbPurged = false;
+  try {
+    rmSync(STATE_FILE, { force: true });
+    tier2Purged = !existsSync(STATE_FILE);
+  } catch { tier2Purged = false; }
+  try {
+    rmSync(PERSISTENT_STATE_FILE, { force: true });
+    tier3Purged = !existsSync(PERSISTENT_STATE_FILE);
+  } catch { tier3Purged = false; }
+  try {
+    await db.gitPushTarget.deleteMany({ where: { id: SINGLETON_ID } });
+    const row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
+    dbPurged = row === null;
+  } catch {
+    // DB unavailable — nothing to purge, nothing to leak. Treat as purged.
+    dbPurged = true;
+  }
+  return { tier2Purged, tier3Purged, dbPurged };
+}
+
+/** Read-back verification: is the PAT gone from ALL tiers? Used by the
+ *  duress Phase-4 read-back step (PKM "the wall only exists if the query
+ *  says so"). Returns per-tier status + a single `allGone` boolean. */
+export async function verifyPatGoneFromAllTiers(): Promise<{ tier2Gone: boolean; tier3Gone: boolean; dbGone: boolean; allGone: boolean }> {
+  const tier2Gone = readStateFile() === null;
+  const tier3Gone = readPersistentStateFile() === null;
+  let dbGone = true;
+  try {
+    const row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
+    dbGone = row === null;
+  } catch {
+    dbGone = true;
+  }
+  return { tier2Gone, tier3Gone, dbGone, allGone: tier2Gone && tier3Gone && dbGone };
+}
+
+// ── Pre-push secret-scan gate (concept: Git-Secret-PII-Sanitizer) ────
+// Scans the working-tree diff AND the commit message for secrets BEFORE
+// `git add -A && git commit`. If a non-dummy, non-redacted secret is
+// found, the commit is BLOCKED — the PAT can never leak into git history
+// again. Returns null to proceed, or a block-reason string to abort.
+// See docs/CONCEPTS-GRAFTED.md GRAFT 1.
+function preCommitSecretGate(message: string): string | null {
+  let diff = "";
+  try {
+    // Unstaged + staged changes vs HEAD — exactly what's about to land.
+    diff = execSync("git diff HEAD --no-color", {
+      cwd: PROJECT_ROOT,
+      encoding: "utf-8",
+      timeout: 15000,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+  } catch {
+    // No diff (clean tree) or git failed — nothing to scan, proceed.
+    diff = "";
+  }
+  const findings: SecretFinding[] = [];
+  if (diff) findings.push(...scanDiff(diff, "diff"));
+  // The commit message is free text the diff scanner doesn't see — a
+  // secret pasted into the message would survive every other gate.
+  const msgFindings = scanCommitMessage(message);
+  findings.push(...msgFindings);
+  if (findings.length === 0) return null;
+  const { block, reason } = summarizeFindings(findings, false);
+  if (!block) return null;
+  // Record a postmortem so the failure memory carries the gate block.
+  // Best-effort — a failure to write the postmortem MUST NOT un-block
+  // the commit (the block is a safety action; the postmortem is a record).
+  try {
+    void import("../postmortem/postmortem-store").then(({ postmortemStore }) => {
+      void postmortemStore.recordFailure({
+        repo: "self",
+        branch: "main",
+        filePath: "system:secret-scan-gate",
+        failureType: "OTHER",
+        symptom: "Pre-push secret-scan gate blocked a commit",
+        evidence: findings
+          .map((f) => `${f.patternName} in ${f.filePath}:${f.line} (${f.redactedPreview})`)
+          .join("; ")
+          .slice(0, 500),
+        constraints:
+          "A secret was detected in the working-tree diff or commit message. " +
+          "Remove the secret, redact it, or add it to the scanner's " +
+          "isDocumentationOrDummySecret allowlist if it's a known false positive. " +
+          "The PAT must NEVER be committed to tracked source.",
+      });
+    });
+  } catch { /* best-effort — don't un-block on postmortem failure */ }
+  return reason;
 }
 
 /**
@@ -496,6 +651,11 @@ export async function pushCurrentState(opts?: {
       });
       if (status.trim()) {
         const message = opts?.message ?? "Self-enhancement: current live state";
+        // ── Pre-push secret-scan gate (GRAFT 1) ── block BEFORE git add.
+        const blockReason = preCommitSecretGate(message);
+        if (blockReason) {
+          return { pushed: false, error: blockReason };
+        }
         execFileSync("git", ["add", "-A"], { cwd: PROJECT_ROOT, timeout: 10000 });
         execFileSync("git", ["commit", "-m", message], {
           cwd: PROJECT_ROOT,
@@ -571,6 +731,15 @@ export async function pushCurrentState(opts?: {
       // contain LLM-generated change summaries) can never be a command-
       // injection surface. Backticks/quotes/$() are just characters.
       const message = opts?.message ?? "Self-enhancement: current live state";
+      // ── Pre-push secret-scan gate (GRAFT 1) ── block BEFORE git add.
+      // Scans the working-tree diff + the commit message. If a non-dummy,
+      // non-redacted secret is found, the commit is BLOCKED and a postmortem
+      // is recorded. The PAT can never leak into git history through this path.
+      const blockReason = preCommitSecretGate(message);
+      if (blockReason) {
+        await record({ lastPushError: blockReason.slice(0, 300) });
+        return { pushed: false, repo: target.repo, error: blockReason };
+      }
       execFileSync("git", ["add", "-A"], { cwd: PROJECT_ROOT, timeout: 10000 });
       execFileSync("git", ["commit", "-m", message], {
         cwd: PROJECT_ROOT,
@@ -662,8 +831,22 @@ export async function pushCurrentState(opts?: {
       let hint = "";
       if (/non-fast-forward|fetch first|rejected/.test(stderr)) {
         hint = " (remote has diverged and auto-heal failed — run 'push force' to overwrite it)";
-      } else if (/could not read Username|Authentication failed|403/.test(stderr)) {
+      } else if (/could not read Username|Authentication failed|403|401/.test(stderr)) {
         hint = " (GitHub rejected the credentials — the token may be invalid/revoked or lack repo access; reconfigure with 'push <token> <owner/repo>')";
+        // ── Duress anomaly detection (GRAFT 2) ── a 401/403 increments the
+        // consecutive-auth-failure counter. Past the threshold (5 by
+        // default), the duress purge auto-fires: the PAT may be compromised
+        // or rotated, so the system purges all tiers and enters safe mode
+        // rather than continuing to retry a possibly-coerced credential.
+        try {
+          const statusCode = /403/.test(stderr) ? 403 : /401/.test(stderr) ? 401 : 0;
+          if (statusCode) {
+            const { triggered } = await recordPushAuthFailure(statusCode);
+            if (triggered) {
+              hint += " [DURESS AUTO-TRIGGERED: PAT purged, safe-mode raised — clear via /api/duress/clear after verifying the token]";
+            }
+          }
+        } catch { /* best-effort — the hint still surfaces */ }
       }
       await record({ lastPushError: `git push failed: ${stderr.slice(0, 300)}${hint}` });
       return { pushed: false, commitSha, hadChanges: Boolean(commitSha), repo: target.repo, error: `${stderr.slice(0, 300)}${hint}` };
@@ -676,6 +859,9 @@ export async function pushCurrentState(opts?: {
         .trim()
         .slice(0, 7);
     await record({ lastPushSha: headSha, lastPushError: null });
+    // ── Duress anomaly detection (GRAFT 2) ── a successful push resets the
+    // consecutive-auth-failure counter. A single success clears the suspicion.
+    recordPushSuccess();
     return { pushed: true, commitSha: headSha, hadChanges: Boolean(commitSha), repo: target.repo };
   } catch (err) {
     const msg = scrub((err as Error).message, target.token);
