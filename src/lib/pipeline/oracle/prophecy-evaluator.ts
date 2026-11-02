@@ -28,6 +28,7 @@ import { execSync } from "child_process";
 import { readFileSync, existsSync } from "fs";
 import { llmComplete } from "../llm/agent-llm";
 import { listDueProphecies, judgeProphecy } from "./prophecy-store";
+import { emitOracleEvent } from "./oracle-events";
 import { db } from "@/lib/db";
 import type { Prophecy } from "@prisma/client";
 
@@ -301,8 +302,20 @@ ${evidence || "(no evidence gathered — system may have no recent activity)"}`;
 
     const updated = await judgeProphecy(prophecy.id, validated.verdict, fullEvaluation);
     if (updated) {
+      // Narrate the verdict in the console stream — the system reports
+      // on the accuracy of its own predictions, fulfilled or not.
+      emitOracleEvent(
+        `Oracle verdict — ${validated.verdict.toUpperCase()}: "${prophecy.claim.slice(0, 100)}"`,
+        validated.verdict === "fulfilled" ? "success" : validated.verdict === "failed" ? "error" : "warn",
+        "evaluator",
+      );
       judged.push({ id: prophecy.id, claim: prophecy.claim, verdict: validated.verdict });
     } else {
+      emitOracleEvent(
+        `Oracle: DB update failed while judging prophecy "${prophecy.claim.slice(0, 60)}" — stays pending`,
+        "error",
+        "evaluator",
+      );
       skipped.push({
         id: prophecy.id,
         claim: prophecy.claim,

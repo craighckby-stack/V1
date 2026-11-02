@@ -22,6 +22,7 @@ import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopB
 import { db } from "@/lib/db";
 import { generateTasks } from "./self-task-generator";
 import { detectTruncation, stripComments, stripLiteralsAndComments } from "./code-analysis";
+import { autoProphecyAfterCycle } from "../oracle/oracle-auto";
 import {
   TARGET_FILES,
   SATURATION_THRESHOLD,
@@ -1440,6 +1441,14 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
         `Cycle complete: ${enhanced}/${files.length} enhanced${lockedSkipped > 0 ? `, ${lockedSkipped} locked` : ""}${lockedNow >= files.length && files.length > 0 ? " — PASS COMPLETE" : ""}`,
         "success"
       );
+
+      // Oracle auto-prophecy (fire-and-forget): the cycle is done, the
+      // system has a fresh view of its own history — let it predict its
+      // next turn. All guards (LLM gate, pending cap) live inside
+      // oracle-auto.ts; this call never blocks or throws. Surfaces in
+      // the console stream via the oracle event ring.
+      autoProphecyAfterCycle();
+
       return { filesScanned: files.length, filesEnhanced: enhanced, results };
     } finally {
       this.running = false;

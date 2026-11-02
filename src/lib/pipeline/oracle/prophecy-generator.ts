@@ -31,6 +31,7 @@ import { execSync } from "child_process";
 import { readFileSync, existsSync } from "fs";
 import { llmComplete } from "../llm/agent-llm";
 import { createProphecy, type ProphecyRow } from "./prophecy-store";
+import { emitOracleEvent } from "./oracle-events";
 import { db } from "@/lib/db";
 
 const PROJECT_ROOT = "/home/z/my-project";
@@ -367,8 +368,21 @@ export async function generateProphecy(): Promise<{
   });
 
   if (!saved) {
+    emitOracleEvent(
+      `Oracle: prophecy store-failed (DB write error) — claim discarded: "${validated.claim.slice(0, 80)}"`,
+      "error",
+      "generator",
+    );
     return { ok: false, reason: "store-failed", error: "DB write failed" };
   }
+
+  // Surface the new prophecy in the console stream — the system
+  // narrates its own predictions as they're made.
+  emitOracleEvent(
+    `Oracle prophecy (confidence ${Math.round(validated.confidence * 100)}%, domain ${validated.domain ?? "?"}, judged in ${validated.horizonCycles} cycles): ${validated.claim}`,
+    "success",
+    "generator",
+  );
 
   return { ok: true, prophecy: saved };
 }

@@ -328,6 +328,58 @@ export default function Home() {
     };
   }, []);
 
+  // Poll oracle events every 5s — background oracle activity (auto
+  // prophecies after each cycle, scheduler verdicts every 5 min)
+  // surfaces in the unified console stream, the same way loop logs do.
+  // Uses the same timestamp|message dedup as loop logs so a re-sent
+  // event never double-renders. The cursor (`since`) starts undefined;
+  // the first response sets it, and subsequent polls fetch only fresh
+  // appends (plus client-side dedup as a belt-and-braces guard).
+  useEffect(() => {
+    let mounted = true;
+    let cursor: number | undefined;
+
+    async function pollOracleEvents() {
+      try {
+        const url = cursor === undefined ? "/api/oracle/events" : `/api/oracle/events?since=${cursor}`;
+        const res = await fetch(url);
+        if (!mounted || !res.ok) return;
+        const data = (await res.json()) as {
+          events: Array<{ timestamp: string; message: string; type: string; source: string }>;
+          seq: number;
+        };
+        cursor = data.seq;
+        if ((data.events ?? []).length === 0) return;
+        // Dedup against what the unified stream already holds.
+        const fresh = data.events.filter(
+          (e) => !seenLogKeys.current.has(`oracle|${e.timestamp}|${e.message}`)
+        );
+        if (fresh.length === 0) return;
+        for (const e of fresh) seenLogKeys.current.add(`oracle|${e.timestamp}|${e.message}`);
+        setConsoleLines((prev) => [
+          ...prev,
+          ...fresh.map((e) => ({
+            id: nextId(),
+            type: "log" as const,
+            text: `[${e.source}] ${e.message}`,
+            ts: e.timestamp,
+            logType: (e.type === "success" ? "success" : e.type === "error" ? "error" : e.type === "warn" ? "warn" : "info") as LogEntry["type"],
+          })),
+        ]);
+      } catch {
+        // ignore — next poll will retry
+      }
+    }
+
+    pollOracleEvents();
+    const interval = setInterval(pollOracleEvents, 5000);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   // Auto-scroll to bottom whenever the unified stream grows — whether from a
   // new command, command output, or a new server log. One stream, one scroll.
   const consoleLineCount = consoleLines.length;
@@ -575,6 +627,11 @@ export default function Home() {
           "  task <goal> — Assign the agent a goal — it proposes a plan",
           "  task apply  — Execute the pending plan (LLM + tsc gate + push)",
           "  task deny   — Discard the pending plan",
+          "  oracle      — Oracle subsystem: the system's own predictions",
+          "  oracle prophecy — Make one prophecy (LLM, grounded in history)",
+          "  oracle judge    — Evaluate all due prophecies now",
+          "  oracle list     — List recent prophecies + verdicts",
+          "  oracle status   — Track record: counts, calibration, Brier score",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
           "",
@@ -1023,6 +1080,146 @@ export default function Home() {
           return renderPlan(plan);
         } catch (e) {
           return [`Error: ${(e as Error).message}`];
+        }
+      }
+
+      case "oracle": {
+        const sub = (parts[1] ?? "").toLowerCase();
+        try {
+          // No subcommand — summary view (same as 'oracle status' but
+          // with a usage hint when the arg is unrecognized).
+          if (sub === "" || sub === "status") {
+            const [sres, schres] = await Promise.all([
+              fetch("/api/oracle/status"),
+              fetch("/api/oracle/events?since=0"),
+            ]);
+            const s = sres.ok ? await sres.json() : null;
+            // Scheduler status comes through the events ring — find the
+            // most recent scheduler-booted event for a one-line summary.
+            const ev = schres.ok ? await schres.json() : null;
+            const booted = (ev?.events ?? []).some(
+              (e: { message?: string }) => (e.message ?? "").startsWith("Oracle scheduler booted")
+            );
+            if (!s?.ok) return ["Oracle status unavailable — try again in a moment."];
+            const c = s.counts;
+            const lines = [
+              "ORACLE — the system's prophecies about its own future",
+              "",
+              `  Track record:  ${c.total} total · ${c.pending} pending · ${c.fulfilled} fulfilled · ${c.failed} failed · ${c.retired} retired`,
+              `  Auto-eval:     ${booted ? "running (due prophecies judged every 5 min)" : "not yet booted"}`,
+            ];
+            // Calibration lines — only meaningful once something is judged
+            if (s.judgedCount > 0) {
+              lines.push(`  Calibration:`);
+              for (const cal of s.calibration ?? []) {
+                lines.push(
+                  `    ≥ ${Math.round(cal.threshold * 100)}%: ${
+                    cal.fraction === null ? "(none yet)" : `${Math.round(cal.fraction * 100)}% fulfilled (${cal.fulfilled}/${cal.total})`
+                  }`
+                );
+              }
+              lines.push(
+                `  Brier score:   ${s.brierScore?.toFixed(3) ?? "?"} (0=perfect, 0.25=random, 1=always wrong)`
+              );
+            } else {
+              lines.push("  Calibration:   (nothing judged yet — run 'oracle judge' or wait for the scheduler)");
+            }
+            lines.push(
+              "",
+              "Subcommands: oracle prophecy | oracle judge | oracle list | oracle status",
+              "Or click [ORACLE] in the header for the full panel.",
+              ""
+            );
+            return lines;
+          }
+
+          if (sub === "prophecy" || sub === "predict") {
+            emitOutput(["[ORACLE] Gathering system history, asking the LLM to predict..."]);
+            const res = await fetch("/api/oracle/generate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ count: 1 }),
+            });
+            const data = await res.json();
+            if (data.ok && data.generated?.length > 0) {
+              const p = data.generated[0];
+              return [
+                "PROPHECY MADE:",
+                `  "${p.claim}"`,
+                "",
+                `  confidence:    ${Math.round(p.confidence * 100)}%`,
+                `  domain:        ${p.domain ?? "?"}`,
+                `  judged:        ${new Date(p.evaluateBy).toISOString().slice(0, 16).replace("T", " ")} (or run 'oracle judge')`,
+                "",
+                `  criterion:     ${p.falsifiabilityCriterion}`,
+                "",
+                "The claim is stored. It will be judged against what actually happens.",
+                "",
+              ];
+            }
+            const f = data.failures?.[0];
+            return [
+              `Prophecy failed: ${f?.reason ?? "unknown"}`,
+              `  ${f?.error ?? ""}`,
+              "",
+              "The Oracle never fabricates a prediction. Try again when the LLM is available.",
+              "",
+            ];
+          }
+
+          if (sub === "judge" || sub === "evaluate") {
+            emitOutput(["[ORACLE] Judging due prophecies against what actually happened..."]);
+            const res = await fetch("/api/oracle/evaluate", { method: "POST" });
+            const data = await res.json();
+            if (!data.ok) return [`Evaluation failed: ${data.error ?? "unknown"}`];
+            if (data.judgedCount === 0 && data.skippedCount === 0) {
+              return ["No prophecies are due yet — nothing to judge.", ""];
+            }
+            const lines = ["VERDICTS:"];
+            for (const j of data.judged ?? []) {
+              lines.push(`  ${String(j.verdict).toUpperCase().padEnd(9)} "${String(j.claim).slice(0, 90)}"`);
+            }
+            for (const sk of data.skipped ?? []) {
+              lines.push(`  SKIPPED   "${String(sk.claim).slice(0, 80)}" (${sk.reason} — stays pending)`);
+            }
+            lines.push("", `Judged: ${data.judgedCount} · Skipped: ${data.skippedCount}`, "");
+            return lines;
+          }
+
+          if (sub === "list" || sub === "ls") {
+            const res = await fetch("/api/oracle/prophecies?limit=15");
+            const data = await res.json();
+            const list = (data.prophecies ?? []) as Array<{
+              claim: string;
+              status: string;
+              confidence: number;
+              domain: string | null;
+              evaluateBy: string;
+            }>;
+            if (list.length === 0) {
+              return ["No prophecies yet. Run 'oracle prophecy' to make the first one.", ""];
+            }
+            const lines = [`RECENT PROPHECIES (newest first, ${list.length}):`];
+            for (const p of list) {
+              const conf = `${Math.round(p.confidence * 100)}%`;
+              const due = new Date(p.evaluateBy);
+              const dueStr = Number.isNaN(due.getTime()) ? "?" : due.toISOString().slice(0, 16).replace("T", " ");
+              lines.push(
+                `  [${p.status.toUpperCase().padEnd(9)}] ${conf.padStart(4)} ${(p.domain ?? "?").padEnd(9)} due ${dueStr}`
+              );
+              lines.push(`    "${p.claim.slice(0, 110)}"`);
+            }
+            lines.push("", "");
+            return lines;
+          }
+
+          return [
+            `Unknown oracle subcommand: '${sub}'.`,
+            "Usage: oracle [status] | oracle prophecy | oracle judge | oracle list",
+            "",
+          ];
+        } catch (e) {
+          return [`Oracle error: ${(e as Error).message}`];
         }
       }
 

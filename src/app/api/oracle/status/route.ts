@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { getProphecyCounts, getJudgedPropheciesForCalibration } from "@/lib/pipeline/oracle/prophecy-store";
+// Importing the scheduler here boots it on the first oracle status poll
+// (idempotent, globalThis-guarded) — so background evaluation starts as
+// soon as anyone so much as opens the panel or runs 'oracle' in the
+// terminal. No Next.js instrumentation hooks needed.
+import "@/lib/pipeline/oracle/oracle-scheduler";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
