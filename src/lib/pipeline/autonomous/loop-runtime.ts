@@ -184,10 +184,17 @@ class AutonomousLoopRuntime {
     // ── Hot-swap restore ────────────────────────────────────────────
     // If a hot-swap stashed a snapshot before this constructor ran (i.e.
     // a fresh instance is being created to replace one that was paused),
-    // consume the snapshot + restore its state. This is what makes the
+    // read the snapshot + restore its state. This is what makes the
     // swap state-continuous: the new instance picks up the cycle count,
     // config, stats, and the committed/failed-path sets the old one had.
-    // See core/hot-swap.ts.
+    //
+    // The snapshot is NOT consumed here (consumeStashedSnapshot is a
+    // peek, not a take). It stays stashed until the instance that
+    // actually arms its timer calls clearStashedSnapshot. This handles
+    // the Turbopack race: when the pin is cleared, multiple fresh
+    // instances may be created before one re-pins itself; the snapshot
+    // must survive all of them so the instance that finally arms gets
+    // the state. See core/hot-swap.ts.
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { consumeStashedSnapshot } = require("../core/hot-swap") as {
@@ -458,6 +465,20 @@ class AutonomousLoopRuntime {
       this.status = "paused";
       this.stats.nextRunAt = null;
       return;
+    }
+    // ── Consume the hot-swap snapshot NOW ──────────────────────────
+    // This is the moment the instance actually arms. The snapshot was
+    // stashed by a swap + survived transient instances; this instance
+    // is the one that persists, so it claims + clears the snapshot.
+    // See core/hot-swap.ts clearStashedSnapshot.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { clearStashedSnapshot } = require("../core/hot-swap") as {
+        clearStashedSnapshot?: () => void;
+      };
+      if (typeof clearStashedSnapshot === "function") clearStashedSnapshot();
+    } catch {
+      /* hot-swap module not yet loaded */
     }
     const ms = Math.max(15_000, this.config.intervalMinutes * 60 * 1000);
     this.status = "idle";

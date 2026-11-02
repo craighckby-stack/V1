@@ -320,12 +320,25 @@ export function runningPipelineFingerprint(): string {
 }
 
 /** Called by the loop-runtime constructor on creation. If a snapshot
- *  was stashed by a swap, consume it + return it so the constructor can
- *  restore the state. Returns null if no swap is pending. */
+ *  was stashed by a swap, return it so the constructor can restore the
+ *  state. The snapshot is NOT consumed here — it stays stashed until
+ *  clearStashedSnapshot() is called by the instance that actually arms
+ *  its timer. This handles the Turbopack race: when the pin is cleared,
+ *  multiple fresh instances may be created before one re-pins itself;
+ *  the snapshot must survive all of them so the instance that finally
+ *  arms gets the state. Returns null if no swap is pending. */
 export function consumeStashedSnapshot(): LoopSnapshot | null {
   const g = globalThis as any;
   const snap = g[SNAPSHOT_SLOT];
   if (!snap) return null;
-  g[SNAPSHOT_SLOT] = undefined;
   return snap as LoopSnapshot;
+}
+
+/** Called by the instance that actually arms its timer. NOW the
+ *  snapshot is consumed — cleared from the slot. This ensures the
+ *  snapshot survives transient instances and is only taken by the
+ *  one that persists. */
+export function clearStashedSnapshot(): void {
+  const g = globalThis as any;
+  g[SNAPSHOT_SLOT] = undefined;
 }
