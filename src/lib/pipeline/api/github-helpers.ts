@@ -41,11 +41,16 @@ export function githubHeaders(token: string | null): Record<string, string> {
     };
   }
 
+  // Validate token is actually a string
+  if (typeof token !== 'string') {
+    throw new Error(`Invalid token provided: must be a string, received ${typeof token}`);
+  }
+
   // Since getUsableToken() already validates the token, we only need to trim it here
   const trimmedToken = token.trim();
 
   if (!trimmedToken) {
-    throw new Error(`Invalid token provided: must be a non-empty string.`);
+    throw new Error(`Invalid token provided: must be a non-empty string after trimming.`);
   }
 
   const headers: Record<string, string> = {
