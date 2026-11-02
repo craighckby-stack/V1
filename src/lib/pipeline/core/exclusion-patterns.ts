@@ -83,7 +83,7 @@ export function hasCoreSourceFiles(files: string[]): boolean {
   // Check each file to ensure it's a valid string before processing
   for (const file of files) {
     if (typeof file !== 'string') {
-      throw new Error(`Invalid file in array: expected string but received ${typeof file}`);
+      throw new Error(`Invalid file in array: expected string but received ${typeof file} at index ${files.indexOf(file)}`);
     }
   }
   
