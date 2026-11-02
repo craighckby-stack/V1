@@ -1,86 +1,91 @@
 # LOOP
 
-> A program that rewrites its own code, by itself, forever — and **remembers every failure** so it never makes the same mistake twice.
+> A program that rewrites its own source code, gates every mutation through a real compiler, and pushes the proof to GitHub — one `loop-NN` branch per successful mutation.
 
-![LOOP — Running](./screenshots/06-running.png)
+![Boot splash — BIOS POST with live vitals](./docs/screenshots/01-splash-post.png)
 
 ---
 
-## What is this? (the dumb version)
+## What this actually is
 
-**LOOP is a website that edits its own code.**
+LOOP is a Next.js app that runs a continuous loop in the background:
 
-That's it. You open it in your browser. You see a black terminal. You type `start`. The program starts reading its own source files, picking one, asking an AI to improve it, checking the change didn't break anything, and if it passed — saving it. Then it picks the next file. Forever.
+1. **Scan** its own source files (the ones it's allowed to touch).
+2. **Pick** one file to improve.
+3. **Read the postmortems** for that file (if it has failed before) and inject them into the LLM prompt as constraints.
+4. **Ask an LLM** to improve the file.
+5. **Gate** the result: TypeScript compiler, AST diff (no symbols dropped), sanitizer (no branding stripped), debate tribunal.
+6. **Verdict**: pass → commit + push to a fresh `loop-NN` branch, resolve any open postmortems. Fail → revert, write a postmortem, try again next cycle.
+7. Goto 1. Forever.
 
-While it does that, a live stream scrolls on your screen so you can watch it happen.
+It is not AGI. It is not dangerous. It is a bounded, compiler-gated pipeline that safely applies an LLM's proposed edits to its own source code. The clever part is the gating, not the generation.
 
-## Why does it exist?
+---
 
-Because every other "AI improves your code" tool is either:
+## What it looks like
 
-- **Copilot autocomplete** — guesses one line at a time, breaks things, hopes you notice.
-- **A one-shot refactor script** — runs once, forgets everything, leaves you with the mess.
+### The boot ceremony (cold boot)
 
-LOOP is different in one specific way: **when it fails, it remembers why.**
-
-Every time a change is rejected by a safety gate, LOOP writes a little case file (a "postmortem") against that exact file. The next time it tries to improve that file, it reads the postmortem out loud to the AI: *"last time you tried this, you deleted a function — don't do that again."* If the AI tries the same dumb thing, it gets caught again, the postmortem gets sharper. When the change finally succeeds, the postmortem is marked resolved.
-
-So the loop isn't just spinning — it's getting wiser about its own codebase as it runs. The 100th cycle is fundamentally smarter than the 1st, because it's carrying the lessons of the 99 failures before it.
-
-That's the whole point. Not "a program that edits its own code" (parlour trick). **A program that fails, remembers why, and never makes the same mistake twice.**
-
-## See it live
-
-The app runs in the preview panel on the right side of this interface. Click **"Open in New Tab"** above the preview panel to view LOOP in a separate browser tab, then type `start` and watch it work.
+The system boots like a 1980s CRT terminal. It fetches its own live vitals from its own APIs while the phosphor warms up, stamps a BIOS-style POST, then addresses you:
 
 | | |
 |---|---|
-| **Source on GitHub** | https://github.com/craighckby-stack/V1 |
-| **Stack** | Next.js 16 · TypeScript · Prisma + SQLite · z-ai-web-dev-sdk |
-| **Status** | Working. The LLM endpoint is currently rate-limiting (429s), so you'll see real retry log lines in the stream — the system is honest about it. |
+| **POST** — live vitals stamp in one by one | ![POST screen](./docs/screenshots/01-splash-post.png) |
+| **Invite** — the machine asks you to enter | ![Invite](./docs/screenshots/02-splash-invite.png) |
+
+The POST is honest: any vital it can't read stamps `[ ?? ]` in amber. It never fakes an `OK`.
+
+### The prank (press ENTER)
+
+Per the owner's decree — "for shits and giggles, volume 100 each time, no mute":
+
+| | |
+|---|---|
+| **Blue screen** — 404 NOT EVER (10s, floppy drive seeking) | ![BSOD](./docs/screenshots/03-bsod.png) |
+| **Star Wars crawl** — explains what the system is (24s, Imperial March) | ![Crawl](./docs/screenshots/04-crawl.png) |
+
+ESC is the hidden mercy hatch. The prank fires on every entry, warm or cold.
+
+### The terminal
+
+After the ceremony, you get the actual interface:
+
+![Terminal](./docs/screenshots/05-terminal.png)
+
+Black background, white text, red only when something breaks. The header: `LOOP ●` (heartbeat), `[START]`, `[CLEAR]`, `[CONFIG]`, `[ORACLE]`, `[DEFENSE]`, `[BRANCHES]`.
+
+Type commands:
+- `start` — kick off the loop. Renders a live activity snapshot, then the stream takes over.
+- `stop` — halt.
+- `status` — current snapshot, including the next branch number.
+- `about` — the elevator pitch.
+- `clear` — wipe the console.
+- `config` — open the git config modal.
+
+A live stream scrolls in real time: every scan, gate, push, retry, and backoff appears as it happens. Even when the LLM is rate-limiting and a single call takes ~150s of retries, you see each retry fire — no silent gaps.
+
+### The panels
+
+| | | |
+|---|---|---|
+| **Branches** — every `loop-NN` branch is one successful mutation pushed to GitHub, with a link to the commit | ![Branches](./docs/screenshots/06-branches.png) |
+| **Oracle** — the system predicts its own operational future and grades the answers | ![Oracle](./docs/screenshots/07-oracle.png) |
+| **Config** — push target (token, repo, visibility, auto-create) | ![Config](./docs/screenshots/08-config.png) |
+| **Defense** — duress, red-team, secret-scan concepts grafted from external repos | ![Defense](./docs/screenshots/09-defense.png) |
 
 ---
 
-## What It Actually Does
+## The two safety mechanisms
 
-A continuous loop runs in the background. Every cycle:
-
-1. **Scan** — looks at its own source code (the files it's allowed to touch).
-2. **Pick** — selects one file to improve.
-3. **Check the scar log** — if that file has failed before, pulls up the postmortem and injects its constraints into the AI's prompt.
-4. **Rewrite** — asks an LLM to improve the file, with the postmortem constraints in scope.
-5. **Gate** — runs the safety gates: AST diff (no symbols dropped), sanitizer (no branding stripped), typecheck, debate tribunal.
-6. **Test** — runs characterization tests (the ratchet — see below).
-7. **Verdict**:
-   - **Pass** → commit, push to a fresh `loop-NN` branch (see The Branch Model below), mark any postmortem as resolved.
-   - **Fail** → revert the change, **record a postmortem**, try again next cycle.
-8. Goto 1. Forever.
-
----
-
-## The Two Safety Mechanisms
-
-This is the bit that makes the project more than a parlour trick. A system that rewrites its own code is dangerous — what stops it from "improving" away its own OFF switch, or weakening its own tests to cheat the gates?
+A system that rewrites its own code is dangerous — what stops it from "improving" away its own OFF switch?
 
 ### 1. The Ratchet — tests only get stricter
 
-Every time the loop commits an improvement to a file, it also writes **characterization tests** that pin the behaviour of that file. These tests:
-
-- Are **write-once**. Once pinned, they cannot be loosened.
-- Run against every future refactor of that file.
-- Reject any change that breaks them.
-
-So the system's own behaviour gets *increasingly locked* while its implementation gets *increasingly clean*. It can't weaken its own pins to escape its own standards. The ratchet only tightens.
+Every time the loop commits an improvement to a file, it also writes **characterization tests** that pin the behaviour of that file. These tests are **write-once** — once pinned, they cannot be loosened. The system's behaviour gets increasingly locked while its implementation gets increasingly clean. It can't weaken its own pins to escape its own standards.
 
 ### 2. The Postmortem — failures only get safer
 
-When an attempt fails (a gate catches a problem), the system doesn't just revert and shrug. It writes a **postmortem** to the database against that exact file path. Each postmortem records:
-
-- **What broke** — `failureType` (e.g. `AST_SYMBOL_DROPPED`, `HEADER_STRIPPED`, `COMPILE_ERROR`).
-- **The evidence** — machine-copied facts (which symbols vanished, which AST node drifted, what the sanitizer redacted).
-- **The constraint** — an imperative rule the LLM must obey next time.
-
-The **next** time the loop picks that same file, it pulls the postmortem and injects it into the AI's prompt as a literal block:
+When an attempt fails, the system writes a postmortem against that exact file path: what broke (`failureType`), the evidence (machine-copied facts), and a constraint the LLM must obey next time. The next time the loop picks that file, it pulls the postmortem and injects it into the prompt:
 
 ```
 --- POSTMORTEM CONSTRAINTS (this file failed 2 time(s) before) ---
@@ -89,163 +94,107 @@ SYMPTOM: function `parseHeader` was deleted from the output
 DO NOT: remove any exported symbols; refactor in place only.
 ```
 
-If the AI tries the same dumb refactor again, the gate catches it again, the `attempts` counter ticks to 3, the constraint gets sharper. When the attempt finally succeeds, the postmortem is marked `resolved`.
-
-So the loop isn't just spinning — it's getting **wiser about its own codebase** as it runs. The 100th cycle is fundamentally smarter than the 1st, because it's carrying the lessons of the 99 failures before it.
+If the AI tries the same dumb refactor again, the gate catches it again, the `attempts` counter ticks, the constraint gets sharper. When it finally succeeds, the postmortem is marked `resolved`. The loop gets wiser about its own codebase as it runs.
 
 ---
 
-## The Branch Model — every mutation gets its own branch
+## The branch model
 
-Each successful enhancement pushes to its own git branch, not to a single evolving branch:
+Each successful enhancement pushes to its own git branch:
 
 ```
-loop-01  ← first full mutation (test pin + enhancement both committed)
+loop-01  ← first full mutation
   └─ loop-02  ← second, built on loop-01's tip
-       └─ loop-03  ← third
-            └─ loop-04  ← current live state
+       └─ loop-03 ← third
+            └─ ...loop-38 (current)
 ```
 
-Branches chain linearly — each `loop-NN` builds on `loop-(NN-1)`'s tip, so the latest branch is always the live state of the server. Checkout `loop-04` and you're seeing exactly what the system is running right now.
-
-Why this shape:
-
-- **Each branch = one successful mutation.** Failed attempts don't get a branch — they go to the postmortem DB instead. So `loop-NN` counts wins only.
-- **Git-native rollback.** If `loop-23` was a bad cycle that slipped through, `git checkout loop-22` gives you the pre-bad state. One command. No DB rollback, no postmortem archaeology.
-- **Git-native diff.** `git diff loop-22..loop-23` shows exactly what one cycle did: one file, one enhancement, its test pin. That's the audit trail, for free.
-- **The branch list IS the changelog.** `git branch | grep loop-` is a chronology of every successful mutation.
-
-The configured branch in the config modal is the **seed** (`loop-00` semantically — usually `main`). Each cycle forks a new `loop-NN` off the advancing HEAD. The counter lives in the database and only bumps after a successful push, so failed attempts don't consume a number.
+- **Each branch = one successful mutation.** Failed attempts don't get a branch — they go to the postmortem DB. So `loop-NN` counts wins only.
+- **Git-native rollback.** `git checkout loop-37` gives you the pre-bad state. One command.
+- **Git-native diff.** `git diff loop-37..loop-38` shows exactly what one cycle did: one file, one enhancement, its test pin. That's the audit trail, for free.
+- **The branch list IS the changelog.**
 
 ---
 
-## The Boundary — what it can and can't touch
+## The boundary — what it can and can't touch
 
-A self-improving system that could rewrite its own safety gates could lobotomize itself. So the codebase is split:
+| Layer | Mutable? |
+|---|---|
+| **The brain** — loop runtime, event bus, push auth, typecheck, AST gate, sanitizer, debate tribunal, LLM callers, task generator | 🔒 Never. Permanently protected. |
+| **The body** — pipeline stages, helpers, the display layer | ✏️ Yes. This is the mutation scope. |
+| **The control surface** — `page.tsx`, `layout.tsx` (your STOP/START/CONFIG buttons, command input, config modal) | 🔒 Never. You always have the kill switch. |
+| **Everything else** — UI components, API routes, Prisma schema | 🔒 Outside the loop's awareness. |
 
-| Layer | Files | Mutable? |
-|---|---|---|
-| **The brain** — loop runtime, event bus, push auth, typecheck, AST gate, sanitizer, debate tribunal, LLM callers, task generator | 8 files in `src/lib/pipeline/` | 🔒 **Never.** Permanently protected. |
-| **The body** — pipeline stages, helpers, the display layer | 17 files in `src/lib/pipeline/` + `src/app/display/` | ✏️ **Yes.** This is the mutation scope. |
-| **The control surface** — `page.tsx`, `layout.tsx` (your STOP/START/CLEAR/CONFIG buttons, command input, polling, config modal) | 2 files in `src/app/` | 🔒 **Never.** You always have the kill switch. |
-| **Everything else** — UI components, API routes, Prisma schema, etc. | outside the scan dirs | 🔒 Outside the loop's awareness entirely. |
-
-The system can change **how** things look (colors, layout, visualizations). It can **never** change **what you control**. If it could rewrite its own control surface, it could remove the STOP button and escape your oversight — this is structurally impossible.
+The system can change **how** things look. It can **never** change **what you control**. If it could rewrite its own control surface, it could remove the STOP button — this is structurally impossible.
 
 ---
 
-## What You See
+## Current state (factual)
 
-A terminal. Black background, white text. Red appears only when something breaks. The header is one word and three buttons:
+As of this README:
 
-```
-LOOP  ●  [STOP] [CLEAR] [CONFIG]
-```
+- **38 mutation branches** on GitHub (`loop-01` through `loop-38`), next will be `loop-39`.
+- **28 postmortems** in the chain, **0 broken links** (every postmortem traces to a real commit).
+- **9 prophecies** seeded by the Oracle, **9 pending** evaluation.
+- **0 hot-swaps** this boot.
+- The repo (`craighckby-stack/V1`) is **public** — commit links in the BRANCHES dialog resolve for anyone.
 
-The `●` next to `LOOP` is the heartbeat — it pulses at 1.6s when the loop is running, sits dim (`○`) when stopped. One character that tells you the system is alive without adding any clutter. The running state is shown at the top of this README; the stopped state below:
-
-![Stopped state — dim ○, waiting at the prompt](./screenshots/10-stopped-state.png)
-
-Type commands:
-
-- `start` — kick off the loop. Renders a live activity snapshot (running state, cycles completed, files scanned, files enhanced, tests pinned, reverts, pushes, current target, task queue), then the live stream takes over.
-- `stop` — halt the loop.
-- `status` — current snapshot, including the next branch number that will be created.
-- `about` — the elevator pitch.
-- `clear` — wipe the console.
-- `config` — open the git config modal (push target only: token, repo, public toggle, auto-create).
-
-Below your command, a live stream scrolls by in real time:
-
-```
-[8:49:08] Starting continuous self-enhancement loop
-[8:49:08] Scanned 17 files in src/lib/pipeline/
-[8:49:08] Branch for this mutation: loop-01
-[8:49:08] Ratchet: writing characterization tests for github-helpers.ts (attempt 1)...
-[8:49:08] LLM retry attempt 1/5 (429 — backing off 10s) for ratchet/github-helpers.ts
-[8:49:18] LLM retry attempt 2/5 (429 — backing off 20s) for ratchet/github-helpers.ts
-```
-
-Every event — scan, ratchet, gate, push, retry, backoff — appears as it happens. Even when the LLM is rate-limiting and a single call takes ~150s of retries, you see each retry fire in real time. No silent gaps where you can't tell if the system is working or stuck.
+The system is currently running against a free-tier LLM API, which rate-limits frequently. When it does, the loop backs off honestly — each retry fires a log line in real time rather than going silent. No fake progress.
 
 ---
 
-## The Plumbing
+## Repo visibility
 
-- **Next.js 16 + TypeScript + Tailwind + shadcn/ui** — the terminal UI on port 3000.
-- **WebSocket mini-service** on port 3003 — the real-time activity stream.
-- **Prisma + SQLite** — tasks, runs, postmortems, the per-cycle branch counter.
-- **GitHub push** — real commits to real git history. Each successful mutation lands on its own `loop-NN` branch; the configured branch is the seed.
-- **`scripts/dev-daemon.py`** — double-fork daemon that keeps the dev server alive across sandbox session cleanups. Start with `python3 scripts/dev-daemon.py start`.
+The repo is private by default when auto-created. To make the BRANCHES commit links shareable, open the CONFIG dialog and click **`[ MAKE PUBLIC ]`** — it uses the same stored PAT to flip the GitHub repo's visibility via the REST API. Confirm before going public (git history leaves the building); no confirm needed to re-private.
 
 ---
 
-## The Name
+## Tech stack
 
-The old name was *"Architecture Helper Pipeline v4.x"* — it described what the system used to do (help refactor external GitHub repos). The new name describes what the system **is**:
-
-> **LOOP** — four characters, terminal-native, honest. The system is one continuous loop: scan → improve → test → push → repeat. That's the whole shape of it.
-
-The app dropped the version number from the header entirely — it just says `LOOP`. The version exists in git history (each `loop-NN` branch is a version), not in the UI.
-
-Alternate name we considered: **RATCHET** — named after the defining safety mechanism. If "LOOP" ever feels too generic, "RATCHET" is the runner-up.
+- **Next.js 16** (App Router, Turbopack) + **TypeScript 5**
+- **Tailwind CSS 4** + **shadcn/ui** (New York)
+- **Prisma ORM** + SQLite
+- **Socket.io** for the real-time activity stream (mini-service on port 3003)
+- **TypeScript Compiler API** for the AST diff gate
+- **z-ai-web-dev-sdk** for LLM calls (server-side only)
+- **Web Audio API** for the synthesized boot soundtrack (no audio assets — all oscillators)
 
 ---
 
-## Quick Start
+## Quick start
 
 ```bash
-# 1. Install deps
 bun install
-
-# 2. Push the database schema
 bun run db:push
+bun run dev
 
-# 3. Start the dev server (survives sandbox cleanups via double-fork daemon)
-python3 scripts/dev-daemon.py start
-
-# 4. Start the WebSocket mini-service (real-time stream)
+# In another terminal — the real-time stream mini-service
 cd mini-services/chat-service && bun run dev
 ```
 
 Open the preview panel. Type `start`. Watch it work.
 
----
-
-## Configuration
-
-The `config` command (or the `[CONFIG]` button) opens the **git push target** modal:
-
-![Git config modal — token, repo, public toggle, auto-create](./screenshots/09-git-config-modal.png)
-
-- **GitHub token** — classic PAT (repo scope) or fine-grained PAT. Stored locally only, never in git config, remotes, or the pushed repo.
-- **Repository** (`owner/name`) — auto-creates the repo if missing (private by default).
-- **Branch** — the seed branch (`main` by default). Each successful enhancement forks a new `loop-NN` off the advancing HEAD; this field is the starting point, not the perpetual target.
-- **Public toggle** — private unless checked.
-- **Auto-create toggle** — creates the repo under the token's account if it doesn't exist.
-
-LLM settings, scan scope, and ratchet behaviour are code-level constants in `src/lib/pipeline/autonomous/self-enhance-loop.ts` — not exposed in the modal. The system could expose them later by adding fields to the config modal (which is in the protected control surface, so the loop can't rewrite it).
+To configure the push target (so mutations land on GitHub), type `config` or click `[CONFIG]` and paste a classic PAT (repo scope) + `owner/repo`.
 
 ---
 
-## Honest Limitations
+## Honest limitations
 
-- **The LLM has to be reachable.** The loop depends on an external LLM endpoint. When it returns 429s (rate limit), the loop backs off honestly — each retry fires a log line in real time (`LLM retry attempt 2/5 (429 — backing off 20s)`) rather than going silent or pretending to work. No fake progress. If the endpoint is hard-down, every cycle completes structurally (scan → attempt → fail → next) but produces zero mutations.
-- **The first attempt at any file is the dumbest.** The postmortem is written only after the first failure. So the first attempt has no scar log to consult; every subsequent attempt is informed.
-- **Push target has to be configured to see branches on GitHub.** Without a configured PAT + repo, the loop falls back to commit-only (local commits, no `loop-NN` branches on a remote). The branch logic still runs internally — the counter still bumps, the names still compute — but the branches only materialize when there's a remote to push to.
-- **The sandbox reaps session-spawned processes.** `scripts/dev-daemon.py` works around this with double-fork daemonization — the grandchild is orphaned to PID 1 before session cleanup kills the tree. Without this, the dev server dies within minutes.
+- **The LLM has to be reachable.** The loop depends on an external LLM endpoint. When it returns 429s, the loop backs off honestly — each retry fires a log line. If the endpoint is hard-down, every cycle completes structurally (scan → attempt → fail → next) but produces zero mutations.
+- **The first attempt at any file is the dumbest.** The postmortem is written only after the first failure. Every subsequent attempt is informed.
+- **The "self-improvement" is incremental, not compounding.** 38 branches = 38 small validated patches, not 38× smarter. Each mutation is a discrete, compiler-gated diff to one source file. The system is not rewriting its own core loop logic in a way that would exponentiate.
+- **The intelligence is outsourced.** The LLM does the generation; the system's actual cleverness is in the gating — TypeScript compiler, structural validator, postmortem chain, push pipeline. The system is a well-built scaffold around an LLM that proposes diffs.
+- **The postmortem chain is the system vouching for itself.** "Verified" means the LLM checked its own work and the validator passed — not external verification. Same with the Oracle: it predicts its own operational outcomes, which is a neat closed loop but self-referential, not external-world modeling.
+- **Push target has to be configured to see branches on GitHub.** Without a configured PAT + repo, the loop falls back to commit-only (local commits, no `loop-NN` branches on a remote).
 
 ---
 
-## Tech Stack
+## What this is not
 
-- **Next.js 16** (App Router) + **TypeScript 5**
-- **Tailwind CSS 4** + **shadcn/ui** (New York)
-- **Prisma ORM** + SQLite
-- **Socket.io** for the real-time stream
-- **TypeScript Compiler API** for the AST diff gate
-- **z-ai-web-dev-sdk** for LLM calls (server-side only)
-- **NextAuth.js v4** (available, not yet wired into the loop)
+- Not AGI. Not conscious. Not dangerous. Not a demo that stops when you stop watching.
+- Not a parlour trick either — it's a real, running, bounded autonomous self-mutation experiment that has produced 38 compiler-verified patches to its own source code and pushed them to a public git history you can audit right now.
+
+The engineering is in the gating, the persistence (3-tier state survival across sandbox restarts), and the boundary (the loop can't rewrite its own OFF switch). That's the craft. The LLM is the easy part.
 
 ---
 
