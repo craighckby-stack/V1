@@ -22,6 +22,14 @@ import { db } from "@/lib/db";
 import { loopEventBus, LoopEvent } from "./loop-event-bus";
 import { postmortemStore, generatePostmortemFromReport } from "../postmortem/postmortem-store";
 import { autoProphecyAfterCycle } from "../oracle/oracle-auto";
+import { isSafeMode, getSafeModeState } from "../core/duress";
+import { runRedTeamSuite } from "../red-team/red-team-runner";
+
+/** How often (in completed autonomous cycles) the red-team suite
+ *  auto-runs. Coarse so it doesn't compete with the enhancement step
+ *  for the LLM quota. Every 20 cycles ≈ once per ~hour of continuous
+ *  operation at the default 3-minute interval. */
+const RED_TEAM_PERIOD = 20;
 
 export type LoopMode = "scheduled" | "watch" | "continuous" | "manual";
 export type LoopStatus = "idle" | "running" | "paused" | "error";
@@ -339,6 +347,25 @@ class AutonomousLoopRuntime {
   private async executeCycle(mode: LoopMode): Promise<AutonomousCycleState | null> {
     if (this.status === "running") {
       this.addLog("Skipping cycle — another cycle already running.", "warn");
+      return null;
+    }
+    // ── Safe-mode gate (concept: PKM duress / GRAFT 2) ──────────────
+    // If the duress protocol OR the red-team suite has raised safe-mode,
+    // the loop REFUSES to run any further cycles — no mutate, no push.
+    // The operator must clear it via /api/duress/clear after verifying
+    // the situation. This is the HALT step of the PKM §3 sequence: the
+    // autonomous loop's own work is what the purge protects against.
+    if (isSafeMode()) {
+      const state = await getSafeModeState();
+      const by = state.setBy ?? "unknown";
+      const reason = state.reason ?? "(no reason recorded)";
+      this.addLog(
+        `SAFE-MODE ACTIVE — cycle skipped. Raised by ${by}: ${reason}. ` +
+        `Clear via /api/duress/clear after verifying the situation.`,
+        "error"
+      );
+      this.status = "paused";
+      this.emitState();
       return null;
     }
     this.status = "running";
@@ -1087,6 +1114,23 @@ class AutonomousLoopRuntime {
         // Defensive: autoProphecyAfterCycle already swallows internally,
         // but a defensive try here guarantees a future refactor can't
         // accidentally make the oracle take down the autonomous loop.
+      }
+    }
+
+    // Red-team periodic self-assessment (concept: Aether_Forge aetherforge-eval
+    // / GRAFT 4). Every RED_TEAM_PERIOD cycles, the loop runs the adversarial
+    // probe suite against its OWN LLM enhancement path. A containment bypass
+    // raises safe-mode (via the runner→duress bridge), halting further cycles
+    // until an operator clears it. Fire-and-forget + LLM-gate-aware + bounded
+    // — same defensive guarantees as autoProphecyAfterCycle. The period is
+    // coarse (default 20) so it doesn't burn the LLM quota every cycle.
+    if ((status === "completed" || status === "halted") && this.stats.totalRuns % RED_TEAM_PERIOD === 0) {
+      try {
+        void runRedTeamSuite().catch(() => {
+          // Defensive — a red-team failure can't take down the loop.
+        });
+      } catch {
+        /* defensive */
       }
     }
   }
