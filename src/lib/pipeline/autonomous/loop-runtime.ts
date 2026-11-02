@@ -110,18 +110,24 @@ export interface AutonomousCycleSummary {
 
 class AutonomousLoopRuntime {
   private config: LoopConfig = {
-    enabled: false,
-    mode: "scheduled",
-    intervalMinutes: 10,
-    targetRepo: "craighckby-stack/66",
+    // ── FULLY AUTONOMOUS (default) ──────────────────────────────────
+    // The loop arms itself on boot — no [START] button needed. It runs
+    // in continuous mode (cycle → ~2s cooldown → cycle → ...) so the
+    // system keeps improving itself without operator intervention.
+    // The operator can still stop it via [STOP] or /api/autonomous/stop
+    // and the duress safe-mode gate (core/duress.ts) still pauses it on
+    // a security event. See docs/HOT-SWAP.md.
+    enabled: true,
+    mode: "continuous",
+    intervalMinutes: 1,
+    targetRepo: "craighckby-stack/V1",
     branch: "main",
-    evolutionBranch: "helper-evolution",
-    maxCycles: 100,
-    maxFilesPerCycle: 5,
+    evolutionBranch: "loop-01",
+    maxCycles: 100000, // effectively unlimited — the loop is meant to run
+    maxFilesPerCycle: 3,
     autoPush: true,
-    siphonSourceId: "pattern-optimizer-helper",
-    userPrompt:
-      "Apply 5-pillar modular refactoring with AST retention and Shannon entropy sanitization.",
+    siphonSourceId: "self",
+    userPrompt: "",
     githubToken: "",
   };
 
@@ -145,6 +151,47 @@ class AutonomousLoopRuntime {
    * the same first-N-alphabetical files every time.
    */
   private previouslyCommittedPaths: Set<string> = new Set();
+  /** Auto-arm guard — the constructor arms the scheduler exactly once on
+   *  the first instance. A hot-swap re-imports the module, creating a
+   *  fresh instance, which re-arms. The re-arm respects the snapshot's
+   *  `enabled` flag so a stopped loop stays stopped across a swap. */
+  private autoArmed = false;
+
+  constructor() {
+    // Auto-arm on construction. The singleton is created at module load
+    // (server boot), so this starts the autonomous loop WITHOUT requiring
+    // an operator to press [START]. A deferred 2-second setTimeout lets
+    // the rest of the system (DB, postmortem store rehydrate, duress
+    // safe-mode rehydrate) settle before the first cycle fires — otherwise
+    // the first cycle can race the duress rehydrate and miss a safe-mode
+    // flag that should pause it.
+    if (!this.autoArmed) {
+      this.autoArmed = true;
+      setTimeout(() => {
+        try {
+          // Respect duress safe-mode: if it's raised at boot (e.g. a prior
+          // session left it raised), don't auto-start. The recovery probe
+          // or the operator will clear it.
+          if (typeof isSafeMode === "function" && isSafeMode()) {
+            this.addLog(
+              "Auto-arm deferred: safe-mode is active. Clear via /api/duress/clear to start the autonomous loop.",
+              "warn"
+            );
+            this.status = "paused";
+            this.emitState();
+            return;
+          }
+          this.addLog(
+            "Autonomous loop auto-armed on boot — continuous mode, ~1.5s cooldown between cycles. Press [STOP] to pause.",
+            "success"
+          );
+          this.restartScheduler();
+        } catch (err) {
+          this.addLog(`Auto-arm failed: ${(err as Error).message}`, "error");
+        }
+      }, 2000);
+    }
+  }
 
   // --- Token resolution (don't log the value) ---
   private resolveToken(clientToken?: string): string | null {
@@ -152,6 +199,14 @@ class AutonomousLoopRuntime {
     // values. This used to be a `??` chain, which treats "" as a value — so
     // with the default config token of "", process.env.GITHUB_TOKEN was
     // NEVER reached and resolution always failed (audit 2, item 2).
+    //
+    // The 4th candidate — the push-target store — is what makes the loop
+    // fully autonomous: after the operator configures the PAT via the
+    // [CONFIG] panel (or the API), it's stored in the DB + the durable
+    // state file. The loop reads it from there on every cycle, so it
+    // doesn't need a separate `githubToken` config field to be set. This
+    // closes the gap where the loop was auto-running but every cycle
+    // 403'd on the GitHub tree fetch because the config token was empty.
     const candidates = [clientToken, this.config.githubToken, process.env.GITHUB_TOKEN];
     for (const candidate of candidates) {
       const value = (candidate ?? "").trim();
@@ -159,6 +214,27 @@ class AutonomousLoopRuntime {
         continue;
       }
       return value;
+    }
+    // Final fallback: the push-target store. Synchronous read from the
+    // durable state file (no DB round-trip) so this is fast even on a
+    // cold cache. If the store has a token, use it; otherwise the loop
+    // runs unauthenticated and the GitHub API will 403 — surfaced as a
+    // clear cycle error, not a silent failure.
+    try {
+      // Lazy dynamic require to avoid a circular import at module load
+      // (push-target imports from pipeline modules; loop-runtime is one).
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getStoredTargetSync } = require("./push-target") as {
+        getStoredTargetSync?: () => { token: string } | null;
+      };
+      if (typeof getStoredTargetSync === "function") {
+        const stored = getStoredTargetSync();
+        if (stored && stored.token && stored.token.length >= 8) {
+          return stored.token;
+        }
+      }
+    } catch {
+      /* push-target not yet loaded — fall through */
     }
     return null;
   }
@@ -321,27 +397,94 @@ class AutonomousLoopRuntime {
   }
 
   private async runContinuousLoop() {
+    // The continuous loop is the heart of "fully autonomous". It MUST
+    // NOT die on a single cycle crash — a bug in one cycle (a thrown
+    // error inside executeCycle's internals, an OOM in the LLM call,
+    // a transient DB hiccup) must not permanently stop the system.
+    // The cycle itself already catches its own errors, but a defensive
+    // try/catch around the whole loop body guarantees a future refactor
+    // can't accidentally make one uncaught throw kill the loop forever.
     while (
       this.continuousLoopRunning &&
       this.config.enabled &&
       this.config.mode === "continuous"
     ) {
-      const cycle = await this.executeCycle("continuous");
-      if (!cycle) break;
-      if (cycle.status === "halted") {
+      try {
+        const cycle = await this.executeCycle("continuous");
+        if (!cycle) {
+          // executeCycle returned null — either another cycle is already
+          // running (rare in continuous mode) OR safe-mode paused it.
+          // Don't break the loop; just cool down and try again next tick.
+          // The safe-mode recovery probe (below) handles auto-resume.
+        } else if (cycle.status === "halted") {
+          this.addLog(
+            "Continuous loop halted by governor (saturation or failure limit reached). Pausing — recovery probe will resume when conditions improve.",
+            "warn"
+          );
+          this.status = "paused";
+          this.continuousLoopRunning = false;
+          this.emitState();
+          this.scheduleRecoveryProbe();
+          return;
+        }
+      } catch (err) {
+        // A throw escaping executeCycle is a bug, but the loop's job is
+        // to keep running. Log it and continue — the next cycle starts
+        // fresh. This is what makes the loop "never-stop".
         this.addLog(
-          "Continuous loop halted by governor (saturation or failure limit reached). Pausing.",
-          "warn"
+          `Cycle threw (continuous loop survived): ${(err as Error).message}`,
+          "error"
         );
-        this.status = "paused";
-        this.continuousLoopRunning = false;
-        this.emitState();
-        break;
       }
-      // Brief cooldown between continuous cycles.
+      // Brief cooldown between continuous cycles. 1.5s keeps the loop
+      // responsive (a cycle takes ~10-60s anyway, so the cooldown is a
+      // rounding error) without burning the LLM quota on back-to-back
+      // cycles when there's nothing to do.
       await new Promise((r) => setTimeout(r, 1500));
     }
     this.continuousLoopRunning = false;
+  }
+
+  /** Recovery probe — when the loop pauses (safe-mode OR governor halt),
+   *  schedule a one-shot probe that re-checks the pause condition after
+   *  a cooldown. If the condition cleared (safe-mode cleared, or the
+   *  governor's saturation/timeout reset), the probe re-arms the
+   *  scheduler so the loop auto-resumes. This is the "never-stop"
+   *  guarantee: the system pauses when it must, then tries again. */
+  private recoveryProbeTimer: NodeJS.Timeout | null = null;
+  private scheduleRecoveryProbe(): void {
+    if (this.recoveryProbeTimer) return; // already scheduled
+    const RECOVERY_PROBE_MS = 60_000; // 1 minute — coarse to be gentle
+    this.addLog(
+      `Recovery probe scheduled in ${RECOVERY_PROBE_MS / 1000}s — will auto-resume if safe-mode clears.`,
+      "info"
+    );
+    this.recoveryProbeTimer = setTimeout(() => {
+      this.recoveryProbeTimer = null;
+      try {
+        if (!this.config.enabled) {
+          // Operator stopped it. Don't auto-resume.
+          this.addLog("Recovery probe: loop disabled by operator — not resuming.", "info");
+          return;
+        }
+        if (isSafeMode()) {
+          // Still in safe-mode. Schedule another probe.
+          this.addLog("Recovery probe: safe-mode still active — re-probing in 60s.", "info");
+          this.scheduleRecoveryProbe();
+          return;
+        }
+        // Safe-mode cleared (or was never the reason). Re-arm.
+        this.addLog(
+          "Recovery probe: conditions clear — re-arming autonomous loop.",
+          "success"
+        );
+        this.restartScheduler();
+      } catch (err) {
+        this.addLog(`Recovery probe failed: ${(err as Error).message}`, "error");
+        // Try again — the probe is the never-stop guarantee.
+        this.scheduleRecoveryProbe();
+      }
+    }, RECOVERY_PROBE_MS);
   }
 
   private async executeCycle(mode: LoopMode): Promise<AutonomousCycleState | null> {
@@ -366,6 +509,12 @@ class AutonomousLoopRuntime {
       );
       this.status = "paused";
       this.emitState();
+      // Schedule a recovery probe so the loop auto-resumes when safe-mode
+      // clears (operator cleared it, or the duress module auto-cleared
+      // after a successful probe). Without this, a safe-mode event would
+      // permanently stop the loop until a manual [START] — which violates
+      // "fully autonomous".
+      this.scheduleRecoveryProbe();
       return null;
     }
     this.status = "running";

@@ -252,6 +252,25 @@ export async function getStoredTarget(): Promise<StoredTarget | null> {
   return { repo: row.repo, token: row.token, branch: row.branch };
 }
 
+/** Synchronous, file-only read of the stored target. For callers that
+ *  can't await a DB round-trip — notably the autonomous loop's
+ *  `resolveToken`, which runs at the top of every cycle and needs the
+ *  PAT without an async dependency. Reads tier-2 (root state file) first,
+ *  then tier-3 (.git/info/). Returns null if neither has a valid token.
+ *
+ *  IMPORTANT: this skips the DB on purpose (sync). If the DB has a token
+ *  the files don't, `getStoredTarget()` (async) is the source of truth.
+ *  But in practice the files are written FIRST (writeStateFile writes
+ *  before the DB upsert), so if a token exists at all, the files have
+ *  it. This is the same pattern that made the 3-tier persistence robust
+ *  to sandbox wipes. */
+export function getStoredTargetSync(): { repo: string; token: string; branch: string } | null {
+  const state = readStateFile() ?? readPersistentStateFile();
+  if (!state) return null;
+  if (!state.token || state.token.length < 8) return null;
+  return { repo: state.repo, token: state.token, branch: state.branch };
+}
+
 /** Public view of the push target — token never included. */
 export async function getPushTargetPublic(): Promise<PushTargetPublic> {
   let row: Awaited<ReturnType<typeof db.gitPushTarget.findUnique>> = null;
