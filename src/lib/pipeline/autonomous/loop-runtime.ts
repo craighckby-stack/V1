@@ -24,6 +24,14 @@ import { postmortemStore, generatePostmortemFromReport } from "../postmortem/pos
 import { autoProphecyAfterCycle } from "../oracle/oracle-auto";
 import { isSafeMode, getSafeModeState } from "../core/duress";
 import { runRedTeamSuite } from "../red-team/red-team-runner";
+// Static import of the LLM rate-limit gate. This used to be a dynamic
+// `require()` inside runContinuousLoop, but under Turbopack the interop
+// of `require()` on compiled ESM is unreliable — when it silently fails,
+// the backoff never triggers and the loop hammers a rate-limited API every
+// tick until the event loop saturates and HTTP dies. agent-llm imports
+// ONLY z-ai-web-dev-sdk (no pipeline modules), so a static import here
+// creates no circular dependency. oracle-auto.ts already does this.
+import { llmIsCoolingDown, llmCooldownMs } from "../llm/agent-llm";
 
 /** How often (in completed autonomous cycles) the red-team suite
  *  auto-runs. Coarse so it doesn't compete with the enhancement step
@@ -178,7 +186,31 @@ class AutonomousLoopRuntime {
    *  arm multiple timers (multiple cycles running in parallel = chaos).
    *  The static guard ensures only ONE auto-arm fires per process boot,
    *  no matter how many instances are transiently created. */
-  private static autoArmFired = false;
+  /* ── WHY autoArmFired LIVES ON globalThis ─────────────────────────
+   *
+   * Static (and module-local) variables are PER Turbopack module
+   * instance. Every time Turbopack recompiles + re-imports this file,
+   * the fresh module gets `autoArmFired = false` again — so the static
+   * guard does NOT actually guard across module generations. Each
+   * re-import that constructs an instance would schedule its own 2s
+   * auto-arm timer → multiple parallel continuous loops → event-loop
+   * saturation → HTTP dies (the "won't load" failure mode).
+   *
+   * A globalThis flag is process-global: it survives module re-imports,
+   * so only ONE auto-arm fires per "generation". A new generation is
+   * explicitly re-enabled by the hot-swap snapshot restore below (the
+   * only legitimate path that wants a second arm). This mirrors the
+   * safe-mode fix (see core/duress.ts). */
+  private static readonly AUTO_ARM_FLAG = "__loopAutoArmFired";
+  private autoArmAlreadyFired(): boolean {
+    return !!(globalThis as any)[AutonomousLoopRuntime.AUTO_ARM_FLAG];
+  }
+  private markAutoArmFired(): void {
+    (globalThis as any)[AutonomousLoopRuntime.AUTO_ARM_FLAG] = true;
+  }
+  private resetAutoArmFlag(): void {
+    (globalThis as any)[AutonomousLoopRuntime.AUTO_ARM_FLAG] = false;
+  }
 
   constructor() {
     // ── Hot-swap restore ────────────────────────────────────────────
@@ -215,12 +247,12 @@ class AutonomousLoopRuntime {
           if (Array.isArray(snap.previouslyFailedPaths)) {
             this.previouslyFailedPaths = new Map(snap.previouslyFailedPaths);
           }
-          // A swap happened — reset the static autoArmFired flag so THIS
-          // fresh instance can auto-arm. Without this, the static guard
-          // (set true by the first boot's instance) would prevent the
-          // new instance from arming, and the loop would stay paused
-          // after every swap.
-          AutonomousLoopRuntime.autoArmFired = false;
+          // A swap happened — reset the auto-arm flag so THIS fresh
+          // instance can auto-arm. Without this, the flag (set true by
+          // the previous generation) would prevent the new instance
+          // from arming, and the loop would stay paused after every
+          // swap. This is the ONE legitimate re-arm path.
+          this.resetAutoArmFlag();
           // Log the restore so the swap is visible in the loop's own log.
           this.addLog(
             `HOT-SWAP RESTORE: resumed from snapshot (cycle #${snap.stats?.totalRuns ?? 0}, ${snap.previouslyCommittedPaths?.length ?? 0} committed, ${snap.previouslyFailedPaths?.length ?? 0} failed). Reason: ${snap.swappableReason ?? "(none)"}`,
@@ -239,14 +271,14 @@ class AutonomousLoopRuntime {
     // safe-mode rehydrate) settle before the first cycle fires — otherwise
     // the first cycle can race the duress rehydrate and miss a safe-mode
     // flag that should pause it.
-    //
-    // The STATIC autoArmFired guard is the key: when the globalThis pin
-    // is cleared (by a hot-swap), Turbopack may create several fresh
-    // instances before one re-pins itself. The static guard ensures
-    // only the FIRST instance schedules an auto-arm; the rest no-op.
-    // This prevents multiple timers (and thus multiple parallel cycles).
-    if (!AutonomousLoopRuntime.autoArmFired) {
-      AutonomousLoopRuntime.autoArmFired = true;
+    // The GLOBAL auto-arm flag is the key: it survives Turbopack module
+    // re-imports, so no matter how many fresh module instances are
+    // transiently created, only ONE schedules an auto-arm per generation.
+    // The pin check inside the timer (below) is the second guard: even if
+    // two timers somehow got scheduled, only the instance that owns the
+    // globalThis pin proceeds to arm.
+    if (!this.autoArmAlreadyFired()) {
+      this.markAutoArmFired();
       setTimeout(() => {
         try {
           // Re-check the pin: if another instance already armed + is
@@ -270,7 +302,7 @@ class AutonomousLoopRuntime {
             return;
           }
           this.addLog(
-            "Autonomous loop auto-armed on boot — continuous mode, ~1.5s cooldown between cycles. Press [STOP] to pause.",
+            "Autonomous loop auto-armed on boot — continuous mode, ~10s cooldown between cycles (longer while the LLM is rate-limited). Press [STOP] to pause.",
             "success"
           );
           this.restartScheduler();
@@ -440,6 +472,14 @@ class AutonomousLoopRuntime {
       clearInterval(this.timer);
       this.timer = null;
     }
+    // Also kill any pending recovery probe. Without this, a stopped
+    // instance's probe could fire later and re-arm ITS scheduler — a
+    // zombie loop running in parallel with whichever instance the
+    // operator (or a hot-swap) actually started.
+    if (this.recoveryProbeTimer) {
+      clearTimeout(this.recoveryProbeTimer);
+      this.recoveryProbeTimer = null;
+    }
     this.continuousLoopRunning = false;
     this.addLog(
       "Autonomous loop DISABLED. No further cycles will run until re-enabled.",
@@ -549,21 +589,17 @@ class AutonomousLoopRuntime {
           "error"
         );
       }
-      // Dynamic cooldown: check the LLM rate-limit gate. If it's active,
-      // wait for it to clear (poll every 5s) instead of hammering every
-      // 1.5s. This is what prevents the event-loop saturation that
-      // killed the HTTP server when the LLM was rate-limited.
-      let cooldownMs = 1500;
+      // Dynamic cooldown: check the LLM rate-limit gate (STATIC import —
+      // reliable under Turbopack, unlike the old dynamic require() whose
+      // silent interop failure meant the backoff never triggered). Base
+      // cooldown is 10s — cycles themselves take 10–60s, so this barely
+      // affects throughput but keeps the event loop responsive for HTTP.
+      let cooldownMs = 10_000;
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { llmIsCoolingDown, llmCooldownMs } = require("../llm/agent-llm") as {
-          llmIsCoolingDown?: () => boolean;
-          llmCooldownMs?: () => number;
-        };
-        if (typeof llmIsCoolingDown === "function" && llmIsCoolingDown()) {
-          const remaining = typeof llmCooldownMs === "function" ? llmCooldownMs() : 30000;
-          // Wait until the gate clears, polling every 5s. Cap at 5min so
-          // a stuck gate doesn't pause the loop forever.
+        if (llmIsCoolingDown()) {
+          const remaining = llmCooldownMs();
+          // Wait until the gate clears. Cap at 5min so a stuck gate
+          // doesn't pause the loop forever.
           cooldownMs = Math.min(Math.max(remaining + 2000, 5000), 300000);
           this.addLog(
             `LLM rate-limit gate active — backing off ${(cooldownMs / 1000).toFixed(0)}s before next cycle (HTTP server freed up).`,
@@ -571,7 +607,7 @@ class AutonomousLoopRuntime {
           );
         }
       } catch {
-        /* agent-llm not yet loaded — use base cooldown */
+        /* gate check failed — use base cooldown */
       }
       await new Promise((r) => setTimeout(r, cooldownMs));
     }
@@ -623,6 +659,24 @@ class AutonomousLoopRuntime {
   private async executeCycle(mode: LoopMode): Promise<AutonomousCycleState | null> {
     if (this.status === "running") {
       this.addLog("Skipping cycle — another cycle already running.", "warn");
+      return null;
+    }
+    // ── LLM rate-limit fast-path (pre-tree-fetch) ────────────────────
+    // If the LLM gate is already active, defer BEFORE the expensive part
+    // of a cycle (GitHub tree fetch over ~667 entries + branch checks +
+    // file reads). Previously the gate was only consulted AFTER the cycle
+    // (in the continuous loop's cooldown), so a gated cycle still burned
+    // several seconds of fetch work before deferring — back-to-back gated
+    // cycles were the exact cause of the event-loop saturation that made
+    // the site unreachable. Deferring here costs ~0ms. Manual triggers
+    // bypass this: the operator asked for a cycle, so give them one (the
+    // per-file gates will defer individual LLM calls as needed).
+    if (mode !== "manual" && llmIsCoolingDown()) {
+      const remaining = Math.ceil(llmCooldownMs() / 1000);
+      this.addLog(
+        `Cycle deferred — LLM rate-limit gate active (${remaining}s remaining). Skipping tree fetch.`,
+        "warn"
+      );
       return null;
     }
     // ── Safe-mode gate (concept: PKM duress / GRAFT 2) ──────────────
