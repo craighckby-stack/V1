@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ConsoleStream, type ConsoleLine } from "./display/console-stream";
+import { OraclePanel } from "@/components/pipeline/oracle-panel";
 
 interface LogEntry {
   timestamp: string;
@@ -207,6 +208,11 @@ export default function Home() {
   const [cfgError, setCfgError] = useState<string | null>(null);
   const [cfgStatusMsg, setCfgStatusMsg] = useState<string | null>(null);
   const [cfgTarget, setCfgTarget] = useState<PushTargetInfo | null>(null);
+
+  // Oracle panel state — the system's prophecy/evaluation subsystem.
+  // open/close is the only state page.tsx owns; the panel manages its
+  // own polling, fetch, and rendering internally (see OraclePanel).
+  const [oracleOpen, setOracleOpen] = useState(false);
 
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1227,6 +1233,18 @@ export default function Home() {
           >
             [CONFIG]
           </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOracleOpen(true);
+            }}
+            aria-label="Open the Oracle panel — the system's prophecies and track record"
+            title="Oracle — the system predicts its own future"
+            style={cfgBtnStyle}
+          >
+            [ORACLE]
+          </button>
         </div>
       </div>
 
@@ -1577,6 +1595,12 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Oracle panel — the system's prophecy/evaluation subsystem.
+          Renders as a modal overlay when oracleOpen is true. The panel
+          manages its own polling, fetch, and rendering; page.tsx just
+          owns the open/close state. */}
+      <OraclePanel open={oracleOpen} onClose={() => setOracleOpen(false)} />
     </div>
   );
 }

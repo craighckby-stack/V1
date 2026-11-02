@@ -152,3 +152,102 @@ model LlmConfig {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 }
+
+/// A falsifiable prediction the system makes about its own future.
+///
+/// Each prophecy is generated from the system's recent history (git log,
+/// worklog, postmortems) by the LLM, then stored. Over time, the
+/// evaluator checks pending prophecies against new events and marks
+/// them fulfilled, failed, or leaves them pending. The track record
+/// (fulfilled / failed / still-pending counts, plus a calibration
+/// metric) is surfaced in the UI as the system's "metacognition" — a
+/// real, measurable form of self-reflection.
+///
+/// Why this model exists: the system already mutates its own source.
+/// Adding prophecy/evaluation gives it a way to test its own model of
+/// itself. A system that can predict its own failures with calibrated
+/// confidence is doing something closer to self-awareness than one that
+/// simply reacts. The track record is the evidence.
+///
+/// The prophecy is NOT a goal. The system does not work to make
+/// prophecies come true; it works on whatever the SelfTask queue
+/// prioritizes. The prophecy is a prediction about that work, made
+/// before the work happens, judged after.
+///
+/// Falsifiability is enforced: every prophecy must include a
+/// falsifiabilityCriterion (what evidence would confirm/refute it).
+/// The generator rejects any prophecy without one. Vague unfalsifiable
+/// claims ("the system will continue to evolve") don't get saved —
+/// they'd never be evaluable and would inflate the pending count
+/// forever.
+model Prophecy {
+  id              String    @id @default(cuid())
+  // The actual prediction. One sentence, future-tense, specific enough
+  // to be evaluable against real events. Examples:
+  //   "The next mutation will fail the AST diff gate by dropping an export."
+  //   "Within 5 cycles, a postmortem will be written for src/lib/pipeline/llm/agent-llm.ts."
+  //   "The next 3 mutations will all pass every gate on the first attempt."
+  claim           String
+
+  // LLM's stated confidence, 0.0 to 1.0. Used for the calibration metric:
+  // of all prophecies with confidence >= 0.7, what fraction came true?
+  // A well-calibrated system should be right ~70% of the time on that
+  // band. Tracking this over many prophecies turns "confidence" from
+  // a feeling into a measurement.
+  confidence      Float
+
+  // Why the LLM thinks the claim will come true. Includes the historical
+  // patterns it's reasoning from. Lets a human reviewer audit the
+  // reasoning later, and lets the evaluator check whether the rationale
+  // matches what actually happened.
+  rationale       String
+
+  // The falsifiability criterion: what specific evidence would confirm
+  // or refute this prophecy. The evaluator uses this as the rubric. If
+  // empty, the prophecy is rejected at generation time — we don't store
+  // predictions we can never judge.
+  falsifiabilityCriterion  String
+
+  // Lifecycle: pending (waiting for evaluateBy), fulfilled (came true),
+  // failed (did not come true), retired (deadline passed without enough
+  // evidence to judge — rare, used when the criterion is uncheckable).
+  status          String    @default("pending") // pending | fulfilled | failed | retired
+
+  // Deadline for evaluation. The evaluator only judges prophecies past
+  // this date (or manually triggered). Set by the generator based on
+  // the claim's horizon — "next mutation" = +1 cycle, "within 5 cycles"
+  // = +5 cycles, etc. Stored as DateTime, computed from createdAt +
+  // horizonCycles * estimatedCycleMs.
+  evaluateBy      DateTime
+
+  // When the evaluator actually judged it (null while pending). Lets
+  // the UI show how long after the deadline the judgment happened.
+  evaluatedAt     DateTime?
+
+  // The evaluator's reasoning, recorded when status changes from
+  // pending. Explains which evidence was found and how it matched (or
+  // didn't match) the falsifiabilityCriterion. Empty while pending.
+  evaluation      String?
+
+  // The commit SHA at prophecy-generation time. Gives the evaluator a
+  // reference point: "the system was at SHA X when it predicted Y; the
+  // current state is SHA Z; here's what happened in between." Lets the
+  // evaluator do a real `git log X..Z` diff to check the claim.
+  contextSha      String?
+
+  // A brief summary of the history the LLM saw when generating. Lets
+  // the evaluator check the prophecy against the SAME context the LLM
+  // had (not just the current state). Without this, the evaluator might
+  // judge a prophecy against events the LLM couldn't have known about.
+  historySnapshot String?
+
+  // Optional: which subsystem the prophecy is about. Helps the UI
+  // filter ("show me all prophecies about the LLM caller"). Free-text
+  // tag set by the LLM, e.g. "llm" | "gates" | "push" | "postmortem" |
+  // "ui" | "system". Not enumerated because we don't want to constrain
+  // the LLM's categorical vocabulary.
+  domain          String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
