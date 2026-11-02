@@ -46,8 +46,29 @@ import {
 // fast path the loop reads every cycle (no DB round-trip). They are
 // always set together; cleared together. A process restart rehydrates
 // the runtime flag from the DB flag (see rehydrateSafeMode below).
-let runtimeSafeMode = false;
-let runtimeSafeModeReason: string | null = null;
+//
+// IMPORTANT: the runtime flag lives on globalThis, NOT a module-local
+// `let`. Turbopack may create several module instances over the process
+// lifetime (HMR, hot-swap pin clearing); a module-local `let` would be
+// per-instance — a clear in one instance wouldn't propagate to another,
+// leaving the loop stuck in safe-mode forever even after the operator
+// cleared it. globalThis is the shared truth across all instances.
+const __loopSafeModeSlot = globalThis as unknown as {
+  __loopSafeMode?: { active: boolean; reason: string | null };
+};
+if (!__loopSafeModeSlot.__loopSafeMode) {
+  __loopSafeModeSlot.__loopSafeMode = { active: false, reason: null };
+}
+function getRuntimeSafeMode(): boolean {
+  return __loopSafeModeSlot.__loopSafeMode!.active;
+}
+function getRuntimeSafeModeReason(): string | null {
+  return __loopSafeModeSlot.__loopSafeMode!.reason;
+}
+function setRuntimeSafeMode(active: boolean, reason: string | null): void {
+  __loopSafeModeSlot.__loopSafeMode!.active = active;
+  __loopSafeModeSlot.__loopSafeMode!.reason = reason;
+}
 
 // Consecutive push-auth-failure counter. Reset to 0 on any successful
 // push. The duress trigger fires when this crosses the threshold.
@@ -76,23 +97,23 @@ export async function rehydrateSafeMode(): Promise<void> {
   try {
     const row = await db.systemFlag.findUnique({ where: { key: "safe-mode" } });
     if (row && row.value === "true") {
-      runtimeSafeMode = true;
-      runtimeSafeModeReason = row.reason;
+      setRuntimeSafeMode(true, getRuntimeSafeModeReason());
+      setRuntimeSafeMode(getRuntimeSafeMode(), row.reason);
     } else {
-      runtimeSafeMode = false;
-      runtimeSafeModeReason = null;
+      setRuntimeSafeMode(false, null);
+      setRuntimeSafeMode(getRuntimeSafeMode(), null);
     }
   } catch {
     // DB unavailable — assume not in safe mode (the loop will surface a
     // warning if it can't reach the DB on a real cycle).
-    runtimeSafeMode = false;
+    setRuntimeSafeMode(false, null);
   }
 }
 
 /** Fast path: is the system in safe mode? Reads the runtime cache; the
  *  autonomous loop calls this at the top of every cycle. */
 export function isSafeMode(): boolean {
-  return runtimeSafeMode;
+  return getRuntimeSafeMode();
 }
 
 /** Full state for the UI. Always reads the DB (not the cache) so the
@@ -106,14 +127,14 @@ export async function getSafeModeState(): Promise<SafeModeState> {
   } catch {
     /* DB unavailable — fall through to the runtime cache */
   }
-  return { active: runtimeSafeMode, setBy: null, reason: runtimeSafeModeReason, setAt: null };
+  return { active: getRuntimeSafeMode(), setBy: null, reason: getRuntimeSafeModeReason(), setAt: null };
 }
 
 /** Raise the safe-mode flag. Sets BOTH the DB row (durable) and the
  *  runtime cache (fast). Idempotent. */
 async function raiseSafeMode(setBy: string, reason: string): Promise<void> {
-  runtimeSafeMode = true;
-  runtimeSafeModeReason = reason;
+  setRuntimeSafeMode(true, getRuntimeSafeModeReason());
+  setRuntimeSafeMode(getRuntimeSafeMode(), reason);
   try {
     await db.systemFlag.upsert({
       where: { key: "safe-mode" },
@@ -129,8 +150,8 @@ async function raiseSafeMode(setBy: string, reason: string): Promise<void> {
 
 /** Clear the safe-mode flag (operator action). Clears BOTH tiers. */
 export async function clearSafeMode(by: string = "operator"): Promise<{ cleared: boolean }> {
-  runtimeSafeMode = false;
-  runtimeSafeModeReason = null;
+  setRuntimeSafeMode(false, null);
+  setRuntimeSafeMode(getRuntimeSafeMode(), null);
   consecutiveAuthFailures = 0;
   try {
     await db.systemFlag.upsert({
@@ -144,8 +165,8 @@ export async function clearSafeMode(by: string = "operator"): Promise<{ cleared:
     const readBack = await db.systemFlag.findUnique({ where: { key: "safe-mode" } });
     if (readBack && readBack.value !== "false") {
       console.error("[DURESS] clearSafeMode read-back MISMATCH — value still", readBack.value);
-      runtimeSafeMode = true;
-      runtimeSafeModeReason = `clear failed (DB value still ${readBack.value})`;
+      setRuntimeSafeMode(true, getRuntimeSafeModeReason());
+      setRuntimeSafeMode(getRuntimeSafeMode(), `clear failed (DB value still ${readBack.value})`);
       return { cleared: false };
     }
   } catch (err) {
@@ -264,7 +285,7 @@ export async function duressPurgePat(opts: {
       outcome: "FAILED",
       keysPurged: { tier2: false, tier3: false, db: false },
       readBack: { tier2Gone: false, tier3Gone: false, dbGone: false, allGone: false },
-      safeModeRaised: runtimeSafeMode,
+      safeModeRaised: getRuntimeSafeMode(),
       degraded: ["re-entry blocked"],
       reason: `${opts.reason} (re-entry blocked — a purge was already running)`,
       startedAt,
@@ -295,7 +316,7 @@ export async function duressPurgePat(opts: {
         outcome: "FAILED",
         keysPurged,
         readBack: { tier2Gone: false, tier3Gone: false, dbGone: false, allGone: false },
-        safeModeRaised: runtimeSafeMode,
+        safeModeRaised: getRuntimeSafeMode(),
         degraded,
         reason: `${opts.reason} — Phase 1 KEYS failed (tier2=${keysPurged.tier2}, tier3=${keysPurged.tier3}, db=${keysPurged.db}). PAT NOT confirmed purged.`,
         startedAt,
@@ -321,9 +342,9 @@ export async function duressPurgePat(opts: {
     } catch (err) {
       degraded.push(`Phase 3 SAFE-MODE degraded: ${(err as Error).message.slice(0, 200)}`);
       // Still set the runtime flag in-memory so this process halts.
-      runtimeSafeMode = true;
-      runtimeSafeModeReason = opts.reason;
-      safeModeRaised = runtimeSafeMode;
+      setRuntimeSafeMode(true, getRuntimeSafeModeReason());
+      setRuntimeSafeMode(getRuntimeSafeMode(), opts.reason);
+      safeModeRaised = getRuntimeSafeMode();
     }
 
     // ── PHASE 4 — READ-BACK (DEGRADABLE) ───────────────────────────
@@ -340,9 +361,9 @@ export async function duressPurgePat(opts: {
         `Phase 4 READ-BACK: PAT still detectable (tier2=${readBack.tier2Gone}, tier3=${readBack.tier3Gone}, db=${readBack.dbGone}). Safe-mode stays raised.`
       );
       // Ensure safe-mode is raised even if Phase 3 degraded.
-      if (!runtimeSafeMode) {
-        runtimeSafeMode = true;
-        runtimeSafeModeReason = `${opts.reason} (read-back could not confirm purge)`;
+      if (!getRuntimeSafeMode()) {
+        setRuntimeSafeMode(true, getRuntimeSafeModeReason());
+        setRuntimeSafeMode(getRuntimeSafeMode(), `${opts.reason} (read-back could not confirm purge)`);
       }
     }
 
