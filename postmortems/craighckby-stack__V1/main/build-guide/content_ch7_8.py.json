@@ -2,7 +2,7 @@
   "targetRepo": "craighckby-stack/V1",
   "branch": "main",
   "filePath": "build-guide/content_ch7_8.py",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "ZERO_DIFF_SATURATION",
   "symptom": "0-diff saturation: no semantic change produced",
@@ -12,8 +12,8 @@
   "parentHash": "b78e71787cee142711d60e74545f70a0a3d3053b7a209ac35faa5272889bf30b",
   "hash": "7cf0a75d7b8bb0204240bde69ade0e31d78c355c86a3bd8332afb51557422d46",
   "lastAttemptAt": "2026-11-02T05:38:34.256Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-02T05:48:56.318Z",
   "createdAt": "2026-11-02T05:14:42.369Z",
-  "updatedAt": "2026-11-02T05:38:34.256Z",
+  "updatedAt": "2026-11-02T05:48:56.318Z",
   "schema": 2
 }
