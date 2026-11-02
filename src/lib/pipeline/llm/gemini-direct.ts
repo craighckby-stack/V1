@@ -91,6 +91,55 @@ const MAX_RETRIES = 2;
 const RETRY_DELAYS_MS = [500, 1500]; // 0.5s, then 1.5s (plus jitter)
 const JITTER_MS = 200; // ±0–200ms random jitter on each delay
 
+// ── Per-model circuit-breaker cascade (concept: Aether_Forge Ω repo) ──
+// When the requested model returns 429 / 503 / RESOURCE_EXHAUSTED, trip a
+// per-model circuit breaker for CIRCUIT_BREAKER_COOLDOWN_MS so subsequent
+// calls skip straight to the next model in the cascade instead of
+// re-hammering the same overloaded model. This directly addresses the HK
+// geo-block's secondary failure mode: even after the block lifts, a single
+// busy model used to burn every cycle's quota before falling through to
+// the z-ai chain. With the cascade, one 429 on the primary model routes
+// the NEXT call to a fallback model within ~15s — the user sees actual
+// progress instead of a 10-min wait.
+//
+// The cascade order is: the configured model first, then a deduped list
+// of known-good fallbacks. NOT_FOUND / INVALID_ARGUMENT for a model is
+// NOT a circuit-breakable offense — it just advances to the next model
+// without tripping (a deprecated model shouldn't penalize future calls
+// that might reconfigure to a valid name). Only overload-class failures
+// (429 / 503 / "overloaded" / RESOURCE_EXHAUSTED) trip the breaker.
+const GEMINI_MODEL_CASCADE = [
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-2.5-pro",
+];
+const CIRCUIT_BREAKER_COOLDOWN_MS = 15_000; // 15s — short, so a brief overload self-heals fast
+const modelCircuitBreakers = new Map<string, number>(); // model → unblock epoch ms
+
+function breakerClear(model: string): boolean {
+  const until = modelCircuitBreakers.get(model);
+  if (!until) return true;
+  if (Date.now() >= until) {
+    modelCircuitBreakers.delete(model); // self-heal: clear once expired
+    return true;
+  }
+  return false;
+}
+
+function tripBreaker(model: string): void {
+  modelCircuitBreakers.set(model, Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS);
+}
+
+/** Snapshot of the per-model breaker map — for the status API + UI so the
+ *  operator can see WHY a call landed on a fallback model. */
+export function geminiModelBreakers(): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [model, until] of modelCircuitBreakers) {
+    if (until > Date.now()) out[model] = until;
+  }
+  return out;
+}
+
 interface GeminiConfig {
   apiKey: string;
   model: string;
@@ -193,8 +242,9 @@ async function callGeminiOnce(
   cfg: GeminiConfig,
   opts: { systemPrompt: string; userPrompt: string; temperature?: number },
   started: number,
-): Promise<{ result: GeminiCallResult; transient: boolean }> {
-  const url = `${GEMINI_BASE}/v1beta/models/${cfg.model}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
+  model: string,
+): Promise<{ result: GeminiCallResult; transient: boolean; overload: boolean }> {
+  const url = `${GEMINI_BASE}/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
   const body = {
     systemInstruction: { parts: [{ text: opts.systemPrompt }] },
     contents: [{ role: "user", parts: [{ text: opts.userPrompt }] }],
@@ -214,11 +264,18 @@ async function callGeminiOnce(
       const errText = await res.text().catch(() => "");
       const kind = classifyError(res.status, errText);
       const transient = kind === "transient";
+      // `overload` is the cascade signal: true means this specific model
+      // is busy/unavailable RIGHT NOW and another model might serve the
+      // request. Trips the per-model breaker in geminiComplete so the
+      // NEXT call skips this model for 15s. Quota (429) + transient
+      // (503/overloaded) both qualify; model-not-found does NOT (a
+      // deprecated model name shouldn't poison future reconfigured calls).
+      const overload = kind === "quota" || kind === "transient";
 
-      // Arm the cooldown ONLY for location-block — the only error that
-      // persists for the sandbox's lifetime. Other errors (429, 503)
-      // might lift on the very next call, so we don't penalize them
-      // with a 10-min short-circuit.
+      // Arm the location-block cooldown ONLY for location-block — the
+      // only error that persists for the sandbox's lifetime. Other errors
+      // (429, 503) might lift on the very next call, so we don't penalize
+      // them with a 10-min short-circuit.
       if (kind === "location-block") {
         LOCATION_BLOCKED_UNTIL = Date.now() + LOCATION_COOLDOWN_MS;
       }
@@ -228,7 +285,7 @@ async function callGeminiOnce(
           ? PROXY_BASE_URL
             ? `Gemini location not supported even via proxy at ${PROXY_BASE_URL} — proxy may also be in a blocked region; check /proxy/README.md`
             : `Gemini location not supported (key is valid; cool-down 10min — will work from a supported region, or set GEMINI_PROXY_BASE_URL; see /proxy/README.md)`
-          : `Gemini ${res.status}: ${errText.slice(0, 160)}`;
+          : `Gemini ${model} ${res.status}: ${errText.slice(0, 160)}`;
 
       return {
         result: {
@@ -236,10 +293,11 @@ async function callGeminiOnce(
           content: "",
           error: friendlyError,
           latencyMs: Math.round(performance.now() - started),
-          model: cfg.model,
+          model,
           errorKind: kind,
         },
         transient,
+        overload,
       };
     }
 
@@ -257,10 +315,11 @@ async function callGeminiOnce(
           content: "",
           error: `Gemini blocked: ${json.promptFeedback.blockReason}`,
           latencyMs: Math.round(performance.now() - started),
-          model: cfg.model,
+          model,
           errorKind: "blocked-content",
         },
         transient: false, // content filters don't lift on retry
+        overload: false,  // content block is prompt-specific, not model-specific
       };
     }
 
@@ -272,10 +331,11 @@ async function callGeminiOnce(
           content: "",
           error: "Gemini returned empty content",
           latencyMs: Math.round(performance.now() - started),
-          model: cfg.model,
+          model,
           errorKind: "empty",
         },
         transient: false,
+        overload: false,
       };
     }
 
@@ -284,9 +344,10 @@ async function callGeminiOnce(
         ok: true,
         content,
         latencyMs: Math.round(performance.now() - started),
-        model: cfg.model,
+        model,
       },
       transient: false,
+      overload: false,
     };
   } catch (e) {
     const msg = (e as Error).message ?? String(e);
@@ -296,10 +357,11 @@ async function callGeminiOnce(
         content: "",
         error: `Gemini network error: ${msg}`,
         latencyMs: Math.round(performance.now() - started),
-        model: cfg.model,
+        model,
         errorKind: "network",
       },
       transient: true, // network blips often clear on retry
+      overload: true,  // a network error on ONE model is worth trying the next
     };
   }
 }
@@ -311,8 +373,8 @@ async function callGeminiOnce(
  * cooldown: a probe failure is non-punitive (we just try again next
  * interval). Returns ok:true if the upstream is reachable.
  */
-async function probeGemini(cfg: GeminiConfig): Promise<{ ok: boolean; error?: string }> {
-  const url = `${GEMINI_BASE}/v1beta/models/${cfg.model}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
+async function probeGemini(cfg: GeminiConfig, model: string): Promise<{ ok: boolean; error?: string }> {
+  const url = `${GEMINI_BASE}/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
   const body = {
     contents: [{ role: "user", parts: [{ text: "hi" }] }],
     generationConfig: { temperature: 0, maxOutputTokens: 1 },
@@ -381,12 +443,15 @@ export async function geminiComplete(opts: {
   // If we're in a location-block cooldown, normally short-circuit. But
   // every 60s, send a probe — if the block lifted, clear the cooldown
   // and proceed with the real call. This cuts average wasted cooldown
-  // from 10min to ~60s when the block lifts early.
+  // from 10min to ~60s when the block lifts early. The probe uses the
+  // first breaker-clear model so a tripped primary doesn't make the
+  // probe itself fail spuriously.
   if (LOCATION_BLOCKED_UNTIL > Date.now()) {
     const dueForProbe = Date.now() - LAST_PROBE_AT > RECOVERY_PROBE_INTERVAL_MS;
     if (dueForProbe) {
       LAST_PROBE_AT = Date.now();
-      const probe = await probeGemini(cfg);
+      const probeModel = [cfg.model, ...GEMINI_MODEL_CASCADE].find((m) => breakerClear(m)) ?? cfg.model;
+      const probe = await probeGemini(cfg, probeModel);
       if (probe.ok) {
         // Block lifted! Clear the cooldown and fall through to the
         // real call below.
@@ -419,50 +484,145 @@ export async function geminiComplete(opts: {
     }
   }
 
-  // ── Real call with retry ───────────────────────────────────────────
-  let lastResult: GeminiCallResult | null = null;
-  let attemptsUsed = 0;
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    attemptsUsed = attempt;
-    const { result, transient } = await callGeminiOnce(cfg, opts, started);
-    lastResult = result;
-
-    if (result.ok) {
-      // Success — clear any stale lastError, record lastUsedAt.
-      await db.llmConfig
-        .update({
-          where: { id: SINGLETON_ID },
-          data: { lastUsedAt: new Date(), lastError: null },
-        })
-        .catch(() => {});
-      return { ...result, retries: attempt };
-    }
-
-    // Permanent error — don't retry, record it for the UI.
-    if (!transient) {
-      await db.llmConfig
-        .update({
-          where: { id: SINGLETON_ID },
-          data: { lastError: result.error?.slice(0, 200) ?? "Gemini error" },
-        })
-        .catch(() => {});
-      return { ...result, retries: attempt };
-    }
-
-    // Transient error — retry with backoff (if attempts remain).
-    if (attempt < MAX_RETRIES) {
-      await sleep(RETRY_DELAYS_MS[attempt] ?? 1500);
-    }
+  // ── Cascade: try the requested model, then deduped fallbacks ──────
+  // Build the ordered list of models to try: configured model first,
+  // then the cascade, deduped. Skip any model whose per-model circuit
+  // breaker is currently tripped (a 429/503 within the last 15s). If
+  // every model is tripped, fall through to the z-ai chain honestly
+  // rather than waiting — the caller's 429 cooldown gate (agent-llm.ts)
+  // is the proper place to wait, not here.
+  const modelsToTry = Array.from(new Set([cfg.model, ...GEMINI_MODEL_CASCADE])).filter(
+    (m) => breakerClear(m),
+  );
+  if (modelsToTry.length === 0) {
+    // Every model in the cascade is on a 15s breaker. This is rare
+    // (needs a synchronized overload across 4 models); report it
+    // honestly so the caller defers via its own 429 gate.
+    const allBreakers = Array.from(modelCircuitBreakers.entries())
+      .map(([m, until]) => `${m}@${Math.max(0, Math.round((until - Date.now()) / 1000))}s`)
+      .join(", ");
+    const error = `All Gemini cascade models on circuit breaker (${allBreakers || "none"}) — defer to caller`;
+    await db.llmConfig
+      .update({ where: { id: SINGLETON_ID }, data: { lastError: error.slice(0, 200) } })
+      .catch(() => {});
+    return {
+      ok: false,
+      content: "",
+      error,
+      latencyMs: Math.round(performance.now() - started),
+      model: cfg.model,
+      errorKind: "quota",
+      retries: 0,
+    };
   }
 
-  // All retries exhausted — record and return the last failure.
+  let lastResult: GeminiCallResult | null = null;
+  let totalAttemptsUsed = 0;
+
+  for (let modelIdx = 0; modelIdx < modelsToTry.length; modelIdx++) {
+    const modelCandidate = modelsToTry[modelIdx];
+    // Per-model in-call retry: transient errors (network, 502/503/504,
+    // "overloaded") get retried up to MAX_RETRIES times on the SAME model
+    // before we give up on it and advance to the next model in the cascade.
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      totalAttemptsUsed = attempt;
+      const { result, transient, overload } = await callGeminiOnce(
+        cfg,
+        opts,
+        started,
+        modelCandidate,
+      );
+      lastResult = result;
+
+      if (result.ok) {
+        // Success on this model — clear any stale lastError, record
+        // lastUsedAt. The modelUsed field tells the caller (and the UI)
+        // which model actually served the request, so honest provenance
+        // is preserved even when the configured primary was skipped.
+        await db.llmConfig
+          .update({
+            where: { id: SINGLETON_ID },
+            data: { lastUsedAt: new Date(), lastError: null },
+          })
+          .catch(() => {});
+        return { ...result, retries: attempt };
+      }
+
+      // Location-block: the whole upstream is region-blocked — arm the
+      // global cooldown and return immediately. No point trying other
+      // models; they'll all be blocked.
+      if (result.errorKind === "location-block") {
+        await db.llmConfig
+          .update({
+            where: { id: SINGLETON_ID },
+            data: { lastError: result.error?.slice(0, 200) ?? "Gemini location-block" },
+          })
+          .catch(() => {});
+        return { ...result, retries: attempt };
+      }
+
+      // Auth / empty / blocked-content: NOT model-specific — retrying
+      // another model won't help (the token is wrong, or the prompt
+      // tripped a content filter on every model). Return immediately.
+      if (
+        result.errorKind === "auth" ||
+        result.errorKind === "empty" ||
+        result.errorKind === "blocked-content"
+      ) {
+        await db.llmConfig
+          .update({
+            where: { id: SINGLETON_ID },
+            data: { lastError: result.error?.slice(0, 200) ?? "Gemini error" },
+          })
+          .catch(() => {});
+        return { ...result, retries: attempt };
+      }
+
+      // model-not-found: advance to the next model WITHOUT tripping the
+      // breaker — a deprecated model name is a config issue, not an
+      // overload, and we don't want to penalize a future reconfiguration.
+      if (result.errorKind === "model-not-found") {
+        break; // inner loop → next model in cascade
+      }
+
+      // quota (429) or transient (503/overloaded): if `overload`, trip
+      // THIS model's breaker so the next geminiComplete call skips it for
+      // 15s, then advance to the next model. If we still have in-call
+      // retries AND the error is transient (not 429), retry the same
+      // model first (a 503 often clears in 500ms).
+      if (overload) {
+        if (transient && attempt < MAX_RETRIES) {
+          await sleep(RETRY_DELAYS_MS[attempt] ?? 1500);
+          continue; // retry same model
+        }
+        // Retries exhausted on a transient, OR a 429 (not retried in-call):
+        // trip the breaker and advance to the next model.
+        tripBreaker(modelCandidate);
+        break; // inner loop → next model in cascade
+      }
+
+      // Generic http error (not classified into any of the above):
+      // record and return — unknown errors shouldn't cascade blindly.
+      await db.llmConfig
+        .update({
+          where: { id: SINGLETON_ID },
+          data: { lastError: result.error?.slice(0, 200) ?? "Gemini http error" },
+        })
+        .catch(() => {});
+      return { ...result, retries: attempt };
+    }
+    // Advanced to the next model in the cascade.
+  }
+
+  // All models in the cascade exhausted — record and return the last
+  // failure. The caller (agent-llm.ts) will set its own 429 gate and
+  // defer; we've honestly tried every available model.
   await db.llmConfig
     .update({
       where: { id: SINGLETON_ID },
-      data: { lastError: (lastResult?.error ?? "Gemini failed").slice(0, 200) },
+      data: { lastError: (lastResult?.error ?? "Gemini cascade exhausted").slice(0, 200) },
     })
     .catch(() => {});
 
-  return { ...(lastResult as GeminiCallResult), retries: attemptsUsed };
+  return { ...(lastResult as GeminiCallResult), retries: totalAttemptsUsed };
 }
