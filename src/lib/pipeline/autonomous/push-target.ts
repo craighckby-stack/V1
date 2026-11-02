@@ -516,28 +516,32 @@ export async function clearPushTarget(): Promise<{ cleared: boolean; readBack: {
  *  Used by the duress/purge protocol (duress.ts) — unlike clearPushTarget
  *  this is the PKM §3 Phase-1 KEYS step: pure destruction, no remote
  *  management, called when the system believes the PAT may be compromised.
- *  Returns which tiers were actually purged so the caller can read-back. */
-export async function purgeAllPatTiers(): Promise<{ tier2Purged: boolean; tier3Purged: boolean; dbPurged: boolean }> {
-  let tier2Purged = false;
-  let tier3Purged = false;
-  let dbPurged = false;
+ *  Returns which tiers were actually purged so the caller can read-back.
+ *
+ *  Field names (tier2/tier3/db) match the rest of the push-target API
+ *  (clearPushTarget readBack, verifyPatGoneFromAllTiers) and the duress
+ *  DuressPurgeResult.keysPurged shape — keep them aligned. */
+export async function purgeAllPatTiers(): Promise<{ tier2: boolean; tier3: boolean; db: boolean }> {
+  let tier2 = false;
+  let tier3 = false;
+  let db = false;
   try {
     rmSync(STATE_FILE, { force: true });
-    tier2Purged = !existsSync(STATE_FILE);
-  } catch { tier2Purged = false; }
+    tier2 = !existsSync(STATE_FILE);
+  } catch { tier2 = false; }
   try {
     rmSync(PERSISTENT_STATE_FILE, { force: true });
-    tier3Purged = !existsSync(PERSISTENT_STATE_FILE);
-  } catch { tier3Purged = false; }
+    tier3 = !existsSync(PERSISTENT_STATE_FILE);
+  } catch { tier3 = false; }
   try {
     await db.gitPushTarget.deleteMany({ where: { id: SINGLETON_ID } });
     const row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
-    dbPurged = row === null;
+    db = row === null;
   } catch {
     // DB unavailable — nothing to purge, nothing to leak. Treat as purged.
-    dbPurged = true;
+    db = true;
   }
-  return { tier2Purged, tier3Purged, dbPurged };
+  return { tier2, tier3, db };
 }
 
 /** Read-back verification: is the PAT gone from ALL tiers? Used by the
