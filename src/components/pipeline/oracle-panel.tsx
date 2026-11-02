@@ -117,6 +117,14 @@ function timeUntil(iso: string): string {
   }
 }
 
+interface ChainStatus {
+  ok: boolean;
+  total: number;
+  linkBreaks: number;
+  contentMismatches: number;
+  firstBreakAt: number | null;
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -128,6 +136,8 @@ export function OraclePanel({ open, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [chain, setChain] = useState<ChainStatus | null>(null);
+  const [archLoading, setArchLoading] = useState(false);
 
   // Poll status + prophecies every 5s while the panel is open
   useEffect(() => {
@@ -136,9 +146,10 @@ export function OraclePanel({ open, onClose }: Props) {
 
     async function poll() {
       try {
-        const [sRes, pRes] = await Promise.all([
+        const [sRes, pRes, cRes] = await Promise.all([
           fetch("/api/oracle/status"),
           fetch("/api/oracle/prophecies?limit=30"),
+          fetch("/api/postmortems/chain"),
         ]);
         if (!mounted) return;
         if (sRes.ok) {
@@ -148,6 +159,9 @@ export function OraclePanel({ open, onClose }: Props) {
         if (pRes.ok) {
           const p = (await pRes.json()) as { prophecies: Prophecy[] };
           setProphecies(p.prophecies ?? []);
+        }
+        if (cRes.ok) {
+          setChain((await cRes.json()) as ChainStatus);
         }
       } catch {
         /* ignore — next poll will retry */
@@ -230,6 +244,46 @@ export function OraclePanel({ open, onClose }: Props) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function runArchaeology() {
+    setArchLoading(true);
+    setError(null);
+    setActionMsg(null);
+    try {
+      // Resolve the configured push-target so archaeology mines the SAME
+      // repo the loop is mutating — no manual repo entry needed.
+      const ptRes = await fetch("/api/self-enhance/push-target");
+      const pt = ptRes.ok ? await ptRes.json() : null;
+      const repo = pt?.repo;
+      const branch = pt?.branch ?? "main";
+      if (!repo) {
+        setError("No push target configured — archaeology needs a repo to mine. Set one via the push command first.");
+        return;
+      }
+      const res = await fetch(
+        `/api/oracle/archaeology?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&maxCommits=100`,
+        { method: "POST" }
+      );
+      const data = await res.json();
+      if (res.ok) {
+        setActionMsg(
+          `Archaeology: mined ${data.pairs?.length ?? 0} wrong/correct pair(s) from ${repo}:${branch}, seeded ${data.seeded ?? 0} archaeology prophecies.`,
+        );
+        // Refresh prophecies + chain to show the new ones.
+        const [pRes2] = await Promise.all([fetch("/api/oracle/prophecies?limit=30")]);
+        if (pRes2.ok) {
+          const p = (await pRes2.json()) as { prophecies: Prophecy[] };
+          setProphecies(p.prophecies ?? []);
+        }
+      } else {
+        setError(data.error ?? "Archaeology failed");
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setArchLoading(false);
     }
   }
 
@@ -365,6 +419,42 @@ export function OraclePanel({ open, onClose }: Props) {
           </div>
         )}
 
+        {/* Chain integrity (concept: Aether_Forge Ω darlekRAG) */}
+        {chain && (
+          <div style={{ marginBottom: "16px" }}>
+            <div style={{ color: DIM_COLOR, marginBottom: "6px" }}>POSTMORTEM CHAIN INTEGRITY</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
+              <span>
+                <span style={{ color: DIM_COLOR }}>total:</span> {chain.total}
+              </span>
+              <span>
+                <span style={{ color: DIM_COLOR }}>status:</span>{" "}
+                {chain.ok ? (
+                  <span style={{ color: PROMPT_COLOR }}>verified</span>
+                ) : (
+                  <span style={{ color: ERROR_COLOR }}>broken</span>
+                )}
+              </span>
+              <span>
+                <span style={{ color: DIM_COLOR }}>link breaks:</span>{" "}
+                <span style={{ color: chain.linkBreaks > 0 ? WARN_COLOR : PROMPT_COLOR }}>{chain.linkBreaks}</span>
+                <span style={{ color: DIM_COLOR, marginLeft: "6px", fontSize: "11px" }}>
+                  (expected on in-place updates)
+                </span>
+              </span>
+              <span>
+                <span style={{ color: DIM_COLOR }}>content mismatches:</span>{" "}
+                <span style={{ color: chain.contentMismatches > 0 ? ERROR_COLOR : PROMPT_COLOR }}>
+                  {chain.contentMismatches}
+                </span>
+                <span style={{ color: DIM_COLOR, marginLeft: "6px", fontSize: "11px" }}>
+                  (tamper alarm if &gt; 0)
+                </span>
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Action buttons */}
         <div style={{ display: "flex", gap: "8px", marginBottom: "12px", flexWrap: "wrap" }}>
           <button
@@ -393,7 +483,20 @@ export function OraclePanel({ open, onClose }: Props) {
           >
             [ EVALUATE DUE ]
           </button>
-          {loading && (
+          <button
+            type="button"
+            onClick={runArchaeology}
+            disabled={archLoading || loading}
+            aria-label="Mine the target repo's git history for wrong/correct commit pairs and seed archaeology prophecies"
+            style={{
+              ...btnStyle,
+              opacity: archLoading || loading ? 0.5 : 1,
+              cursor: archLoading || loading ? "wait" : "pointer",
+            }}
+          >
+            [ ARCHAEOLOGY: MINE HISTORY ]
+          </button>
+          {(loading || archLoading) && (
             <span style={{ color: DIM_COLOR, alignSelf: "center" }}>working…</span>
           )}
         </div>
