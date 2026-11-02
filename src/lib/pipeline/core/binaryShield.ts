@@ -113,6 +113,12 @@ export class BinaryShield {
     
     const authTag = combinedData.subarray(combinedData.length - AUTH_TAG_LENGTH);
     const encryptedData = combinedData.subarray(0, combinedData.length - AUTH_TAG_LENGTH);
+    
+    // Validate authTag length before using it
+    if (authTag.length !== AUTH_TAG_LENGTH) {
+      throw new Error(`Invalid authentication tag length for ${ALGORITHM_NAME}. Expected ${AUTH_TAG_LENGTH} bytes, got ${authTag.length}`);
+    }
+    
     const decipher = createDecipheriv(ALGORITHM, key, iv);
     
     try {
