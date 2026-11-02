@@ -151,6 +151,21 @@ class AutonomousLoopRuntime {
    * the same first-N-alphabetical files every time.
    */
   private previouslyCommittedPaths: Set<string> = new Set();
+  /**
+   * Set of file paths that FAILED in a prior cycle (AST-rejected,
+   * zero-diff saturation, debate-rejected, or threw). Skipped for a
+   * cooldown period so the loop doesn't get stuck retrying the same
+   * un-improvable file every cycle (which is what was happening with
+   * the build-guide Python files — the LLM can't improve them further,
+   * the zero-diff governor fires, but the next cycle picked them again
+   * because only committed paths were tracked).
+   *
+   * Each entry is `{path, failedAt}` so the cooldown can expire. A file
+   * that failed 5 cycles ago gets re-tried; one that failed last cycle
+   * is skipped. The cooldown is `FAILED_FILE_COOLDOWN_CYCLES`.
+   */
+  private previouslyFailedPaths: Map<string, number> = new Map();
+  private static readonly FAILED_FILE_COOLDOWN_CYCLES = 5;
   /** Auto-arm guard — the constructor arms the scheduler exactly once on
    *  the first instance. A hot-swap re-imports the module, creating a
    *  fresh instance, which re-arms. The re-arm respects the snapshot's
@@ -297,8 +312,9 @@ class AutonomousLoopRuntime {
       (patch.evolutionBranch && patch.evolutionBranch !== oldBranch)
     ) {
       this.previouslyCommittedPaths.clear();
+      this.previouslyFailedPaths.clear();
       this.addLog(
-        `Cleared committed-paths cache (repo or branch changed from ${oldRepo}:${oldBranch}).`,
+        `Cleared committed-paths + failed-paths caches (repo or branch changed from ${oldRepo}:${oldBranch}).`,
         "info"
       );
     }
@@ -600,13 +616,23 @@ class AutonomousLoopRuntime {
       // Skip files already committed in prior cycles so each cycle makes
       // forward progress through large repos.
       const alreadyCommitted = this.previouslyCommittedPaths;
+      // Skip files that failed recently (cooldown) so the loop doesn't
+      // get stuck retrying an un-improvable file every cycle. A file that
+      // failed >= FAILED_FILE_COOLDOWN_CYCLES ago is re-tried.
+      const currentCycleNum = this.stats.totalRuns;
+      const cooledDown = (path: string): boolean => {
+        const failedAt = this.previouslyFailedPaths.get(path);
+        if (failedAt === undefined) return true; // never failed
+        return currentCycleNum - failedAt >= AutonomousLoopRuntime.FAILED_FILE_COOLDOWN_CYCLES;
+      };
       const codeBlobs = tree
         .filter(
           (item) =>
             item.type === "blob" &&
             codeExtRegex.test(item.path) &&
             !ignored.test(item.path) &&
-            !alreadyCommitted.has(item.path)
+            !alreadyCommitted.has(item.path) &&
+            cooledDown(item.path)
         )
         .slice(0, effectiveMaxFiles);
 
@@ -891,6 +917,14 @@ class AutonomousLoopRuntime {
               .catch(() => {
                 /* ignore */
               });
+            // ── Failed-path cooldown (the "don't get stuck" fix) ────
+            // Record this path in previouslyFailedPaths with the current
+            // cycle number. The next cycle's file selector (see
+            // cooledDown() above) skips it for FAILED_FILE_COOLDOWN_CYCLES
+            // cycles, then re-tries. Without this, the loop kept picking
+            // the same un-improvable build-guide Python files every
+            // cycle because only COMMITTED paths were tracked.
+            this.previouslyFailedPaths.set(blob.path, this.stats.totalRuns);
           }
 
           this.currentCycle!.fileResults.push({
