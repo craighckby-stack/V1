@@ -1244,6 +1244,42 @@ ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancest
         // the counter untouched, so the next attempt reuses the same number.
         await setLastBranchNumber(thisN);
         this.log(`Mutation #${thisN} pinned to branch ${this.currentCycleBranch}`, "success");
+
+        // ── HOT-SWAP (the point of "fully autonomous") ───────────────
+        // The improved file is now on disk + GitHub. But the running
+        // process is STILL using the OLD module from require.cache. A
+        // self-improving system that has to be manually restarted to
+        // benefit from its own improvements isn't autonomous. So: swap
+        // the pipeline module subtree now, between cycles, so the next
+        // cycle uses the new code. See core/hot-swap.ts.
+        //
+        // Fire-and-forget with a defensive catch: a swap failure must
+        // NOT fail this enhancement (the commit + push already succeeded;
+        // the swap is an optimization, not a gate). The hot-swap module
+        // records its own postmortem on failure.
+        if (relPath.startsWith("src/lib/pipeline/")) {
+          try {
+            const { hotSwapPipeline } = await import("../core/hot-swap");
+            void hotSwapPipeline({
+              reason: `post-enhancement swap: ${relPath}`,
+            }).then((swapResult) => {
+              if (swapResult.swapped) {
+                this.log(
+                  `HOT-SWAP: ${swapResult.invalidatedCount} module(s) reloaded (${swapResult.durationMs}ms) — ` +
+                  `next cycle uses the new code`,
+                  "success"
+                );
+              } else if (swapResult.fallbackError) {
+                this.log(
+                  `HOT-SWAP FALLBACK: ${swapResult.reason} — old code still running, fix the broken code on disk`,
+                  "error"
+                );
+              }
+            });
+          } catch (swapErr) {
+            this.log(`HOT-SWAP skipped: ${(swapErr as Error).message.slice(0, 150)}`, "warn");
+          }
+        }
       }
 
       // 11. Resolve any postmortem for this file
