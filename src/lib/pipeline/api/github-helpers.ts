@@ -41,16 +41,11 @@ export function githubHeaders(token: string | null): Record<string, string> {
     };
   }
 
+  // Since getUsableToken() already validates the token, we only need to trim it here
   const trimmedToken = token.trim();
 
-  if (typeof token !== 'string' || !trimmedToken) {
-    // Never echo the value into the message — even a malformed token
-    // shouldn't be splatted into error logs.
+  if (!trimmedToken) {
     throw new Error(`Invalid token provided: must be a non-empty string.`);
-  }
-
-  if (trimmedToken.length < MIN_TOKEN_LENGTH) {
-    throw new Error(`Invalid token provided: must be at least ${MIN_TOKEN_LENGTH} characters long. Received: ${trimmedToken.length} characters`);
   }
 
   const headers: Record<string, string> = {
