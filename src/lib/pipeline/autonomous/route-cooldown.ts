@@ -52,14 +52,20 @@ export function assertRouteCooldown(
 
   const now = Date.now();
   const entry = routeCooldowns.get(route);
+  
+  // Handle race condition: multiple simultaneous calls could bypass cooldown
   if (entry && entry.intervalMs === minIntervalMs) {
     const elapsed = now - entry.lastFired;
     if (elapsed < minIntervalMs) {
       return { ok: false, retryAfterMs: Math.ceil((minIntervalMs - elapsed) / 1000) };
     }
+    
+    // Atomic update: set the timestamp only after we've confirmed it's safe
     entry.lastFired = now;
     return { ok: true, retryAfterMs: 0 };
   }
+  
+  // Create new entry if none exists or interval differs
   routeCooldowns.set(route, { intervalMs: minIntervalMs, lastFired: now });
   return { ok: true, retryAfterMs: 0 };
 }
@@ -72,8 +78,13 @@ export function routeCooldownStatus(): Record<
   const now = Date.now();
   const out: Record<string, { intervalMs: number; lastFired: number; remainingMs: number }> = {};
   
-  // Clean up expired entries to prevent memory leak
-  for (const [route, entry] of routeCooldowns) {
+  // Create a copy of keys to avoid modifying the map during iteration
+  const routes = Array.from(routeCooldowns.keys());
+  
+  for (const route of routes) {
+    const entry = routeCooldowns.get(route);
+    if (!entry) continue;
+    
     const remaining = Math.max(0, entry.intervalMs - (now - entry.lastFired));
     if (remaining === 0) {
       routeCooldowns.delete(route);
