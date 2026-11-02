@@ -104,7 +104,7 @@ export async function getSafeModeState(): Promise<SafeModeState> {
       return { active: true, setBy: row.setBy, reason: row.reason, setAt: row.setAt.toISOString() };
     }
   } catch {
-    /* DB unavailable */
+    /* DB unavailable — fall through to the runtime cache */
   }
   return { active: runtimeSafeMode, setBy: null, reason: runtimeSafeModeReason, setAt: null };
 }
@@ -135,10 +135,21 @@ export async function clearSafeMode(by: string = "operator"): Promise<{ cleared:
   try {
     await db.systemFlag.upsert({
       where: { key: "safe-mode" },
-      update: { value: "false", setBy, reason: `cleared by ${by}`, setAt: new Date(), updatedAt: new Date() },
-      create: { key: "safe-mode", value: "false", setBy, reason: `cleared by ${by}` },
+      update: { value: "false", setBy: by, reason: `cleared by ${by}`, setAt: new Date(), updatedAt: new Date() },
+      create: { key: "safe-mode", value: "false", setBy: by, reason: `cleared by ${by}` },
     });
-  } catch {
+    // Load-bearing read-back: confirm the value actually flipped to "false".
+    // If it didn't, the clear didn't take — re-raise the runtime flag so
+    // the next isSafeMode() check is honest, and surface the failure.
+    const readBack = await db.systemFlag.findUnique({ where: { key: "safe-mode" } });
+    if (readBack && readBack.value !== "false") {
+      console.error("[DURESS] clearSafeMode read-back MISMATCH — value still", readBack.value);
+      runtimeSafeMode = true;
+      runtimeSafeModeReason = `clear failed (DB value still ${readBack.value})`;
+      return { cleared: false };
+    }
+  } catch (err) {
+    console.error("[DURESS] clearSafeMode DB upsert threw:", (err as Error).message);
     /* DB unavailable — runtime flag cleared; restart rehydrates as not-safe */
   }
   return { cleared: true };
