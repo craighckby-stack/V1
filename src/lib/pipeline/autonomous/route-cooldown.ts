@@ -54,10 +54,19 @@ export function assertRouteCooldown(
   const entry = routeCooldowns.get(route);
   
   // Handle race condition: multiple simultaneous calls could bypass cooldown
-  if (entry && entry.intervalMs === minIntervalMs) {
+  if (entry) {
     const elapsed = now - entry.lastFired;
-    if (elapsed < minIntervalMs) {
-      return { ok: false, retryAfterMs: Math.ceil((minIntervalMs - elapsed) / 1000) };
+    if (elapsed < entry.intervalMs) {
+      // Only use the new interval if it's longer than the existing one
+      const effectiveInterval = Math.max(entry.intervalMs, minIntervalMs);
+      const retryAfter = Math.ceil((effectiveInterval - elapsed) / 1000);
+      
+      // Update with the longer interval if needed
+      if (minIntervalMs > entry.intervalMs) {
+        routeCooldowns.set(route, { intervalMs: minIntervalMs, lastFired: entry.lastFired });
+      }
+      
+      return { ok: false, retryAfterMs: retryAfter };
     }
   }
   
