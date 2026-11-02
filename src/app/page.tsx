@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ConsoleStream, type ConsoleLine } from "./display/console-stream";
 import { OraclePanel } from "@/components/pipeline/oracle-panel";
+import { DefensePanel } from "@/components/pipeline/defense-panel";
 
 interface LogEntry {
   timestamp: string;
@@ -213,6 +214,9 @@ export default function Home() {
   // open/close is the only state page.tsx owns; the panel manages its
   // own polling, fetch, and rendering internally (see OraclePanel).
   const [oracleOpen, setOracleOpen] = useState(false);
+  // Defense panel: duress/safe-mode + red-team + secret-scan. The panel
+  // owns its own polling like OraclePanel. See docs/CONCEPTS-GRAFTED.md.
+  const [defenseOpen, setDefenseOpen] = useState(false);
 
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1446,6 +1450,18 @@ export default function Home() {
           >
             [ORACLE]
           </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDefenseOpen(true);
+            }}
+            aria-label="Open the Defense panel — duress purge, red-team adversarial suite, secret scanner"
+            title="Defense — duress · red-team · secret-scan (concepts grafted from your GitHub repos)"
+            style={cfgBtnStyle}
+          >
+            [DEFENSE]
+          </button>
         </div>
       </div>
 
@@ -1803,6 +1819,7 @@ export default function Home() {
           manages its own polling, fetch, and rendering; page.tsx just
           owns the open/close state. */}
       <OraclePanel open={oracleOpen} onClose={() => setOracleOpen(false)} />
+      <DefensePanel open={defenseOpen} onClose={() => setDefenseOpen(false)} />
     </div>
   );
 }
