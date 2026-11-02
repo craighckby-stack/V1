@@ -143,6 +143,7 @@ const DIM_COLOR = "#777777";
 const USER_INPUT_COLOR = "#ffffff";
 const ERROR_COLOR = "#ff4444";
 const WARN_COLOR = "#ffaa33"; // LLM cooldown countdown + other warn-state chips
+const OK_COLOR = "#44dd88"; // hot-swap indicator when swaps have happened
 
 // Shared styles for the config panel (kept DOS-themed to match the terminal)
 const cfgInputStyle = {
@@ -217,6 +218,13 @@ export default function Home() {
   // Defense panel: duress/safe-mode + red-team + secret-scan. The panel
   // owns its own polling like OraclePanel. See docs/CONCEPTS-GRAFTED.md.
   const [defenseOpen, setDefenseOpen] = useState(false);
+  // Hot-swap indicator — shows the running pipeline fingerprint + swap
+  // count next to [START], so the operator can see the system is live-
+  //   swapping its own code. Polled alongside the self-enhance status.
+  const [hotSwapStatus, setHotSwapStatus] = useState<{
+    swapCount: number;
+    runningFingerprint: string;
+  } | null>(null);
 
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -235,9 +243,10 @@ export default function Home() {
 
     async function poll() {
       try {
-        const [statusRes, targetRes] = await Promise.all([
+        const [statusRes, targetRes, hotSwapRes] = await Promise.all([
           fetch("/api/self-enhance/status"),
           fetch("/api/self-enhance/push-target"),
+          fetch("/api/hot-swap/status"),
         ]);
         if (mounted && statusRes.ok) {
           const s = (await statusRes.json()) as SelfEnhanceStatus;
@@ -264,6 +273,13 @@ export default function Home() {
           }
         }
         if (mounted && targetRes.ok) setPushTarget(await targetRes.json());
+        if (mounted && hotSwapRes.ok) {
+          const hs = await hotSwapRes.json();
+          setHotSwapStatus({
+            swapCount: hs.swapCount ?? 0,
+            runningFingerprint: hs.runningFingerprint ?? "?",
+          });
+        }
       } catch {
         // ignore
       }
@@ -1399,6 +1415,25 @@ export default function Home() {
           }
         `}</style>
         <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+          {/* Hot-swap indicator — shows the running pipeline fingerprint +
+              swap count. Pulled from /api/hot-swap/status. When the swap
+              count ticks up, the system just replaced its own running
+              code. See docs/HOT-SWAP.md. */}
+          {hotSwapStatus && (
+            <span
+              title={`Hot-swap: ${hotSwapStatus.swapCount} swap(s) since boot. Running pipeline fingerprint: ${hotSwapStatus.runningFingerprint}. The system replaces its own pipeline code between cycles — no restart needed.`}
+              style={{
+                color: hotSwapStatus.swapCount > 0 ? OK_COLOR : DIM_COLOR,
+                fontSize: "0.85em",
+                fontFamily: "inherit",
+                padding: "2px 6px",
+                border: `1px solid ${DIM_COLOR}`,
+                whiteSpace: "nowrap",
+              }}
+            >
+              ⟳{hotSwapStatus.swapCount}
+            </span>
+          )}
           <button
             type="button"
             onClick={(e) => {
