@@ -452,8 +452,9 @@ class AutonomousLoopRuntime {
     ) {
       this.previouslyCommittedPaths.clear();
       this.previouslyFailedPaths.clear();
+      this.previouslyStablePaths.clear();
       this.addLog(
-        `Cleared committed-paths + failed-paths caches (repo or branch changed from ${oldRepo}:${oldBranch}).`,
+        `Cleared committed-paths + failed-paths + stable-paths caches (repo or branch changed from ${oldRepo}:${oldBranch}).`,
         "info"
       );
     }
