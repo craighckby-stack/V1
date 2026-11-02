@@ -1781,3 +1781,37 @@ Stage Summary:
 - Push config is now durable across machine restarts (.loop-push-state.json write-through + fallback, gitignored).
 - The user re-enters the PAT exactly once more; every restart after that self-heals from the state file.
 - Screenshots: 20 (L1 countdown), 21 (L2 escalation).
+
+## 2026-11-02 — Methodical full-codebase review (2h25m, operator session)
+
+**Scope**: every layer — core/, llm/, autonomous/ (12 files), oracle/, postmortem/,
+emg/, engines/, all 44 API routes, page.tsx, prisma schema, tsconfig. Commit 0dc53f8.
+
+**Critical defects found & fixed**:
+1. `proxy/` was inside the main tsconfig program — its 4 permanent type errors
+   would have vetoed every future mutation at the typecheckRefactor gate
+   (zero-errors-required). Excluded; live cycle then ran clean end-to-end.
+2. chat-task wrote LLM output to the LIVE file before typechecking and on
+   failure ran `git checkout -- .` (collateral damage to unrelated dirty
+   state). Now per-file in-memory gate + scoped rollback journal.
+3. push-target branch-counter reads used tier-2 only; after sandbox restart
+   only `.git/info/` survives → counter reset → loop-NN branch collision.
+4. watch-mode early return double-called finalizeCycle (duplicate cycles).
+5. PASS COMPLETE overcounted locked files (whole map vs actual scan set).
+6. [REDACTED] token guard was a dead comment; now real defense-in-depth.
+7. classifyGrowth dead unreachable line contradicting the defer design.
+8. binaryShield read the AES auth tag from a destroyed cipher.
+9. github-helpers echoed token values into error logs.
+10. db.ts prisma `log:['query']` turned dev.log into a SQL firehose.
+
+**Dead weight removed**: 11 unreachable pipeline components (~2,000 lines),
+"Hello, world!" /api stub → real service index, vestigial branches/branches.
+
+**Verified**: lint clean, tsc clean, agent-browser E2E — render, `status`
+command, oracle panel (live track record), config modal (open + escape),
+full `trigger` cycle through every gate (ratchet honest-reject → LLM real
+fixes → in-memory typecheck → debate APPROVED → write → commit 2f29e7b,
+re-split as 0dc53f8 + 9ebcbf3).
+
+**Oracle note**: first two prophecies judged FAILED (Brier 0.65, overconfident
+band) — calibration data flowing as designed.
