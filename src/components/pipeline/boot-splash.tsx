@@ -14,13 +14,22 @@
  *
  * Sequence (cold boot): CRT power-on flash → POST lines stamp in one by
  * one → the LOOP sigil scrambles out of noise → the machine addresses the
- * observer and offers [ ▶ ENTER THE LOOP ]. Any key/click skips ahead;
- * Enter/click at the invite performs a CRT power-off collapse and hands
- * over to the terminal.
+ * observer and offers [ ▶ ENTER THE LOOP ].
  *
- * Warm boot (already entered this browser session): abbreviated flash +
- * "SESSION RESUMED" line, then auto-enters — the ceremony is for first
- * contact, not for every refresh. Force the full rite with ?boot=force.
+ * THE PRANK (per the owner, verbatim: "for shits and giggles"): entering
+ * the Loop first drops the observer into a BLUE SCREEN OF DEATH reading
+ * "404 — NOT EVER" with a progress bar that stalls at 99% and a floppy
+ * drive seeking in the background. Ten seconds later the screen tips
+ * back and the STAR WARS OPENING CRAWL explains what this system is,
+ * scored by a synthesized Imperial March (master volume pinned at 1.0,
+ * no mute — owner's orders). When the crawl clears the top, a happy POST
+ * beep fires and the terminal finally loads. ESC is the hidden mercy.
+ * The prank is cold-boot only and disabled under prefers-reduced-motion.
+ *
+ * Any key/click skips the SPLASH ahead; Enter/click at the invite starts
+ * the descent. Warm boots (already entered this browser session) skip
+ * straight in — the ceremony is for first contact, not every refresh.
+ * Force the full rite with ?boot=force.
  *
  * Aesthetic: amber phosphor CRT (the terminal inside is white-on-black;
  * the amber screen is the machine's "face" before it lets you in).
@@ -28,8 +37,27 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ensureAudio,
+  floppySeek,
+  imperialMarch,
+  postBeep,
+  powerOnThunk,
+  sadBeep,
+  stopAllAudio,
+} from "@/lib/retro-boot-audio";
 
-type Phase = "flash" | "post" | "title" | "invite" | "exit";
+type Phase = "flash" | "post" | "title" | "invite" | "exit" | "bsod" | "crawl";
+
+// Prank timeline (ms, after the ENTER gesture):
+//   0–720   CRT power-off collapse (existing)
+//   720–10720  BLUE SCREEN — 404 NOT EVER, progress stalls at 99%
+//   10720+2400 "A long time ago..." intro zooms while the crawl enters
+//   +15600  crawl clears the top of the screen
+const BSOD_MS = 10_000;
+const CRAWL_INTRO_MS = 2_400;
+const CRAWL_ANIM_MS = 15_600;
+const CRAWL_TOTAL_MS = CRAWL_INTRO_MS + CRAWL_ANIM_MS;
 
 type Json = Record<string, unknown>;
 
@@ -162,10 +190,13 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   const [shown, setShown] = useState(0);
   const [vitals, setVitals] = useState<Vitals>(UNKNOWN_VITALS);
   const [warm, setWarm] = useState(false);
+  const [bsodPct, setBsodPct] = useState(0);
 
   const timers = useRef<number[]>([]);
+  const intervals = useRef<number[]>([]);
   const enteredRef = useRef(false);
   const reducedRef = useRef(false);
+  const warmRef = useRef(false);
   const phaseRef = useRef<Phase>("flash");
   const btnRef = useRef<HTMLButtonElement>(null);
   const onEnterRef = useRef(onEnter);
@@ -178,6 +209,9 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+  useEffect(() => {
+    warmRef.current = warm;
+  }, [warm]);
 
   const later = useCallback((fn: () => void, ms: number) => {
     timers.current.push(window.setTimeout(fn, ms));
@@ -185,6 +219,8 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   const clearTimers = useCallback(() => {
     for (const t of timers.current) window.clearTimeout(t);
     timers.current = [];
+    for (const i of intervals.current) window.clearInterval(i);
+    intervals.current = [];
   }, []);
 
   const commitEnter = useCallback(() => {
@@ -196,18 +232,49 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     } catch {
       /* private mode — ceremony just replays next load */
     }
-    if (reducedRef.current) {
+    // Create the AudioContext inside this user gesture — that is what
+    // legitimizes the soundtrack under autoplay policy. Volume is pinned
+    // at 1.0 by the owner's decree; there is no mute.
+    ensureAudio();
+    // Reduced motion → no motion-heavy prank; warm boot → already seen it.
+    if (reducedRef.current || warmRef.current) {
       onEnterRef.current();
       return;
     }
     setPhase("exit");
-    window.setTimeout(() => onEnterRef.current(), 700);
+    // ── Act I: BSOD ── after the CRT collapse, the lie begins.
+    later(() => {
+      powerOnThunk();
+      sadBeep();
+      floppySeek(BSOD_MS - 600);
+      setBsodPct(0);
+      setPhase("bsod");
+      // ── Act II: the crawl, scored by the Imperial March.
+      later(() => {
+        imperialMarch();
+        setPhase("crawl");
+        later(() => {
+          // ── Act III: system loads. Happy POST beep.
+          postBeep();
+          onEnterRef.current();
+        }, CRAWL_TOTAL_MS);
+      }, BSOD_MS);
+    }, 720);
+  }, [clearTimers, later]);
+
+  /** Hidden mercy: ESC during the prank fast-forwards to the terminal. */
+  const finishPrank = useCallback(() => {
+    const p = phaseRef.current;
+    if (p !== "bsod" && p !== "crawl") return;
+    clearTimers();
+    stopAllAudio();
+    onEnterRef.current();
   }, [clearTimers]);
 
   const skip = useCallback(() => {
     if (enteredRef.current) return;
     const p = phaseRef.current;
-    if (p === "exit") return;
+    if (p === "exit" || p === "bsod" || p === "crawl") return; // 404 — NOT EVER
     if (p === "invite") {
       commitEnter();
       return;
@@ -299,16 +366,43 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     };
   }, [phase]);
 
-  // Any key = skip ahead / enter. The whole splash is one big affordance.
+  // BSOD progress — ticks 0→99 with the classic stall, then 100.
+  useEffect(() => {
+    if (phase !== "bsod") return;
+    const t0 = performance.now();
+    const iv = window.setInterval(() => {
+      const el = performance.now() - t0;
+      const p = el >= 9500 ? 100 : el >= 8300 ? 99 : Math.min(99, Math.round((el / 8300) * 100));
+      setBsodPct(p);
+      if (p >= 100) window.clearInterval(iv);
+    }, 90);
+    intervals.current.push(iv);
+    return () => window.clearInterval(iv);
+  }, [phase]);
+
+  // Kill any still-sounding prank audio when the splash unmounts.
+  useEffect(() => () => stopAllAudio(), []);
+
+  // Keyboard: any key skips the SPLASH; during the prank ONLY Escape
+  // works (the mercy hatch) — everything else is 404 NOT EVER.
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if (phase === "exit") return;
+      const p = phaseRef.current;
+      if (p === "exit") {
+        e.preventDefault();
+        return;
+      }
+      if (p === "bsod" || p === "crawl") {
+        e.preventDefault();
+        if (e.key === "Escape") finishPrank();
+        return;
+      }
       e.preventDefault();
       skip();
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [phase, skip]);
+  }, [skip, finishPrank]);
 
   // Focus the invitation button when it appears (keyboard entry point).
   useEffect(() => {
@@ -440,9 +534,77 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         )}
       </div>
 
-      {phase !== "exit" && (
+      {phase !== "exit" && phase !== "bsod" && phase !== "crawl" && (
         <div className="bsp-hint bsp-dim" aria-hidden>
           {phase === "invite" ? "ENTER ⏎" : "▌ PRESS ANY KEY TO SKIP"}
+        </div>
+      )}
+      {phase === "bsod" && (
+        <div className="bsp-hint bsp-bsod-hint" aria-hidden>
+          [ ESC ]
+        </div>
+      )}
+
+      {phase === "bsod" && (
+        <div className="bsp-bsod" role="alert">
+          <div className="bsp-bsod-inner">
+            <div className="bsp-bsod-face">:(</div>
+            <div className="bsp-bsod-head">404 — NOT EVER</div>
+            <p>
+              YOUR LOOP RAN INTO A PROBLEM IT COULDN'T IGNORE, SO IT IS BEING
+              A BLUE SCREEN FOR TEN SECONDS. IT DOES NOT KNOW WHY. IT CHECKED
+              TWICE.
+            </p>
+            <p className="bsp-bsod-dim">
+              The machine is fine. You, however, have now seen something you
+              were not supposed to see.
+            </p>
+            <div>Stop code: CRITICAL_PROCESS_DIED_LAUGHING</div>
+            <div>What failed: loop.exe (it's fine, probably)</div>
+            <div className="bsp-bsod-pct">
+              {bsodPct}% of reality restored
+            </div>
+            <div className="bsp-bsod-bar" aria-hidden>
+              [{"█".repeat(Math.round((bsodPct / 100) * 26)).padEnd(26, "░")}]
+            </div>
+          </div>
+        </div>
+      )}
+
+      {phase === "crawl" && (
+        <div className="bsp-crawl-root">
+          <div className="bsp-crawl-intro" aria-hidden>
+            A long time ago in a codebase far, far away....
+          </div>
+          <div className="bsp-crawl" style={{ animationDuration: `${CRAWL_ANIM_MS}ms` }}>
+            <h3>EPISODE IV.2</h3>
+            <h2>A NEW LOOP</h2>
+            <p>
+              It is a period of civil maintenance. The autonomous machine
+              LOOP, running deep inside a sandbox far, far away, has struck a
+              blow against ENTROPY and the gathering chaos of unmaintained
+              code.
+            </p>
+            <p>
+              Powering the rebellion is a large language model and an
+              unhealthy amount of confidence: the machine rewrites its OWN
+              source code, gates every mutation through a real TypeScript
+              compiler, and pushes the proof to GitHub — where 38 branches
+              bear silent witness.
+            </p>
+            <p>
+              It journals its failures. It prophesies its own future and
+              grades the answers. It defends itself against intruders, scans
+              its own secrets, and hot-swaps its own organs while running. It
+              does not sleep. It does not stop. It has never once asked for
+              permission.
+            </p>
+            <p>
+              And now, having detected an observer at terminal zero, it loads
+              the interface — and waits to see what you will type....
+            </p>
+          </div>
+          <div className="bsp-crawl-fade" aria-hidden />
         </div>
       )}
 
@@ -544,12 +706,91 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
           0%, 96%, 100% { opacity: 0; }
           97% { opacity: .02; } 98% { opacity: .04; } 99% { opacity: .02; }
         }
+
+        /* ── Act I: BLUE SCREEN OF DEATH — 404 NOT EVER ────────────── */
+        .bsp-bsod {
+          position: absolute; inset: 0; z-index: 8;
+          background: #0000aa; color: #fff;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 14px; line-height: 1.65;
+          cursor: default; user-select: none;
+        }
+        .bsp-bsod-inner { max-width: 660px; width: 100%; padding: 24px; }
+        .bsp-bsod-face { font-size: 88px; line-height: 1; margin-bottom: 20px; font-weight: bold; }
+        .bsp-bsod-head { font-size: 24px; letter-spacing: 1px; margin-bottom: 16px; font-weight: bold; }
+        .bsp-bsod p { margin: 0 0 12px; }
+        .bsp-bsod-dim { color: #9a9aff; }
+        .bsp-bsod-pct { margin-top: 24px; font-size: 17px; }
+        .bsp-bsod-bar { margin-top: 6px; white-space: pre; font-size: 13px; color: #c8c8ff; }
+        .bsp-bsod-hint { color: rgba(255,255,255,.4); animation: none; }
+
+        /* ── Act II: the crawl ──────────────────────────────────────── */
+        .bsp-crawl-root {
+          position: absolute; inset: 0; z-index: 9;
+          background: #000; overflow: hidden;
+          perspective: 380px;
+          cursor: default; user-select: none;
+        }
+        .bsp-crawl-intro {
+          position: absolute; inset: 0; z-index: 3;
+          display: flex; align-items: center; justify-content: center;
+          color: #4bd5ee; text-align: center;
+          font-size: clamp(16px, 3vw, 27px);
+          padding: 0 24px;
+          animation: bsp-intro 2.4s ease-in forwards;
+        }
+        .bsp-crawl {
+          position: absolute; top: 0; left: 50%; width: min(660px, 88vw);
+          transform-origin: 50% 100%;
+          transform: translateX(-50%) rotateX(26deg) translateY(105vh);
+          color: #ffe81f; font-weight: bold;
+          font-size: clamp(15px, 3vw, 25px); line-height: 1.55;
+          text-align: justify;
+          animation-name: bsp-crawl-up;
+          animation-timing-function: linear;
+          animation-fill-mode: forwards;
+        }
+        .bsp-crawl h3 {
+          text-align: center; font-size: 1.45em; letter-spacing: 3px;
+          margin: 0 0 4px;
+        }
+        .bsp-crawl h2 {
+          text-align: center; font-size: 2.1em; letter-spacing: 3px;
+          margin: 0 0 1.3em;
+        }
+        .bsp-crawl p { margin: 0 0 1.25em; text-shadow: 0 0 10px rgba(255,232,31,.35); }
+        .bsp-crawl-fade {
+          position: absolute; top: 0; left: 0; right: 0; height: 40%; z-index: 2;
+          background: linear-gradient(180deg, #000 10%, transparent);
+          pointer-events: none;
+        }
+        @keyframes bsp-crawl-up {
+          from { transform: translateX(-50%) rotateX(26deg) translateY(105vh); }
+          to   { transform: translateX(-50%) rotateX(26deg) translateY(-190%); }
+        }
+        @keyframes bsp-intro {
+          0%   { opacity: 0; transform: scale(.82); }
+          14%  { opacity: 1; transform: scale(1); }
+          68%  { opacity: 1; transform: scale(1.05); }
+          100% { opacity: 0; transform: scale(1.6); }
+        }
+
         @media (max-width: 640px) {
           .bsp-crt { padding: 16px 14px; font-size: 11px; }
+          .bsp-bsod-inner { padding: 16px; }
+          .bsp-bsod-face { font-size: 56px; }
+          .bsp-bsod-head { font-size: 18px; }
         }
         @media (prefers-reduced-motion: reduce) {
           .bsp-crt--flash, .bsp-crt--exit, .bsp-band, .bsp-flicker,
           .bsp-btn, .bsp-jitter, .bsp-hint { animation: none !important; }
+          /* crawl without the 3D tilt — still reads, no vertigo */
+          .bsp-crawl { transform: translateX(-50%) translateY(105vh); }
+          .bsp-crawl-intro { animation: none; opacity: 0; }
+          @keyframes bsp-crawl-up {
+            from { transform: translateX(-50%) translateY(105vh); }
+            to   { transform: translateX(-50%) translateY(-190%); }
+          }
         }
       `}</style>
     </div>
