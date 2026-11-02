@@ -46,8 +46,8 @@ export function assertRouteCooldown(
     throw new Error('Route must be a non-empty string');
   }
   
-  if (typeof minIntervalMs !== 'number' || minIntervalMs <= 0) {
-    throw new Error('minIntervalMs must be a positive number');
+  if (typeof minIntervalMs !== 'number' || !Number.isFinite(minIntervalMs) || minIntervalMs <= 0) {
+    throw new Error('minIntervalMs must be a positive finite number');
   }
 
   const now = Date.now();
@@ -71,9 +71,15 @@ export function routeCooldownStatus(): Record<
 > {
   const now = Date.now();
   const out: Record<string, { intervalMs: number; lastFired: number; remainingMs: number }> = {};
+  
+  // Clean up expired entries to prevent memory leak
   for (const [route, entry] of routeCooldowns) {
     const remaining = Math.max(0, entry.intervalMs - (now - entry.lastFired));
-    out[route] = { intervalMs: entry.intervalMs, lastFired: entry.lastFired, remainingMs: remaining };
+    if (remaining === 0) {
+      routeCooldowns.delete(route);
+    } else {
+      out[route] = { intervalMs: entry.intervalMs, lastFired: entry.lastFired, remainingMs: remaining };
+    }
   }
   return out;
 }
