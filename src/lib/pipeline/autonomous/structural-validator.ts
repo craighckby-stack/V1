@@ -140,7 +140,7 @@ function extractTopLevelExports(code: string): Set<string> {
     const m = trimmed.match(exportRe);
     if (m && m[1]) {
       // Validate the export name is properly formed
-      if (m[1] && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(m[1])) {
+      if (m[1] && m[1].length > 0 && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(m[1])) {
         exports.add(m[1]);
       }
       continue;
@@ -156,7 +156,7 @@ function extractTopLevelExports(code: string): Set<string> {
       for (const name of braceMatch[1].split(",")) {
         const trimmedName = name.trim().split(/\s+as\s+/)[0];
         // Validate the export name is properly formed
-        if (trimmedName && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmedName)) {
+        if (trimmedName && trimmedName.length > 0 && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmedName)) {
           exports.add(trimmedName);
         }
       }
