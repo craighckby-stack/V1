@@ -130,3 +130,25 @@ model SelfTask {
 
   @@unique([kind, filePath, line])
 }
+
+/// Gemini direct-call configuration (singleton). Stores the user-pasted
+/// Gemini API key — or, when GEMINI_PROXY_BASE_URL is set, the proxy's
+/// shared secret — plus the model name and the last call's outcome for
+/// the UI status indicator. The key is NEVER returned to the client;
+/// the GET route redacts it. Server-side only.
+///
+/// This model was previously removed from the schema (causing
+/// /api/self-enhance/llm-config to 500 with "Cannot read properties of
+/// undefined (reading 'findUnique')"). Restored 2026-10-29 — without
+/// it, the entire Gemini-direct path is broken at the storage layer,
+/// and retry/recovery logic in gemini-direct.ts has nothing to read
+/// from. Singleton pattern, same as GitPushTarget.
+model LlmConfig {
+  id           String    @id @default("singleton")
+  geminiApiKey  String    // real Google AI Studio key, OR the proxy shared secret when GEMINI_PROXY_BASE_URL is set
+  geminiModel   String    @default("gemini-2.5-flash") // e.g. gemini-2.5-pro | gemini-2.5-flash | gemini-2.0-flash
+  lastUsedAt   DateTime?  // last successful generateContent call
+  lastError    String?    // last error message (token-free, scrubbed)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}

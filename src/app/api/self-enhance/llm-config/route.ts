@@ -32,15 +32,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Missing geminiApiKey" }, { status: 400 });
   }
   // Gemini API keys start with "AIza" and are ~39 chars. Be lenient on length
-  // but reject obviously malformed input.
+  // but reject obviously malformed input. When the proxy is in use, the
+  // "key" is actually the proxy's shared secret (openssl rand -hex 32 = 64
+  // hex chars), so we accept any 20+ char no-whitespace string.
   if (key.length < 20 || /\s/.test(key)) {
     return NextResponse.json({ ok: false, error: "Key looks malformed (expected 20+ chars, no whitespace)" }, { status: 400 });
   }
 
-  // Verify the key with a minimal generateContent call.
+  // Verify the key with a minimal generateContent call. Route through the
+  // proxy if GEMINI_PROXY_BASE_URL is set — otherwise the verify step hits
+  // Google directly from the HK sandbox and fails the geo-block even when
+  // the proxy is configured and working. The proxy swaps this secret for
+  // the real Google key on its side.
+  const VERIFY_BASE = process.env.GEMINI_PROXY_BASE_URL?.replace(/\/$/, "") ?? "https://generativelanguage.googleapis.com";
+  const usingProxy = !!process.env.GEMINI_PROXY_BASE_URL;
+
   let locationBlocked = false;
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+    const url = `${VERIFY_BASE}/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
     const verify = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -76,9 +85,19 @@ export async function POST(req: Request) {
       // from a supported region. SAVE it (don't punish a good key for the
       // sandbox's geography) and return a clear "saved but location-blocked"
       // status so the UI can show what's going on.
+      //
+      // When using the proxy, a location-block here means the PROXY is also
+      // in a blocked region — which is a real config error, not just
+      // geography. Surface that distinctly so the operator knows to redeploy
+      // the proxy to a supported region (see /proxy/README.md).
       if (status === "FAILED_PRECONDITION" && /location/i.test(msg)) {
         locationBlocked = true;
         // fall through to save
+      } else if (usingProxy && verify.status === 401) {
+        // The proxy returns a Gemini-shaped 401 when the shared secret is
+        // wrong. Distinguish from a Google 401 (which would mean the real
+        // Gemini key is bad) so the operator knows which credential to fix.
+        return NextResponse.json({ ok: false, error: `Proxy rejected the shared secret (401). The proxy is up but PROXY_SECRET doesn't match — re-enter the value from 'fly secrets get PROXY_SECRET'.` }, { status: 400 });
       } else if (status === "INVALID_ARGUMENT" && /api key/i.test(msg)) {
         return NextResponse.json({ ok: false, error: `Key rejected by Google: ${msg || "API key not valid"}` }, { status: 400 });
       } else if (verify.status === 403) {
