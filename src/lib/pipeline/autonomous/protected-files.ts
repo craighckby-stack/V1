@@ -25,6 +25,12 @@ export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/verify-refactor.ts", // protect the verifier
   "src/lib/pipeline/llm/agent-llm.ts", // protect the LLM wrapper
   "src/lib/pipeline/llm/debate-llm.ts",
+  // Hot-swap core — protect the swapper. If the loop could rewrite its
+  // own hot-swap module, a bad mutation could break the swap mechanism
+  // and the running process would never benefit from future fixes.
+  // The swap itself still works on other pipeline files; the loop just
+  // can't edit the swap logic. (Concept: PKM — protect the executioner.)
+  "src/lib/pipeline/core/hot-swap.ts",
   // UI control surface — the loop can change HOW things look (the mutable
   // display layer in src/app/display/) but can NEVER touch the control
   // surface: the buttons, the command input, the command parser, the state
