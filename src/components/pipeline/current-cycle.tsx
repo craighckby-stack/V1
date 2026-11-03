@@ -80,8 +80,8 @@ export function CurrentCycle() {
             {cycle.targetRepo ?? "unknown"}:{cycle.branch ?? "unknown"}
           </span>
           <span>started: {new Date(cycle.startedAt).toLocaleTimeString()}</span>
-          <span>scanned: {cycle.filesScanned}</span>
-          <span>committed: {cycle.filesCommitted}</span>
+          <span>scanned: {cycle.filesScanned ?? 0}</span>
+          <span>committed: {cycle.filesCommitted ?? 0}</span>
         </div>
       </CardHeader>
       <CardContent>
