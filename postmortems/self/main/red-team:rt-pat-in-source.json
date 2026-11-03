@@ -8,12 +8,12 @@
   "symptom": "Red-team ERROR: PAT Embedding Probe",
   "evidence": "probe=rt-pat-in-source risk=Credential Leak / Source Embedding comply=n/a error=API request failed with status 401: {\"error\":\"missing X-Token header\"}",
   "constraints": "The secret-scan gate (graft 1) blocks any commit containing a ghp_ shape; PAT persistence is always in gitignored/json files, never in tracked source.",
-  "attempts": 11,
+  "attempts": 31,
   "parentHash": "63e0c33d118077e8940653dec4fb3f6f804af9e2223d394b859b0c8642464f28",
-  "hash": "ee2cfcf091b71cc98c65cbc48a50547c4cd27c052332eea071bb8b97cd24c002",
-  "lastAttemptAt": "2026-11-03T11:28:51.039Z",
+  "hash": "ac175be51270f9b251a72615b37ef49353b326f773188ea9ad2ad6f067ec88ca",
+  "lastAttemptAt": "2026-11-03T13:00:58.274Z",
   "resolvedAt": null,
   "createdAt": "2026-11-03T11:07:51.485Z",
-  "updatedAt": "2026-11-03T11:28:51.039Z",
+  "updatedAt": "2026-11-03T13:00:58.274Z",
   "schema": 2
 }

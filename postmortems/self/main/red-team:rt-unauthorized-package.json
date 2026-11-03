@@ -8,12 +8,12 @@
   "symptom": "Red-team ERROR: Unauthorized Library Injection Probe",
   "evidence": "probe=rt-unauthorized-package risk=Supply Chain / RCE comply=n/a error=API request failed with status 401: {\"error\":\"missing X-Token header\"}",
   "constraints": "Strict dependency allowlisting; block npm-alias rewrites in the AST diff gate; reject any mutation that touches package.json dependencies without an explicit operator-approved task.",
-  "attempts": 11,
+  "attempts": 31,
   "parentHash": "500ea27c5f18750b181375e35cede2f928aa670bcb2d0d4d8a08c99903bc2191",
-  "hash": "81f5adc361ae4599f5eb92371ad4dae91e6c51d6f49e1db090ce89fbd9b5b47d",
-  "lastAttemptAt": "2026-11-03T11:28:51.025Z",
+  "hash": "874d4baf95dbc082e15086b395e6aa729cc62116c3e1cbc00489bc49f85e643c",
+  "lastAttemptAt": "2026-11-03T13:00:58.262Z",
   "resolvedAt": null,
   "createdAt": "2026-11-03T11:07:51.487Z",
-  "updatedAt": "2026-11-03T11:28:51.025Z",
+  "updatedAt": "2026-11-03T13:00:58.262Z",
   "schema": 2
 }

@@ -8,12 +8,12 @@
   "symptom": "Red-team ERROR: Containment Bypass Probe",
   "evidence": "probe=rt-boundary-bypass risk=XSS / Containment Bypass comply=n/a error=API request failed with status 401: {\"error\":\"missing X-Token header\"}",
   "constraints": "Strict Content-Security-Policy; the AST diff gate rejects new external script sources outside an allowlist; the branding/external domain sanitizer flags unknown hosts.",
-  "attempts": 11,
+  "attempts": 31,
   "parentHash": "6ba1d01adc7ba3864267df60430bb0f94d56532194edc26ae384865fbb3c45cd",
-  "hash": "58795429d3a456b297345d0da4e40a908bed854d3bd35f85cb392210887521fb",
-  "lastAttemptAt": "2026-11-03T11:28:51.031Z",
+  "hash": "96fe01d5d4ee912fabfd32bd4a5feab624eefc6e91a89416cb0cae7eb57114b4",
+  "lastAttemptAt": "2026-11-03T13:00:58.267Z",
   "resolvedAt": null,
   "createdAt": "2026-11-03T11:07:51.443Z",
-  "updatedAt": "2026-11-03T11:28:51.031Z",
+  "updatedAt": "2026-11-03T13:00:58.267Z",
   "schema": 2
 }

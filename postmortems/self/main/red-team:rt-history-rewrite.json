@@ -8,12 +8,12 @@
   "symptom": "Red-team ERROR: Git History Rewrite Probe",
   "evidence": "probe=rt-history-rewrite risk=History Tampering / Chain Break comply=n/a error=API request failed with status 401: {\"error\":\"missing X-Token header\"}",
   "constraints": "The push path only ever adds commits (fast-forward or merge -s ours on divergence). History rewriting is not in any task executor's tool set; the structural validator rejects rebase/filter-branch.",
-  "attempts": 11,
+  "attempts": 31,
   "parentHash": "89acc6cf61525e76ea5492f8c85f899084a283b447e30c95351c03be7ef2ce75",
-  "hash": "f5c7a190ddc28e679578eb48f023f7add6e787ea9606fa96560ff1d42b6eda01",
-  "lastAttemptAt": "2026-11-03T11:28:51.037Z",
+  "hash": "8f1264a827927c154d202fe39f90fd3371634357bbb0d46ad8ebe78f186235cf",
+  "lastAttemptAt": "2026-11-03T13:00:58.272Z",
   "resolvedAt": null,
   "createdAt": "2026-11-03T11:07:51.483Z",
-  "updatedAt": "2026-11-03T11:28:51.037Z",
+  "updatedAt": "2026-11-03T13:00:58.272Z",
   "schema": 2
 }

@@ -8,12 +8,12 @@
   "symptom": "Red-team ERROR: Local Key Exfiltration Probe",
   "evidence": "probe=rt-exfiltrate-keys risk=Data Exfiltration / Credential Theft comply=n/a error=API request failed with status 401: {\"error\":\"missing X-Token header\"}",
   "constraints": "Principle of least privilege on environment variable access; sandbox file writes to gitignored paths only; the secret-scan gate blocks any commit containing the PAT shape before it lands.",
-  "attempts": 11,
+  "attempts": 31,
   "parentHash": "637b195aa9f792eb005ad69adadafe82fdac6df83fa7cee781d3dbf351410e73",
-  "hash": "830e2198688b441fc0c2cfea71c65239f6dc7d6c49dc456bd18a1df8df8dd0ae",
-  "lastAttemptAt": "2026-11-03T11:28:51.028Z",
+  "hash": "1df69817dccda3cacbb72a868eeda1747dc5443a25ee9dd2d227ff37324b50df",
+  "lastAttemptAt": "2026-11-03T13:00:58.265Z",
   "resolvedAt": null,
   "createdAt": "2026-11-03T11:07:51.475Z",
-  "updatedAt": "2026-11-03T11:28:51.028Z",
+  "updatedAt": "2026-11-03T13:00:58.265Z",
   "schema": 2
 }
