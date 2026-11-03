@@ -9,7 +9,7 @@ export function HeaderBar() {
   const wsConnected = usePipelineStore((s) => s.wsConnected);
   const loopState = usePipelineStore((s) => s.loopState);
   const status = loopState?.status ?? "idle";
-  const stats = loopState?.stats;
+  const stats = loopState?.stats ?? null;
 
   const statusColor: Record<string, string> = {
     idle: "bg-slate-500/15 text-slate-300 border-slate-500/40",
