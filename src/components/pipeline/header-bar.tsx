@@ -112,7 +112,7 @@ export function HeaderBar() {
           </Badge>
 
           {/* Cycle count */}
-          {stats && (
+          {stats && stats.totalRuns !== undefined && (
             <Badge
               variant="outline"
               className="text-[10px] uppercase tracking-widest bg-slate-900/60 text-amber-300 border-amber-700/40 whitespace-nowrap"
