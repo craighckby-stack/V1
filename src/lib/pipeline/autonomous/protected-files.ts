@@ -31,7 +31,7 @@ export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/loop-runtime.ts",
   "src/lib/pipeline/autonomous/self-enhance-loop.ts",
   "src/lib/pipeline/autonomous/self-task-generator.ts",
-  "src/lib/pipeline/autonomous/loop-event-bus.ts",
+  // (loop-event-bus.ts was removed as dead infrastructure — 0 subscribers.)
   "src/lib/pipeline/autonomous/push-target.ts", // protect the push auth path
   "src/lib/pipeline/autonomous/in-memory-typecheck.ts", // protect the typecheck
   "src/lib/pipeline/autonomous/verify-refactor.ts", // protect the verifier

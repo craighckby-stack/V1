@@ -296,7 +296,3 @@ export async function rehydrateSqliteFromDisk(
   return count;
 }
 
-/** Project root for tests / inspection. Not used internally. */
-export function getPostmortemDir(): string {
-  return POSTMORTEM_DIR;
-}

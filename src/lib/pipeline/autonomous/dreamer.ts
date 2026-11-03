@@ -87,18 +87,6 @@ export function getNamedPatterns(): string | null {
   return state.namedPatterns.text;
 }
 
-/** For the status surface: what has the dreamer been up to. */
-export function getDreamerStatus() {
-  return {
-    dreamCount: state.dreamCount,
-    lastTask: state.lastTask,
-    lastResult: state.lastResult,
-    lastDreamAt: state.lastDreamAt ? new Date(state.lastDreamAt).toISOString() : null,
-    draftsCached: state.ratchetDrafts.size,
-    patternsCached: state.namedPatterns !== null,
-  };
-}
-
 // ── helpers ──────────────────────────────────────────────────────────
 
 /** Most-attempted active postmortem whose file has no test pin yet and

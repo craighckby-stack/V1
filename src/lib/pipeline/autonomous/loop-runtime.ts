@@ -19,7 +19,6 @@
 
 import { unifiedPipelineRunnerInstance } from "../core/unified-pipeline";
 import { db } from "@/lib/db";
-import { loopEventBus, LoopEvent } from "./loop-event-bus";
 import { postmortemStore, generatePostmortemFromReport } from "../postmortem/postmortem-store";
 import { autoProphecyAfterCycle } from "../oracle/oracle-auto";
 import { isSafeMode, getSafeModeState } from "../core/duress";
@@ -332,7 +331,6 @@ class AutonomousLoopRuntime {
               "warn"
             );
             this.status = "paused";
-            this.emitState();
             return;
           }
           this.addLog(
@@ -407,19 +405,6 @@ class AutonomousLoopRuntime {
     this.logs.unshift(entry);
     if (this.logs.length > 200) this.logs.pop();
     console.log(`[AUTONOMOUS:${source}] [${type.toUpperCase()}] ${message}`);
-    loopEventBus.emit({
-      kind: "log",
-      timestamp: Date.now(),
-      log: entry,
-    });
-  }
-
-  private emitState() {
-    loopEventBus.emit({
-      kind: "state",
-      timestamp: Date.now(),
-      state: this.getState(),
-    });
   }
 
   // --- Public API ---
@@ -477,7 +462,6 @@ class AutonomousLoopRuntime {
       );
       this.restartScheduler();
     }
-    this.emitState();
     return {
       ...this.config,
       githubToken: this.config.githubToken ? "[REDACTED]" : "",
@@ -496,7 +480,6 @@ class AutonomousLoopRuntime {
       "success"
     );
     this.restartScheduler();
-    this.emitState();
     return this.getState();
   }
 
@@ -520,7 +503,6 @@ class AutonomousLoopRuntime {
       "Autonomous loop DISABLED. No further cycles will run until re-enabled.",
       "warn"
     );
-    this.emitState();
     return this.getState();
   }
 
@@ -571,7 +553,6 @@ class AutonomousLoopRuntime {
         this.addLog(`Continuous loop crashed: ${(err as Error).message}`, "error");
       });
     }
-    this.emitState();
   }
 
   private async runContinuousLoop() {
@@ -611,7 +592,6 @@ class AutonomousLoopRuntime {
           );
           this.status = "paused";
           this.continuousLoopRunning = false;
-          this.emitState();
           this.scheduleRecoveryProbe();
           return;
         }
@@ -730,7 +710,6 @@ class AutonomousLoopRuntime {
         "error"
       );
       this.status = "paused";
-      this.emitState();
       // Schedule a recovery probe so the loop auto-resumes when safe-mode
       // clears (operator cleared it, or the duress module auto-cleared
       // after a successful probe). Without this, a safe-mode event would
@@ -762,7 +741,6 @@ class AutonomousLoopRuntime {
       `Starting autonomous cycle #${cycleNumber} (${mode}) on ${this.config.targetRepo}:${this.config.branch}`,
       "info"
     );
-    this.emitState();
 
     const token = this.resolveToken();
     const headers: Record<string, string> = {
@@ -966,27 +944,6 @@ class AutonomousLoopRuntime {
               siphonSourceId: this.config.siphonSourceId,
               code: rawContent,
               triggeredBy: mode,
-            },
-            (stage) => {
-              loopEventBus.emit({
-                kind: "stage",
-                timestamp: Date.now(),
-                cycleId,
-                filePath: blob.path,
-                stage,
-              });
-            },
-            (entry) => {
-              loopEventBus.emit({
-                kind: "log",
-                timestamp: Date.now(),
-                log: {
-                  timestamp: entry.timestamp,
-                  message: `[${blob.path}] ${entry.message}`,
-                  type: entry.type,
-                  source: "pipeline",
-                },
-              });
             }
           );
 
@@ -1251,7 +1208,6 @@ class AutonomousLoopRuntime {
       } else {
         this.stats.nextRunAt = null;
       }
-      this.emitState();
     }
 
     return this.currentCycle;
@@ -1347,14 +1303,6 @@ class AutonomousLoopRuntime {
           body: JSON.stringify(commitPayload),
         });
       } catch (err) {
-        loopEventBus.emit({
-          kind: "push",
-          timestamp: Date.now(),
-          cycleId,
-          filePath,
-          outcome: "failed",
-          attempt,
-        });
         return {
           pushed: false,
           toctouHealed: false,
@@ -1364,19 +1312,6 @@ class AutonomousLoopRuntime {
       }
 
       if (commitRes.ok) {
-        const body = (await commitRes.json().catch(() => ({}))) as {
-          commit?: { sha?: string };
-        };
-        const sha = body.commit?.sha?.slice(0, 7);
-        loopEventBus.emit({
-          kind: "push",
-          timestamp: Date.now(),
-          cycleId,
-          filePath,
-          outcome: attempt === 0 ? "committed" : "toctou_healed",
-          sha,
-          attempt,
-        });
         return {
           pushed: true,
           toctouHealed: attempt > 0,
@@ -1390,14 +1325,6 @@ class AutonomousLoopRuntime {
         const errBody = (await commitRes.json().catch(() => ({}))) as {
           message?: string;
         };
-        loopEventBus.emit({
-          kind: "push",
-          timestamp: Date.now(),
-          cycleId,
-          filePath,
-          outcome: "failed",
-          attempt,
-        });
         return {
           pushed: false,
           toctouHealed: false,
@@ -1406,26 +1333,9 @@ class AutonomousLoopRuntime {
         };
       }
 
-      // 409 — TOCTOU conflict. Emit the conflict event, then refetch to
-      // decide whether the remote content actually changed.
-      loopEventBus.emit({
-        kind: "push",
-        timestamp: Date.now(),
-        cycleId,
-        filePath,
-        outcome: "toctou_conflict",
-        attempt,
-      });
-
+      // 409 — TOCTOU conflict. Refetch to decide whether the remote
+      // content actually changed.
       if (attempt === MAX_TOCTOU_RETRIES) {
-        loopEventBus.emit({
-          kind: "push",
-          timestamp: Date.now(),
-          cycleId,
-          filePath,
-          outcome: "failed",
-          attempt,
-        });
         return {
           pushed: false,
           toctouHealed: false,
@@ -1442,14 +1352,6 @@ class AutonomousLoopRuntime {
       try {
         refetchRes = await fetch(fileUrl, { headers });
       } catch (err) {
-        loopEventBus.emit({
-          kind: "push",
-          timestamp: Date.now(),
-          cycleId,
-          filePath,
-          outcome: "failed",
-          attempt,
-        });
         return {
           pushed: false,
           toctouHealed: false,
@@ -1458,14 +1360,6 @@ class AutonomousLoopRuntime {
         };
       }
       if (!refetchRes.ok) {
-        loopEventBus.emit({
-          kind: "push",
-          timestamp: Date.now(),
-          cycleId,
-          filePath,
-          outcome: "failed",
-          attempt,
-        });
         return {
           pushed: false,
           toctouHealed: false,
@@ -1487,15 +1381,6 @@ class AutonomousLoopRuntime {
         // change. Skip honestly; the next cycle fetches fresh content
         // and refactors anew. This is the key correctness guard that
         // makes the TOCTOU retry safe for derived-from-remote commits.
-        loopEventBus.emit({
-          kind: "push",
-          timestamp: Date.now(),
-          cycleId,
-          filePath,
-          outcome: "skipped_remote_changed",
-          sha: refetchData.sha,
-          attempt,
-        });
         this.addLog(
           `Skipping ${filePath}: remote content changed mid-cycle (TOCTOU). Refactor based on stale input — would clobber remote change. Next cycle will refactor the fresh content.`,
           "warn",
@@ -1636,6 +1521,3 @@ export const autonomousLoopRuntime: AutonomousLoopRuntime =
 if (!globalForLoop.__autonomousLoopRuntime) {
   globalForLoop.__autonomousLoopRuntime = autonomousLoopRuntime;
 }
-
-// Touch the bus so the import is preserved for tree-shaking safety.
-void (loopEventBus as unknown as LoopEvent);

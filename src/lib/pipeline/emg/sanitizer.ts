@@ -1,3 +1,11 @@
+// AUDIT 3 (B7 dedupe): the local Shannon-entropy copy was removed —
+// core/secret-scan.ts has the identical implementation (verified
+// semantically identical: char-frequency → bits/char). One copy, one
+// place to fix. The THRESHOLDS stay per-module on purpose: the sanitizer
+// (layer 1, LLM-output redaction) and secret-scan (push-path backstop)
+// tune their bars for different false-positive budgets.
+import { calculateShannonEntropy } from "../core/secret-scan";
+
 export type ErrorClass =
   | "HARDCODED_CRED"
   | "SECRET_LEAKAGE"
@@ -32,12 +40,21 @@ const PII_PATTERNS: readonly RegExp[] = [
 ];
 
 const HIGH_ENTROPY_THRESHOLD = 4.5;
+/** AUDIT 3 (B7): pure-hex literals use secret-scan's stricter bar. The
+ *  GENERAL threshold was raised 4.15 → 4.5 because legitimate
+ *  alphanumeric utility strings (ids, slugs, tokens) live in the 4.0–4.5
+ *  band and redacting them corrupts otherwise-good mutations. A pure-hex
+ *  literal in that band is almost never a utility string — it's
+ *  hash/key material — and core/secret-scan.ts already blocks hex
+ *  assignments at entropy >= 4.0 on the push path. The sanitizer is the
+ *  FIRST layer: hex secrets now die here at the same bar as the backstop
+ *  instead of burning a full cycle to fail later at the push gate. */
+const HEX_ENTROPY_THRESHOLD = 4.0;
 const MIN_UNIQUE_CHARS_FOR_UTILITY_STRING = 20;
 const MIN_UNIQUE_DIGITS_FOR_UTILITY_STRING = 8;
 const MIN_UNIQUE_ALPHANUMERIC_FOR_UTILITY_STRING = 22;
 const MAX_ALPHANUMERIC_UTILITY_LENGTH = 36;
 const MIN_UPPER_CONST_ASSIGNMENTS_FOR_FIXTURE = 2;
-const MIN_LITERAL_LENGTH_FOR_ENTROPY_CHECK = 24;
 
 const ENV_VAR_PREFIXES = [
   "DYLD_", "LD_", "PATH=", "HOME=", "USER=", "SHELL=", "TMPDIR=",
@@ -66,24 +83,6 @@ const FIXTURE_CONTENT_PREFIXES = [
   "jag_observation_", "jag_node_", "test_", "fixture_", "sample_",
   "example_", "mock_", "stub_", "dummy_", "fake_", "oracle_", "expected_",
 ] as const;
-
-export function calculateShannonEntropy(str: string): number {
-  if (!str || str.length === 0) return 0;
-  
-  const frequencies = new Map<string, number>();
-  const len = str.length;
-  
-  for (const char of str) {
-    frequencies.set(char, (frequencies.get(char) || 0) + 1);
-  }
-  
-  let entropy = 0;
-  for (const count of frequencies.values()) {
-    const p = count / len;
-    entropy -= p * Math.log2(p);
-  }
-  return entropy;
-}
 
 function isLikelyEnvVarOrPath(s: string): boolean {
   // 1. ENV_VAR=value pattern (e.g. DYLD_FRAMEWORK_PATH=/override)
@@ -218,9 +217,11 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
         // Skip env var names, file paths, URLs — not secrets even if high-entropy.
         if (isLikelyEnvVarOrPath(inner)) continue;
 
-        // Raised threshold from 4.15 to 4.5 — 4.15 catches too many legitimate
-        // strings. Real secrets typically have entropy > 4.5.
-        if (entropy > HIGH_ENTROPY_THRESHOLD) {
+        // General literals: the 4.5 bar (raised from 4.15 — lower values
+        // redact legitimate utility strings and corrupt good mutations).
+        // Pure-hex literals: the strict 4.0 bar, mirroring secret-scan.
+        const isPureHex = /^[0-9a-fA-F]+$/.test(inner);
+        if (isPureHex ? entropy >= HEX_ENTROPY_THRESHOLD : entropy > HIGH_ENTROPY_THRESHOLD) {
           highEntropyTokensFound++;
           violations.push(
             `Detected high-entropy string (entropy: ${entropy.toFixed(2)}): ${inner.slice(0, 6)}...`

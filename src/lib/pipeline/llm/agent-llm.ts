@@ -61,7 +61,7 @@ async function getZai(): Promise<ZAIType> {
 
 // ── Fix A: shared rate-limit gate ──────────────────────────────────────────
 // Module-level state shared by EVERY llmComplete caller (ratchet, enhance,
-// debate tribunal, task-executor, chat-task). When the provider returns a
+// debate tribunal, chat-task). When the provider returns a
 // sustained 429, we set `blockedUntil` to now + an escalating cooldown.
 //
 // ── Fix A2 (audit 2): serialized dispatch ────────────────────────────
@@ -92,14 +92,6 @@ export function llmCooldownMs(): number {
 /** True iff the gate is currently blocking all calls. Convenience wrapper. */
 export function llmIsCoolingDown(): boolean {
   return gateState().blockedUntil > Date.now();
-}
-
-/** Reset the gate. Exposed for tests and for the loop's "force resume" path
- *  (e.g. when the user clears the terminal or manually starts after a long
- *  outage). Does NOT reset strikes — if the provider is still down, the next
- *  call will re-set the gate at the same escalation level. */
-export function llmClearGate(): void {
-  gateState().blockedUntil = 0;
 }
 
 /** Snapshot of the shared rate-limit gate, for the status API and UI.
@@ -200,7 +192,7 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
   // The caller sees rateLimited:true and defers. This is what stops the
   // ~150s-per-file 429 backoff spiral: instead of each call site doing its
   // own 5× retry, the FIRST 429 sets a 2min gate and all subsequent calls
-  // (ratchet, enhance, debate, task-executor, chat-task) return instantly.
+  // (ratchet, enhance, debate, chat-task) return instantly.
   const cooldownMs = llmCooldownMs();
   if (cooldownMs > 0) {
     return {
@@ -360,75 +352,4 @@ export function extractSummaryAndCode(raw: string): { summary: string; code: str
   }
   // No fence — whole response is code, no summary
   return { summary: "", code: raw.trim() };
-}
-
-const REFRACTOR_SYSTEM_PROMPT = `You are an expert code refactorer operating inside an autonomous pipeline. Your output will be committed to a GitHub branch by an automated system.
-
-HARD RULES (violating any rule fails the pipeline):
-1. Preserve EVERY top-level exported symbol (function, class, interface, type, const). Do not rename them. Do not merge them. Do not delete them.
-2. Do NOT introduce any of these persona/branding strings: "dalek caan", "omega engine", "cognitive dominance", "grog engine", "recursive evolution loop", "nexus neural network".
-3. Do NOT add credentials, API keys, tokens, or PII.
-4. Do NOT use eval() or new Function().
-5. Keep the same programming language as the input.
-
-WHAT TO DO:
-- Add explicit type annotations where TypeScript would infer them.
-- Tighten parameter types (e.g. string -> specific string-literal unions where appropriate).
-- Extract magic numbers into named constants.
-- Replace any/some unsafe casts with safer alternatives where possible.
-- Add a short JSDoc comment to any previously undocumented public function.
-- Apply small modularization (extract pure helpers) WITHOUT changing public API.
-- Preserve the original semantic behavior exactly.
-
-OUTPUT FORMAT (mandatory):
-- Output ONLY the refactored code inside a single fenced code block.
-- Do NOT add commentary before or after the code block.
-- Do NOT include any markdown other than the fence.`;
-
-/**
- * Run the LLM refactorer on a piece of code. Returns the proposed evolved
- * code (already extracted from the LLM's response). On failure, returns
- * null and the caller should fall back to a deterministic transformation.
- */
-export async function llmRefactorCode(params: {
-  filePath: string;
-  code: string;
-  userPrompt: string;
-  patternLabel: string;
-}): Promise<{ ok: boolean; code: string; raw?: string; error?: string; latencyMs: number }> {
-  const lang = params.filePath.toLowerCase().split(".").pop() || "ts";
-  const userPrompt = `Repository file: ${params.filePath}
-Pattern source: ${params.patternLabel}
-User intent: ${params.userPrompt}
-
-Refactor the following code. Output ONLY the refactored code in a single \`\`\`${lang} fenced block. Preserve every public symbol name exactly.
-
-\`\`\`${lang}
-${params.code}
-\`\`\``;
-
-  const result = await llmComplete({
-    systemPrompt: REFRACTOR_SYSTEM_PROMPT,
-    userPrompt,
-    temperature: 0.2,
-  });
-
-  if (!result.ok) {
-    return { ok: false, code: "", error: result.error, latencyMs: result.latencyMs };
-  }
-  const code = extractCodeBlock(result.content);
-  if (!code) {
-    return {
-      ok: false,
-      code: "",
-      error: "LLM returned no extractable code block",
-      latencyMs: result.latencyMs,
-    };
-  }
-  return {
-    ok: true,
-    code,
-    raw: result.content,
-    latencyMs: result.latencyMs,
-  };
 }

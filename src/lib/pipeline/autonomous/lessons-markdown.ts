@@ -151,39 +151,3 @@ function commitLessonsFile(): void {
     /* best-effort */
   }
 }
-
-export interface LessonsLintResult {
-  ok: boolean;
-  issues: string[];
-}
-
-/** Structural lint of memory/lessons.md (the LORE memory-lint pattern:
- *  policy as code). The distiller calls this before trusting a
- *  hand-edited file; on failure it falls back to the DB rows. Checks:
- *   - the file is non-empty and has the header line
- *   - every entry starts with the `## [kind | status]` contract
- *   - every entry has **Rule:** and **Source:** lines
- */
-export function lintLessonsMarkdown(content: string): LessonsLintResult {
-  const issues: string[] = [];
-  if (!content.trim()) {
-    issues.push("file is empty");
-    return { ok: false, issues };
-  }
-  if (!content.startsWith("# Lessons —")) {
-    issues.push("missing or wrong title header");
-  }
-  const entries = content.split(/^## /m).slice(1);
-  if (entries.length === 0 && content.includes("(no lessons yet")) {
-    return { ok: true, issues }; // empty-but-valid state
-  }
-  for (let i = 0; i < entries.length; i++) {
-    const e = entries[i];
-    if (!/^\[(judgment|procedure|advisory) \| (active|pruned|revoked|advisory)\]/.test(e)) {
-      issues.push(`entry ${i + 1}: header does not match the [kind | status] contract`);
-    }
-    if (!e.includes("**Rule:**")) issues.push(`entry ${i + 1}: missing **Rule:** line`);
-    if (!e.includes("**Source:**")) issues.push(`entry ${i + 1}: missing **Source:** line`);
-  }
-  return { ok: issues.length === 0, issues };
-}

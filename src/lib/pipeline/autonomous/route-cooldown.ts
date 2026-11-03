@@ -55,16 +55,3 @@ export function assertRouteCooldown(
   return { ok: true, retryAfterMs: 0 };
 }
 
-/** Read-only snapshot — for a status/debug endpoint. */
-export function routeCooldownStatus(): Record<
-  string,
-  { intervalMs: number; lastFired: number; remainingMs: number }
-> {
-  const now = Date.now();
-  const out: Record<string, { intervalMs: number; lastFired: number; remainingMs: number }> = {};
-  for (const [route, entry] of routeCooldowns) {
-    const remaining = Math.max(0, entry.intervalMs - (now - entry.lastFired));
-    out[route] = { intervalMs: entry.intervalMs, lastFired: entry.lastFired, remainingMs: remaining };
-  }
-  return out;
-}

@@ -166,7 +166,6 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   const [warm, setWarm] = useState(false);
 
   const timers = useRef<number[]>([]);
-  const intervals = useRef<number[]>([]);
   const enteredRef = useRef(false);
   const reducedRef = useRef(false);
   const phaseRef = useRef<Phase>("flash");
@@ -188,8 +187,6 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   const clearTimers = useCallback(() => {
     for (const t of timers.current) window.clearTimeout(t);
     timers.current = [];
-    for (const i of intervals.current) window.clearInterval(i);
-    intervals.current = [];
   }, []);
 
   const commitEnter = useCallback(() => {
