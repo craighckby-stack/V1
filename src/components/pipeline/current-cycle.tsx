@@ -77,7 +77,7 @@ export function CurrentCycle() {
         <div className="text-xs text-slate-500 font-mono mt-2 flex flex-wrap gap-x-4 gap-y-1">
           <span className="inline-flex items-center gap-1">
             <GitBranch className="h-3 w-3" />
-            {cycle.targetRepo}:{cycle.branch}
+            {cycle.targetRepo ?? "unknown"}:{cycle.branch ?? "unknown"}
           </span>
           <span>started: {new Date(cycle.startedAt).toLocaleTimeString()}</span>
           <span>scanned: {cycle.filesScanned}</span>
