@@ -1,3 +1,6 @@
+import { utimesSync } from "fs";
+import { join } from "path";
+
 /**
  * Hot-Swap Manager — the mechanism that lets the autonomous loop replace
  * its OWN running code between cycles, without restarting the server.
@@ -149,11 +152,30 @@ export interface HotSwapResult {
   finishedAt: string;
 }
 
-// Re-entry guard.
-let swapInProgress = false;
-// Ring buffer of recent swap results.
-const swapHistory: HotSwapResult[] = [];
+// ── Module-identity fix ─────────────────────────────────────────────
+// In Turbopack dev mode, the same module file can be loaded into multiple
+// module graphs (one per route boundary). A module-level `let swapHistory =
+// []` is PER-INSTANCE — the trigger route pushes to one array, the status
+// route reads from another, and the UI always shows 0 swaps. Moving the
+// re-entry guard + history ring to globalThis makes them shared across all
+// module instances, same pattern as the singleton pins themselves.
+// Verified: the fingerprint (already on globalThis) DID update cross-route
+// while the history (module-level) did not — proving the fix.
+const STATE_SLOT = "__hotSwapState";
 const SWAP_HISTORY_MAX = 25;
+
+interface HotSwapState {
+  swapInProgress: boolean;
+  swapHistory: HotSwapResult[];
+}
+
+function getHotSwapState(): HotSwapState {
+  const g = globalThis as unknown as { [STATE_SLOT]?: HotSwapState };
+  if (!g[STATE_SLOT]) {
+    g[STATE_SLOT] = { swapInProgress: false, swapHistory: [] };
+  }
+  return g[STATE_SLOT]!;
+}
 
 /** Capture the current loop runtime's public state via the global pin. */
 function snapshotLoop(): LoopSnapshot | null {
@@ -244,7 +266,8 @@ export async function hotSwapPipeline(opts?: {
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
 
-  if (swapInProgress) {
+  const state = getHotSwapState();
+  if (state.swapInProgress) {
     return {
       ok: false,
       swapped: false,
@@ -256,7 +279,7 @@ export async function hotSwapPipeline(opts?: {
       finishedAt: new Date().toISOString(),
     };
   }
-  swapInProgress = true;
+  state.swapInProgress = true;
 
   try {
     const reason = opts?.reason ?? "post-enhancement swap";
@@ -288,10 +311,35 @@ export async function hotSwapPipeline(opts?: {
     // 4. STASH SNAPSHOT so the new instance can restore
     if (snapshot) stashSnapshot(snapshot, reason);
 
+    // 5. PROD — touch the loop-runtime + self-enhance-loop mtime to nudge
+    //    Turbopack into recompiling. Post-enhancement triggers already
+    //    wrote the file (Turbopack recompiles from the write), but a MANUAL
+    //    trigger has no file change — without this prod, the singleton line
+    //    `globalForLoop.__autonomousLoopRuntime ?? new AutonomousLoopRuntime()`
+    //    never re-runs, the new instance is never created, and the swap
+    //    stays pending forever. Touching mtime gives Turbopack a reason to
+    //    recompile + re-evaluate the module, which runs the singleton line,
+    //    which sees the cleared pin and creates the fresh instance.
+    //    Two files because both singletons (__autonomousLoopRuntime AND
+    //    __selfEnhanceLoop) need to re-evaluate.
+    const prodded: string[] = [];
+    for (const rel of [
+      "src/lib/pipeline/autonomous/loop-runtime.ts",
+      "src/lib/pipeline/autonomous/self-enhance-loop.ts",
+    ]) {
+      try {
+        const now = new Date();
+        utimesSync(join(PROJECT_ROOT, rel), now, now);
+        prodded.push(rel);
+      } catch {
+        /* file may not exist in this checkout — best-effort */
+      }
+    }
+
     const result: HotSwapResult = {
       ok: true,
       swapped: true,
-      pending: true, // completes on next API request
+      pending: true, // completes on next API request after Turbopack recompiles
       reason,
       pinsCleared,
       durationMs: Date.now() - t0,
@@ -299,23 +347,32 @@ export async function hotSwapPipeline(opts?: {
       finishedAt: new Date().toISOString(),
     };
 
-    swapHistory.push(result);
-    if (swapHistory.length > SWAP_HISTORY_MAX) swapHistory.shift();
+    state.swapHistory.push(result);
+    if (state.swapHistory.length > SWAP_HISTORY_MAX) state.swapHistory.shift();
+
+    // Log the prod so the operator knows why Turbopack recompiled (the
+    // mtime touch is invisible otherwise — no file content changed).
+    if (prodded.length > 0) {
+      result.reason = `${reason} (prodded ${prodded.length} module(s) for recompile)`;
+    }
 
     return result;
   } finally {
-    swapInProgress = false;
+    state.swapInProgress = false;
   }
 }
 
-/** Read the swap history (for the API + UI). Most recent first. */
+/** Read the swap history (for the API + UI). Most recent first.
+ *  Reads from globalThis so the status route sees what the trigger
+ *  route wrote (module-level state is per-instance in Turbopack —
+ *  see STATE_SLOT above). */
 export function getSwapHistory(): HotSwapResult[] {
-  return [...swapHistory].reverse();
+  return [...getHotSwapState().swapHistory].reverse();
 }
 
-/** Count of swaps since process start. */
+/** Count of swaps since process start. Same globalThis read. */
 export function getSwapCount(): number {
-  return swapHistory.length;
+  return getHotSwapState().swapHistory.length;
 }
 
 /** Fingerprint of the currently-loaded pipeline code. With Turbopack
