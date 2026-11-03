@@ -238,7 +238,8 @@ export async function getJudgedPropheciesForCalibration(): Promise<
       where: { status: { in: ["fulfilled", "failed"] } },
       select: { confidence: true, status: true },
     });
-  } catch {
+  } catch (error) {
+    console.error("Error fetching judged prophecies for calibration:", error);
     return [];
   }
 }
