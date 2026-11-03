@@ -20,15 +20,39 @@ export function RecentCycles() {
   const cyclesFromStore = usePipelineStore((s) => s.loopState?.recentCycles) ?? [];
   const [fetched, setFetched] = useState<AutonomousCycleSummary[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function refresh() {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch("/api/autonomous/recent-cycles");
+      
+      if (!res.ok) {
+        throw new Error(`Failed to fetch cycles: ${res.status} ${res.statusText}`);
+      }
+      
       const data = await res.json();
-      setFetched(Array.isArray(data?.cycles) ? data.cycles : []);
-    } catch {
-      /* ignore */
+      
+      // Validate response structure
+      if (!data || typeof data !== 'object' || !Array.isArray(data?.cycles)) {
+        throw new Error('Invalid response format from server');
+      }
+      
+      // Validate each cycle in the response
+      const validatedCycles = data.cycles.filter((cycle: any) => {
+        return cycle && 
+               typeof cycle === 'object' && 
+               cycle.id && 
+               typeof cycle.id === 'string' &&
+               cycle.cycleNumber &&
+               typeof cycle.cycleNumber === 'number';
+      });
+      
+      setFetched(validatedCycles);
+    } catch (err) {
+      console.error('Error fetching recent cycles:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch cycles');
     } finally {
       setLoading(false);
     }
@@ -41,6 +65,7 @@ export function RecentCycles() {
   // Merge: in-memory recent from WS (most recent first) + DB fetch (dedup by id).
   const seen = new Set<string>();
   const merged = [...cyclesFromStore, ...fetched].filter((c) => {
+    if (!c || !c.id) return false;
     if (seen.has(c.id)) return false;
     seen.add(c.id);
     return true;
@@ -67,6 +92,11 @@ export function RecentCycles() {
         </div>
       </CardHeader>
       <CardContent>
+        {error && (
+          <div className="text-xs text-rose-500 italic py-2 text-center">
+            Error: {error}
+          </div>
+        )}
         {merged.length === 0 ? (
           <p className="text-xs text-slate-500 italic py-6 text-center">
             No cycles yet. Start the autonomous loop or trigger one to see history.
@@ -97,7 +127,7 @@ export function RecentCycles() {
                       {c.status}
                     </Badge>
                     <span className="ml-auto text-[10px] text-slate-500 font-mono">
-                      {new Date(c.startedAt).toLocaleString()}
+                      {c.startedAt ? new Date(c.startedAt).toLocaleString() : 'Invalid date'}
                     </span>
                   </div>
                   <div className="flex items-center gap-3 mt-1.5 text-[11px] text-slate-400 font-mono">
