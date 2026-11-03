@@ -91,6 +91,14 @@ export function emitOracleEvent(
     throw new Error("Oracle event message cannot be empty");
   }
 
+  if (!["info", "success", "warn", "error"].includes(type)) {
+    throw new Error(`Oracle event type must be one of: info, success, warn, error`);
+  }
+
+  if (!["generator", "evaluator", "scheduler"].includes(source)) {
+    throw new Error(`Oracle event source must be one of: generator, evaluator, scheduler`);
+  }
+
   const s = state();
   const trimmed =
     message.length > 300 ? `${message.slice(0, 299)}…` : message;
@@ -125,13 +133,11 @@ export function readOracleEvents(afterSeq?: number): {
     if (afterSeq >= s.seq) {
       return { events: [], seq: s.seq };
     }
-    if (afterSeq < s.seq) {
-      // The caller has seen `afterSeq` events already. The buffer holds
-      // the most recent MAX_EVENTS; if afterSeq is older than what the
-      // buffer holds, we return the whole buffer (best effort — the
-      // gap events were dropped by the ring).
-      return { events: [...s.buffer], seq: s.seq };
-    }
+    // The caller has seen `afterSeq` events already. The buffer holds
+    // the most recent MAX_EVENTS; if afterSeq is older than what the
+    // buffer holds, we return the whole buffer (best effort — the
+    // gap events were dropped by the ring).
+    return { events: [...s.buffer], seq: s.seq };
   }
   
   return { events: [...s.buffer], seq: s.seq };
