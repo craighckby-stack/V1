@@ -154,11 +154,11 @@ This is meta-learning with a real feedback signal: the system learns WHICH of it
 
 ---
 
-## The mutation scope — 177 files
+## The mutation scope — 178 files
 
 | Scope | Files | Gate chain |
 |---|---|---|
-| Pipeline logic (`src/lib/pipeline/`) | 56 | ratchet pin → tsc + AST → debate → test gate |
+| Pipeline logic (`src/lib/pipeline/`) | 57 | ratchet pin → tsc + AST → debate → sandboxed test gate |
 | Display layer (`src/app/display/`) | 1 | same |
 | UI components (`src/components/`) | 63 | same |
 | API routes (`src/app/api/`) | 56 | same |

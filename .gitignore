@@ -25,3 +25,8 @@ tool-results/
 # environment (real .env is untracked; .env.example is the template)
 .env
 .env.local
+
+# disposable test-verification sandboxes (core/sandbox-test.ts) —
+# candidate code lives here during `bun test` and is deleted afterwards;
+# must never be swept into a commit by git add -A
+.loop-sandbox/

@@ -49,11 +49,8 @@ import {
 } from "./lesson-store";
 import { applySchemaMutation } from "./schema-gate";
 import { PROJECT_ROOT } from "../core/paths";
-import {
-  writeTestGateJournal,
-  clearTestGateJournal,
-  recoverCrashedTestGate,
-} from "../core/test-gate-journal";
+import { recoverCrashedTestGate } from "../core/test-gate-journal";
+import { runTestsInSandbox, typecheckInSandbox } from "../core/sandbox-test";
 // ── Compounding-intelligence v2 (D1-D8). The integrity-chain modules
 // (lapse-detector, meta-params, meta-tuner, mutation-corpus,
 // lessons-markdown, red-team/*) are PROTECTED — see protected-files.ts.
@@ -722,9 +719,12 @@ class SelfEnhanceLoop {
    * REJECT or REQUIRES_REWRITE it. This is the missing semantic gate — the
    * typecheck can't catch "added a null check that breaks the happy path."
    *
-   * If the debate LLM is unavailable, fall back to APPROVED (don't block
-   * the whole loop on the second-LLM being down — the first gate already
-   * passed typecheck + structural).
+   * If the debate LLM is unavailable, the gate FAILS CLOSED: the file is
+   * DEFERRED (approved:false, deferred:true) — never auto-approved. An
+   * unavailable tribunal is exactly when semantic review is least
+   * trustworthy, so nothing goes live without it (audit 2; the pre-audit
+   * behavior fell back to APPROVED, which let refactors go live with zero
+   * semantic review during LLM outages).
    */
   private async debateGate(
     filePath: string,
@@ -774,8 +774,21 @@ class SelfEnhanceLoop {
    * gate). Typecheck proves "compiles". Tests prove "behavior preserved."
    *
    * Finds test files that import the target file (whole-tree resolution —
-   * see findTestFilesFor) and runs them with `bun test`. If any test
-   * fails, REJECT the refactor (don't write, don't push).
+   * see findTestFilesFor) and runs them with `bun test` INSIDE A SANDBOX
+   * COPY of the project (core/sandbox-test.ts). If any test fails, REJECT
+   * the refactor (don't write, don't push).
+   *
+   * ZERO LIVE-WRITE (external audit, finding 1 — full closure): the
+   * candidate is never written to the real tree. The old implementation
+   * wrote it to the live file for the duration of the test run — Turbopack
+   * could hot-reload the unverified candidate, and a hard crash could
+   * strand it (the write-ahead journal restored it afterwards, but the
+   * exposure window itself stayed open). The sandbox removes the window
+   * entirely: the candidate only ever exists under .loop-sandbox/ (a
+   * verify-XXXX directory), outside src/, gitignored, deleted when the run ends. A crash leaves
+   * disposable garbage, not a live mutation. The journal recovery below
+   * stays armed as defense-in-depth for journals left by the pre-sandbox
+   * implementation (or any future path that re-introduces live writes).
    *
    * HONEST NO-TESTS SEMANTICS (external audit, finding 2): when no tests
    * exist, the gate still passes — failing closed would brick the loop on a
@@ -784,24 +797,16 @@ class SelfEnhanceLoop {
    * can ever mistake "passed the gates" for "behavior was tested". The
    * mutation's provenance permanently says which kind of verification it
    * actually received.
-   *
-   * CRASH SAFETY (external audit, finding 1): the candidate must be on the
-   * live path for the test runner to see it. The original is journaled to
-   * .git/info/test-gate-journal.json BEFORE the write (write-ahead) and the
-   * journal is cleared on every completion path. If the process dies
-   * mid-test (native segfault, OOM, SIGKILL), the next testGate call, the
-   * next runCycle, and every pushCurrentState commit restore the original —
-   * an unverified candidate can neither stay live nor get swept into an
-   * unrelated `git add -A`.
    */
   private testGate(filePath: string, refactoredCode: string): { passed: boolean; reason: string; testCount: number } {
-    // Crash recovery (idempotent, ~free when no journal exists): a leftover
-    // journal means a previous testGate died mid-run — restore before doing
-    // anything else so we never stack a new candidate on a stranded one.
+    // Legacy crash recovery (idempotent, ~free when no journal exists): a
+    // leftover journal means a PRE-SANDBOX testGate died mid-run with a
+    // candidate live on disk — restore before anything else so we never
+    // build on (or commit) a stranded unverified mutation.
     const recovery = recoverCrashedTestGate();
     if (recovery.recovered) {
       this.log(
-        `TEST-GATE CRASH RECOVERY: restored original ${relative(PROJECT_ROOT, recovery.filePath ?? "")} — a previous test run crashed with the candidate live (armed ${recovery.armedAt ?? "unknown"})`,
+        `TEST-GATE CRASH RECOVERY: restored original ${relative(PROJECT_ROOT, recovery.filePath ?? "")} — a pre-sandbox test run crashed with the candidate live (armed ${recovery.armedAt ?? "unknown"})`,
         "error"
       );
     }
@@ -811,46 +816,13 @@ class SelfEnhanceLoop {
       return { passed: true, reason: "no tests found for this file — behavioral coverage: 0 (verified by static gates + debate only)", testCount: 0 };
     }
 
-    // Write the refactored code so the test runner sees it. Journal the
-    // original FIRST (write-ahead) so a crash mid-test is recoverable.
-    const originalOnDisk = readFileSync(filePath, "utf-8");
-    writeTestGateJournal(filePath, originalOnDisk);
-    writeFileSync(filePath, refactoredCode, "utf-8");
-
-    try {
-      let failures = 0;
-      let totalTests = 0;
-      for (const testFile of testFiles) {
-        const result = spawnSync("bun", ["test", testFile], {
-          cwd: PROJECT_ROOT,
-          timeout: 30000,
-          encoding: "utf-8",
-        });
-        totalTests++;
-        if (result.status !== 0) {
-          failures++;
-          const stderr = (result.stderr || "").slice(0, 300);
-          // Revert immediately so the broken code isn't live
-          writeFileSync(filePath, originalOnDisk, "utf-8");
-          clearTestGateJournal();
-          return {
-            passed: false,
-            reason: `test failed: ${testFile} — ${stderr.slice(0, 200)}`,
-            testCount: totalTests,
-          };
-        }
-      }
-      // All tests passed — the candidate is accepted; it stays live (the
-      // caller's write below is a no-op). Clear the journal: from here the
-      // mutation is intended to be live, so crash recovery must NOT undo it.
-      clearTestGateJournal();
-      return { passed: true, reason: `${testFiles.length} test file(s) passed`, testCount: totalTests };
-    } catch (err) {
-      // Revert on any unexpected error
-      writeFileSync(filePath, originalOnDisk, "utf-8");
-      clearTestGateJournal();
-      return { passed: false, reason: `test runner error: ${(err as Error).message}`, testCount: 0 };
-    }
+    // Run the covering tests against the candidate INSIDE THE SANDBOX.
+    // Fail-closed: a sandbox we cannot build or run is a rejected mutation,
+    // never a silently-passed one.
+    return runTestsInSandbox(
+      [{ path: filePath, content: refactoredCode }],
+      testFiles
+    );
   }
 
   /**
@@ -1057,34 +1029,28 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
         return false;
       }
 
-      // Gate 2: write temp + run — the tests must PASS on the CURRENT code.
-      // A failing test pins wrong behavior (or found a real bug — but the
-      // system doesn't get to redefine behavior via its own generated tests,
-      // so conservative policy: reject the test, keep the code).
-      writeFileSync(testPath, code, "utf-8");
-      const run = spawnSync("bun", ["test", testPath], {
-        cwd: PROJECT_ROOT,
-        timeout: 60000,
-        encoding: "utf-8",
-      });
-      if (run.status !== 0) {
-        const stderr = ((run.stderr || "") + (run.stdout || "")).slice(0, 250);
-        rmSync(testPath);
-        this.log(`Ratchet: rejected test for ${relPath} (fails on current code — pins wrong behavior): ${stderr}`, "warn");
+      // Gate 2: run IN THE SANDBOX — the drafted test must PASS on the
+      // CURRENT code. A failing test pins wrong behavior (or found a real
+      // bug — but the system doesn't get to redefine behavior via its own
+      // generated tests, so conservative policy: reject the test, keep the
+      // code). Sandbox (external audit, finding 1): the draft only ever
+      // exists inside .loop-sandbox/ — a crash mid-ratchet can no longer
+      // strand a broken .test.ts on the live tree where it would veto every
+      // future refactor of the module until manually deleted.
+      const overlay = [{ path: testPath, content: code }];
+      const run = runTestsInSandbox(overlay, [testPath], 60000);
+      if (!run.passed) {
+        this.log(`Ratchet: rejected test for ${relPath} (fails on current code — pins wrong behavior): ${run.reason.slice(0, 250)}`, "warn");
         return false;
       }
 
-      // Gate 3: typecheck — errors mentioning the test file → reject.
-      // (Pre-existing errors elsewhere are not the test's fault — bun test
-      // already proved the test runs; tsc-scoped errors are what matter.)
-      const tsc = spawnSync("bunx", ["tsc", "--noEmit"], {
-        cwd: PROJECT_ROOT,
-        timeout: 120000,
-        encoding: "utf-8",
-      });
-      const tscOut = `${tsc.stdout || ""}${tsc.stderr || ""}`;
-      if (tsc.status !== 0 && tscOut.includes(`${base}.test.ts`)) {
-        rmSync(testPath);
+      // Gate 3: typecheck IN THE SANDBOX — errors mentioning the test file
+      // → reject. (Pre-existing errors elsewhere are not the test's fault —
+      // bun test already proved the test runs; tsc-scoped errors are what
+      // matter.) Runs against the same overlay so the draft still never
+      // touches the live tree.
+      const tsc = typecheckInSandbox(overlay);
+      if (tsc.status !== 0 && tsc.output.includes(`${base}.test.ts`)) {
         this.log(`Ratchet: rejected test for ${relPath} (typecheck errors in the test file)`, "warn");
         return false;
       }
@@ -1092,7 +1058,6 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // Gate 4: debate — semantic review of the test file
       const debate = await this.debateGate(filePath, source, code, `characterization tests: ${summary.slice(0, 200)}`);
       if (!debate.approved) {
-        rmSync(testPath);
         if (debate.deferred) {
           // Tribunal unavailable (429 window / parse failure) — fail-closed.
           // The pin is retried on a later pass; it is NOT counted as a
@@ -1104,8 +1069,11 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
         return false;
       }
 
-      // All gates passed — the pin is LIVE. Future refactors of this module
-      // now run against these tests (the test gate finds co-located tests).
+      // All gates passed — NOW the pin goes live (its first and only live
+      // write, after every gate accepted it). Future refactors of this
+      // module run against these tests (the test gate finds co-located
+      // tests — also sandboxed from here on).
+      writeFileSync(testPath, code, "utf-8");
       this.stats.testsWritten++;
       const testCount = (code.match(/\btest\s*\(/g) ?? []).length;
       this.log(`Ratchet: PINNED ${relPath} with ${testCount} characterization tests — future refactors run against them (${debate.reason})`, "success");
@@ -1116,7 +1084,9 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       }
       return true;
     } catch (err) {
-      // Clean up any partially-written test file — never leave a broken pin
+      // The sandbox flow never writes the draft to the live tree before the
+      // gates pass, so there is normally nothing to clean up — but stay
+      // defensive: if a FUTURE code path writes early, remove the stray.
       try {
         if (existsSync(testPath)) rmSync(testPath);
       } catch {
@@ -1950,15 +1920,17 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
     const myRun = this.runId;
 
     // ── TEST-GATE CRASH RECOVERY (external audit, finding 1) ──────────
-    // If a previous cycle's test gate died mid-run (native segfault, OOM),
-    // its journal is still armed and an unverified candidate may be live on
-    // disk. Restore BEFORE this cycle scans or pushes anything, so the
-    // stranded candidate can neither be built upon nor swept into a commit.
+    // The test gate now runs candidates in a SANDBOX (core/sandbox-test.ts)
+    // and never writes them live — so a crash can no longer strand one. But
+    // a journal armed by the PRE-SANDBOX implementation may still exist on
+    // disk from an old crash: restore BEFORE this cycle scans or pushes
+    // anything, so a legacy stranded candidate can neither be built upon
+    // nor swept into a commit.
     {
       const recovery = recoverCrashedTestGate();
       if (recovery.recovered) {
         this.log(
-          `TEST-GATE CRASH RECOVERY at cycle start: restored original ${relative(PROJECT_ROOT, recovery.filePath ?? "")} (journal armed ${recovery.armedAt ?? "unknown"}) — previous test run crashed with the candidate live`,
+          `TEST-GATE CRASH RECOVERY at cycle start: restored original ${relative(PROJECT_ROOT, recovery.filePath ?? "")} (journal armed ${recovery.armedAt ?? "unknown"}) — a pre-sandbox test run crashed with the candidate live`,
           "error"
         );
       } else if (recovery.alreadyIntact) {

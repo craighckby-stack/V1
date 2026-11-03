@@ -1872,3 +1872,50 @@ zero-hallucination guarantee; LLM review ≠ proof) are design limitations,
 documented, not bugs.
 
 Verified: lint clean, tsc clean, server 200, journal smoke tests ALL PASS.
+
+## 2026-11-03 — Audit finding 1 FULL closure: sandboxed test gate (zero live-writes)
+
+The external-audit sweep (commit 28efce9) closed finding 1's crash-stranding
+consequence with a write-ahead journal — but the exposure window itself
+stayed open: the candidate was still written to the LIVE file for the
+duration of `bun test`, so Turbopack could hot-reload unverified code and
+a crash could serve it to users until recovery ran. The audit's primary
+defect ("unverified candidate code becomes live before the test gate
+finishes") was mitigated, not eliminated.
+
+FIX v2 — `core/sandbox-test.ts` (new, protected by the core/ prefix):
+`bun test` now runs inside a disposable sandbox copy of the project
+(src/ + tsconfig + package.json + prisma/ + node_modules symlink + a
+COPY of the SQLite DB with DATABASE_URL rewritten into the sandbox). The
+candidate exists ONLY as an overlay inside the sandbox:
+  - Turbopack can never observe it (outside src/, gitignored).
+  - A crash leaves disposable garbage, never a live mutation.
+  - DB-touching tests write to the sandbox DB, not the live one.
+Fail-closed: a sandbox that cannot be built rejects the mutation.
+
+- `testGate()` — live-write + journal arming removed; one
+  `runTestsInSandbox` call. Journal recovery entry points stay as
+  defense-in-depth for pre-sandbox-era journals (header updated).
+- Ratchet gates 2+3 — the drafted test now runs and typechecks IN THE
+  SANDBOX; its first live write happens only after all gates pass. This
+  also removes the ratchet's own crash window (a stranded broken .test.ts
+  used to veto every future refactor of that module).
+- BONUS BUG FOUND BY THE SMOKE TEST: `tsc` rejected every drafted test
+  with TS2307 (no `bun:test` module types) — the ratchet's gate 3 could
+  NEVER pass, which is why the repo had zero test files. Added
+  `src/types/bun-test.d.ts` (ambient declarations, outside the mutation
+  scopes; loose `expect: any` by design — the anti-tautology gate and the
+  real test run provide behavioral checking).
+- Stale docstring fixed: debateGate claimed it "falls back to APPROVED"
+  on tribunal unavailability; it actually fails closed (deferred).
+- `.gitignore` += `.loop-sandbox/`; README scope table re-synced
+  (pipeline 57, total 178 — counts verified against the tree).
+
+Smoke test (10/10 pass): unchanged candidate passes with sandbox-root,
+DB-redirect, and Prisma-through-symlink assertions; sabotaged candidate
+is rejected (overlays are honored); live paths.ts + db/custom.db
+byte-identical before/after; synthetic test never lands on the real
+tree; .loop-sandbox/ empty after every run; tsc flags a type error in an
+overlay and passes a clean one.
+
+Verified: lint clean, tsc clean, server 200, dev.log clean.

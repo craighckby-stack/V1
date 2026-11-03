@@ -1,34 +1,33 @@
 /**
- * Test-gate crash journal (external audit, finding 1).
+ * Test-gate crash journal — write-ahead insurance from the first fix of
+ * external audit finding 1, now DEFENSE-IN-DEPTH for the sandbox era.
  *
- * The test gate in self-enhance-loop.ts must write the candidate to the LIVE
- * file for `bun test` to see it (tests resolve real imports). The old code
- * restored the original on test-failure and on thrown errors — but a hard
- * process crash (native segfault, SIGKILL, OOM) between the candidate write
- * and the restore left the UNVERIFIED-BY-TEST candidate live on disk:
+ * History: the original test gate wrote the candidate to the LIVE file so
+ * `bun test` could import it, and restored the original on test-failure —
+ * but a hard process crash (native segfault, SIGKILL, OOM) between the
+ * candidate write and the restore left the UNVERIFIED-BY-TEST candidate
+ * live on disk: Turbopack hot-reloaded it, and the next `git add -A`
+ * silently swept it into an unrelated commit.
  *
- *   - Turbopack hot-reloads it into the running app.
- *   - Worse: the next `git add -A` from ANY later push (an unrelated
- *     enhancement, a schema mutation, an operator push) silently sweeps
- *     the never-accepted candidate into a commit it was never approved for.
+ * Fix v1 (this module): a write-ahead journal — the original content is
+ * recorded to `<root>/.git/info/test-gate-journal.json` BEFORE the
+ * candidate write (living inside .git/ means git itself never tracks it),
+ * cleared on every completion path, and `recoverCrashedTestGate()` —
+ * called at test-gate entry, runCycle start, and pushCurrentState's commit
+ * path — restores the original after a crash. This closed the
+ * crash-stranding consequence but NOT the exposure window itself: the
+ * candidate was still live during the test run.
  *
- * This module closes that window with a write-ahead journal, the same
- * pattern databases use:
+ * Fix v2 (current): core/sandbox-test.ts — the test gate now runs
+ * candidates inside a disposable sandbox copy of the project and NEVER
+ * writes them to the live tree, eliminating the window entirely.
  *
- *   1. BEFORE the candidate is written, the original content is journaled
- *      to `<root>/.git/info/test-gate-journal.json`. Living inside .git/
- *      means git itself never tracks it (no .gitignore churn, never swept
- *      into `git add -A`) — the same trick as the tier-3 push-target state.
- *   2. On EVERY completion path (test-fail restore, test-pass accept,
- *      thrown-error restore) the journal is cleared.
- *   3. `recoverCrashedTestGate()` — called at test-gate entry, at runCycle
- *      start, and at the top of pushCurrentState's commit path — sees a
- *      leftover journal, restores the original, and reports what it did so
- *      the caller can log it / record a postmortem.
- *
- * Idempotent: if the journal's original already matches what's on disk
- * (crash happened before the candidate write, or after a restore that beat
- * the journal delete), recovery is a no-op that just clears the journal.
+ * This module stays because a journal armed by the v1 implementation can
+ * still exist on disk after an upgrade (or after a hot-swap rollback to a
+ * v1-era module), and because the recovery entry points double as a guard
+ * for any future code path that reintroduces live writes. The recovery
+ * callers in self-enhance-loop.ts and push-target.ts remain; only the
+ * arming call was removed with the v1 test gate.
  *
  * Pure leaf module: fs + path only. No DB, no LLM, no imports from the
  * pipeline — importable from both self-enhance-loop.ts and push-target.ts
@@ -52,10 +51,13 @@ interface TestGateJournal {
   armedAt: string;
 }
 
-/** Arm the journal: record the original content BEFORE writing the
- *  candidate. Overwrites any stale journal (a stale journal means the
- *  previous recovery never ran — but recovery is also invoked at
- *  test-gate entry, so this is defense-in-depth, not a leak). */
+/** Arm the journal: record the original content BEFORE writing a
+ *  candidate to a live file. NOT called by the current test gate — the
+ *  sandbox (core/sandbox-test.ts) made live writes unnecessary — but kept
+ *  exported for any future verified code path that must write live, and
+ *  for tooling/tests of this module. Overwrites any stale journal (a
+ *  stale journal means the previous recovery never ran — but recovery is
+ *  also invoked at test-gate entry, so this is defense-in-depth). */
 export function writeTestGateJournal(filePath: string, originalCode: string): void {
   try {
     mkdirSync(JOURNAL_DIR, { recursive: true });
@@ -67,8 +69,8 @@ export function writeTestGateJournal(filePath: string, originalCode: string): vo
     writeFileSync(JOURNAL_PATH, JSON.stringify(entry), "utf-8");
   } catch {
     // Journaling is best-effort crash insurance. If .git/info is somehow
-    // unwritable, the test gate still functions (with the old crash
-    // window) — failing the whole enhancement here would be worse.
+    // unwritable, the caller's own restore path still functions — failing
+    // the whole enhancement here would be worse.
   }
 }
 
