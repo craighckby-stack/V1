@@ -42,11 +42,11 @@
  * proposal, and no commit is attempted.
  */
 
-import { PROTECTED_FILES } from "../autonomous/protected-files";
+import { isProtectedPath as sharedIsProtectedPath } from "../autonomous/protected-files";
 
 // ── SCAFFOLDING paths the loop must never mutate ──────────────────────
-// PROTECTED_FILES (protected-files.ts) covers the runtime, the gates,
-// the LLM wrappers, and the UI control surface. This list covers the
+// protected-files.ts (the shared source of truth) covers the runtime, the
+// gates, the LLM wrappers, and the UI control surface. This list covers the
 // SCAFFOLDING: the build config, the dependency manifest, the schema,
 // the env file, the gateway config, the boot script. If the loop could
 // rewrite these, it could (e.g.) add a dependency that exfiltrates the
@@ -90,8 +90,15 @@ const SCAFFOLDING_BASENAMES = new Set(
     .filter((b) => !b.startsWith(".")) // .env etc. matched by exact path
 );
 
+/** AUDIT 3: this used to re-implement the protection check from scratch
+ *  (PROTECTED_FILES exact-match only) and had DRIFTED — it did not check
+ *  PROTECTED_PREFIXES, so a mutation of src/app/api/self-enhance/... on
+ *  the remote-repo path passed finalAuthority here while being blocked by
+ *  the shared predicate everywhere else. Now it LAYERS the shared check
+ *  (single source of truth) + the scaffolding rules that only apply to
+ *  this path. */
 function isProtectedPath(filePath: string): boolean {
-  if (PROTECTED_FILES.has(filePath)) return true;
+  if (sharedIsProtectedPath(filePath)) return true;
   if (SCAFFOLDING_PROTECTED_PATHS.has(filePath)) return true;
   const base = filePath.split("/").pop()!;
   if (SCAFFOLDING_BASENAMES.has(base)) return true;

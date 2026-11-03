@@ -389,6 +389,7 @@ export async function duressPurgePat(opts: {
         repo: "self",
         branch: "main",
         filePath: "system:duress",
+        observed: false, // system event, not an observation of a real file
         failureType: "OTHER",
         symptom: "Duress purge executed",
         evidence: JSON.stringify({ keysPurged, readBack, safeModeRaised, reason: opts.reason }),

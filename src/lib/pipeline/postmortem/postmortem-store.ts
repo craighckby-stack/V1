@@ -280,7 +280,8 @@ class PostmortemStore {
     if (this.rehydrated) return;
     this.rehydrated = true;
     try {
-      const imported = await rehydrateSqliteFromDisk(async (rec) => {
+      let imported = 0;
+      const recs = await rehydrateSqliteFromDisk(async (rec) => {
         // upsert: create if missing, skip if present (don't overwrite a
         // fresher DB row with a stale disk row).
         const existing = await db.postmortem.findUnique({
@@ -306,11 +307,41 @@ class PostmortemStore {
             attempts: rec.attempts,
             lastAttemptAt: new Date(rec.lastAttemptAt),
             resolvedAt: rec.resolvedAt ? new Date(rec.resolvedAt) : null,
+            // AUDIT 3 (B3/B4): the old create DROPPED these three fields.
+            // verificationStatus defaulted to "verified" in Prisma — a
+            // disk CANDIDATE (unconfirmed red-team finding, externally
+            // seeded claim) silently became a VERIFIED constraint injected
+            // into every enhance prompt after a DB wipe. parentHash/hash
+            // defaulted to NULL — chain verification short-circuits on
+            // null, so a rehydrated record could be edited in the DB
+            // without the tamper-evident chain ever noticing. Both holes
+            // closed: the disk record is the source of truth, carry it
+            // through. (rehydrateSqliteFromDisk already defaults schema-1
+            // files to "verified"/null-hash — honest for their age.)
+            verificationStatus: rec.verificationStatus ?? "verified",
+            parentHash: rec.parentHash ?? null,
+            hash: rec.hash ?? null,
           },
         });
       });
+      imported = recs;
       if (imported > 0) {
         console.log(`[POSTMORTEM] rehydrated ${imported} record(s) from repo to DB`);
+        // AUDIT 3 (B10): auto-backfill. Some rehydrated records may be
+        // schema-1 (null hashes) or carry stale links from a mid-cycle
+        // wipe. The old flow required the operator to remember to POST
+        // /api/postmortems/chain after every DB recovery — a recovery
+        // step that isn't documented anywhere the operator would look.
+        // Backfill is idempotent and only writes the hash columns, so
+        // running it automatically after rehydration is safe.
+        try {
+          const bf = await backfillPostmortemChain();
+          if (bf.backfilled > 0) {
+            console.log(`[POSTMORTEM] chain auto-backfilled ${bf.backfilled} rehydrated record(s)`);
+          }
+        } catch {
+          /* best-effort — the operator endpoint remains as fallback */
+        }
       }
     } catch {
       /* best-effort — per-call disk fallback still covers reads */
@@ -463,6 +494,13 @@ ${reflectionBlock}
     /** verified = observed by this system (default). candidate = seeded
      *  from external markdown, not yet observed. See model doc. */
     verificationStatus?: "verified" | "candidate";
+    /** AUDIT 3 (B12): true (default) when this call IS an observation of
+     *  the failure by this system (the autonomous loop's gate rejection).
+     *  System records that aren't observations (red-team probes, duress
+     *  events, hot-swap postmortems) pass false — they must NOT upgrade
+     *  an existing candidate to verified, because nothing was observed
+     *  about the real file. */
+    observed?: boolean;
   }): Promise<PostmortemRecord> {
     const { repo, branch, filePath, failureType, symptom, evidence, constraints } = params;
     const verificationStatus = params.verificationStatus ?? "verified";
@@ -476,13 +514,20 @@ ${reflectionBlock}
       if (existing) {
         // Update in place. A real failure (verified) UPGRADES a candidate
         // to verified — we just observed the claimed failure ourselves,
-        // so the external claim is now confirmed. Recompute the content
-        // hash with the existing parentHash so the record's content
-        // integrity stays self-consistent. (The chain link from any
-        // LATER record to this one will now be stale — verifyPostmortemChain
-        // reports that as an expected linkBreak, not a content mismatch.)
+        // so the external claim is now confirmed. AUDIT 3 (B12): only an
+        // actual OBSERVATION upgrades (observed !== false) — a system
+        // record (red-team/duress/hot-swap) against the same file path
+        // observed nothing about the real file and must not confirm the
+        // external claim. Recompute the content hash with the existing
+        // parentHash so the record's content integrity stays
+        // self-consistent. (The chain link from any LATER record to this
+        // one will now be stale — verifyPostmortemChain reports that as
+        // an expected linkBreak, not a content mismatch.)
+        const isObservation = params.observed !== false;
         const nextVerification =
-          existing.verificationStatus === "candidate" ? "verified" : verificationStatus;
+          existing.verificationStatus === "candidate" && isObservation
+            ? "verified"
+            : verificationStatus;
         const canonical = canonicalPostmortemContent({
           targetRepo: repo, branch, filePath, failureType, symptom, evidence, constraints,
           attempts: existing.attempts + 1, status: "active",
@@ -529,7 +574,13 @@ ${reflectionBlock}
       // disk. The chain fields are unknown without the DB (we can't read
       // the latest hash), so they're null — the disk write still preserves
       // the failure memory; the chain just resumes on the next DB-available
-      // create.
+      // create. AUDIT 3 (B11): this used to be fully silent — a scar could
+      // be lost with zero trace if both DB and disk were having a bad day.
+      // At minimum the operator's log must show the DB fell back.
+      console.error(
+        "[POSTMORTEM] DB unavailable in recordFailure — falling back to in-memory + disk (chain link will be null):",
+        err instanceof Error ? err.message : String(err)
+      );
       record = {
         id: `pm_${Date.now()}`,
         targetRepo: repo, branch, filePath,

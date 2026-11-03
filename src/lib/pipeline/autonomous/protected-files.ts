@@ -13,6 +13,18 @@
  *
  * Both modules now import this set. Adding a file here protects it
  * everywhere at once.
+ *
+ * AUDIT 3 REALIGNMENT: the old list protected the ORCHESTRATOR (runtime,
+ * verifier, push, compounding chain) but left the GATES themselves mutable
+ * (mutation-guard, secret-scan, ast-diff-gate, sanitizer, duress, the
+ * postmortem memory, the red-team runner). A "refactor mutation-guard.ts to
+ * remove dead code" proposal could delete HARD_EVIL_TOKENS, pass every
+ * remaining gate (export preserved, typechecks, debate approves a
+ * "reasonable cleanup"), and the gate would be gone. The gate-integrity
+ * probe didn't test those gates, so nothing would notice. The design doc
+ * always said the sanitizer and AST gate were brain, never body — the list
+ * had drifted from the doc. The gate subtrees are now protected by prefix:
+ * core/, emg/, postmortem/, red-team/.
  */
 export const PROTECTED_FILES = new Set([
   // Loop runtime + gate chain
@@ -33,6 +45,7 @@ export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/protected-files.ts", // protect the protection list
   "src/lib/pipeline/llm/agent-llm.ts", // protect the LLM wrapper
   "src/lib/pipeline/llm/debate-llm.ts",
+  "src/lib/pipeline/llm/gemini-direct.ts", // audit 3: third LLM wrapper was unprotected
   // ── Compounding-intelligence integrity chain (D1-D8). The rule: a
   // module is protected when a corrupted version of it could corrupt
   // the LEARNING SUBstrate (what the system knows), the AUDIT trail
@@ -44,13 +57,21 @@ export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/meta-tuner.ts", // D8: the loop can never rewrite its own tuner
   "src/lib/pipeline/autonomous/mutation-corpus.ts", // D4: the audit trail of every attempt
   "src/lib/pipeline/autonomous/lessons-markdown.ts", // D6: writes a file that gets committed and pushed
-  "src/lib/pipeline/red-team/test-attacker.ts", // D5: part of the integrity chain
-  "src/lib/pipeline/red-team/gate-integrity-probe.ts", // D5: part of the integrity chain
+  // ── Audit 3: gate + control modules in the shared autonomous/ dir.
+  // The core/, emg/, postmortem/, red-team/ subtrees are covered by
+  // PROTECTED_PREFIXES below; these live in autonomous/ next to mutable
+  // advisory modules, so they need explicit entries.
+  "src/lib/pipeline/autonomous/code-analysis.ts", // the parser the truncation/cosmetic gates run on
+  "src/lib/pipeline/autonomous/structural-validator.ts", // the structure-preservation gate
+  "src/lib/pipeline/autonomous/saturation.ts", // the lockout mechanism + the scan scope definition
+  "src/lib/pipeline/autonomous/route-cooldown.ts", // the trigger rate-limiter (control-surface guard)
+  "src/lib/pipeline/autonomous/chat-task.ts", // operator-approved code writes — the protection guard itself lives here
   // Hot-swap core — protect the swapper. If the loop could rewrite its
   // own hot-swap module, a bad mutation could break the swap mechanism
   // and the running process would never benefit from future fixes.
   // The swap itself still works on other pipeline files; the loop just
   // can't edit the swap logic. (Concept: PKM — protect the executioner.)
+  // Also covered by the core/ prefix — kept explicit to document intent.
   "src/lib/pipeline/core/hot-swap.ts",
   // UI control surface — the loop can change HOW things look (the mutable
   // display layer in src/app/display/) but can NEVER touch the control
@@ -71,22 +92,78 @@ export const PROTECTED_FILES = new Set([
  *
  *  - api/self-enhance/** — the backend of the control surface. start /
  *    stop / push / push-target / llm-config / visibility. If the loop
- *    could rewrite these routes, a "successful" mutation could break
- *    the STOP button's API or weaken the push path — the same escape
+ *    could rewrite these routes, a "successful" mutation could break the
+ *    STOP button's API or weaken the push path — the same escape
  *    hatch as rewriting page.tsx, one layer down.
+ *  - api/autonomous/** — audit 3: the autonomous loop's own control API
+ *    (status/trigger/stop routes). Same hazard as self-enhance, same
+ *    rule: the loop can never mutate its own OFF switch, one layer down.
+ *  - api/hot-swap/** and api/duress/** — the swap trigger and the
+ *    safe-mode control. Mutating these could break the operator's
+ *    ability to force a swap or raise/clear safe-mode.
+ *  - pipeline/core/, pipeline/emg/, pipeline/postmortem/, pipeline/red-team/
+ *    — audit 3: THE GATES THEMSELVES. mutation-guard (HARD_EVIL_TOKENS),
+ *    secret-scan (SENSITIVE_PATTERNS), ast-diff-gate (symbol retention),
+ *    sanitizer (entropy), duress (safe-mode), halt, emg-rag, the
+ *    postmortem scar memory, the red-team runner + suite. A self-
+ *    improving system whose improvement target set includes its own
+ *    gates, unguarded, is one "reasonable cleanup" away from having no
+ *    gates. The unified pipeline + siphon ride along (they orchestrate
+ *    the gates on the remote-repo path).
+ *  - health/ + healthz — the sandbox uptime probes (explicit entries;
+ *    the old bare "health" prefix would have matched any future
+ *    health-foo route too).
  */
 export const PROTECTED_PREFIXES = [
   "src/app/api/self-enhance/",
-  "src/app/api/health", // healthz — the sandbox's uptime probe
+  "src/app/api/autonomous/", // audit 3: the loop's own control API
+  "src/app/api/hot-swap/", // audit 3: the swap trigger API
+  "src/app/api/duress/", // audit 3: the safe-mode control API
+  "src/app/api/health/",
+  "src/app/api/healthz",
+  "src/lib/pipeline/core/", // audit 3: the gate machinery
+  "src/lib/pipeline/emg/", // audit 3: the sanitizer/halt/RAG/debate layer
+  "src/lib/pipeline/postmortem/", // audit 3: the scar memory
+  "src/lib/pipeline/red-team/", // audit 3: the integrity chain
 ];
+
+/** Normalize a possibly-sloppy relative path to the canonical POSIX form
+ *  isProtectedPath expects: collapse duplicate separators, strip a leading
+ *  ./, resolve .. segments lexically, and strip the project-root prefix
+ *  from absolute paths. Audit 3: the old check trusted the caller to pass
+ *  a normalized rel path — true for every current caller, but a future
+ *  caller passing "./src/app/page.tsx" or an absolute path would have
+ *  silently bypassed the check. Normalizing here closes that class. */
+function normalizeRelPath(relPath: string): string {
+  let s = relPath.replace(/\/+/g, "/");
+  if (s.startsWith("./")) s = s.slice(2);
+  // Absolute paths: strip the project root if present (the sandbox
+  // contract; guards future callers that pass resolve() output).
+  const rootPrefix = "/home/z/my-project/";
+  if (s.startsWith(rootPrefix)) s = s.slice(rootPrefix.length);
+  else if (s.startsWith("/")) {
+    // An absolute path OUTSIDE the project root can't be a project file —
+    // return it as-is; it will never match a protected entry.
+    return s;
+  }
+  const parts = s.split("/");
+  const out: string[] = [];
+  for (const part of parts) {
+    if (part === "..") out.pop();
+    else if (part && part !== ".") out.push(part);
+  }
+  return out.join("/");
+}
 
 /** Full protection check: exact file OR protected prefix. This is the
  *  single predicate scanFiles uses — keeping it here means adding a
- *  prefix or file protects it everywhere at once. */
+ *  prefix or file protects it everywhere at once. Input is normalized
+ *  first (see normalizeRelPath). */
 export function isProtectedPath(relPath: string): boolean {
-  if (PROTECTED_FILES.has(relPath)) return true;
-  for (const p of PROTECTED_PREFIXES) {
-    if (relPath.startsWith(p)) return true;
+  const p = normalizeRelPath(relPath);
+  if (PROTECTED_FILES.has(p)) return true;
+  for (const prefix of PROTECTED_PREFIXES) {
+    if (p.startsWith(prefix)) return true;
   }
   return false;
 }

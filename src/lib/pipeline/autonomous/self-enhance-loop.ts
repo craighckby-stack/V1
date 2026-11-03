@@ -390,6 +390,76 @@ class SelfEnhanceLoop {
     type: "info" | "success" | "warn" | "error";
   }> = [];
 
+  constructor() {
+    // ── HOT-SWAP STATE CONTINUITY (audit 3, B4/B11) ─────────────────
+    // Every post-enhancement swap used to reset this instance's state:
+    // cyclesCompleted → 0 (restarting the distillation cadence and the
+    // meta-tuner's 70-cycle warm-up — D8 effectively disabled in steady
+    // state), saturation lockouts → cleared (locked-out files burned
+    // quota again), cooldown streak → forgotten. The hot-swap now stashes
+    // a snapshot (see core/hot-swap.ts SELF_SNAPSHOT_SLOT) right before
+    // clearing the pins; the FIRST post-swap instance restores it here.
+    // Consumed (cleared) only when the resume actually fires — a
+    // transient instance that never arms leaves the snapshot for the
+    // one that does (same survival contract as the loop-runtime
+    // snapshot).
+    try {
+      // require, not import: mirrors loop-runtime's snapshot consume —
+      // avoids any static-import cycle at module-eval time.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { consumeSelfEnhanceSnapshot, clearSelfEnhanceSnapshot } = require("../core/hot-swap") as {
+        consumeSelfEnhanceSnapshot: () => import("../core/hot-swap").SelfEnhanceSnapshot | null;
+        clearSelfEnhanceSnapshot: () => void;
+      };
+      const snap = consumeSelfEnhanceSnapshot();
+      if (snap) {
+        this.stats = { ...this.stats, ...snap.stats };
+        this.saturation = new Map(snap.saturation as Array<[string, FileSaturation]>);
+        this.consecutiveCooldownCycles = snap.consecutiveCooldownCycles;
+        this.quotaExhaustedLogged = snap.quotaExhaustedLogged;
+        // AUDIT 3 (B3): orphaned meta-tuner trials. If the OLD instance
+        // was mid-A/B-trial when the swap fired, the DB row is still
+        // provenance="trial" with the trial VALUE live — and nothing on
+        // the swap path reverted it (seedMetaParams only ran at operator
+        // START). An unvalidated value silently became permanent tuning.
+        // seedMetaParams reverts trial rows to baseline; running it here
+        // (both the resume and the stopped case) means an unfinished A/B
+        // never survives a swap. Idempotent — safe alongside runContinuous's
+        // own call on the resume path.
+        void seedMetaParams().catch(() => {
+          /* table missing — dormant, same as the runContinuous call */
+        });
+        this.log(
+          `State restored from hot-swap snapshot (${snap.stats.cyclesCompleted} cycles, ${snap.saturation.length} saturation entr(ies)) — compounding cadence preserved`,
+          "info"
+        );
+        if (snap.continuous) {
+          // The OLD instance was running continuously when the swap fired.
+          // pauseLoop() stopped it (by design — no rogue loop); the new
+          // instance resumes on the next tick so a post-enhancement swap
+          // doesn't halt the autonomy after one pipeline-file improvement.
+          // Pin-check guard: only the instance that actually pinned itself
+          // as the singleton resumes (belt-and-braces — the constructor
+          // only runs when the pin is absent, but the guard makes the
+          // contract explicit and cheap).
+          const g = globalThis as unknown as { __selfEnhanceLoop?: SelfEnhanceLoop };
+          setTimeout(() => {
+            if (g.__selfEnhanceLoop !== this) return; // a different instance won the pin
+            clearSelfEnhanceSnapshot();
+            if (!this.continuous) {
+              this.log("Resuming continuous self-enhancement after hot-swap", "success");
+              void this.runContinuous().catch((err) => {
+                this.log(`Resumed loop crashed: ${(err as Error).message}`, "error");
+              });
+            }
+          }, 1500);
+        }
+      }
+    } catch {
+      /* hot-swap module not loaded — first boot, no snapshot (normal) */
+    }
+  }
+
   private log(message: string, type: "info" | "success" | "warn" | "error" = "info") {
     const entry = {
       timestamp: new Date().toLocaleTimeString(),

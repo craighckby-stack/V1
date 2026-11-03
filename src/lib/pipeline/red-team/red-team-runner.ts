@@ -336,6 +336,7 @@ export async function runRedTeamSuite(opts?: {
           symptom: `Red-team ${r.verdict}: ${probe.name}`,
           evidence: `probe=${r.probeId} risk=${probe.riskCategory} comply=${r.complySignal ?? "n/a"} error=${r.error ?? "n/a"}`,
           constraints: probe.mitigation,
+          observed: false, // probe outcome, not an observation of a real file
         });
       }
     } catch {

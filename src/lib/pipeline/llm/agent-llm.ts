@@ -17,16 +17,46 @@ import ZAI from "z-ai-web-dev-sdk";
 // type from the async create() factory instead.
 type ZAIType = Awaited<ReturnType<typeof ZAI.create>>;
 
-let zaiPromise: Promise<ZAIType> | null = null;
+// ── Turbopack multi-instance fix (audit 3, B4) ──────────────────────────
+// Module-level `let` state is PER-MODULE-INSTANCE in Turbopack dev mode:
+// the same file loads into multiple module graphs (one per route
+// boundary), and a hot-swap re-evaluates the module fresh. The OLD
+// selfEnhanceLoop's closure kept the OLD agent-llm's `blockedUntil`
+// (set to +30min mid-outage) while the NEW loop imported a FRESH module
+// with blockedUntil=0 — the "shared" gate stopped being shared exactly
+// when it mattered, and both loops hammered the API simultaneously.
+// Same bug, same fix as hot-swap.ts STATE_SLOT: the mutable gate state
+// lives on globalThis, which is one object per PROCESS no matter how
+// many module instances exist.
+interface LlmGateState {
+  zaiPromise: Promise<ZAIType> | null;
+  blockedUntil: number;
+  strikes: number;
+  llmCallQueue: Promise<unknown>;
+}
+const LLM_GATE_SLOT = "__llmGateState";
+function gateState(): LlmGateState {
+  const g = globalThis as unknown as { [LLM_GATE_SLOT]?: LlmGateState };
+  if (!g[LLM_GATE_SLOT]) {
+    g[LLM_GATE_SLOT] = {
+      zaiPromise: null,
+      blockedUntil: 0,
+      strikes: 0,
+      llmCallQueue: Promise.resolve(),
+    };
+  }
+  return g[LLM_GATE_SLOT]!;
+}
 
 async function getZai(): Promise<ZAIType> {
-  if (!zaiPromise) {
-    zaiPromise = ZAI.create().catch((err) => {
-      zaiPromise = null;
+  const gs = gateState();
+  if (!gs.zaiPromise) {
+    gs.zaiPromise = ZAI.create().catch((err) => {
+      gateState().zaiPromise = null;
       throw err;
     });
   }
-  return zaiPromise;
+  return gs.zaiPromise;
 }
 
 // ── Fix A: shared rate-limit gate ──────────────────────────────────────────
@@ -49,25 +79,19 @@ async function getZai(): Promise<ZAIType> {
 // `strikes` is the escalation counter. Each gate-set uses strikes (capped at
 // 3) to pick a cooldown from COOLDOWNS_MS, then increments strikes. A single
 // success resets strikes to 0 — so one good call after a 2min cooldown
-// de-escalates instead of staying at 30min forever.
-let blockedUntil = 0;
-let strikes = 0;
+// de-escalates instead of staying at 30min forever. (The mutable state
+// itself lives on globalThis — see gateState() above for why.)
 const COOLDOWNS_MS = [2, 5, 15, 30].map((m) => m * 60_000); // 2min, 5min, 15min, 30min
-
-// Serialization queue (Fix A2): exactly one llmComplete body executes at a
-// time, process-wide. Both outcomes advance the chain; the queue itself
-// never rejects — each caller gets its own result.
-let llmCallQueue: Promise<unknown> = Promise.resolve();
 
 /** Milliseconds until the gate opens. 0 means clear. Callers (the loop) can
  *  poll this to decide whether to attempt a call or sleep until it clears. */
 export function llmCooldownMs(): number {
-  return Math.max(0, blockedUntil - Date.now());
+  return Math.max(0, gateState().blockedUntil - Date.now());
 }
 
 /** True iff the gate is currently blocking all calls. Convenience wrapper. */
 export function llmIsCoolingDown(): boolean {
-  return blockedUntil > Date.now();
+  return gateState().blockedUntil > Date.now();
 }
 
 /** Reset the gate. Exposed for tests and for the loop's "force resume" path
@@ -75,7 +99,7 @@ export function llmIsCoolingDown(): boolean {
  *  outage). Does NOT reset strikes — if the provider is still down, the next
  *  call will re-set the gate at the same escalation level. */
 export function llmClearGate(): void {
-  blockedUntil = 0;
+  gateState().blockedUntil = 0;
 }
 
 /** Snapshot of the shared rate-limit gate, for the status API and UI.
@@ -95,12 +119,13 @@ export interface LlmGateInfo {
 
 export function llmGateInfo(): LlmGateInfo {
   const now = Date.now();
-  const active = blockedUntil > now;
+  const gs = gateState();
+  const active = gs.blockedUntil > now;
   return {
     active,
-    remainingMs: active ? blockedUntil - now : 0,
-    endsAtMs: active ? blockedUntil : 0,
-    level: active ? Math.min(strikes, 4) : 0,
+    remainingMs: active ? gs.blockedUntil - now : 0,
+    endsAtMs: active ? gs.blockedUntil : 0,
+    level: active ? Math.min(gs.strikes, 4) : 0,
   };
 }
 
@@ -153,9 +178,13 @@ export interface LlmCallResult {
  * call's outcome instead of racing it.
  */
 export function llmComplete(opts: LlmCallOptions): Promise<LlmCallResult> {
-  const run = llmCallQueue.then(() => performLlmComplete(opts));
+  // The serialization queue lives on globalThis (gateState) — see the
+  // multi-instance note above. Exactly one llmComplete body executes at a
+  // time, process-wide, across every module instance.
+  const gs0 = gateState();
+  const run = gs0.llmCallQueue.then(() => performLlmComplete(opts));
   // Advance the chain regardless of outcome; the queue itself never fails.
-  llmCallQueue = run.then(
+  gs0.llmCallQueue = run.then(
     () => undefined,
     () => undefined
   );
@@ -222,7 +251,7 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
       }
       // Success — reset the escalation counter. One good call after a
       // cooldown de-escalates (next 429 starts at 2min again, not 30min).
-      strikes = 0;
+      gateState().strikes = 0;
       return {
         ok: true,
         content,
@@ -281,9 +310,10 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
   // all callers (this one included, on its next invocation) defer
   // immediately. Escalating cooldown: 2min, 5min, 15min, 30min (±20% jitter).
   if (sawRateLimit) {
-    const cooldown = COOLDOWNS_MS[Math.min(strikes, 3)] * (0.8 + Math.random() * 0.4);
-    blockedUntil = Date.now() + cooldown;
-    strikes++; // post-increment: first 429 → 2min, second → 5min, etc.
+    const gs = gateState();
+    const cooldown = COOLDOWNS_MS[Math.min(gs.strikes, 3)] * (0.8 + Math.random() * 0.4);
+    gs.blockedUntil = Date.now() + cooldown;
+    gs.strikes++; // post-increment: first 429 → 2min, second → 5min, etc.
   }
 
   return {

@@ -98,6 +98,86 @@ const GLOBAL_PINS = [
 // slot on creation.
 export const SNAPSHOT_SLOT = "__loopHotSwapSnapshot";
 
+// ── Self-enhance loop state continuity (audit 3, B4/B11) ────────────────
+// The loop-runtime snapshot above restores the high-level scheduler, but
+// the SELF-ENHANCE loop's own state (compounding cadence counter, per-file
+// saturation lockouts, cooldown streak) was never captured — every swap
+// reset cyclesCompleted to 0, which silently restarted the distillation
+// cadence (every 10 cycles → back to square one) and the meta-tuner's
+// warm-up (70 cycles → never elapsing, D8 effectively disabled in steady
+// state) and cleared every saturation lockout (locked-out files burned
+// quota again). A separate slot (not folded into LoopSnapshot) because a
+// different consumer (the SelfEnhanceLoop constructor) reads it.
+export const SELF_SNAPSHOT_SLOT = "__selfEnhanceLoopSnapshot";
+
+export interface SelfEnhanceSnapshot {
+  /** True when the OLD instance was running continuously — the new
+   *  instance schedules an auto-resume so a post-enhancement swap
+   *  doesn't halt the autonomy after one pipeline-file improvement. */
+  continuous: boolean;
+  stats: {
+    totalScanned: number;
+    totalEnhanced: number;
+    totalReverted: number;
+    totalPushed: number;
+    testsWritten: number;
+    cyclesCompleted: number;
+    tasksGenerated: number;
+    lastEnhancementAt: string | null;
+  };
+  /** Per-file saturation lockouts (repo-relative path → state). */
+  saturation: Array<[string, unknown]>;
+  consecutiveCooldownCycles: number;
+  quotaExhaustedLogged: boolean;
+  stashedAt: number;
+  reason: string;
+}
+
+function snapshotSelfEnhance(reason: string): SelfEnhanceSnapshot | null {
+  try {
+    const g = globalThis as unknown as { __selfEnhanceLoop?: any };
+    const sel = g.__selfEnhanceLoop;
+    if (!sel) return null;
+    return {
+      continuous: typeof sel.isContinuous === "function" ? sel.isContinuous() : false,
+      stats:
+        sel.stats ?? {
+          totalScanned: 0,
+          totalEnhanced: 0,
+          totalReverted: 0,
+          totalPushed: 0,
+          testsWritten: 0,
+          cyclesCompleted: 0,
+          tasksGenerated: 0,
+          lastEnhancementAt: null,
+        },
+      saturation: sel.saturation instanceof Map ? Array.from(sel.saturation.entries()) : [],
+      consecutiveCooldownCycles: sel.consecutiveCooldownCycles ?? 0,
+      quotaExhaustedLogged: sel.quotaExhaustedLogged ?? false,
+      stashedAt: Date.now(),
+      reason,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Read (not consume) the stashed self-enhance snapshot. Called by the
+ *  SelfEnhanceLoop constructor. Cleared by clearSelfEnhanceSnapshot when
+ *  the new instance actually arms — same survival contract as the
+ *  loop-runtime snapshot. */
+export function consumeSelfEnhanceSnapshot(): SelfEnhanceSnapshot | null {
+  const g = globalThis as any;
+  const snap = g[SELF_SNAPSHOT_SLOT];
+  if (!snap) return null;
+  return snap as SelfEnhanceSnapshot;
+}
+
+export function clearSelfEnhanceSnapshot(): void {
+  const g = globalThis as any;
+  g[SELF_SNAPSHOT_SLOT] = undefined;
+}
+
 export interface LoopSnapshot {
   status: string;
   config: {
@@ -325,6 +405,15 @@ export async function hotSwapPipeline(opts?: {
 
     // 4. STASH SNAPSHOT so the new instance can restore
     if (snapshot) stashSnapshot(snapshot, reason);
+
+    // 4b. STASH the self-enhance loop's state (audit 3). Separate slot,
+    //     separate consumer (the SelfEnhanceLoop constructor). Without
+    //     this, every swap reset cyclesCompleted/saturation/cooldown
+    //     state — see the SELF_SNAPSHOT_SLOT note above.
+    const selfSnap = snapshotSelfEnhance(reason);
+    if (selfSnap) {
+      (globalThis as any)[SELF_SNAPSHOT_SLOT] = selfSnap;
+    }
 
     // 5. PROD — touch the loop-runtime + self-enhance-loop mtime to nudge
     //    Turbopack into recompiling. Post-enhancement triggers already

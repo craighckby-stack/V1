@@ -162,6 +162,7 @@ If the pin is genuinely solid, say so. Output STRICT JSON only, no fence, no pro
         evidence: `Attacker suggested fix: ${(parsed.suggestedFix ?? "none").slice(0, 300)}`,
         constraints: `The ratchet pin on this module has a reported weakness (${kind}). It is a CANDIDATE finding — verify before acting. Do not weaken the pin to make it pass.`,
         verificationStatus: "candidate",
+        observed: false, // a probe finding is not an observation of the real file
       });
     } catch {
       /* best-effort per test */

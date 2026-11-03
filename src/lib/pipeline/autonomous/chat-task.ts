@@ -19,6 +19,9 @@ import { llmComplete, extractCodeBlock } from "../llm/agent-llm";
 import { pushCurrentState } from "./push-target";
 import { detectTruncation } from "./code-analysis";
 import { typecheckRefactor } from "./in-memory-typecheck";
+import { isProtectedPath } from "./protected-files";
+import { gateMutation } from "../core/mutation-guard";
+import { evaluateAstDiff } from "../core/ast-diff-gate";
 
 const PROJECT_ROOT = "/home/z/my-project";
 
@@ -159,6 +162,7 @@ SUMMARY: <one sentence summary of the plan>
 
 Rules:
 - Only propose changes to files in the src/ directory
+- NEVER propose changes to src/app/page.tsx, src/app/layout.tsx, src/lib/db.ts, anything under src/app/api/self-enhance/, src/app/api/autonomous/, src/app/api/hot-swap/, src/app/api/duress/, src/lib/pipeline/ (the engine room), or prisma/schema.prisma — those are the system's own control surface and gates; they are permanently off-limits
 - Be conservative — propose the minimum changes needed
 - If the goal is unclear, say so in UNDERSTANDING and propose what you think they meant
 - Max 5 files per plan
@@ -189,7 +193,26 @@ Propose a plan to achieve this goal.`;
     };
   }
 
-  return parsePlan(result.content, userGoal);
+  const plan = parsePlan(result.content, userGoal);
+
+  // AUDIT 3 (B2, propose side): filter protected paths out of the plan
+  // BEFORE the operator ever sees it. The apply path re-checks (defense
+  // in depth), but an operator should never be asked to approve a
+  // mutation of the control surface in the first place — the plan is the
+  // LLM's proposal, and the proposal itself must respect the hard floor.
+  const allowedFiles = plan.files.filter((f) => !isProtectedPath(f.path));
+  const droppedCount = plan.files.length - allowedFiles.length;
+  if (droppedCount > 0) {
+    plan.files = allowedFiles;
+    plan.summary = `${plan.summary} (${droppedCount} protected file(s) removed from the plan — the system's gates and control surface are off-limits)`;
+    if (allowedFiles.length === 0) {
+      plan.ok = false;
+      plan.error =
+        "The proposed plan only touched protected files (the system's gates, control surface, or integrity chain). Nothing to apply — describe a goal that targets the mutable codebase instead.";
+    }
+  }
+
+  return plan;
 }
 
 /**
@@ -281,6 +304,24 @@ export async function applyTaskPlan(plan: ChatTaskPlan): Promise<ChatTaskApplyRe
       continue;
     }
 
+    // AUDIT 3 (B2): the protected-files hard floor. The old path only
+    // blocked directory traversal — an approved plan could write to ANY
+    // src/ file, including page.tsx (the control surface), protected-
+    // files.ts (the protection list itself), or the gate modules. The
+    // protected-files invariant is "the loop can never violate it"; the
+    // chat-task path is operator-driven, but the invariant still applies
+    // — an LLM-proposed "refactor the control surface" plan must die
+    // here, not at the operator's judgment.
+    if (isProtectedPath(file.path)) {
+      results.push({
+        path: file.path,
+        applied: false,
+        reason: "Rejected (protected path — this file is part of the system's gates, control surface, or integrity chain and can never be mutated by an LLM-generated plan)",
+        diffBytes: 0,
+      });
+      continue;
+    }
+
     const fullPath = join(PROJECT_ROOT, file.path);
     let originalCode = "";
     try {
@@ -361,9 +402,51 @@ Output the COMPLETE new content for this file that achieves the goal.`;
       continue;
     }
 
+    // AUDIT 3 (B4): the chat-task path ran NONE of the semantic gates the
+    // rest of the system runs — no evil-token check, no symbol-retention
+    // check. A plan whose generated code introduced eval( or dropped
+    // exported symbols would typecheck fine and land on disk. Both gates
+    // now run here, same contract as verify-refactor.ts.
+    const mutation = gateMutation({
+      filePath: file.path,
+      originalCode,
+      evolvedCode: newCode,
+    });
+    if (!mutation.allowed) {
+      results.push({
+        path: file.path,
+        applied: false,
+        reason: `Rejected by mutation guard (${mutation.rejectedBy}): ${mutation.reasons.slice(0, 2).join(" | ").slice(0, 180)}`,
+        diffBytes: 0,
+      });
+      continue;
+    }
+
+    // Symbol retention — the TS-parser gate (stronger than the regex
+    // validator: catches dropped class methods and export-alias renames).
+    // HARD-FAIL on any symbol-drop/branding violation (the score-based
+    // `passed` tolerates single drops — right for the remote path, wrong
+    // for this one; see verify-refactor.ts Gate 1b for the same contract).
+    // Only for modify (a create has no symbols to retain).
+    if (file.action === "modify") {
+      const ast = evaluateAstDiff(originalCode, newCode, file.path);
+      const hardFail = ast.violations.filter(
+        (v) => v.code === "AST_SYMBOL_DROPPED" || v.code === "BRANDING_INJECTION"
+      );
+      if (hardFail.length > 0 || !ast.passed) {
+        results.push({
+          path: file.path,
+          applied: false,
+          reason: `Rejected by AST diff: ${(hardFail.length > 0 ? hardFail : ast.violations).slice(0, 2).map((v) => v.message).join(" | ").slice(0, 180)}`,
+          diffBytes: 0,
+        });
+        continue;
+      }
+    }
+
     // Write the file — but ONLY after the in-memory typecheck passes.
     // This is the same "broken code never touches disk" contract the rest
-    // of the system enforces (verify-refactor.ts, task-executor.ts): the
+    // of the system enforces (verify-refactor.ts): the
     // old flow wrote the LLM output to the LIVE file first and typechecked
     // the whole project afterwards, so Turbopack's watcher saw broken code
     // during the ~30s window and a final tsc failure nuked unrelated dirty
