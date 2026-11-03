@@ -15,6 +15,16 @@ const PROVENANCE_META: Record<string, { icon: typeof ShieldCheck; color: string;
   contradicted: { icon: ShieldX, color: "text-amber-300", bg: "bg-amber-500/15 border-amber-500/40" },
 };
 
+interface MemoryEntry {
+  id: string;
+  content: string;
+  provenance: string;
+  trust: string;
+  filePath?: string;
+  diagnosis?: string;
+  cleanSnippet?: string;
+}
+
 export function MemoryBank() {
   const entries = usePipelineStore((s) => s.memoryEntries);
   const setEntries = usePipelineStore((s) => s.setMemoryEntries);
@@ -24,9 +34,12 @@ export function MemoryBank() {
     (async () => {
       try {
         const res = await fetch("/api/memory/entries");
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
         const data = await res.json();
         if (!cancelled && Array.isArray(data?.entries)) {
-          setEntries(data.entries);
+          setEntries(data.entries as MemoryEntry[]);
         } else if (!cancelled) {
           console.error("Failed to load memory entries: Invalid data format");
         }
