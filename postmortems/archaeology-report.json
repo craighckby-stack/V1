@@ -1,0 +1,225 @@
+{
+  "ranAt": "2026-11-03T05:25:41.483Z",
+  "totalCommits": 458,
+  "wrongCommits": 16,
+  "fixPairs": 16,
+  "lessonsSeeded": 0,
+  "lessonsSkipped": "already seeded (re-run with force to refresh)",
+  "fragileFiles": [
+    {
+      "file": "src/app/page.tsx",
+      "wrongCycles": 7,
+      "correctCommits": 34,
+      "lastTouched": "2026-11-03"
+    },
+    {
+      "file": "src/lib/pipeline/autonomous/push-target.ts",
+      "wrongCycles": 5,
+      "correctCommits": 35,
+      "lastTouched": "2026-11-02"
+    },
+    {
+      "file": "src/lib/pipeline/autonomous/self-enhance-loop.ts",
+      "wrongCycles": 4,
+      "correctCommits": 34,
+      "lastTouched": "2026-11-02"
+    },
+    {
+      "file": "src/lib/pipeline/autonomous/chat-task.ts",
+      "wrongCycles": 3,
+      "correctCommits": 25,
+      "lastTouched": "2026-11-02"
+    },
+    {
+      "file": "prisma/schema.prisma",
+      "wrongCycles": 2,
+      "correctCommits": 14,
+      "lastTouched": "2026-11-02"
+    },
+    {
+      "file": "src/lib/pipeline/emg/emg-rag.ts",
+      "wrongCycles": 2,
+      "correctCommits": 28,
+      "lastTouched": "2026-11-03"
+    },
+    {
+      "file": "src/app/api/self-enhance/push-target/route.ts",
+      "wrongCycles": 2,
+      "correctCommits": 2,
+      "lastTouched": "2026-10-26"
+    },
+    {
+      "file": "src/app/layout.tsx",
+      "wrongCycles": 1,
+      "correctCommits": 5,
+      "lastTouched": "2026-10-27"
+    },
+    {
+      "file": "src/lib/pipeline/autonomous/loop-runtime.ts",
+      "wrongCycles": 1,
+      "correctCommits": 18,
+      "lastTouched": "2026-11-02"
+    },
+    {
+      "file": "next-env.d.ts",
+      "wrongCycles": 1,
+      "correctCommits": 12,
+      "lastTouched": "2026-11-02"
+    },
+    {
+      "file": "skills/ASR/scripts/asr.ts",
+      "wrongCycles": 1,
+      "correctCommits": 0,
+      "lastTouched": "2026-10-25"
+    },
+    {
+      "file": "skills/LLM/scripts/chat.ts",
+      "wrongCycles": 1,
+      "correctCommits": 0,
+      "lastTouched": "2026-10-25"
+    },
+    {
+      "file": "skills/TTS/tts.ts",
+      "wrongCycles": 1,
+      "correctCommits": 0,
+      "lastTouched": "2026-10-25"
+    },
+    {
+      "file": "skills/VLM/scripts/vlm.ts",
+      "wrongCycles": 1,
+      "correctCommits": 0,
+      "lastTouched": "2026-10-25"
+    },
+    {
+      "file": "skills/aminer-academic-search/scripts/aminer_client.py",
+      "wrongCycles": 1,
+      "correctCommits": 1,
+      "lastTouched": "2026-10-31"
+    }
+  ],
+  "stableFiles": [],
+  "themes": [
+    {
+      "theme": "start",
+      "count": 3
+    },
+    {
+      "theme": "duress",
+      "count": 3
+    }
+  ],
+  "wrongList": [
+    {
+      "short": "743eab35",
+      "date": "2026-11-02",
+      "subject": "ui: the boot prank — BSOD '404 NOT EVER' + Star Wars crawl, scored by a synthesized Imperial March",
+      "reason": "Introduced issue in src/components/pipeline/boot-splash.tsx, fixed by 8cdcf3ba (\"fix: the boot prank now fires on EVERY entry — warm boots st\")",
+      "fixedBy": "8cdcf3ba"
+    },
+    {
+      "short": "ae98d9e8",
+      "date": "2026-11-02",
+      "subject": "feat(autonomous): auto-arm on boot + continuous mode + never-stop self-healing + push-target token fallback",
+      "reason": "Introduced issue in src/lib/pipeline/autonomous/loop-runtime.ts, fixed by a76bbff0 (\"fix(autonomous): failed-file cooldown — don't get stuck retr\")",
+      "fixedBy": "a76bbff0"
+    },
+    {
+      "short": "2c1de8cc",
+      "date": "2026-11-02",
+      "subject": "graft(red-team): adversarial evaluation suite + runner (concept: Aether_Forge aetherforge-eval)",
+      "reason": "Introduced issue in src/lib/pipeline/red-team/red-team-runner.ts, fixed by 17c967fe (\"fix(red-team): ERROR probes don't raise safe-mode (only BYPA\")",
+      "fixedBy": "17c967fe"
+    },
+    {
+      "short": "f4a05934",
+      "date": "2026-11-02",
+      "subject": "graft(duress): PKM §3 phased purge protocol + safe-mode (concept: PKM)",
+      "reason": "Introduced issue in src/lib/pipeline/core/duress.ts, fixed by ad812c0f (\"fix(duress): clearSafeMode used undefined setBy binding + ad\")",
+      "fixedBy": "ad812c0f"
+    },
+    {
+      "short": "9c599c98",
+      "date": "2026-11-02",
+      "subject": "feat(oracle): commit-archaeology — mine git history into a self-labeled prophecy dataset (concept: Commit-puller repo)",
+      "reason": "Introduced issue in src/lib/pipeline/autonomous/push-target.ts, fixed by e84f596b (\"graft(secret-scan)+fix(push-target): wire pre-push gate + lo\")",
+      "fixedBy": "e84f596b"
+    },
+    {
+      "short": "b653f6e4",
+      "date": "2026-11-02",
+      "subject": "feat(oracle): add the prophecy/evaluation subsystem — the system predicts its own future",
+      "reason": "Introduced issue in src/app/page.tsx, fixed by 0dc53f8b (\"refactor(system): methodical full-codebase review — 10 real \")",
+      "fixedBy": "0dc53f8b"
+    },
+    {
+      "short": "e4eed297",
+      "date": "2026-10-27",
+      "subject": "Self-enhancement: src/lib/pipeline/emg/emg-rag.ts",
+      "reason": "Introduced issue in src/lib/pipeline/emg/emg-rag.ts, fixed by 1f1fd238 (\"fix(audit2-b): gate integrity & stop/start races — fail-clos\")",
+      "fixedBy": "1f1fd238"
+    },
+    {
+      "short": "cfc83e4b",
+      "date": "2026-10-27",
+      "subject": "Self-enhancement: src/lib/pipeline/autonomous/chat-task.ts",
+      "reason": "Introduced issue in src/lib/pipeline/autonomous/chat-task.ts, fixed by c86e9ec9 (\"fix(audit2-a): parser-aware analysis core — stop false trunc\")",
+      "fixedBy": "c86e9ec9"
+    },
+    {
+      "short": "7f793f57",
+      "date": "2026-10-27",
+      "subject": "feat: expand mutation scope to UI display layer (safely)",
+      "reason": "Introduced issue in worklog.md, fixed by 8cb338d1 (\"fix: dev server dying — double-fork daemonization (scripts/d\")",
+      "fixedBy": "8cb338d1"
+    },
+    {
+      "short": "f44310fd",
+      "date": "2026-10-27",
+      "subject": "feat(ui): remove all green, rename to LOOP v5.0",
+      "reason": "Introduced issue in src/app/page.tsx, fixed by f995be1e (\"feat(ui): all-white text, fix frozen counter, rich start out\")",
+      "fixedBy": "f995be1e"
+    },
+    {
+      "short": "d7b2c9f6",
+      "date": "2026-10-27",
+      "subject": "feat: wire the task engine into the terminal UI (Direction 1 complete)",
+      "reason": "Introduced issue in src/lib/pipeline/autonomous/push-target.ts, fixed by 464abe13 (\"fix(push-target): add tier-3 PAT persistence in .git/info/ t\")",
+      "fixedBy": "464abe13"
+    },
+    {
+      "short": "5ad43a2d",
+      "date": "2026-10-26",
+      "subject": "feat: chat-driven agent — type a goal, system proposes plan, user approves",
+      "reason": "Introduced issue in .next/dev/cache/config.json, fixed by 09432ed8 (\"fix: restore modules lost to stash + fix all pre-existing ty\")",
+      "fixedBy": "09432ed8"
+    },
+    {
+      "short": "44f5ac7a",
+      "date": "2026-10-26",
+      "subject": "Self-enhancement: src/lib/pipeline/emg/emg-rag.ts (LLM refactor, tsc verified, 80b diff)",
+      "reason": "Introduced issue in src/lib/pipeline/autonomous/self-enhance-loop.ts, fixed by 7a81844f (\"fix: handle LLM 429 rate limits with exponential backoff\")",
+      "fixedBy": "7a81844f"
+    },
+    {
+      "short": "4dd9fcb5",
+      "date": "2026-10-26",
+      "subject": "feat(config): explicit auto-create-repo toggle + org support + fine-grained PAT errors",
+      "reason": "Introduced issue in src/app/page.tsx, fixed by ba95794a (\"fix: terminal command output was buried under server logs\")",
+      "fixedBy": "ba95794a"
+    },
+    {
+      "short": "bf6e73a0",
+      "date": "2026-10-26",
+      "subject": "feat: persistent GitHub push target for self-enhance loop",
+      "reason": "Introduced issue in src/lib/pipeline/autonomous/self-enhance-loop.ts, fixed by e2378128 (\"fix: in-memory typecheck eliminates Turbopack stale errors\")",
+      "fixedBy": "e2378128"
+    },
+    {
+      "short": "839decb5",
+      "date": "2026-10-25",
+      "subject": "Architecture Helper Pipeline v4.3 — self-enhancing autonomous refactoring system",
+      "reason": "Introduced issue in src/lib/pipeline/autonomous/self-enhance-loop.ts, fixed by 0dd877d7 (\"Audit v4.3: fix tsc safety net, dead trigger command, non-co\")",
+      "fixedBy": "0dd877d7"
+    }
+  ]
+}

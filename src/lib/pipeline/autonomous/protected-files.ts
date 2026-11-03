@@ -24,6 +24,11 @@ export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/in-memory-typecheck.ts", // protect the typecheck
   "src/lib/pipeline/autonomous/verify-refactor.ts", // protect the verifier
   "src/lib/pipeline/autonomous/lesson-store.ts", // protect the compounding engine
+  // Archaeology writes to the Lesson table (the learning substrate) —
+  // a corrupted miner could plant false lessons that then ride the
+  // injection pipeline into every enhance prompt. Same integrity class
+  // as lesson-store itself.
+  "src/lib/pipeline/autonomous/archaeology.ts", // protect the history miner
   "src/lib/pipeline/autonomous/schema-gate.ts", // protect the schema gate
   "src/lib/pipeline/autonomous/protected-files.ts", // protect the protection list
   "src/lib/pipeline/llm/agent-llm.ts", // protect the LLM wrapper

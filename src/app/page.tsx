@@ -263,6 +263,8 @@ export default function Home() {
   // commit links) is fixable in one click without leaving the terminal.
   const [cfgRepoPrivate, setCfgRepoPrivate] = useState<boolean | null>(null);
   const [cfgVisLoading, setCfgVisLoading] = useState(false);
+  // Archaeology miner — in-flight flag for the MINE HISTORY button.
+  const [cfgArchLoading, setCfgArchLoading] = useState(false);
 
   // Oracle panel state — the system's prophecy/evaluation subsystem.
   // open/close is the only state page.tsx owns; the panel manages its
@@ -737,6 +739,59 @@ export default function Home() {
       setCfgError((e as Error).message);
     } finally {
       setCfgVisLoading(false);
+    }
+  }
+
+  /** Run the archaeology miner — deterministic git-history mining
+   *  (the CAE 3-path detector) that seeds pre-loop failure themes into
+   *  the Lesson table and writes the fragility/stability report.
+   *  Zero LLM cost — safe to run any time, including while the LLM
+   *  gate is blocked. */
+  async function runArchaeologyMiner() {
+    setCfgArchLoading(true);
+    setCfgError(null);
+    setCfgStatusMsg(null);
+    try {
+      const res = await fetch("/api/self-enhance/archaeology", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force: false }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setCfgError(data.error ?? "Archaeology run failed");
+        return;
+      }
+      const r = data.report as {
+        totalCommits: number;
+        wrongCommits: number;
+        fixPairs: number;
+        lessonsSeeded: number;
+        lessonsSkipped?: string;
+        fragileFiles: Array<{ file: string; wrongCycles: number }>;
+        stableFiles: unknown[];
+      };
+      const topFragile = r.fragileFiles[0]
+        ? ` · most fragile: ${r.fragileFiles[0].file.split("/").pop()} (${r.fragileFiles[0].wrongCycles}×)`
+        : "";
+      const seeded =
+        r.lessonsSeeded > 0
+          ? `${r.lessonsSeeded} lesson(s) seeded`
+          : r.lessonsSkipped
+            ? "lessons already present"
+            : "no qualifying themes (bar: 3+ evidence commits)";
+      setCfgStatusMsg(
+        `⛏ Mined ${r.totalCommits} commits: ${r.wrongCommits} wrong, ${r.fixPairs} paired with fixes, ` +
+        `${seeded}. ${r.stableFiles.length} historically-stable candidates.${topFragile}`
+      );
+      emitOutput([
+        `[ARCHAEOLOGY] ${r.totalCommits} commits mined — ${r.wrongCommits} wrong (${r.fixPairs} paired), ` +
+        `${r.lessonsSeeded} lessons seeded, ${r.stableFiles.length} stable candidates. Report: postmortems/archaeology-report.json`,
+      ]);
+    } catch (e) {
+      setCfgError((e as Error).message);
+    } finally {
+      setCfgArchLoading(false);
     }
   }
 
@@ -2224,6 +2279,19 @@ export default function Home() {
                         : "[ MAKE PRIVATE ]"}
                 </button>
               )}
+              <button
+                type="button"
+                onClick={runArchaeologyMiner}
+                disabled={cfgArchLoading}
+                title="Deterministic git-history mining (zero LLM cost): the 3-path detector (revert / self-fail / fix-pair) classifies every commit the repo ever had, seeds recurring failure themes into the Lesson table, and writes postmortems/archaeology-report.json"
+                style={{
+                  ...cfgBtnStyle,
+                  opacity: cfgArchLoading ? 0.5 : 1,
+                  cursor: cfgArchLoading ? "wait" : "pointer",
+                }}
+              >
+                {cfgArchLoading ? "[ MINING… ]" : "[ MINE HISTORY ]"}
+              </button>
               <button type="button" onClick={closeConfig} style={cfgBtnStyle}>
                 [ CLOSE ]
               </button>
