@@ -76,6 +76,8 @@ export async function oracleSchedulerTick(): Promise<{
   reason?: string;
 }> {
   const s = sched();
+  
+  // Check running flag twice to prevent race condition
   if (s.running) return { ran: false, reason: "previous tick still running" };
 
   // Skip entirely while the shared LLM gate is closed — never steal
@@ -84,6 +86,9 @@ export async function oracleSchedulerTick(): Promise<{
     return { ran: false, reason: "LLM cooldown active — skipping tick" };
   }
 
+  // Re-check running flag after LLM cooldown check
+  if (s.running) return { ran: false, reason: "previous tick still running" };
+
   // Cheap pre-check: are there any due prophecies? One indexed count
   // beats kicking off the evaluator for nothing (the evaluator's own
   // DB read is cheap too, but this keeps the tick's happy path at
@@ -91,6 +96,16 @@ export async function oracleSchedulerTick(): Promise<{
   let due: any[] = [];
   try {
     due = await listDueProphecies();
+    
+    // Validate input to handle potential null/undefined results
+    if (!due || !Array.isArray(due)) {
+      emitOracleEvent(
+        "Oracle scheduler error: listDueProphecies returned invalid data",
+        "error",
+        "scheduler",
+      );
+      return { ran: false, reason: "invalid data from prophecy store" };
+    }
   } catch (err) {
     emitOracleEvent(
       `Oracle scheduler error listing due prophecies: ${(err as Error).message}`,
@@ -109,6 +124,17 @@ export async function oracleSchedulerTick(): Promise<{
   s.running = true;
   try {
     const result = await evaluateDueProphecies();
+    
+    // Handle potential undefined result
+    if (!result) {
+      emitOracleEvent(
+        "Oracle scheduler error: evaluateDueProphecies returned undefined",
+        "error",
+        "scheduler",
+      );
+      return { ran: false, reason: "invalid result from prophecy evaluator" };
+    }
+    
     const { judged, skipped } = result;
     s.lastTickAt = Date.now();
     s.lastJudgedCount = judged ? judged.length : 0;
