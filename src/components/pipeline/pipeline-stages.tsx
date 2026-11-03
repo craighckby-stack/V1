@@ -199,13 +199,16 @@ export function PipelineStages() {
     },
     {} as Record<string, number>
   );
+  
+  // Calculate progress with null checks
+  const succeededCount = statusCounts.succeeded ?? 0;
+  const blockedCount = statusCounts.blocked ?? 0;
+  const skippedCount = statusCounts.skipped ?? 0;
+  const totalStages = stages.length || 1; // Avoid division by zero
+  
   const progressPct = report
     ? Math.round(
-        ((statusCounts.succeeded ?? 0) +
-          (statusCounts.blocked ?? 0) * 0.5 +
-          (statusCounts.skipped ?? 0)) /
-          stages.length *
-          100
+        ((succeededCount + blockedCount * 0.5 + skippedCount) / totalStages) * 100
       )
     : 0;
 
