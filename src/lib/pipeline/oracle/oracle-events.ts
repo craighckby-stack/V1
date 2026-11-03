@@ -79,6 +79,18 @@ export function emitOracleEvent(
   type: OracleEvent["type"] = "info",
   source: OracleEvent["source"] = "scheduler",
 ): OracleEvent {
+  if (message == null) {
+    throw new Error("Oracle event message cannot be null or undefined");
+  }
+  
+  if (typeof message !== "string") {
+    throw new Error("Oracle event message must be a string");
+  }
+  
+  if (message.trim() === "") {
+    throw new Error("Oracle event message cannot be empty");
+  }
+
   const s = state();
   const trimmed =
     message.length > 300 ? `${message.slice(0, 299)}…` : message;
@@ -105,13 +117,23 @@ export function readOracleEvents(afterSeq?: number): {
 } {
   const s = state();
   s.lastReadAt = Date.now();
-  if (typeof afterSeq === "number" && afterSeq >= 0 && afterSeq < s.seq) {
-    // The caller has seen `afterSeq` events already. The buffer holds
-    // the most recent MAX_EVENTS; if afterSeq is older than what the
-    // buffer holds, we return the whole buffer (best effort — the
-    // gap events were dropped by the ring).
-    return { events: [...s.buffer], seq: s.seq };
+  
+  if (typeof afterSeq === "number") {
+    if (afterSeq < 0) {
+      throw new Error("Oracle event sequence number cannot be negative");
+    }
+    if (afterSeq >= s.seq) {
+      return { events: [], seq: s.seq };
+    }
+    if (afterSeq < s.seq) {
+      // The caller has seen `afterSeq` events already. The buffer holds
+      // the most recent MAX_EVENTS; if afterSeq is older than what the
+      // buffer holds, we return the whole buffer (best effort — the
+      // gap events were dropped by the ring).
+      return { events: [...s.buffer], seq: s.seq };
+    }
   }
+  
   return { events: [...s.buffer], seq: s.seq };
 }
 
