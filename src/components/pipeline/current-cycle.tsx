@@ -53,7 +53,7 @@ export function CurrentCycle() {
                 status === "running" ? "text-cyan-400 animate-pulse" : "text-slate-400"
               )}
             />
-            Cycle #{cycle.cycleNumber}{" "}
+            Cycle #{cycle.cycleNumber ?? "unknown"}{" "}
             <span className="text-xs text-slate-400 font-normal uppercase tracking-widest">
               {cycle.mode ?? "unknown"}
             </span>
