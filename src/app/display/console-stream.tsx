@@ -66,7 +66,15 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
     >
       {lines.map((line) => {
         // Skip invalid line entries
-        if (!line || typeof line !== "object" || !line.id || !line.type) {
+        if (
+          !line || 
+          typeof line !== "object" || 
+          !line.id || 
+          typeof line.id !== "string" || 
+          !line.id.trim() ||
+          !line.type || 
+          !["system", "command", "output", "log"].includes(line.type)
+        ) {
           return null;
         }
 
