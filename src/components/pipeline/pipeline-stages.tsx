@@ -194,7 +194,9 @@ export function PipelineStages() {
   const stages = report ? Object.values(report.stages) : emptyStages;
   const statusCounts = stages.reduce(
     (acc, s) => {
-      acc[s.status] = (acc[s.status] ?? 0) + 1;
+      // Validate stage status to prevent undefined values
+      const status = s.status || "pending";
+      acc[status] = (acc[status] ?? 0) + 1;
       return acc;
     },
     {} as Record<string, number>
