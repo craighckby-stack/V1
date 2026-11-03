@@ -121,19 +121,26 @@ function StageCard({ stage }: { stage: PipelineStageState }) {
               className={cn("h-4 w-4 shrink-0", color, isRunning && "animate-spin")}
             />
           </div>
-          <p className="text-xs text-slate-400 mt-1 leading-snug line-clamp-2">{stage.summary}</p>
+          <p className="text-xs text-slate-400 mt-1 leading-snug line-clamp-2">
+            {stage.summary || "No summary available"}
+          </p>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             {stage.durationMs !== undefined && (
               <div className="text-[10px] text-slate-500 font-mono">{stage.durationMs}ms</div>
             )}
             {stage.id === "stage2_reasoning" &&
-              (stage.details as { llmUsed?: boolean } | undefined)?.llmUsed && (
+              stage.details &&
+              typeof stage.details === "object" &&
+              "llmUsed" in stage.details &&
+              (stage.details as { llmUsed?: boolean }).llmUsed && (
                 <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-emerald-500/15 text-emerald-300 border-emerald-500/40">
                   LLM
                 </span>
               )}
             {stage.id === "stage3_ast_gate" &&
-              (stage.details as { parserUsed?: string } | undefined)?.parserUsed && (
+              stage.details &&
+              typeof stage.details === "object" &&
+              "parserUsed" in stage.details && (
                 <span
                   className={cn(
                     "text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border",
@@ -148,13 +155,18 @@ function StageCard({ stage }: { stage: PipelineStageState }) {
                 </span>
               )}
             {stage.id === "stage4_review" &&
-              (stage.details as { usedLlm?: boolean } | undefined)?.usedLlm && (
+              stage.details &&
+              typeof stage.details === "object" &&
+              "usedLlm" in stage.details && (
                 <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-emerald-500/15 text-emerald-300 border-emerald-500/40">
                   LLM Tribunal
                 </span>
               )}
             {stage.id === "stage4_review" &&
-              (stage.details as { usedLlm?: boolean } | undefined)?.usedLlm === false && (
+              stage.details &&
+              typeof stage.details === "object" &&
+              "usedLlm" in stage.details &&
+              (stage.details as { usedLlm?: boolean }).usedLlm === false && (
                 <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-amber-500/15 text-amber-300 border-amber-500/40">
                   Rule-based
                 </span>
