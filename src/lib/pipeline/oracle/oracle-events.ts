@@ -92,11 +92,11 @@ export function emitOracleEvent(
   }
 
   if (!["info", "success", "warn", "error"].includes(type)) {
-    throw new Error(`Oracle event type must be one of: info, success, warn, error`);
+    throw new Error(`Oracle event type must be one of: info, success, warn, error (received: ${type})`);
   }
 
   if (!["generator", "evaluator", "scheduler"].includes(source)) {
-    throw new Error(`Oracle event source must be one of: generator, evaluator, scheduler`);
+    throw new Error(`Oracle event source must be one of: generator, evaluator, scheduler (received: ${source})`);
   }
 
   const s = state();
