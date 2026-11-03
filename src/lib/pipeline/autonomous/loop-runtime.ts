@@ -325,6 +325,19 @@ class AutonomousLoopRuntime {
             // Another instance won the race. Don't arm a second timer.
             return;
           }
+          // Respect config.enabled: if the operator disabled the loop
+          // (default after 2026-11-03 — see the config comment above), do
+          // NOT auto-arm. The loop only starts when the operator presses
+          // [START] or POSTs /api/autonomous/start. This is the gate that
+          // makes "enabled: false" actually mean "don't run on boot".
+          if (!this.config.enabled) {
+            this.addLog(
+              "Auto-arm skipped: config.enabled is false (operator-gated mode). Press [START] or POST /api/autonomous/start to run the loop.",
+              "info"
+            );
+            this.status = "paused";
+            return;
+          }
           // Respect duress safe-mode: if it's raised at boot (e.g. a prior
           // session left it raised), don't auto-start. The recovery probe
           // or the operator will clear it.
