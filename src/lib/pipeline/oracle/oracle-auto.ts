@@ -62,7 +62,8 @@ export function autoProphecyAfterCycle(): void {
         return;
       }
       
-      if (counts.pending >= MAX_PENDING_PROPHECIES) {
+      // Added null check for counts.pending to prevent potential runtime error
+      if (counts.pending == null || counts.pending >= MAX_PENDING_PROPHECIES) {
         return; // silent — bounded backlog by design
       }
 
@@ -76,7 +77,7 @@ export function autoProphecyAfterCycle(): void {
       // Never let the oracle take down the loop. A background
       // introspection must not become a foreground failure.
       emitOracleEvent(
-        `Oracle auto-prophecy error (cycle hook) — skipped this cycle: ${error instanceof Error ? error.message : String(error)}`,
+        `Oracle auto-prophecy error (cycle hook) — failed to generate prophecy: ${error instanceof Error ? error.message : String(error)}`,
         "error",
         "scheduler",
       );
