@@ -118,8 +118,14 @@ export function PostmortemPanel() {
       });
       
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to dismiss postmortem: ${res.status} ${res.statusText}`);
+        let errorMessage;
+        try {
+          const errorData = await res.json();
+          errorMessage = errorData.message || `Failed to dismiss postmortem: ${res.status} ${res.statusText}`;
+        } catch {
+          errorMessage = `Failed to dismiss postmortem: ${res.status} ${res.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
       
       setPostmortems((prev) => prev.filter((p) => p.id !== id));
