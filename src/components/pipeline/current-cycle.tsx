@@ -28,15 +28,18 @@ export function CurrentCycle() {
     );
   }
 
+  // Validate cycle status to handle unexpected values
+  const status = cycle.status || "unknown";
+  
   return (
     <Card
       className={cn(
         "backdrop-blur border transition-colors",
-        cycle.status === "running"
+        status === "running"
           ? "bg-cyan-950/40 border-cyan-700/50"
-          : cycle.status === "completed"
+          : status === "completed"
           ? "bg-emerald-950/30 border-emerald-800/50"
-          : cycle.status === "halted"
+          : status === "halted"
           ? "bg-amber-950/30 border-amber-800/50"
           : "bg-rose-950/30 border-rose-800/50"
       )}
@@ -47,7 +50,7 @@ export function CurrentCycle() {
             <Activity
               className={cn(
                 "h-4 w-4",
-                cycle.status === "running" ? "text-cyan-400 animate-pulse" : "text-slate-400"
+                status === "running" ? "text-cyan-400 animate-pulse" : "text-slate-400"
               )}
             />
             Cycle #{cycle.cycleNumber}{" "}
@@ -59,16 +62,16 @@ export function CurrentCycle() {
             variant="outline"
             className={cn(
               "uppercase text-[10px] tracking-widest",
-              cycle.status === "running"
+              status === "running"
                 ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/40"
-                : cycle.status === "completed"
+                : status === "completed"
                 ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-                : cycle.status === "halted"
+                : status === "halted"
                 ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
                 : "bg-rose-500/15 text-rose-300 border-rose-500/40"
             )}
           >
-            {cycle.status}
+            {status}
           </Badge>
         </div>
         <div className="text-xs text-slate-500 font-mono mt-2 flex flex-wrap gap-x-4 gap-y-1">
