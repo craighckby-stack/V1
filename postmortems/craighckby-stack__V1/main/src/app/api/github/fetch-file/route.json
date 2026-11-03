@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "src/app/api/github/fetch-file/route.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "ZERO_DIFF_SATURATION",
+  "symptom": "0-diff saturation: no semantic change produced",
+  "evidence": "Halt reason: ZERO_DIFF_SATURATION",
+  "constraints": "The last attempt produced no semantic change (0-diff saturation). Make a real, meaningful refactor this time.\nAdd type annotations, extract constants, modularize — but preserve all public symbols.",
+  "attempts": 1,
+  "parentHash": "37722919cc14a54b3d46f5c8f2e496848c62d48bb9b54909767045ec767cd07f",
+  "hash": "c1a44fe5470151fb1fd12f8a10601fc4b081e0882f374e2b574ebb69e7089e92",
+  "lastAttemptAt": "2026-11-03T11:15:04.059Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-03T11:15:04.060Z",
+  "updatedAt": "2026-11-03T11:15:04.060Z",
+  "schema": 2
+}

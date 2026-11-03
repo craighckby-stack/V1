@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "src/app/api/postmortems/seed/route.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "ZERO_DIFF_SATURATION",
+  "symptom": "0-diff saturation: no semantic change produced",
+  "evidence": "Halt reason: ZERO_DIFF_SATURATION",
+  "constraints": "The last attempt produced no semantic change (0-diff saturation). Make a real, meaningful refactor this time.\nAdd type annotations, extract constants, modularize — but preserve all public symbols.",
+  "attempts": 1,
+  "parentHash": "711577c72ba64ca9e614abea7f8b4168a37bc9f543a6a9fdf9ab165f8beece27",
+  "hash": "90177f4952ccb92e03c308de904177dd57f83e0b45b7c43092bb2dddd86a48e4",
+  "lastAttemptAt": "2026-11-03T11:16:53.251Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-03T11:16:53.252Z",
+  "updatedAt": "2026-11-03T11:16:53.252Z",
+  "schema": 2
+}

@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "src/app/api/self-enhance/chat-task/apply/route.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "ZERO_DIFF_SATURATION",
+  "symptom": "0-diff saturation: no semantic change produced",
+  "evidence": "Halt reason: ZERO_DIFF_SATURATION",
+  "constraints": "The last attempt produced no semantic change (0-diff saturation). Make a real, meaningful refactor this time.\nAdd type annotations, extract constants, modularize — but preserve all public symbols.",
+  "attempts": 1,
+  "parentHash": "bf771e1e8f2bfada2fca01c3216db29175390828626dfb7480094b07a11a0110",
+  "hash": "5f4e2923467158d70f02be542e2ae59744f104b0f06b2285f1a2e16b47ddbb3d",
+  "lastAttemptAt": "2026-11-03T11:17:24.786Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-03T11:17:24.787Z",
+  "updatedAt": "2026-11-03T11:17:24.787Z",
+  "schema": 2
+}

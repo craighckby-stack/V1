@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "src/app/api/oracle/archaeology/route.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "ZERO_DIFF_SATURATION",
+  "symptom": "0-diff saturation: no semantic change produced",
+  "evidence": "Halt reason: ZERO_DIFF_SATURATION",
+  "constraints": "The last attempt produced no semantic change (0-diff saturation). Make a real, meaningful refactor this time.\nAdd type annotations, extract constants, modularize — but preserve all public symbols.",
+  "attempts": 1,
+  "parentHash": "4ba903f292e975a291a22313a3956c83e8ca0a2d369bea38876cbebf9880b230",
+  "hash": "374044c658cef3ce404018a7c9f9b17f29c740b7688d3f86768b5d24db9a8457",
+  "lastAttemptAt": "2026-11-03T11:15:52.971Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-03T11:15:52.972Z",
+  "updatedAt": "2026-11-03T11:15:52.972Z",
+  "schema": 2
+}

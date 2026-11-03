@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "src/app/api/autonomous/start/route.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "ZERO_DIFF_SATURATION",
+  "symptom": "0-diff saturation: no semantic change produced",
+  "evidence": "Halt reason: ZERO_DIFF_SATURATION",
+  "constraints": "The last attempt produced no semantic change (0-diff saturation). Make a real, meaningful refactor this time.\nAdd type annotations, extract constants, modularize — but preserve all public symbols.",
+  "attempts": 1,
+  "parentHash": "cb44eb7d963f5a216c8c43bd4ea14beeb761ea98fb62e0a73873156d30a9b2ef",
+  "hash": "0ded4ff2e0fdf107d4423b6551ca5a5e6cace4f3525d9ba8bfbe7630398db59b",
+  "lastAttemptAt": "2026-11-03T11:13:45.004Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-03T11:13:45.005Z",
+  "updatedAt": "2026-11-03T11:13:45.005Z",
+  "schema": 2
+}

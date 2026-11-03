@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "src/app/api/github/validate-token/route.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "ZERO_DIFF_SATURATION",
+  "symptom": "0-diff saturation: no semantic change produced",
+  "evidence": "Halt reason: ZERO_DIFF_SATURATION",
+  "constraints": "The last attempt produced no semantic change (0-diff saturation). Make a real, meaningful refactor this time.\nAdd type annotations, extract constants, modularize — but preserve all public symbols.",
+  "attempts": 1,
+  "parentHash": "1a85bacbc82d06d3eef71474b8d4b75e2005c9c50c7c741a2633cec8a3149b75",
+  "hash": "5e685e7bbd712bb35d1e2566d2c4026dbab53bd5dbfa5b2ec4bcadfd3bd29810",
+  "lastAttemptAt": "2026-11-03T11:15:18.006Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-03T11:15:18.007Z",
+  "updatedAt": "2026-11-03T11:15:18.007Z",
+  "schema": 2
+}

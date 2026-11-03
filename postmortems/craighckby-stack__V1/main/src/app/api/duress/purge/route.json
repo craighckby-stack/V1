@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "src/app/api/duress/purge/route.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "ZERO_DIFF_SATURATION",
+  "symptom": "0-diff saturation: no semantic change produced",
+  "evidence": "Halt reason: ZERO_DIFF_SATURATION",
+  "constraints": "The last attempt produced no semantic change (0-diff saturation). Make a real, meaningful refactor this time.\nAdd type annotations, extract constants, modularize — but preserve all public symbols.",
+  "attempts": 1,
+  "parentHash": "040268d3c49653e2a0ec8e68743b5735c7a4bd183d637f3b88995e98a91385fe",
+  "hash": "4ed096137320e5a6ec8d2fcf174732ea039acb7ff4ada92604053a7934705b24",
+  "lastAttemptAt": "2026-11-03T11:14:12.626Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-03T11:14:12.627Z",
+  "updatedAt": "2026-11-03T11:14:12.627Z",
+  "schema": 2
+}

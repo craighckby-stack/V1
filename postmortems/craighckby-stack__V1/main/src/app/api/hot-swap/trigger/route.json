@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "src/app/api/hot-swap/trigger/route.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "ZERO_DIFF_SATURATION",
+  "symptom": "0-diff saturation: no semantic change produced",
+  "evidence": "Halt reason: ZERO_DIFF_SATURATION",
+  "constraints": "The last attempt produced no semantic change (0-diff saturation). Make a real, meaningful refactor this time.\nAdd type annotations, extract constants, modularize — but preserve all public symbols.",
+  "attempts": 1,
+  "parentHash": "08c1fbfe8dfa87de9296b5523c9277603580c54da813e2fb8240c15fb20cad6e",
+  "hash": "e476d8d51967d98592f3ba32fbb68a0b1f09ab86e610928abe462ec957b40fbe",
+  "lastAttemptAt": "2026-11-03T11:15:45.920Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-03T11:15:45.921Z",
+  "updatedAt": "2026-11-03T11:15:45.921Z",
+  "schema": 2
+}

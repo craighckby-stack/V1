@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "src/app/api/self-enhance/archaeology/route.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "ZERO_DIFF_SATURATION",
+  "symptom": "0-diff saturation: no semantic change produced",
+  "evidence": "Halt reason: ZERO_DIFF_SATURATION",
+  "constraints": "The last attempt produced no semantic change (0-diff saturation). Make a real, meaningful refactor this time.\nAdd type annotations, extract constants, modularize — but preserve all public symbols.",
+  "attempts": 1,
+  "parentHash": "8342e8c0fce3c35e4d811c58b37c63125f2d64f48d34b9fd15b2f0ee1509deab",
+  "hash": "bf771e1e8f2bfada2fca01c3216db29175390828626dfb7480094b07a11a0110",
+  "lastAttemptAt": "2026-11-03T11:17:23.665Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-03T11:17:23.666Z",
+  "updatedAt": "2026-11-03T11:17:23.666Z",
+  "schema": 2
+}
