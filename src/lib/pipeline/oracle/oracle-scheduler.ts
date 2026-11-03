@@ -119,7 +119,7 @@ export async function oracleSchedulerTick(): Promise<{
       "error",
       "scheduler",
     );
-    return { ran: false, reason: "error listing due prophecies" };
+    return { ran: false, reason: "error listing prophecies" };
   }
 
   if (due.length === 0) {
