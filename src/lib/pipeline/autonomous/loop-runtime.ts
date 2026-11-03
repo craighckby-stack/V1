@@ -117,14 +117,17 @@ export interface AutonomousCycleSummary {
 
 class AutonomousLoopRuntime {
   private config: LoopConfig = {
-    // ── FULLY AUTONOMOUS (default) ──────────────────────────────────
-    // The loop arms itself on boot — no [START] button needed. It runs
-    // in continuous mode (cycle → ~2s cooldown → cycle → ...) so the
-    // system keeps improving itself without operator intervention.
-    // The operator can still stop it via [STOP] or /api/autonomous/stop
-    // and the duress safe-mode gate (core/duress.ts) still pauses it on
-    // a security event. See docs/HOT-SWAP.md.
-    enabled: true,
+    // ── OPERATOR-GATED (default, set 2026-11-03) ──────────────────────
+    // Was enabled:true (auto-arm on boot — the loop started itself the
+    // moment loop-runtime.ts was imported, no [START] needed). Disabled
+    // because a native segfault in the LLM cycle crashes the server a
+    // few seconds into each run (see src/instrumentation.ts comment —
+    // JS-level handlers can't catch a C-level crash). The loop still
+    // works; it just won't auto-start. Press [START] in the UI or POST
+    // /api/autonomous/start to arm it when you want it running. The
+    // duress safe-mode gate (core/duress.ts) still pauses it on a
+    // security event. See docs/HOT-SWAP.md.
+    enabled: false,
     mode: "continuous",
     intervalMinutes: 1,
     targetRepo: "craighckby-stack/V1",
