@@ -33,22 +33,11 @@ The system boots like a 1980s CRT terminal. It fetches its own live vitals from 
 | **POST** — live vitals stamp in one by one | ![POST screen](./docs/screenshots/01-splash-post.png) |
 | **Invite** — the machine asks you to enter | ![Invite](./docs/screenshots/02-splash-invite.png) |
 
-The POST is honest: any vital it can't read stamps `[ ?? ]` in amber. It never fakes an `OK`.
-
-### The prank (press ENTER)
-
-Per the owner's decree — "for shits and giggles, volume 100 each time, no mute":
-
-| | |
-|---|---|
-| **Blue screen** — 404 NOT EVER (10s, floppy drive seeking) | ![BSOD](./docs/screenshots/03-bsod.png) |
-| **Star Wars crawl** — explains what the system is (24s, Imperial March) | ![Crawl](./docs/screenshots/04-crawl.png) |
-
-ESC is the hidden mercy hatch. The prank fires on every entry, warm or cold.
+The POST is honest: any vital it can't read stamps `[ ?? ]` in amber. It never fakes an `OK`. Press ENTER and you're in the terminal — splash → system, nothing in between.
 
 ### The terminal
 
-After the ceremony, you get the actual interface:
+After the splash, you get the actual interface:
 
 ![Terminal](./docs/screenshots/05-terminal.png)
 
@@ -133,10 +122,9 @@ The system can change **how** things look. It can **never** change **what you co
 
 As of this README:
 
-- **38 mutation branches** on GitHub (`loop-01` through `loop-38`), next will be `loop-39`.
-- **28 postmortems** in the chain, **0 broken links** (every postmortem traces to a real commit).
-- **9 prophecies** seeded by the Oracle, **9 pending** evaluation.
-- **136 files in mutation scope** — pipeline logic, UI components, API routes, and the Prisma schema (see below).
+- **63 mutation branches** on GitHub (`loop-01` through `loop-63`), next will be `loop-64`.
+- **32 postmortems** in the chain, **0 broken links** (every postmortem traces to a real commit).
+- **159 files in mutation scope** — pipeline logic, UI components, API routes, and the Prisma schema (see below).
 - The repo (`craighckby-stack/V1`) is **public** — commit links in the BRANCHES dialog resolve for anyone.
 
 The system is currently running against a free-tier LLM API, which rate-limits frequently. When it does, the loop backs off honestly — each retry fires a log line in real time rather than going silent. No fake progress.
@@ -166,11 +154,11 @@ This is meta-learning with a real feedback signal: the system learns WHICH of it
 
 ---
 
-## The mutation scope — 136 files
+## The mutation scope — 159 files
 
 | Scope | Files | Gate chain |
 |---|---|---|
-| Pipeline logic (`src/lib/pipeline/`) | 33 | ratchet pin → tsc + AST → debate → test gate |
+| Pipeline logic (`src/lib/pipeline/`) | 56 | ratchet pin → tsc + AST → debate → test gate |
 | Display layer (`src/app/display/`) | 1 | same |
 | UI components (`src/components/`) | 63 | same |
 | API routes (`src/app/api/`) | 38 | same |
