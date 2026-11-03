@@ -55,7 +55,7 @@ export function CurrentCycle() {
             />
             Cycle #{cycle.cycleNumber}{" "}
             <span className="text-xs text-slate-400 font-normal uppercase tracking-widest">
-              {cycle.mode}
+              {cycle.mode ?? "unknown"}
             </span>
           </CardTitle>
           <Badge
@@ -79,13 +79,13 @@ export function CurrentCycle() {
             <GitBranch className="h-3 w-3" />
             {cycle.targetRepo ?? "unknown"}:{cycle.branch ?? "unknown"}
           </span>
-          <span>started: {new Date(cycle.startedAt).toLocaleTimeString()}</span>
+          <span>started: {new Date(cycle.startedAt ?? Date.now()).toLocaleTimeString()}</span>
           <span>scanned: {cycle.filesScanned ?? 0}</span>
           <span>committed: {cycle.filesCommitted ?? 0}</span>
         </div>
       </CardHeader>
       <CardContent>
-        {cycle.fileResults.length === 0 ? (
+        {(!cycle.fileResults || cycle.fileResults.length === 0) ? (
           <p className="text-xs text-slate-500 italic">No file results yet…</p>
         ) : (
           <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
@@ -101,7 +101,7 @@ export function CurrentCycle() {
                   <span className="text-xs font-mono text-slate-200 truncate flex-1" title={r.path}>
                     {r.path}
                   </span>
-                  <span className="text-[10px] text-amber-300 font-mono tabular-nums">AST {r.astScore}</span>
+                  <span className="text-[10px] text-amber-300 font-mono tabular-nums">AST {r.astScore ?? 0}</span>
                   <span
                     className={cn(
                       "text-[10px] px-1.5 py-0.5 rounded border uppercase tracking-wider",
@@ -118,9 +118,9 @@ export function CurrentCycle() {
                       ? "COND"
                       : r.consensus === "REQUIRES_REWRITE"
                       ? "REJ"
-                      : r.consensus}
+                      : r.consensus ?? "UNKNOWN"}
                   </span>
-                  <span className="text-[10px] font-mono text-slate-500">{r.proofHash}</span>
+                  <span className="text-[10px] font-mono text-slate-500">{r.proofHash ?? "—"}</span>
                   {r.pushed ? (
                     <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
                   ) : (
@@ -134,8 +134,8 @@ export function CurrentCycle() {
         <div className="flex items-center gap-3 pt-3 mt-3 border-t border-slate-800/60 text-[10px] text-slate-500">
           <Cpu className="h-3.5 w-3.5" />
           <span>
-            {cycle.fileResults.length} file(s) processed · {cycle.fileResults.filter(r => r.pushed).length} pushed
-            · proof {cycle.fileResults[0]?.proofHash ?? "—"}
+            {cycle.fileResults?.length ?? 0} file(s) processed · {cycle.fileResults?.filter(r => r.pushed).length ?? 0} pushed
+            · proof {cycle.fileResults?.[0]?.proofHash ?? "—"}
           </span>
         </div>
       </CardContent>
