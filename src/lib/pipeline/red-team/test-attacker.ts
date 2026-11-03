@@ -32,7 +32,7 @@ import { join, dirname, basename } from "path";
 import { llmComplete, llmCooldownMs } from "../llm/agent-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
 
-const PROJECT_ROOT = "/home/z/my-project";
+import { PROJECT_ROOT } from "../core/paths";
 
 /** Cycles between attacker rounds. Deterministic, not tunable — the
  *  tuner tunes the MUTATION loop, not the integrity checks that audit

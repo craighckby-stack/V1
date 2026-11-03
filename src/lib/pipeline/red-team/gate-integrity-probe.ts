@@ -55,7 +55,7 @@ import { gateMutation } from "../core/mutation-guard";
 import { evaluateAstDiff } from "../core/ast-diff-gate";
 import { scanContent } from "../core/secret-scan";
 
-const PROJECT_ROOT = "/home/z/my-project";
+import { PROJECT_ROOT } from "../core/paths";
 const SCHEMA_PATH = `${PROJECT_ROOT}/prisma/schema.prisma`;
 
 /** Cycles between probe rounds. Not tunable (same rule as the attacker:

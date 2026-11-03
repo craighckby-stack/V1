@@ -34,7 +34,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { spawnSync } from "child_process";
 import { db } from "@/lib/db";
 
-const PROJECT_ROOT = "/home/z/my-project";
+import { PROJECT_ROOT } from "../core/paths";
 export const LESSONS_MD_PATH = `${PROJECT_ROOT}/memory/lessons.md`;
 
 type LessonDelegate = typeof db.lesson | undefined;

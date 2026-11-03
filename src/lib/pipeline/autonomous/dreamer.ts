@@ -42,7 +42,7 @@ import { llmComplete, llmCooldownMs } from "../llm/agent-llm";
 import { db } from "@/lib/db";
 import { getCorpusDigest } from "./mutation-corpus";
 
-const PROJECT_ROOT = "/home/z/my-project";
+import { PROJECT_ROOT } from "../core/paths";
 const DRAFT_TTL_MS = 60 * 60 * 1000; // drafts older than 1h are stale landscape
 const PATTERN_TTL_MS = 2 * 60 * 60 * 1000;
 

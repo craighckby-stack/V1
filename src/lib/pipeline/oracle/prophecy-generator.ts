@@ -34,7 +34,7 @@ import { createProphecy, type ProphecyRow } from "./prophecy-store";
 import { emitOracleEvent } from "./oracle-events";
 import { db } from "@/lib/db";
 
-const PROJECT_ROOT = "/home/z/my-project";
+import { PROJECT_ROOT } from "../core/paths";
 const WORKLOG_PATH = `${PROJECT_ROOT}/worklog.md`;
 
 // How much history to give the LLM. Too little → predictions are

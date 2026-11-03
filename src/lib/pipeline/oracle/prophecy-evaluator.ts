@@ -32,7 +32,7 @@ import { emitOracleEvent } from "./oracle-events";
 import { db } from "@/lib/db";
 import type { Prophecy } from "@prisma/client";
 
-const PROJECT_ROOT = "/home/z/my-project";
+import { PROJECT_ROOT } from "../core/paths";
 const WORKLOG_PATH = `${PROJECT_ROOT}/worklog.md`;
 
 // How much post-prophecy evidence to gather. The window is bounded by

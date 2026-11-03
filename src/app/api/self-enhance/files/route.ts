@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { readdirSync } from "fs";
 import { join, relative } from "path";
 import { PROTECTED_FILES } from "@/lib/pipeline/autonomous/self-enhance-loop";
+import { PROJECT_ROOT } from "@/lib/pipeline/core/paths";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const PIPELINE_SRC_DIR = "/home/z/my-project/src/lib/pipeline";
-const DISPLAY_SRC_DIR = "/home/z/my-project/src/app/display";
-const PROJECT_ROOT = "/home/z/my-project";
+const PIPELINE_SRC_DIR = join(PROJECT_ROOT, "src/lib/pipeline");
+const DISPLAY_SRC_DIR = join(PROJECT_ROOT, "src/app/display");
 
 /**
  * GET /api/self-enhance/files

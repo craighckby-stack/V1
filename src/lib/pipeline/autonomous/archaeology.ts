@@ -55,7 +55,7 @@ import { join } from "path";
 import { db } from "@/lib/db";
 import { exportLessonsMarkdown } from "./lessons-markdown";
 
-const PROJECT_ROOT = "/home/z/my-project";
+import { PROJECT_ROOT } from "../core/paths";
 const REPORT_PATH = join(PROJECT_ROOT, "postmortems", "archaeology-report.json");
 
 /** Max general lessons one mining pass may plant. Deliberately small:

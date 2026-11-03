@@ -38,7 +38,7 @@ import { evaluateAstDiff } from "../core/ast-diff-gate";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
-const PROJECT_ROOT = "/home/z/my-project";
+import { PROJECT_ROOT } from "../core/paths";
 
 async function main() {
   const filePath = process.argv[2];

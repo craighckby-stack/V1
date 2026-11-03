@@ -81,7 +81,7 @@ import { join } from "path";
  * swapper.
  */
 
-const PROJECT_ROOT = "/home/z/my-project";
+import { PROJECT_ROOT } from "./paths";
 
 // Modules whose singletons are pinned on globalThis. If we don't clear
 // these pins, re-importing the module returns the old instance (the pin

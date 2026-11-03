@@ -23,7 +23,7 @@ import { isProtectedPath } from "./protected-files";
 import { gateMutation } from "../core/mutation-guard";
 import { evaluateAstDiff } from "../core/ast-diff-gate";
 
-const PROJECT_ROOT = "/home/z/my-project";
+import { PROJECT_ROOT } from "../core/paths";
 
 export interface ChatTaskPlan {
   ok: boolean;

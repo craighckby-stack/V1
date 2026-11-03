@@ -2,7 +2,7 @@
  * Self-Enhance Loop — the system enhances its OWN source code.
  *
  * Instead of fetching a remote repo, mutating, and pushing back, this loop:
- *   1. Scans /home/z/my-project/src/lib/pipeline/ for .ts files (its own code)
+ *   1. Scans its own pipeline source (src/lib/pipeline/) for .ts files
  *   2. For each file: reads it, LLM-refactors it, verifies with tsc --noEmit
  *   3. If it compiles: writes the refactored code LIVE (hot-reload picks it up)
  *   4. If it doesn't compile: reverts and records a postmortem
@@ -48,6 +48,12 @@ import {
   type LessonRow,
 } from "./lesson-store";
 import { applySchemaMutation } from "./schema-gate";
+import { PROJECT_ROOT } from "../core/paths";
+import {
+  writeTestGateJournal,
+  clearTestGateJournal,
+  recoverCrashedTestGate,
+} from "../core/test-gate-journal";
 // ── Compounding-intelligence v2 (D1-D8). The integrity-chain modules
 // (lapse-detector, meta-params, meta-tuner, mutation-corpus,
 // lessons-markdown, red-team/*) are PROTECTED — see protected-files.ts.
@@ -68,9 +74,8 @@ import { seedMetaParams } from "./meta-params";
 import { runTestAttacker, ATTACKER_INTERVAL } from "../red-team/test-attacker";
 import { runGateIntegrityProbes, PROBE_INTERVAL } from "../red-team/gate-integrity-probe";
 
-const PIPELINE_SRC_DIR = "/home/z/my-project/src/lib/pipeline";
-const DISPLAY_SRC_DIR = "/home/z/my-project/src/app/display";
-const PROJECT_ROOT = "/home/z/my-project";
+const PIPELINE_SRC_DIR = join(PROJECT_ROOT, "src/lib/pipeline");
+const DISPLAY_SRC_DIR = join(PROJECT_ROOT, "src/app/display");
 
 /** D4 (corpus): 16-hex sha of a source string — compact provenance for
  *  "what did the file look like when this was attempted". */
@@ -81,50 +86,107 @@ function sha16(s: string): string {
 /**
  * Find test files that cover the given source file.
  *
- * Looks for `*.test.ts` files that either:
- *   - Sit next to the source file (same name, .test.ts suffix)
- *   - Import the source file by its relative path
+ * Coverage detection (external audit, finding 4). The old version only
+ * scanned the source file's OWN directory and matched the literal string
+ * `from "./base"` — so a test importing via `../dir/base`, a subdirectory
+ * (`./sub/base`), or the `@/` alias was invisible to the test gate, which
+ * then reported "no tests for this file" and passed the mutation with
+ * zero behavioral coverage.
+ *
+ * Now: walk the whole src/ tree for *.test.ts(x) files and resolve their
+ * ACTUAL import specifiers against the test file's location:
+ *   - relative (`./x`, `../x`) → resolved against the test file's dir
+ *   - alias (`@/x`)           → resolved against <root>/src/x (tsconfig paths)
+ *   - `.js`/`.mjs` specifiers → also tried as `.ts`/`.tsx` (ESM convention
+ *     of importing the emitted extension)
+ * A test file counts as covering the source iff any resolved specifier
+ * equals the source's absolute path. Synchronous and cheap — the walk is
+ * a few hundred stat calls and test files are rare.
  *
  * This is the test-gate infrastructure for Direction 4 (tests as the gate).
- * Right now no test files exist in the project, so this returns [] and the
- * test gate is a no-op. The infrastructure is ready for when tests are added.
  */
 function findTestFilesFor(sourceFilePath: string): string[] {
   const dir = dirname(sourceFilePath);
-  // Strip the ACTUAL extension. basename(p, ".ts") leaves ".tsx" files
-  // unchanged, so `console-stream.tsx` used to look for a co-located test
-  // named `console-stream.tsx.test.ts` — never finding `console-stream.test.tsx`
-  // (audit 2, item 13).
   const ext = sourceFilePath.endsWith(".tsx") ? ".tsx" : ".ts";
   const base = basename(sourceFilePath, ext);
   const testFiles: string[] = [];
 
   // 1. Co-located test file: foo.ts -> foo.test.ts, foo.tsx -> foo.test.tsx
+  //    (fast path — the ratchet writes these, so this is the common case)
   const coLocated = join(dir, `${base}.test${ext}`);
   if (existsSync(coLocated)) testFiles.push(coLocated);
 
-  // 2. Scan the directory for .test.ts/.test.tsx files that import the source
-  try {
-    const entries = readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isFile() || !(entry.name.endsWith(".test.ts") || entry.name.endsWith(".test.tsx"))) continue;
-      const testPath = join(dir, entry.name);
-      if (testPath === coLocated) continue; // already added
-      try {
-        const testContent = readFileSync(testPath, "utf-8");
-        // Check if it imports the source file by name
-        if (testContent.includes(`from "./${base}"`) || testContent.includes(`from './${base}'`)) {
-          testFiles.push(testPath);
-        }
-      } catch {
-        /* unreadable — skip */
-      }
+  // 2. Whole-tree scan: any *.test.ts(x) under src/ whose imports resolve
+  //    to this source file.
+  const srcRoot = join(PROJECT_ROOT, "src");
+  const candidates: string[] = [];
+  const walk = (d: string) => {
+    let entries;
+    try {
+      entries = readdirSync(d, { withFileTypes: true });
+    } catch {
+      return; // unreadable dir — skip
     }
-  } catch {
-    /* dir unreadable — skip */
+    for (const entry of entries) {
+      const full = join(d, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".test.ts") || entry.name.endsWith(".test.tsx")) candidates.push(full);
+    }
+  };
+  walk(srcRoot);
+
+  for (const testPath of candidates) {
+    if (testPath === coLocated) continue; // already added
+    let testContent: string;
+    try {
+      testContent = readFileSync(testPath, "utf-8");
+    } catch {
+      continue; // unreadable — skip
+    }
+    if (testImportsSource(testContent, testPath, sourceFilePath)) {
+      testFiles.push(testPath);
+    }
   }
 
   return testFiles;
+}
+
+/** Does this test file's import graph reference the source file? Resolves
+ *  static `from "..."` specifiers and dynamic `import("...")` calls. */
+function testImportsSource(testContent: string, testPath: string, sourceFilePath: string): boolean {
+  const specs = new Set<string>();
+  const fromRe = /\bfrom\s+["']([^"']+)["']/g;
+  const dynRe = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = fromRe.exec(testContent)) !== null) specs.add(m[1]);
+  while ((m = dynRe.exec(testContent)) !== null) specs.add(m[1]);
+
+  for (const spec of specs) {
+    // Resolve this specifier to the set of absolute paths it could mean.
+    const targets: string[] = [];
+    if (spec.startsWith(".")) {
+      targets.push(resolve(dirname(testPath), spec));
+    } else if (spec.startsWith("@/")) {
+      // tsconfig paths: "@/*" -> "./src/*"
+      targets.push(join(PROJECT_ROOT, "src", spec.slice(2)));
+    } else {
+      continue; // bare package specifier — never a project source file
+    }
+    // ESM convention: specifiers may name the EMITTED extension (.js) while
+    // the source is .ts/.tsx. Try the literal resolution first, then the
+    // extension-swapped variants.
+    const variants = [...targets];
+    for (const t of targets) {
+      if (t.endsWith(".js")) {
+        variants.push(t.slice(0, -3) + ".ts", t.slice(0, -3) + ".tsx");
+      } else if (!/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(t)) {
+        // Extensionless specifier (bundler-style): try both TS extensions.
+        variants.push(t + ".ts", t + ".tsx");
+      }
+    }
+    if (variants.some((v) => v === sourceFilePath)) return true;
+  }
+  return false;
 }
 
 /**
@@ -314,6 +376,13 @@ export interface SelfEnhanceResult {
   compiled: boolean;
   pushed: boolean;
   commitSha?: string;
+  /** How many test files the test gate actually EXECUTED for this mutation.
+   *  0 means the mutation went live verified by static gates + debate only —
+   *  recorded here (and in the commit message) so no audit trail can mistake
+   *  "passed the gates" for "behavior was tested" (external audit, finding 2).
+   *  Absent on paths that never reached the test gate (LLM failure, debate
+   *  rejection, etc.). */
+  testFilesRun?: number;
 }
 
 class SelfEnhanceLoop {
@@ -704,24 +773,48 @@ class SelfEnhanceLoop {
    * This is THE real signal from DIRECTIONS.md (Direction 4: tests as the
    * gate). Typecheck proves "compiles". Tests prove "behavior preserved."
    *
-   * Finds test files that import the target file and runs them with `bun test`.
-   * If any test fails, REJECT the refactor (don't write, don't push).
-   * If no tests exist for the file, the gate passes (no signal = no block).
+   * Finds test files that import the target file (whole-tree resolution —
+   * see findTestFilesFor) and runs them with `bun test`. If any test
+   * fails, REJECT the refactor (don't write, don't push).
    *
-   * The refactored code must be written to disk for the test runner to see
-   * it — BUT we only write if typecheck already passed, and we REVERT
-   * immediately if tests fail. The window is small and the typecheck gate
-   * already guaranteed it compiles.
+   * HONEST NO-TESTS SEMANTICS (external audit, finding 2): when no tests
+   * exist, the gate still passes — failing closed would brick the loop on a
+   * codebase with no tests — but the result carries testCount: 0 and the
+   * caller records it in the log AND the commit message, so no audit trail
+   * can ever mistake "passed the gates" for "behavior was tested". The
+   * mutation's provenance permanently says which kind of verification it
+   * actually received.
+   *
+   * CRASH SAFETY (external audit, finding 1): the candidate must be on the
+   * live path for the test runner to see it. The original is journaled to
+   * .git/info/test-gate-journal.json BEFORE the write (write-ahead) and the
+   * journal is cleared on every completion path. If the process dies
+   * mid-test (native segfault, OOM, SIGKILL), the next testGate call, the
+   * next runCycle, and every pushCurrentState commit restore the original —
+   * an unverified candidate can neither stay live nor get swept into an
+   * unrelated `git add -A`.
    */
   private testGate(filePath: string, refactoredCode: string): { passed: boolean; reason: string; testCount: number } {
-    const relPath = relative(PROJECT_ROOT, filePath);
-    const testFiles = findTestFilesFor(filePath);
-    if (testFiles.length === 0) {
-      return { passed: true, reason: "no tests for this file", testCount: 0 };
+    // Crash recovery (idempotent, ~free when no journal exists): a leftover
+    // journal means a previous testGate died mid-run — restore before doing
+    // anything else so we never stack a new candidate on a stranded one.
+    const recovery = recoverCrashedTestGate();
+    if (recovery.recovered) {
+      this.log(
+        `TEST-GATE CRASH RECOVERY: restored original ${relative(PROJECT_ROOT, recovery.filePath ?? "")} — a previous test run crashed with the candidate live (armed ${recovery.armedAt ?? "unknown"})`,
+        "error"
+      );
     }
 
-    // Write the refactored code so the test runner sees it
+    const testFiles = findTestFilesFor(filePath);
+    if (testFiles.length === 0) {
+      return { passed: true, reason: "no tests found for this file — behavioral coverage: 0 (verified by static gates + debate only)", testCount: 0 };
+    }
+
+    // Write the refactored code so the test runner sees it. Journal the
+    // original FIRST (write-ahead) so a crash mid-test is recoverable.
     const originalOnDisk = readFileSync(filePath, "utf-8");
+    writeTestGateJournal(filePath, originalOnDisk);
     writeFileSync(filePath, refactoredCode, "utf-8");
 
     try {
@@ -739,6 +832,7 @@ class SelfEnhanceLoop {
           const stderr = (result.stderr || "").slice(0, 300);
           // Revert immediately so the broken code isn't live
           writeFileSync(filePath, originalOnDisk, "utf-8");
+          clearTestGateJournal();
           return {
             passed: false,
             reason: `test failed: ${testFile} — ${stderr.slice(0, 200)}`,
@@ -746,10 +840,15 @@ class SelfEnhanceLoop {
           };
         }
       }
+      // All tests passed — the candidate is accepted; it stays live (the
+      // caller's write below is a no-op). Clear the journal: from here the
+      // mutation is intended to be live, so crash recovery must NOT undo it.
+      clearTestGateJournal();
       return { passed: true, reason: `${testFiles.length} test file(s) passed`, testCount: totalTests };
     } catch (err) {
       // Revert on any unexpected error
       writeFileSync(filePath, originalOnDisk, "utf-8");
+      clearTestGateJournal();
       return { passed: false, reason: `test runner error: ${(err as Error).message}`, testCount: 0 };
     }
   }
@@ -1403,8 +1502,9 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
 
       // 5c. TEST GATE — run any test files that cover this source file.
       // This is THE real signal (Direction 4): tests prove behavior was preserved.
-      // No tests exist yet, so this is a no-op gate — but the infrastructure is
-      // ready. When tests are added, a refactor that breaks a test is rejected.
+      // Coverage is resolved tree-wide (findTestFilesFor); when a file has no
+      // tests the gate passes with coverage:0, and that fact is recorded in
+      // the log, the result, and the commit message — never silently.
       const testResult = this.testGate(filePath, cleanCode);
       if (!testResult.passed) {
         this.log(`Rejected ${relPath} by test gate: ${testResult.reason}`, "warn");
@@ -1422,8 +1522,19 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         // inline increment double-counted (audit 2).
         return result;
       }
+      // HONEST COVERAGE RECORDING (external audit, finding 2): testCount is
+      // threaded into the result and the commit message. A mutation that
+      // went live with 0 test files says so permanently in git history —
+      // "tsc verified, no behavioral tests" can never be misread as
+      // "behavior was tested".
+      result.testFilesRun = testResult.testCount;
       if (testResult.testCount > 0) {
         this.log(`Test gate passed for ${relPath}: ${testResult.reason}`, "success");
+      } else {
+        this.log(
+          `Test gate: NO behavioral tests exist for ${relPath} — mutation verified by static gates + debate only (coverage: 0 test files)`,
+          "warn"
+        );
       }
 
       // 6. Typecheck passed — NOW it's safe to write the improved code to the live file.
@@ -1443,10 +1554,17 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         : "no summary provided";
       this.log(`Enhanced ${relPath} (${result.diffBytes}b diff): ${shortSummary}`, "success");
 
-      // 10. Git commit + push (the proof) — include the change summary in the message
+      // 10. Git commit + push (the proof) — the message carries the ACTUAL
+      // verification level: which gates ran AND whether any behavioral test
+      // executed. An audit of git history alone can tell a tested mutation
+      // from a static-gates-only one (external audit, finding 2).
+      const coverageNote =
+        testResult.testCount > 0
+          ? `${testResult.testCount} test file(s) passed`
+          : "no behavioral tests (static gates + debate only)";
       const commitMessage = changeSummary
-        ? `Self-enhancement: ${relPath}\n\n${changeSummary}\n\n(tsc verified, ${result.diffBytes}b diff)`
-        : `Self-enhancement: ${relPath} (tsc verified, ${result.diffBytes}b diff)`;
+        ? `Self-enhancement: ${relPath}\n\n${changeSummary}\n\n(tsc verified, ${coverageNote}, ${result.diffBytes}b diff)`
+        : `Self-enhancement: ${relPath} (tsc verified, ${coverageNote}, ${result.diffBytes}b diff)`;
       const pushResult = await this.gitPush(commitMessage);
       result.pushed = pushResult.pushed;
       result.commitSha = pushResult.commitSha;
@@ -1776,8 +1894,8 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       this.log(`Enhanced ${relPath} (${result.diffBytes}b diff): ${shortSummary}`, "success");
 
       const commitMessage = changeSummary
-        ? `Self-enhancement: ${relPath}\n\n${changeSummary}\n\n(schema gate verified, ${result.diffBytes}b diff)`
-        : `Self-enhancement: ${relPath} (schema gate verified, ${result.diffBytes}b diff)`;
+        ? `Self-enhancement: ${relPath}\n\n${changeSummary}\n\n(schema gate verified, no behavioral tests — additive gate + debate only, ${result.diffBytes}b diff)`
+        : `Self-enhancement: ${relPath} (schema gate verified, no behavioral tests — additive gate + debate only, ${result.diffBytes}b diff)`;
       const pushResult = await this.gitPush(commitMessage);
       result.pushed = pushResult.pushed;
       result.commitSha = pushResult.commitSha;
@@ -1785,8 +1903,28 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         this.stats.totalPushed++;
         await setLastBranchNumber(thisN);
         this.log(`Schema mutation pinned to branch ${this.currentCycleBranch}`, "success");
-      } else if (!pushResult.pushed) {
+      } else {
+        // The schema is LIVE locally but the remote proof didn't land
+        // (external audit, finding 5). This is a real divergence: the
+        // running system has a schema the remote can't reproduce until the
+        // next successful push carries it (pushCurrentState commits even
+        // when the push itself fails, so the change is at least in local
+        // git). Record it as a system postmortem so the divergence is in
+        // the audit trail instead of only the console log.
         this.log(`Schema push did not land (no changes or push declined) — schema file is still live, only the remote proof is missing`, "warn");
+        await postmortemStore
+          .recordFailure({
+            repo: "self",
+            branch: "main",
+            filePath: "system:schema-push",
+            failureType: "OTHER",
+            symptom: `Schema mutation is live locally but the push did not land${pushResult.commitSha ? ` (local commit ${pushResult.commitSha.slice(0, 8)} exists, remote missing it)` : " (not even a local commit landed)"}`,
+            evidence: `Schema gate + debate approved the change for ${relPath}, but gitPush returned pushed:false. The running system and the remote repo have diverged until the next successful push.`,
+            constraints: `A schema mutation went live without remote proof. Before proposing another schema change, check git log/status — the pending change will ride the next successful push; do not re-apply the same additive change blindly.`,
+          })
+          .catch(() => {
+            /* postmortem is best-effort here — the warn log above still fired */
+          });
       }
 
       return result;
@@ -1810,6 +1948,26 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
     // Capture this cycle's generation. stop() increments runId; if it fires
     // mid-cycle, the for-loop below sees `myRun !== this.runId` and breaks.
     const myRun = this.runId;
+
+    // ── TEST-GATE CRASH RECOVERY (external audit, finding 1) ──────────
+    // If a previous cycle's test gate died mid-run (native segfault, OOM),
+    // its journal is still armed and an unverified candidate may be live on
+    // disk. Restore BEFORE this cycle scans or pushes anything, so the
+    // stranded candidate can neither be built upon nor swept into a commit.
+    {
+      const recovery = recoverCrashedTestGate();
+      if (recovery.recovered) {
+        this.log(
+          `TEST-GATE CRASH RECOVERY at cycle start: restored original ${relative(PROJECT_ROOT, recovery.filePath ?? "")} (journal armed ${recovery.armedAt ?? "unknown"}) — previous test run crashed with the candidate live`,
+          "error"
+        );
+      } else if (recovery.alreadyIntact) {
+        this.log(
+          `TEST-GATE CRASH RECOVERY at cycle start: journal was armed for ${relative(PROJECT_ROOT, recovery.filePath ?? "")} but disk already matched the original (candidate never landed) — journal cleared`,
+          "warn"
+        );
+      }
+    }
 
     try {
       // ── Pause-before-scan (rate-limit gate) ──────────────────────────

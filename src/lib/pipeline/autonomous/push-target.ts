@@ -26,8 +26,9 @@ import {
   type SecretFinding,
 } from "../core/secret-scan";
 import { recordPushSuccess, recordPushAuthFailure } from "../core/duress";
+import { recoverCrashedTestGate } from "../core/test-gate-journal";
+import { PROJECT_ROOT } from "../core/paths";
 
-const PROJECT_ROOT = "/home/z/my-project";
 const SINGLETON_ID = "singleton";
 
 // ── Durable push-target state (audit2-d) ──────────────────────────────
@@ -662,6 +663,20 @@ export async function pushCurrentState(opts?: {
    */
   branchOverride?: string;
 }): Promise<PushOutcome> {
+  // ── TEST-GATE CRASH RECOVERY (external audit, finding 1) ──────────────
+  // A leftover test-gate journal means a test run crashed with an
+  // UNVERIFIED candidate live on disk. `git add -A` below would silently
+  // sweep that candidate into whatever commit happens next — an unrelated
+  // enhancement, a schema mutation, an operator push. Restore the original
+  // BEFORE any staging can happen. Synchronous + idempotent: a missing
+  // journal (the common case) costs one existsSync.
+  const tgRecovery = recoverCrashedTestGate();
+  if (tgRecovery.recovered) {
+    console.error(
+      `[PUSH-TARGET] TEST-GATE CRASH RECOVERY: restored original ${tgRecovery.filePath} (journal armed ${tgRecovery.armedAt ?? "unknown"}) before committing — an unverified candidate was live on disk`
+    );
+  }
+
   const target = await getStoredTarget();
   if (!target) {
     // COMMIT-ONLY FALLBACK (operator edit): no push target, but verified work

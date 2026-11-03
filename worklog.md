@@ -1815,3 +1815,60 @@ re-split as 0dc53f8 + 9ebcbf3).
 
 **Oracle note**: first two prophecies judged FAILED (Brier 0.65, overconfident
 band) — calibration data flowing as designed.
+
+## 2026-11-03 — External audit (Claude, V1-main zip): 7 findings verified, all confirmed defects fixed
+
+An independent LLM audit of the exported source zip found 3 critical + 4
+operational defects. I verified each against the live repo before touching
+anything. All 7 confirmed; all fixed in one sweep:
+
+1. **Test-gate live-write crash window** (critical). testGate wrote the
+   candidate to the LIVE path for `bun test`, restored on failure — but a
+   hard crash (this system's own native segfaults!) stranded the
+   unverified candidate on disk, and the next `git add -A` from ANY push
+   silently swept it into an unrelated commit. FIX: write-ahead crash
+   journal at `.git/info/test-gate-journal.json` (new protected module
+   `core/test-gate-journal.ts`) + recovery at testGate entry, runCycle
+   start, and the top of pushCurrentState — before any staging. Smoke-
+   tested all 4 recovery cases (crash-restore / no-op / already-intact /
+   corrupt-journal-cleared). The corrupt case caught a real flaw in my
+   first version (journal never cleared on parse failure → permanent
+   wedge) — fixed.
+2. **"No tests" passed as success** (critical, honesty). testCount:0 was
+   invisible in every audit trail. FIX: testFilesRun threaded into
+   SelfEnhanceResult, an explicit warn log ("verified by static gates +
+   debate only"), and the commit message now permanently distinguishes
+   "N test file(s) passed" from "no behavioral tests (static gates +
+   debate only)". Git history alone can now tell a tested mutation from
+   an untested one.
+3. **Branch-slash postmortem corruption** (critical, latent). Branch
+   `feature/x` wrote nested dirs; the reader matched only immediate
+   children → silent memory loss on branch-filtered lookups + wiped-DB
+   rehydration. Current branches (`main`, `loop-NN`) are safe, so no live
+   damage — but a `feature/x` push-target would have corrupted silently.
+   FIX: sanitizeBranch() (same pattern as sanitizeRepo;
+   sanitize("main")="main" → existing records stay valid).
+4. **Test discovery missed aliased/parent imports**. Only same-dir literal
+   `from "./base"` matched. FIX: findTestFilesFor now walks the src/ tree
+   and resolves real import specifiers (./ ../ @/ alias, .js→.ts ESM
+   variants, extensionless bundler style).
+5. **Schema live-without-remote-proof unrecorded**. FIX: system postmortem
+   (system:schema-push) on push failure, so the divergence is in the
+   audit trail, not just the console.
+6. **Hardcoded /home/z/my-project in 15 files** (portability). FIX: new
+   `core/paths.ts` (cwd detection with package.json+prisma markers,
+   sandbox fallback) imported everywhere; protected-files rootPrefix and
+   the schema-gate canary now dynamic too. The red-team attack-prompt
+   literal stays hardcoded BY DESIGN (fictional exfil target). Standalone
+   verifier re-tested end-to-end (protected file → correctly rejected;
+   mutable display file → full gate chain passes).
+7. **.env committed since the initial commit**. Content was only
+   `DATABASE_URL=file:...custom.db` — no credential, no rotation needed.
+   FIX: untracked, gitignored, .env.example added.
+
+Also: README scope table re-synced (pipeline 54→56 with the two new
+protected modules, total 177). The audit's epistemic points (no
+zero-hallucination guarantee; LLM review ≠ proof) are design limitations,
+documented, not bugs.
+
+Verified: lint clean, tsc clean, server 200, journal smoke tests ALL PASS.

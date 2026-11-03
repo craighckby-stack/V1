@@ -32,8 +32,8 @@
 
 import { spawnSync } from "child_process";
 import { readFileSync, writeFileSync } from "fs";
+import { PROJECT_ROOT } from "../core/paths";
 
-const PROJECT_ROOT = "/home/z/my-project";
 const SCHEMA_PATH = `${PROJECT_ROOT}/prisma/schema.prisma`;
 
 /** Models the loop may never touch. The memory + learning substrate:
@@ -224,7 +224,10 @@ export function applySchemaMutation(proposed: string): { ok: boolean; reason: st
   //  client + new schema actually work together.
   const canary = spawnSync(
     "bun",
-    ["-e", "const {db}=require('/home/z/my-project/src/lib/db.ts'); Promise.all([db.postmortem.count(), db.lesson.count(), db.gitPushTarget.findUnique({where:{id:'singleton'}})]).then(([p,l,g])=>{ if(p<0||l<0||!g) process.exit(2); console.log('canary-ok',p,l); process.exit(0); }).catch(e=>{ console.error(e.message); process.exit(3); });"],
+    [
+      "-e",
+      `const {db}=require('${PROJECT_ROOT}/src/lib/db.ts'); Promise.all([db.postmortem.count(), db.lesson.count(), db.gitPushTarget.findUnique({where:{id:'singleton'}})]).then(([p,l,g])=>{ if(p<0||l<0||!g) process.exit(2); console.log('canary-ok',p,l); process.exit(0); }).catch(e=>{ console.error(e.message); process.exit(3); });`,
+    ],
     { cwd: PROJECT_ROOT, timeout: 60000, encoding: "utf-8" }
   );
   if (canary.status !== 0) {

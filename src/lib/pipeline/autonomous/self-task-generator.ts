@@ -31,7 +31,7 @@ import { readFileSync, readdirSync } from "fs";
 import { join, relative } from "path";
 import { db } from "@/lib/db";
 
-const PROJECT_ROOT = "/home/z/my-project";
+import { PROJECT_ROOT } from "../core/paths";
 const PIPELINE_SRC_DIR = join(PROJECT_ROOT, "src/lib/pipeline");
 const DISPLAY_SRC_DIR = join(PROJECT_ROOT, "src/app/display");
 

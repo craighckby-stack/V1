@@ -114,6 +114,8 @@ export const PROTECTED_FILES = new Set([
  *    the old bare "health" prefix would have matched any future
  *    health-foo route too).
  */
+import { PROJECT_ROOT } from "../core/paths";
+
 export const PROTECTED_PREFIXES = [
   "src/app/api/self-enhance/",
   "src/app/api/autonomous/", // audit 3: the loop's own control API
@@ -139,7 +141,7 @@ function normalizeRelPath(relPath: string): string {
   if (s.startsWith("./")) s = s.slice(2);
   // Absolute paths: strip the project root if present (the sandbox
   // contract; guards future callers that pass resolve() output).
-  const rootPrefix = "/home/z/my-project/";
+  const rootPrefix = `${PROJECT_ROOT}/`;
   if (s.startsWith(rootPrefix)) s = s.slice(rootPrefix.length);
   else if (s.startsWith("/")) {
     // An absolute path OUTSIDE the project root can't be a project file —

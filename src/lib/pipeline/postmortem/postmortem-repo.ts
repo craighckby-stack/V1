@@ -27,13 +27,24 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, readdir
 import { join, dirname, relative, sep } from "path";
 import type { PostmortemRecord, PostmortemFailureType } from "./postmortem-store";
 
-const PROJECT_ROOT = "/home/z/my-project";
+import { PROJECT_ROOT } from "../core/paths";
 const POSTMORTEM_DIR = join(PROJECT_ROOT, "postmortems");
 
 /** Sanitize a repo slug like "craighckby-stack/V1" into a single path
  *  component (the "/" would otherwise nest a real directory). */
 function sanitizeRepo(repo: string): string {
   return repo.replace(/[^a-zA-Z0-9._-]/g, "__");
+}
+
+/** Sanitize a branch name the same way. Branch names routinely contain
+ *  "/" ("feature/x", "fix/y") — unsanitized, the writer would nest real
+ *  directories (postmortems/<repo>/feature/x/...) while the reader
+ *  enumerates only IMMEDIATE children and matches "feature", never
+ *  "feature/x" — so every branch-filtered lookup and the wiped-DB
+ *  rehydration silently missed those records (external audit, finding 3).
+ *  sanitize("main") === "main", so existing on-disk records stay valid. */
+function sanitizeBranch(branch: string): string {
+  return branch.replace(/[^a-zA-Z0-9._-]/g, "__");
 }
 
 /** Turn a relative source path like "src/lib/pipeline/emg/debate.ts"
@@ -43,7 +54,7 @@ function sanitizeRepo(repo: string): string {
 function relativePathToPostmortemFile(repo: string, branch: string, filePath: string): string {
   // Strip the source extension; keep directory structure.
   const noExt = filePath.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "");
-  return join(POSTMORTEM_DIR, sanitizeRepo(repo), branch, `${noExt}.json`);
+  return join(POSTMORTEM_DIR, sanitizeRepo(repo), sanitizeBranch(branch), `${noExt}.json`);
 }
 
 /** Reverse: turn a postmortem filename back into (repo, branch, filePath)
@@ -234,8 +245,11 @@ export function listFromDisk(repo?: string, branch?: string): PostmortemRecord[]
 
   for (const repoDir of repoDirs) {
     const repoPath = join(POSTMORTEM_DIR, repoDir.name);
+    // Branch filter compares SANITIZED names — the on-disk dir for
+    // "feature/x" is "feature__x" (see sanitizeBranch).
+    const branchFilter = branch ? sanitizeBranch(branch) : null;
     const branchDirs = readdirSync(repoPath, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && (!branch || e.name === branch));
+      .filter((e) => e.isDirectory() && (!branchFilter || e.name === branchFilter));
     for (const branchDir of branchDirs) {
       const branchPath = join(repoPath, branchDir.name);
       walkAndCollect(branchPath, branchDir.name, repoDir.name, out);

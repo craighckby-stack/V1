@@ -21,3 +21,7 @@ tool-results/
 # durable push-target state (contains the PAT — NEVER commit)
 .loop-push-state.json
 /public/loop-source.zip
+
+# environment (real .env is untracked; .env.example is the template)
+.env
+.env.local

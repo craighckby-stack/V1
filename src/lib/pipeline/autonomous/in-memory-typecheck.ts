@@ -21,7 +21,7 @@ import { readFileSync } from "fs";
 import { resolve, relative } from "path";
 import { scriptKindForPath } from "./code-analysis";
 
-const PROJECT_ROOT = "/home/z/my-project";
+import { PROJECT_ROOT } from "../core/paths";
 const TSCONFIG_PATH = resolve(PROJECT_ROOT, "tsconfig.json");
 
 let cachedProgram: ts.Program | null = null;
