@@ -72,14 +72,44 @@ export function LogStream() {
             ) : (
               <AnimatePresence initial={false}>
                 {logs.map((entry, idx) => {
-                  // Safely access log entry properties with fallbacks
-                  const entryType = entry?.type || "info";
-                  const entrySource = entry?.source || "pipeline";
-                  const entryTimestamp = entry?.timestamp || "00:00:00";
-                  const entryMessage = entry?.message || "No message";
+                  // Check if entry is valid before accessing properties
+                  if (!entry) {
+                    return (
+                      <motion.div
+                        key={`invalid-${idx}`}
+                        initial={{ opacity: 0, x: -8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.18 }}
+                        className="flex items-start gap-2.5 rounded-md px-2 py-1.5 hover:bg-slate-900/40 border border-transparent hover:border-slate-800/40"
+                      >
+                        <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-rose-400" />
+                        <span className="text-slate-500 shrink-0 tabular-nums">00:00:00</span>
+                        <span className="shrink-0 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border bg-slate-500/15 text-slate-400 border-slate-500/40">
+                          system
+                        </span>
+                        <span className="text-slate-200 leading-relaxed break-all flex-1">
+                          Invalid log entry
+                        </span>
+                      </motion.div>
+                    );
+                  }
+
+                  // Safely access log entry properties with type guards
+                  const isValidType = (type: unknown): type is keyof typeof TYPE_ICON => {
+                    return typeof type === 'string' && type in TYPE_ICON;
+                  };
                   
-                  const Icon = TYPE_ICON[entryType] || Info;
-                  const color = TYPE_COLOR[entryType] || TYPE_COLOR.info;
+                  const isValidSource = (source: unknown): source is keyof typeof SOURCE_COLOR => {
+                    return typeof source === 'string' && source in SOURCE_COLOR;
+                  };
+
+                  const entryType = isValidType(entry.type) ? entry.type : 'info';
+                  const entrySource = isValidSource(entry.source) ? entry.source : 'pipeline';
+                  const entryTimestamp = typeof entry.timestamp === 'string' ? entry.timestamp : "00:00:00";
+                  const entryMessage = typeof entry.message === 'string' ? entry.message : "No message";
+                  
+                  const Icon = TYPE_ICON[entryType];
+                  const color = TYPE_COLOR[entryType];
                   // Use length-based key to allow duplicate messages while keeping stable order
                   const key = `${logs.length - idx}-${entryTimestamp}-${idx}`;
                   return (
@@ -95,7 +125,7 @@ export function LogStream() {
                       <span
                         className={cn(
                           "shrink-0 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border",
-                          SOURCE_COLOR[entrySource] || SOURCE_COLOR.pipeline
+                          SOURCE_COLOR[entrySource]
                         )}
                       >
                         {entrySource}
