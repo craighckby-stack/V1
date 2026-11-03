@@ -72,10 +72,16 @@ export function LogStream() {
             ) : (
               <AnimatePresence initial={false}>
                 {logs.map((entry, idx) => {
-                  const Icon = TYPE_ICON[entry.type];
-                  const color = TYPE_COLOR[entry.type];
+                  // Safely access log entry properties with fallbacks
+                  const entryType = entry?.type || "info";
+                  const entrySource = entry?.source || "pipeline";
+                  const entryTimestamp = entry?.timestamp || "00:00:00";
+                  const entryMessage = entry?.message || "No message";
+                  
+                  const Icon = TYPE_ICON[entryType] || Info;
+                  const color = TYPE_COLOR[entryType] || TYPE_COLOR.info;
                   // Use length-based key to allow duplicate messages while keeping stable order
-                  const key = `${logs.length - idx}-${entry.timestamp}-${idx}`;
+                  const key = `${logs.length - idx}-${entryTimestamp}-${idx}`;
                   return (
                     <motion.div
                       key={key}
@@ -85,16 +91,16 @@ export function LogStream() {
                       className="flex items-start gap-2.5 rounded-md px-2 py-1.5 hover:bg-slate-900/40 border border-transparent hover:border-slate-800/40"
                     >
                       <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", color)} />
-                      <span className="text-slate-500 shrink-0 tabular-nums">{entry.timestamp}</span>
+                      <span className="text-slate-500 shrink-0 tabular-nums">{entryTimestamp}</span>
                       <span
                         className={cn(
                           "shrink-0 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border",
-                          SOURCE_COLOR[entry.source]
+                          SOURCE_COLOR[entrySource] || SOURCE_COLOR.pipeline
                         )}
                       >
-                        {entry.source}
+                        {entrySource}
                       </span>
-                      <span className="text-slate-200 leading-relaxed break-all flex-1">{entry.message}</span>
+                      <span className="text-slate-200 leading-relaxed break-all flex-1">{entryMessage}</span>
                     </motion.div>
                   );
                 })}
