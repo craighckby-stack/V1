@@ -54,18 +54,35 @@ export function PostmortemPanel() {
     setLoading(true);
     try {
       const res = await fetch("/api/postmortems");
-      const data = await res.json();
-      if (Array.isArray(data?.postmortems)) {
-        setPostmortems(data.postmortems);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch postmortems: ${res.status} ${res.statusText}`);
       }
-    } catch {
-      /* ignore */
+      const data = await res.json();
+      if (!Array.isArray(data?.postmortems)) {
+        throw new Error("Invalid postmortem data received from API");
+      }
+      setPostmortems(data.postmortems);
+    } catch (error) {
+      toast({
+        title: "Failed to load postmortems",
+        description: error instanceof Error ? error.message : "Unknown error occurred",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
   }
 
   async function dismiss(id: string, filePath: string) {
+    if (!id || !filePath) {
+      toast({
+        title: "Invalid dismiss request",
+        description: "Missing required information to dismiss postmortem",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       const res = await fetch(`/api/postmortems?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
