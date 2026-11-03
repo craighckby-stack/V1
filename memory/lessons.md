@@ -4,32 +4,32 @@
 > sees your edits and won't re-derive a contradicting rule. One entry per lesson.
 > 6 active · 0 inactive (0 revoked) · generated 2026-11-03
 
-## [judgment | active] historical-failure-cluster-feat-6-commits-in-this · score 1.00 · helped 0 · hindered 0 · lapse 0 · distilled 2026-11-03
-**Rule:** Historical failure cluster "feat": 6 commits in this codebase's pre-loop git history failed or required follow-up fixes around this theme (evidence: bf6e73a0, 4dd9fcb5, f44310fd, 7f793f57). When mutating feat-related code, prefer minimal surgical diffs and explicitly verify the behavior that previously broke.
-**Source:** distilled from 6 postmortem(s)
-**Evidence:** HISTORICAL_FACT — helped/hindered/lapse counts above are measured outcomes of injected prompts, not estimates. AI_INTERPRETATION — the rule wording is the distiller's judgment, not a measured fact.
-
-## [judgment | active] historical-failure-cluster-self-5-commits-in-this · score 1.00 · helped 0 · hindered 0 · lapse 0 · distilled 2026-11-03
-**Rule:** Historical failure cluster "self": 5 commits in this codebase's pre-loop git history failed or required follow-up fixes around this theme (evidence: bf6e73a0, 44f5ac7a, cfc83e4b, 9c599c98). When mutating self-related code, prefer minimal surgical diffs and explicitly verify the behavior that previously broke.
-**Source:** distilled from 5 postmortem(s)
-**Evidence:** HISTORICAL_FACT — helped/hindered/lapse counts above are measured outcomes of injected prompts, not estimates. AI_INTERPRETATION — the rule wording is the distiller's judgment, not a measured fact.
-
-## [judgment | active] historical-failure-cluster-concept-3-commits-in-this · score 1.00 · helped 0 · hindered 0 · lapse 0 · distilled 2026-11-03
-**Rule:** Historical failure cluster "concept": 3 commits in this codebase's pre-loop git history failed or required follow-up fixes around this theme (evidence: 9c599c98, f4a05934, 2c1de8cc). When mutating concept-related code, prefer minimal surgical diffs and explicitly verify the behavior that previously broke.
+## [judgment | active] historical-repair-cluster-start-3-fixfailure-commits-in · score 1.00 · helped 0 · hindered 0 · lapse 0 · distilled 2026-11-03
+**Rule:** Historical repair cluster "start": 3 fix/failure commits in this codebase's git history target this theme (evidence: f995be1e, 9c77b68f, 1f1fd238). The area has a documented history of subtle breakage — when mutating start-related code, prefer minimal surgical diffs and explicitly verify the behavior that previously broke.
 **Source:** distilled from 3 postmortem(s)
 **Evidence:** HISTORICAL_FACT — helped/hindered/lapse counts above are measured outcomes of injected prompts, not estimates. AI_INTERPRETATION — the rule wording is the distiller's judgment, not a measured fact.
 
-## [judgment | active] historical-failure-cluster-target-2-commits-in-this · score 1.00 · helped 0 · hindered 0 · lapse 0 · distilled 2026-11-03
-**Rule:** Historical failure cluster "target": 2 commits in this codebase's pre-loop git history failed or required follow-up fixes around this theme (evidence: bf6e73a0, ae98d9e8). When mutating target-related code, prefer minimal surgical diffs and explicitly verify the behavior that previously broke.
+## [judgment | active] historical-repair-cluster-duress-3-fixfailure-commits-in · score 1.00 · helped 0 · hindered 0 · lapse 0 · distilled 2026-11-03
+**Rule:** Historical repair cluster "duress": 3 fix/failure commits in this codebase's git history target this theme (evidence: ba0d5129, ad812c0f, f3c708fd). The area has a documented history of subtle breakage — when mutating duress-related code, prefer minimal surgical diffs and explicitly verify the behavior that previously broke.
+**Source:** distilled from 3 postmortem(s)
+**Evidence:** HISTORICAL_FACT — helped/hindered/lapse counts above are measured outcomes of injected prompts, not estimates. AI_INTERPRETATION — the rule wording is the distiller's judgment, not a measured fact.
+
+## [judgment | active] historical-repair-cluster-command-2-fixfailure-commits-in · score 1.00 · helped 0 · hindered 0 · lapse 0 · distilled 2026-11-03
+**Rule:** Historical repair cluster "command": 2 fix/failure commits in this codebase's git history target this theme (evidence: 0dd877d7, ba95794a). The area has a documented history of subtle breakage — when mutating command-related code, prefer minimal surgical diffs and explicitly verify the behavior that previously broke.
 **Source:** distilled from 2 postmortem(s)
 **Evidence:** HISTORICAL_FACT — helped/hindered/lapse counts above are measured outcomes of injected prompts, not estimates. AI_INTERPRETATION — the rule wording is the distiller's judgment, not a measured fact.
 
-## [judgment | active] historical-failure-cluster-loop-2-commits-in-this · score 1.00 · helped 0 · hindered 0 · lapse 0 · distilled 2026-11-03
-**Rule:** Historical failure cluster "loop": 2 commits in this codebase's pre-loop git history failed or required follow-up fixes around this theme (evidence: bf6e73a0, f44310fd). When mutating loop-related code, prefer minimal surgical diffs and explicitly verify the behavior that previously broke.
+## [judgment | active] historical-repair-cluster-loop-2-fixfailure-commits-in · score 1.00 · helped 0 · hindered 0 · lapse 0 · distilled 2026-11-03
+**Rule:** Historical repair cluster "loop": 2 fix/failure commits in this codebase's git history target this theme (evidence: 0dd877d7, 8aade78d). The area has a documented history of subtle breakage — when mutating loop-related code, prefer minimal surgical diffs and explicitly verify the behavior that previously broke.
 **Source:** distilled from 2 postmortem(s)
 **Evidence:** HISTORICAL_FACT — helped/hindered/lapse counts above are measured outcomes of injected prompts, not estimates. AI_INTERPRETATION — the rule wording is the distiller's judgment, not a measured fact.
 
-## [judgment | active] historical-failure-cluster-repo-2-commits-in-this · score 1.00 · helped 0 · hindered 0 · lapse 0 · distilled 2026-11-03
-**Rule:** Historical failure cluster "repo": 2 commits in this codebase's pre-loop git history failed or required follow-up fixes around this theme (evidence: 4dd9fcb5, 9c599c98). When mutating repo-related code, prefer minimal surgical diffs and explicitly verify the behavior that previously broke.
+## [judgment | active] historical-repair-cluster-turbopack-2-fixfailure-commits-in · score 1.00 · helped 0 · hindered 0 · lapse 0 · distilled 2026-11-03
+**Rule:** Historical repair cluster "turbopack": 2 fix/failure commits in this codebase's git history target this theme (evidence: e2378128, 9db3b94c). The area has a documented history of subtle breakage — when mutating turbopack-related code, prefer minimal surgical diffs and explicitly verify the behavior that previously broke.
+**Source:** distilled from 2 postmortem(s)
+**Evidence:** HISTORICAL_FACT — helped/hindered/lapse counts above are measured outcomes of injected prompts, not estimates. AI_INTERPRETATION — the rule wording is the distiller's judgment, not a measured fact.
+
+## [judgment | active] historical-repair-cluster-files-2-fixfailure-commits-in · score 1.00 · helped 0 · hindered 0 · lapse 0 · distilled 2026-11-03
+**Rule:** Historical repair cluster "files": 2 fix/failure commits in this codebase's git history target this theme (evidence: a3f3a79c, a76bbff0). The area has a documented history of subtle breakage — when mutating files-related code, prefer minimal surgical diffs and explicitly verify the behavior that previously broke.
 **Source:** distilled from 2 postmortem(s)
 **Evidence:** HISTORICAL_FACT — helped/hindered/lapse counts above are measured outcomes of injected prompts, not estimates. AI_INTERPRETATION — the rule wording is the distiller's judgment, not a measured fact.
