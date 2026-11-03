@@ -40,6 +40,23 @@ export async function createProphecy(input: {
   historySnapshot?: string | null;
   domain?: string | null;
 }): Promise<ProphecyRow | null> {
+  // Input validation
+  if (!input.claim || typeof input.claim !== "string" || input.claim.trim() === "") {
+    return null;
+  }
+  if (typeof input.confidence !== "number" || input.confidence < 0 || input.confidence > 1) {
+    return null;
+  }
+  if (!input.rationale || typeof input.rationale !== "string" || input.rationale.trim() === "") {
+    return null;
+  }
+  if (!input.falsifiabilityCriterion || typeof input.falsifiabilityCriterion !== "string" || input.falsifiabilityCriterion.trim() === "") {
+    return null;
+  }
+  if (!(input.evaluateBy instanceof Date) || isNaN(input.evaluateBy.getTime())) {
+    return null;
+  }
+
   try {
     return await db.prophecy.create({
       data: {
@@ -81,6 +98,11 @@ export async function listPendingProphecies(): Promise<ProphecyRow[]> {
  *  backfill (e.g. evaluate as of an hour ago for testing). Defaults to
  *  now. */
 export async function listDueProphecies(asOf: Date = new Date()): Promise<ProphecyRow[]> {
+  // Validate asOf parameter
+  if (!(asOf instanceof Date) || isNaN(asOf.getTime())) {
+    return [];
+  }
+
   try {
     return await db.prophecy.findMany({
       where: {
@@ -98,6 +120,11 @@ export async function listDueProphecies(asOf: Date = new Date()): Promise<Prophe
  *  shows the system's latest predictions and their outcomes. Limited
  *  because the full history could grow large; the UI paginates further. */
 export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
+  // Validate limit parameter
+  if (typeof limit !== "number" || limit < 0) {
+    return [];
+  }
+
   try {
     return await db.prophecy.findMany({
       orderBy: { createdAt: "desc" },
@@ -111,6 +138,11 @@ export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
 /** One prophecy by id, for the per-prophecy UI view and the evaluator's
  *  per-target path. */
 export async function getProphecy(id: string): Promise<ProphecyRow | null> {
+  // Validate id parameter
+  if (!id || typeof id !== "string" || id.trim() === "") {
+    return null;
+  }
+
   try {
     return await db.prophecy.findUnique({ where: { id } });
   } catch {
@@ -126,6 +158,21 @@ export async function judgeProphecy(
   verdict: "fulfilled" | "failed" | "retired",
   evaluation: string,
 ): Promise<ProphecyRow | null> {
+  // Validate id parameter
+  if (!id || typeof id !== "string" || id.trim() === "") {
+    return null;
+  }
+
+  // Validate verdict parameter
+  if (!["fulfilled", "failed", "retired"].includes(verdict)) {
+    return null;
+  }
+
+  // Validate evaluation parameter
+  if (!evaluation || typeof evaluation !== "string" || evaluation.trim() === "") {
+    return null;
+  }
+
   try {
     return await db.prophecy.update({
       where: { id },
@@ -157,14 +204,22 @@ export async function getProphecyCounts(): Promise<{
     // older API on all versions; do four findMany+count calls. The
     // prophecy table will stay small (a few rows per day) so this is
     // cheaper than it looks and avoids version-specific groupBy quirks.
-    const [pending, fulfilled, failed, retired, total] = await Promise.all([
+    const [pending, fulfilled, failed, retired, total] = await Promise.allSettled([
       db.prophecy.count({ where: { status: "pending" } }),
       db.prophecy.count({ where: { status: "fulfilled" } }),
       db.prophecy.count({ where: { status: "failed" } }),
       db.prophecy.count({ where: { status: "retired" } }),
       db.prophecy.count({}),
     ]);
-    return { pending, fulfilled, failed, retired, total };
+
+    // Handle potential errors from individual count queries
+    return {
+      pending: pending.status === "fulfilled" ? pending.value : 0,
+      fulfilled: fulfilled.status === "fulfilled" ? fulfilled.value : 0,
+      failed: failed.status === "fulfilled" ? failed.value : 0,
+      retired: retired.status === "fulfilled" ? retired.value : 0,
+      total: total.status === "fulfilled" ? total.value : 0,
+    };
   } catch {
     return { pending: 0, fulfilled: 0, failed: 0, retired: 0, total: 0 };
   }
