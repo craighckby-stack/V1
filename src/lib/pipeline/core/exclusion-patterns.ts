@@ -55,16 +55,10 @@ export const LEDGER_OR_META_PATTERNS: ReadonlyArray<RegExp> = [
 ];
 
 export function isLockfileOrGeneratedFile(path: string): boolean {
-  if (typeof path !== 'string') {
-    throw new Error(`Invalid path: expected string but received ${typeof path}`);
-  }
   return LOCKFILE_AND_GENERATED_PATTERNS.some((p) => p.test(path));
 }
 
 export function isLedgerOrMetaFile(path: string): boolean {
-  if (typeof path !== 'string') {
-    throw new Error(`Invalid path: expected string but received ${typeof path}`);
-  }
   return LEDGER_OR_META_PATTERNS.some((p) => p.test(path));
 }
 
@@ -73,26 +67,6 @@ export function isLedgerOrMetaFile(path: string): boolean {
  *  (it would otherwise pollute the wrong/correct counts). Returns true
  *  when the commit has at least one REAL source file. */
 export function hasCoreSourceFiles(files: string[]): boolean {
-  if (!Array.isArray(files)) {
-    throw new Error(`Invalid files: expected array but received ${typeof files}`);
-  }
-  if (files.length === 0) {
-    throw new Error('Invalid files: array is empty');
-  }
-  
-  // Check each file to ensure it's a valid string before processing
-  for (const file of files) {
-    if (typeof file !== 'string') {
-      throw new Error(`Invalid file in array: expected string but received ${typeof file} (${JSON.stringify(file)}) at index ${files.indexOf(file)}`);
-    }
-  }
-  
-  // Early return optimization: as soon as we find a real source file, return true
-  for (const file of files) {
-    if (!isLockfileOrGeneratedFile(file) && !isLedgerOrMetaFile(file)) {
-      return true;
-    }
-  }
-  
-  return false;
+  if (files.length === 0) return false;
+  return files.some((f) => !isLockfileOrGeneratedFile(f) && !isLedgerOrMetaFile(f));
 }

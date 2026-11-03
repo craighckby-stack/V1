@@ -20,9 +20,7 @@ function isInvalidToken(token: string): boolean {
 }
 
 export function getUsableToken(clientToken?: string): string | null {
-  // Handle undefined environment variables more safely
-  const envToken = process.env?.GITHUB_TOKEN ?? "";
-  const candidate = (clientToken ?? envToken).trim();
+  const candidate = (clientToken ?? (process.env?.GITHUB_TOKEN ?? "")).trim();
   
   if (
     !candidate ||
@@ -43,25 +41,20 @@ export function githubHeaders(token: string | null): Record<string, string> {
     };
   }
 
-  // Validate token is actually a string
-  if (typeof token !== 'string') {
-    throw new Error(`Invalid token provided: must be a string, received ${typeof token}. Please check your configuration.`);
-  }
-
-  // Trim the token before validation
   const trimmedToken = token.trim();
 
-  if (!trimmedToken) {
-    throw new Error(`Invalid token provided: must be a non-empty string after trimming. Please check your token configuration.`);
+  if (typeof token !== 'string' || !trimmedToken) {
+    // Never echo the value into the message — even a malformed token
+    // shouldn't be splatted into error logs.
+    throw new Error(`Invalid token provided: must be a non-empty string.`);
   }
 
-  // Additional validation to ensure token meets requirements
+  if (isInvalidToken(token)) {
+    throw new Error(`Invalid token provided: contains invalid patterns (placeholder/REDACTED markers).`);
+  }
+
   if (trimmedToken.length < MIN_TOKEN_LENGTH) {
-    throw new Error(`Invalid token provided: token length must be at least ${MIN_TOKEN_LENGTH} characters. Please check your token configuration.`);
-  }
-
-  if (isInvalidToken(trimmedToken)) {
-    throw new Error(`Invalid token provided: token contains invalid patterns. Please check your token configuration.`);
+    throw new Error(`Invalid token provided: must be at least ${MIN_TOKEN_LENGTH} characters long. Received: ${trimmedToken.length} characters`);
   }
 
   const headers: Record<string, string> = {

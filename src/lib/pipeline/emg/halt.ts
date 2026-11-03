@@ -34,9 +34,6 @@ const SPECIAL_CHARACTERS_REGEX = /\s*([{};:,=()])\s*/g;
  * ZERO_DIFF_SATURATION (audit 2, item 10).
  */
 export function normalizeCode(code: string): string {
-  if (typeof code !== "string") {
-    throw new Error("normalizeCode requires a string input");
-  }
   return stripComments(code)
     .replace(WHITESPACE_REGEX, " ")
     .replace(SPECIAL_CHARACTERS_REGEX, "$1")
@@ -54,20 +51,10 @@ export class SelfStoppingGovernor {
 
   constructor(options?: { maxConsecutiveFailures?: number; maxCycles?: number }) {
     this.maxConsecutiveFailures = options?.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
-    
-    // Validate maxCycles
-    if (typeof options?.maxCycles !== "number" || options.maxCycles <= 0) {
-      this.maxCycles = DEFAULT_MAX_CYCLES;
-    } else {
-      this.maxCycles = Math.min(MAX_ALLOWED_CYCLES, options.maxCycles);
-    }
+    this.maxCycles = options?.maxCycles ?? DEFAULT_MAX_CYCLES;
   }
 
   public computeTreeFingerprint(files: TreeFileDescriptor[]): string {
-    if (!files || !Array.isArray(files)) {
-      throw new Error("computeTreeFingerprint requires a non-empty array of TreeFileDescriptor");
-    }
-    
     const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
     const raw = sorted.map(f => `${f.path}:${f.sha ?? f.size ?? 0}`).join("|");
     let hash = 0;
@@ -89,17 +76,10 @@ export class SelfStoppingGovernor {
   }
 
   public setSaturatedTreeHash(hash: string): void {
-    if (typeof hash !== "string") {
-      throw new Error("setSaturatedTreeHash requires a string input");
-    }
     this.saturatedTreeHash = hash;
   }
 
   public checkZeroDiffSaturation(originalCode: string, proposedCode: string): HaltEvaluationState | null {
-    if (typeof originalCode !== "string" || typeof proposedCode !== "string") {
-      throw new Error("checkZeroDiffSaturation requires string inputs for both originalCode and proposedCode");
-    }
-    
     const normOriginal = normalizeCode(originalCode);
     const normProposed = normalizeCode(proposedCode);
     if (normOriginal === normProposed) {
@@ -113,10 +93,6 @@ export class SelfStoppingGovernor {
   }
 
   public recordResult(success: boolean, filePath?: string): HaltEvaluationState | null {
-    if (typeof success !== "boolean") {
-      throw new Error("recordResult requires a boolean value for success");
-    }
-    
     if (filePath && this.lastFilePath && this.lastFilePath !== filePath) {
       this.currentCycle = 0;
     }
@@ -166,10 +142,9 @@ export class SelfStoppingGovernor {
   }
 
   public setMaxCycles(max: number): void {
-    if (typeof max !== "number" || max <= 0) {
-      throw new Error("setMaxCycles requires a positive number");
+    if (typeof max === "number" && max > 0) {
+      this.maxCycles = Math.min(MAX_ALLOWED_CYCLES, max);
     }
-    this.maxCycles = Math.min(MAX_ALLOWED_CYCLES, max);
   }
 
   public reset(): void {

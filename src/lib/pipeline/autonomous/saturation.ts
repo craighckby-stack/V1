@@ -79,15 +79,7 @@ export const SATURATION_THRESHOLD = 3;
  *  documented where they're enforced. */
 export async function getSaturationThreshold(): Promise<number> {
   const { getMetaInt } = await import("./meta-params");
-  const threshold = getMetaInt("SATURATION_THRESHOLD", SATURATION_THRESHOLD);
-  
-  // Validate that the threshold is a positive number
-  if (typeof threshold !== "number" || threshold <= 0) {
-    console.warn(`Invalid SATURATION_THRESHOLD value: ${threshold}. Using default: ${SATURATION_THRESHOLD}`);
-    return SATURATION_THRESHOLD;
-  }
-  
-  return threshold;
+  return getMetaInt("SATURATION_THRESHOLD", SATURATION_THRESHOLD);
 }
 
 /** Per-file saturation state. Persisted in memory only (not the DB) —
@@ -121,11 +113,6 @@ export type SaturationMap = Record<string, FileSaturation>;
 export type GrowthClassification = "growth" | "no-growth" | "neutral";
 
 export function classifyGrowth(reason: string): GrowthClassification {
-  // Add null/undefined check to prevent runtime errors
-  if (!reason) {
-    return "neutral";
-  }
-  
   // Enhancement — growth (resets counter)
   if (reason.startsWith("Enhanced")) return "growth";
   // Quota / transient — neutral (don't punish the file for API limits).

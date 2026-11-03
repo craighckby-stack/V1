@@ -41,36 +41,16 @@ export function assertRouteCooldown(
   route: string,
   minIntervalMs: number
 ): { ok: boolean; retryAfterMs: number } {
-  // Input validation
-  if (typeof route !== 'string' || route.trim() === '') {
-    throw new Error('Route must be a non-empty string');
-  }
-  
-  if (typeof minIntervalMs !== 'number' || minIntervalMs <= 0 || !Number.isFinite(minIntervalMs)) {
-    throw new Error('minIntervalMs must be a positive finite number');
-  }
-
   const now = Date.now();
   const entry = routeCooldowns.get(route);
-  
-  // Handle race condition: multiple simultaneous calls could bypass cooldown
-  if (entry) {
+  if (entry && entry.intervalMs === minIntervalMs) {
     const elapsed = now - entry.lastFired;
-    if (elapsed < entry.intervalMs) {
-      // Only use the new interval if it's longer than the existing one
-      const effectiveInterval = Math.max(entry.intervalMs, minIntervalMs);
-      const retryAfter = Math.ceil((effectiveInterval - elapsed) / 1000);
-      
-      // Update with the longer interval if needed
-      if (minIntervalMs > entry.intervalMs) {
-        routeCooldowns.set(route, { intervalMs: minIntervalMs, lastFired: entry.lastFired });
-      }
-      
-      return { ok: false, retryAfterMs: retryAfter };
+    if (elapsed < minIntervalMs) {
+      return { ok: false, retryAfterMs: Math.ceil((minIntervalMs - elapsed) / 1000) };
     }
+    entry.lastFired = now;
+    return { ok: true, retryAfterMs: 0 };
   }
-  
-  // Atomic update: set the timestamp only after we've confirmed it's safe
   routeCooldowns.set(route, { intervalMs: minIntervalMs, lastFired: now });
   return { ok: true, retryAfterMs: 0 };
 }
@@ -82,20 +62,9 @@ export function routeCooldownStatus(): Record<
 > {
   const now = Date.now();
   const out: Record<string, { intervalMs: number; lastFired: number; remainingMs: number }> = {};
-  
-  // Create a copy of keys to avoid modifying the map during iteration
-  const routes = Array.from(routeCooldowns.keys());
-  
-  for (const route of routes) {
-    const entry = routeCooldowns.get(route);
-    if (!entry) continue;
-    
+  for (const [route, entry] of routeCooldowns) {
     const remaining = Math.max(0, entry.intervalMs - (now - entry.lastFired));
-    if (remaining === 0) {
-      routeCooldowns.delete(route);
-    } else {
-      out[route] = { intervalMs: entry.intervalMs, lastFired: entry.lastFired, remainingMs: remaining };
-    }
+    out[route] = { intervalMs: entry.intervalMs, lastFired: entry.lastFired, remainingMs: remaining };
   }
   return out;
 }

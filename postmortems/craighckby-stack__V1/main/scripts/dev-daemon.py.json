@@ -2,7 +2,7 @@
   "targetRepo": "craighckby-stack/V1",
   "branch": "main",
   "filePath": "scripts/dev-daemon.py",
-  "status": "resolved",
+  "status": "active",
   "verificationStatus": "verified",
   "failureType": "ZERO_DIFF_SATURATION",
   "symptom": "0-diff saturation: no semantic change produced",
@@ -12,8 +12,8 @@
   "parentHash": null,
   "hash": "aac9692b9fa22150a93341e40584e7265bc96d65c91ddbc342906605d19ecff9",
   "lastAttemptAt": "2026-11-02T12:56:30.675Z",
-  "resolvedAt": "2026-11-02T16:23:02.443Z",
+  "resolvedAt": null,
   "createdAt": "2026-11-02T09:33:05.371Z",
-  "updatedAt": "2026-11-02T16:23:02.443Z",
+  "updatedAt": "2026-11-02T12:56:30.675Z",
   "schema": 2
 }

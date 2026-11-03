@@ -39,25 +39,10 @@ export function validateStructure(
 ): StructureResult {
   const issues: StructureIssue[] = [];
 
-  // Input validation
-  if (!filePath || typeof filePath !== "string" || !filePath.trim()) {
+  if (!refactoredCode || !refactoredCode.trim()) {
     return {
       ok: false,
-      issues: [{ code: "INVALID_INPUT", message: "File path is empty, null, or not a string." }],
-    };
-  }
-
-  if (!originalCode || typeof originalCode !== "string" || !originalCode.trim()) {
-    return {
-      ok: false,
-      issues: [{ code: "INVALID_INPUT", message: "Original code is empty, null, or not a string." }],
-    };
-  }
-
-  if (!refactoredCode || typeof refactoredCode !== "string" || !refactoredCode.trim()) {
-    return {
-      ok: false,
-      issues: [{ code: "EMPTY_FILE", message: "Refactored code is empty, null, or not a string." }],
+      issues: [{ code: "EMPTY_FILE", message: "Refactored code is empty." }],
     };
   }
 
@@ -115,10 +100,7 @@ export function validateStructure(
   // 5. LICENSE HEADER STRIPPING — copyright/SPDX in the first 2000 chars of
   // original but missing in candidate.
   const licenseRe = /(?:SPDX-License-Identifier:|Copyright\s+(?:\([cC]\)|©)|Licensed\s+under\s+the|Permission\s+is\s+hereby\s+granted)/i;
-  const origHeader = originalCode.slice(0, 2000);
-  const candHeader = refactoredCode.slice(0, 2000);
-  
-  if (origHeader && licenseRe.test(origHeader) && !licenseRe.test(candHeader)) {
+  if (licenseRe.test(originalCode.slice(0, 2000)) && !licenseRe.test(refactoredCode.slice(0, 2000))) {
     issues.push({
       code: "LICENSE_STRIPPED",
       message: "Original file contained a license/copyright header; candidate removed it. License headers must be preserved.",
@@ -146,27 +128,18 @@ function extractTopLevelExports(code: string): Set<string> {
     const trimmed = line.trim();
     const m = trimmed.match(exportRe);
     if (m && m[1]) {
-      // Validate the export name is properly formed
-      const exportName = m[1];
-      if (exportName && typeof exportName === "string" && exportName.length > 0 && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(exportName)) {
-        exports.add(exportName);
-      }
+      exports.add(m[1]);
       continue;
     }
-    
     if (exportDefaultRe.test(trimmed)) {
       exports.add("default");
       continue;
     }
-    
     const braceMatch = trimmed.match(exportBraceRe);
     if (braceMatch && braceMatch[1]) {
       for (const name of braceMatch[1].split(",")) {
         const trimmedName = name.trim().split(/\s+as\s+/)[0];
-        // Validate the export name is properly formed
-        if (trimmedName && typeof trimmedName === "string" && trimmedName.length > 0 && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmedName)) {
-          exports.add(trimmedName);
-        }
+        if (trimmedName) exports.add(trimmedName);
       }
     }
   }
