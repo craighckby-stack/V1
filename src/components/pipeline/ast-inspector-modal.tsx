@@ -22,7 +22,29 @@ export function AstInspectorModal() {
   const { toast } = useToast();
 
   if (!inspectorFile) return null;
+  
+  // Validate required properties exist
+  if (!inspectorFile.path || !inspectorFile.original || !inspectorFile.evolved || !inspectorFile.report) {
+    toast({
+      title: "Invalid file data",
+      description: "The file data is missing required properties",
+      variant: "destructive"
+    });
+    return null;
+  }
+  
   const { path, original, evolved, report } = inspectorFile;
+  
+  // Validate AST and sanitizer results exist
+  if (!report.astDiffResult || !report.sanitizerResult) {
+    toast({
+      title: "Missing analysis data",
+      description: "The file analysis is incomplete",
+      variant: "destructive"
+    });
+    return null;
+  }
+  
   const ast = report.astDiffResult;
   const sanitizer = report.sanitizerResult;
 
@@ -86,8 +108,18 @@ export function AstInspectorModal() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  navigator.clipboard.writeText(evolved);
-                  toast({ title: "Copied evolved code", description: `${evolved.length} bytes to clipboard` });
+                  navigator.clipboard.writeText(evolved)
+                    .then(() => {
+                      toast({ title: "Copied evolved code", description: `${evolved.length} bytes to clipboard` });
+                    })
+                    .catch((error) => {
+                      toast({
+                        title: "Failed to copy code",
+                        description: "Could not copy to clipboard. Please try again.",
+                        variant: "destructive"
+                      });
+                      console.error("Clipboard error:", error);
+                    });
                 }}
                 className="bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-200"
               >
