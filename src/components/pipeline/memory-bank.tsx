@@ -27,9 +27,11 @@ export function MemoryBank() {
         const data = await res.json();
         if (!cancelled && Array.isArray(data?.entries)) {
           setEntries(data.entries);
+        } else if (!cancelled) {
+          console.error("Failed to load memory entries: Invalid data format");
         }
-      } catch {
-        /* ignore */
+      } catch (error) {
+        console.error("Failed to load memory entries:", error);
       }
     })();
     return () => {
@@ -54,6 +56,10 @@ export function MemoryBank() {
           <ScrollArea className="h-[280px] pr-3">
             <div className="space-y-2">
               {entries.map((entry) => {
+                if (!entry || !entry.id) {
+                  return null;
+                }
+                
                 const meta = PROVENANCE_META[entry.provenance] ?? PROVENANCE_META.clean;
                 const Icon = meta.icon;
                 return (
@@ -67,13 +73,13 @@ export function MemoryBank() {
                         variant="outline"
                         className={cn("text-[9px] uppercase tracking-widest", meta.bg)}
                       >
-                        {entry.provenance}
+                        {entry.provenance || "unknown"}
                       </Badge>
                       <Badge
                         variant="outline"
                         className="text-[9px] uppercase tracking-widest bg-slate-700/40 text-slate-300 border-slate-600/40"
                       >
-                        {entry.trust}
+                        {entry.trust || "unknown"}
                       </Badge>
                       {entry.filePath && (
                         <span className="ml-auto text-[10px] text-slate-500 font-mono truncate" title={entry.filePath}>
@@ -81,7 +87,7 @@ export function MemoryBank() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-200 leading-relaxed">{entry.content}</p>
+                    <p className="text-xs text-slate-200 leading-relaxed">{entry.content || "No content available"}</p>
                     {entry.diagnosis && (
                       <p className="text-[11px] text-slate-400 mt-1 italic">→ {entry.diagnosis}</p>
                     )}
