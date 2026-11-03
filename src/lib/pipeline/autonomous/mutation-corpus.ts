@@ -145,6 +145,91 @@ export async function recordMutationAttempt(params: RecordAttemptParams): Promis
   }
 }
 
+// ── Negative constraints (RAS graft) ─────────────────────────────────
+//
+// Repeated-Answers-Studio's core mechanism: when probing for a new
+// answer, feed the already-rejected ideas back as explicit
+// do-not-reuse constraints — mode collapse dies when the model can
+// SEE the space it already exhausted. LOOP already collects this data:
+// every gate-rejected proposal lands here with the LLM's own transform
+// summary. Until now that signal only reached the DISTILLER (aggregate
+// digest, once per DISTILL_INTERVAL cycles). Now it also reaches the
+// per-file propose prompt EVERY cycle: "you proposed this 3×, the
+// gates rejected it 3× — fix the underlying issue a DIFFERENT way,
+// not the same way louder."
+//
+// Every FAILURE_OUTCOMES row is a genuine content rejection — tribunal
+// unavailability is classified "deferred" (a different outcome), and
+// LLM-quota skips carry no transformSummary at all. No precision
+// filter is needed on that axis; the cap + budget bound the block.
+
+/** Entries in the rejected-transforms block (most-rejected first). */
+const REJECTED_MAX_ENTRIES = 5;
+/** Hard byte budget for the block (D6: a prompt block that grows
+ * forever is a memory leak with extra steps). Headroom for the header
+ * is subtracted inside the formatter. */
+const REJECTED_BLOCK_BUDGET = 1200;
+/** Recent rows examined per file for aggregation. */
+const REJECTED_LOOKBACK_ROWS = 300;
+
+export interface RejectedTransform {
+  readonly summary: string;
+  readonly count: number;
+  readonly outcomes: readonly string[];
+}
+
+/** Group this file's gate-rejected transforms by the LLM's own summary
+ * text (exact match — fuzzy aggregation is the distiller's job; this
+ * is the per-file exact signal). Fail-soft, like every read path. */
+export async function getRejectedTransformsForFile(filePath: string): Promise<RejectedTransform[]> {
+  const c = corpus();
+  if (!c) return [];
+  try {
+    const rows = await c.findMany({
+      where: {
+        filePath,
+        gateOutcome: { in: [...FAILURE_OUTCOMES] },
+        transformSummary: { not: null },
+      },
+      orderBy: { createdAt: "desc" },
+      take: REJECTED_LOOKBACK_ROWS,
+      select: { transformSummary: true, gateOutcome: true },
+    });
+    const bySummary = new Map<string, { count: number; outcomes: Set<string> }>();
+    for (const r of rows) {
+      const t = r.transformSummary?.trim();
+      if (!t) continue;
+      const cur = bySummary.get(t) ?? { count: 0, outcomes: new Set<string>() };
+      cur.count++;
+      cur.outcomes.add(r.gateOutcome);
+      bySummary.set(t, cur);
+    }
+    return [...bySummary.entries()]
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, REJECTED_MAX_ENTRIES)
+      .map(([summary, v]) => ({ summary, count: v.count, outcomes: [...v.outcomes] }));
+  } catch {
+    return [];
+  }
+}
+
+/** Format the negative-constraint block. Empty list → empty string —
+ * dormant until the corpus holds rejections for this file (same
+ * lifecycle as the lessons block: no data, no block, no cost). */
+export function formatRejectedTransformsBlock(list: readonly RejectedTransform[]): string {
+  if (list.length === 0) return "";
+  const lines: string[] = [];
+  let bytes = 0;
+  for (const e of list) {
+    const line = `- "${e.summary.slice(0, 120)}" — rejected ${e.count}× (${e.outcomes.join(", ")})`;
+    if (bytes + line.length > REJECTED_BLOCK_BUDGET - 250) break;
+    lines.push(line);
+    bytes += line.length;
+  }
+  if (lines.length === 0) return "";
+  return `ALREADY-REJECTED PROPOSALS FOR THIS FILE (your own recent transforms the gates rejected — do NOT re-propose the same change; if the underlying issue is real, fix it a DIFFERENT way):\n${lines.join("\n")}`;
+}
+
 /** Aggregate the SHAPE of recent failures for the distiller's digest:
  *  recurring transform summaries among recent gate failures, plus the
  *  most recent successful transforms. This is the HMRD signal — "the

@@ -55,7 +55,13 @@ import { applySchemaMutation } from "./schema-gate";
 // through the existing gates.
 import { recordLessonLapse } from "./lapse-detector";
 import { maybeReflectAfterFailure } from "./reflection";
-import { classifyGateOutcome, recordMutationAttempt, firstMeaningfulLine } from "./mutation-corpus";
+import {
+  classifyGateOutcome,
+  recordMutationAttempt,
+  firstMeaningfulLine,
+  getRejectedTransformsForFile,
+  formatRejectedTransformsBlock,
+} from "./mutation-corpus";
 import { maybeDream, getRatchetDraft } from "./dreamer";
 import { noteAttemptOutcome, maybeMetaTune } from "./meta-tuner";
 import { seedMetaParams } from "./meta-params";
@@ -1117,6 +1123,27 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
         /* lessons are an amplifier, not a gate */
       }
 
+      // 3-negatives. NEGATIVE CONSTRAINTS (RAS graft) — this file's
+      // gate-rejected transforms from the mutation corpus, fed back as
+      // do-not-reuse constraints EVERY cycle. The distiller sees the
+      // aggregate shape once per DISTILL_INTERVAL; this block shows the
+      // per-file exhausted space to the proposer itself. Directly saves
+      // scarce LLM calls: a proposal the gates already rejected is a
+      // wasted call in a 429-starved loop.
+      let rejectedBlock = "";
+      try {
+        const rejected = await getRejectedTransformsForFile(relPath);
+        rejectedBlock = formatRejectedTransformsBlock(rejected);
+        if (rejectedBlock) {
+          this.log(
+            `Injecting ${rejected.length} rejected-transform constraint(s) for ${relPath} (corpus negative constraints)`,
+            "info"
+          );
+        }
+      } catch {
+        /* amplifier, not a gate */
+      }
+
       const refactorSystem = `You are a senior code reviewer improving a TypeScript file inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
 
 Your job: find and fix REAL issues. Do NOT make cosmetic changes (type annotations, magic numbers, syntax modernization). Those are pointless. Instead, look for:
@@ -1148,7 +1175,7 @@ OUTPUT FORMAT (mandatory):
 \`\`\`typescript
 // the full file with fixes applied
 \`\`\`
-${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${ancestralBlock}${lessonsBlock}`;
+${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${rejectedBlock}${ancestralBlock}${lessonsBlock}`;
 
       const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nFind real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in this file. Fix them. If nothing needs fixing, return the file unchanged. Output the summary first, then the code.`;
 
@@ -1531,6 +1558,25 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         /* amplifier, not a gate */
       }
 
+      // Negative constraints (RAS graft) — schema-rejected proposals
+      // ride the same per-file block. Schema attempts are recorded in
+      // the corpus with relPath "prisma/schema.prisma" (runCycle records
+      // every enhanceFile result, and the schema path returns through
+      // it), so rejected schema transforms accumulate here too.
+      let rejectedBlock = "";
+      try {
+        const rejected = await getRejectedTransformsForFile(relPath);
+        rejectedBlock = formatRejectedTransformsBlock(rejected);
+        if (rejectedBlock) {
+          this.log(
+            `Injecting ${rejected.length} rejected-transform constraint(s) for schema (corpus negative constraints)`,
+            "info"
+          );
+        }
+      } catch {
+        /* amplifier, not a gate */
+      }
+
       this.log(`Proposing schema mutation for ${relPath}...`, "info");
       const system = `You are modifying the Prisma schema of a self-improving system — the schema IS the system's memory. This is the most dangerous file you can touch.
 
@@ -1553,7 +1599,7 @@ If there is NO genuinely useful additive change to make, output the original sch
 
 OUTPUT FORMAT:
 First a SHORT summary starting with "## Changes", then the COMPLETE schema in a single \`\`\`prisma fenced block.
-${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${lessonsBlock}`;
+${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${rejectedBlock}${lessonsBlock}`;
 
       const user = `Current prisma/schema.prisma:\n\n\`\`\`prisma\n${original}\n\`\`\`\n\nPropose an additive-only improvement, or return it unchanged if none is genuinely useful.`;
 
