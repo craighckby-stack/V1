@@ -71,7 +71,8 @@ export async function createProphecy(input: {
         status: "pending",
       },
     });
-  } catch {
+  } catch (error) {
+    console.error("Failed to create prophecy:", error);
     return null;
   }
 }
@@ -88,7 +89,8 @@ export async function listPendingProphecies(): Promise<ProphecyRow[]> {
       where: { status: "pending" },
       orderBy: { createdAt: "asc" },
     });
-  } catch {
+  } catch (error) {
+    console.error("Failed to list pending prophecies:", error);
     return [];
   }
 }
@@ -111,7 +113,8 @@ export async function listDueProphecies(asOf: Date = new Date()): Promise<Prophe
       },
       orderBy: { evaluateBy: "asc" },
     });
-  } catch {
+  } catch (error) {
+    console.error("Failed to list due prophecies:", error);
     return [];
   }
 }
@@ -130,7 +133,8 @@ export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
       orderBy: { createdAt: "desc" },
       take: limit,
     });
-  } catch {
+  } catch (error) {
+    console.error("Failed to list recent prophecies:", error);
     return [];
   }
 }
@@ -145,7 +149,8 @@ export async function getProphecy(id: string): Promise<ProphecyRow | null> {
 
   try {
     return await db.prophecy.findUnique({ where: { id } });
-  } catch {
+  } catch (error) {
+    console.error("Failed to get prophecy:", error);
     return null;
   }
 }
@@ -182,7 +187,8 @@ export async function judgeProphecy(
         evaluatedAt: new Date(),
       },
     });
-  } catch {
+  } catch (error) {
+    console.error("Failed to judge prophecy:", error);
     return null;
   }
 }
@@ -219,7 +225,8 @@ export async function getProphecyCounts(): Promise<{
       retired,
       total,
     };
-  } catch {
+  } catch (error) {
+    console.error("Failed to get prophecy counts:", error);
     return { pending: 0, fulfilled: 0, failed: 0, retired: 0, total: 0 };
   }
 }
@@ -238,7 +245,8 @@ export async function getJudgedPropheciesForCalibration(): Promise<
       where: { status: { in: ["fulfilled", "failed"] } },
       select: { confidence: true, status: true },
     });
-  } catch {
+  } catch (error) {
+    console.error("Failed to get judged prophecies for calibration:", error);
     return [];
   }
 }
