@@ -78,10 +78,10 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 function StageCard({ stage }: { stage: PipelineStageState }) {
-  const meta = STAGE_META[stage.id] ?? STAGE_META.stage0_ingestion;
+  const meta = STAGE_META[stage.id ?? "stage0_ingestion"] ?? STAGE_META.stage0_ingestion;
   const Icon = meta.icon;
-  const StatusIcon = STATUS_ICON[stage.status] ?? Circle;
-  const color = STATUS_COLOR[stage.status] ?? "text-slate-500";
+  const StatusIcon = STATUS_ICON[stage.status ?? "pending"] ?? Circle;
+  const color = STATUS_COLOR[stage.status ?? "pending"] ?? "text-slate-500";
   const isRunning = stage.status === "running";
 
   return (
@@ -125,7 +125,7 @@ function StageCard({ stage }: { stage: PipelineStageState }) {
             {stage.summary || "No summary available"}
           </p>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
-            {stage.durationMs !== undefined && (
+            {stage.durationMs !== undefined && typeof stage.durationMs === "number" && (
               <div className="text-[10px] text-slate-500 font-mono">{stage.durationMs}ms</div>
             )}
             {stage.id === "stage2_reasoning" &&
@@ -230,11 +230,11 @@ export function PipelineStages() {
                 variant="outline"
                 className={cn(
                   "uppercase text-[10px] tracking-widest",
-                  report.status === "COMPLETED"
+                  (report.status === "COMPLETED")
                     ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-                    : report.status === "REJECTED"
+                    : (report.status === "REJECTED")
                     ? "bg-rose-500/15 text-rose-300 border-rose-500/40"
-                    : report.status === "HALTED"
+                    : (report.status === "HALTED")
                     ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
                     : "bg-cyan-500/15 text-cyan-300 border-cyan-500/40"
                 )}
