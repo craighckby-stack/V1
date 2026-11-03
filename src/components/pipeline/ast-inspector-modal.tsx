@@ -45,6 +45,25 @@ export function AstInspectorModal() {
     return null;
   }
   
+  // Validate nested properties in AST and sanitizer results
+  if (!report.astDiffResult.symbolMap || !report.astDiffResult.violations) {
+    toast({
+      title: "Invalid AST data",
+      description: "The AST analysis data is malformed",
+      variant: "destructive"
+    });
+    return null;
+  }
+  
+  if (!report.sanitizerResult.violations) {
+    toast({
+      title: "Invalid sanitizer data",
+      description: "The sanitizer analysis data is malformed",
+      variant: "destructive"
+    });
+    return null;
+  }
+  
   const ast = report.astDiffResult;
   const sanitizer = report.sanitizerResult;
 
@@ -115,7 +134,7 @@ export function AstInspectorModal() {
                     .catch((error) => {
                       toast({
                         title: "Failed to copy code",
-                        description: "Could not copy to clipboard. Please try again.",
+                        description: error instanceof Error ? error.message : "Could not copy to clipboard. Please try again.",
                         variant: "destructive"
                       });
                       console.error("Clipboard error:", error);
