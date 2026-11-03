@@ -228,10 +228,25 @@ function snapshotLoop(): LoopSnapshot | null {
 /** Stop the current loop's timer so no cycle starts while we're swapping. */
 function pauseLoop(): void {
   try {
-    const g = globalThis as unknown as { __autonomousLoopRuntime?: any };
+    const g = globalThis as unknown as {
+      __autonomousLoopRuntime?: any;
+      __selfEnhanceLoop?: any;
+    };
+    // Stop BOTH singletons. The loop-runtime's timer drives the high-level
+    // cycle scheduler; the self-enhance loop's runContinuous while-loop
+    // drives the enhance-verify-push inner loop. Stopping only the runtime
+    // leaves the enhance loop's while-loop running against the OLD module
+    // code — an invisible rogue loop the STOP button can't reach (it
+    // calls stop() on the NEW singleton post-swap). Bumping runId via
+    // stop() makes the in-flight runCycle exit at its next checkpoint.
     const rt = g.__autonomousLoopRuntime;
-    if (!rt) return;
-    try { rt.stop?.(); } catch { /* already stopped */ }
+    if (rt) {
+      try { rt.stop?.(); } catch { /* already stopped */ }
+    }
+    const sel = g.__selfEnhanceLoop;
+    if (sel) {
+      try { sel.stop?.(); } catch { /* already stopped */ }
+    }
   } catch {
     /* no instance */
   }
