@@ -48,6 +48,7 @@ interface SchedulerState {
   lastJudgedCount: number;
   ticks: number;
   booted: boolean;
+  lockToken?: number;
 }
 
 const g = globalThis as unknown as { __oracleScheduler?: SchedulerState };
@@ -77,8 +78,13 @@ export async function oracleSchedulerTick(): Promise<{
 }> {
   const s = sched();
   
-  // Check running flag twice to prevent race condition
-  if (s.running) return { ran: false, reason: "previous tick still running" };
+  // Generate a unique lock token for this tick attempt
+  const lockToken = Date.now();
+  
+  // Check if already running with a different lock token
+  if (s.running && s.lockToken !== lockToken) {
+    return { ran: false, reason: "previous tick still running" };
+  }
 
   // Skip entirely while the shared LLM gate is closed — never steal
   // quota from the mutation loop, never hammer a 429ing provider.
@@ -86,8 +92,9 @@ export async function oracleSchedulerTick(): Promise<{
     return { ran: false, reason: "LLM cooldown active — skipping tick" };
   }
 
-  // Re-check running flag after LLM cooldown check
-  if (s.running) return { ran: false, reason: "previous tick still running" };
+  // Set the lock token and running flag
+  s.lockToken = lockToken;
+  s.running = true;
 
   // Cheap pre-check: are there any due prophecies? One indexed count
   // beats kicking off the evaluator for nothing (the evaluator's own
@@ -118,28 +125,40 @@ export async function oracleSchedulerTick(): Promise<{
   if (due.length === 0) {
     s.lastTickAt = Date.now();
     s.ticks += 1;
+    s.running = false;
+    delete s.lockToken;
     return { ran: true, judged: 0, skipped: 0 };
   }
 
-  s.running = true;
   try {
     const result = await evaluateDueProphecies();
     
-    // Handle potential undefined result
-    if (!result) {
+    // Validate the result structure
+    if (!result || typeof result !== 'object' || !('judged' in result) || !('skipped' in result)) {
       emitOracleEvent(
-        "Oracle scheduler error: evaluateDueProphecies returned undefined",
+        "Oracle scheduler error: evaluateDueProphecies returned invalid result structure",
         "error",
         "scheduler",
       );
-      return { ran: false, reason: "invalid result from prophecy evaluator" };
+      return { ran: false, reason: "invalid result structure from prophecy evaluator" };
     }
     
     const { judged, skipped } = result;
+    
+    // Validate judged and skipped are arrays
+    if (!Array.isArray(judged) || !Array.isArray(skipped)) {
+      emitOracleEvent(
+        "Oracle scheduler error: evaluateDueProphecies returned non-array for judged or skipped",
+        "error",
+        "scheduler",
+      );
+      return { ran: false, reason: "invalid array structure from prophecy evaluator" };
+    }
+    
     s.lastTickAt = Date.now();
-    s.lastJudgedCount = judged ? judged.length : 0;
+    s.lastJudgedCount = judged.length;
     s.ticks += 1;
-    return { ran: true, judged: judged ? judged.length : 0, skipped: skipped ? skipped.length : 0 };
+    return { ran: true, judged: judged.length, skipped: skipped.length };
   } catch (err) {
     emitOracleEvent(
       `Oracle scheduler error evaluating prophecies: ${(err as Error).message}`,
@@ -149,6 +168,7 @@ export async function oracleSchedulerTick(): Promise<{
     return { ran: false, reason: "error evaluating prophecies" };
   } finally {
     s.running = false;
+    delete s.lockToken;
   }
 }
 
