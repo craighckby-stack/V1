@@ -72,7 +72,7 @@ export async function createProphecy(input: {
       },
     });
   } catch (error) {
-    console.error("Failed to create prophecy:", error);
+    console.error("Failed to create prophecy:", error instanceof Error ? error.message : error);
     return null;
   }
 }
@@ -90,7 +90,7 @@ export async function listPendingProphecies(): Promise<ProphecyRow[]> {
       orderBy: { createdAt: "asc" },
     });
   } catch (error) {
-    console.error("Failed to list pending prophecies:", error);
+    console.error("Failed to list pending prophecies:", error instanceof Error ? error.message : error);
     return [];
   }
 }
@@ -114,7 +114,7 @@ export async function listDueProphecies(asOf: Date = new Date()): Promise<Prophe
       orderBy: { evaluateBy: "asc" },
     });
   } catch (error) {
-    console.error("Failed to list due prophecies:", error);
+    console.error("Failed to list due prophecies:", error instanceof Error ? error.message : error);
     return [];
   }
 }
@@ -134,7 +134,7 @@ export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
       take: limit,
     });
   } catch (error) {
-    console.error("Failed to list recent prophecies:", error);
+    console.error("Failed to list recent prophecies:", error instanceof Error ? error.message : error);
     return [];
   }
 }
@@ -150,7 +150,7 @@ export async function getProphecy(id: string): Promise<ProphecyRow | null> {
   try {
     return await db.prophecy.findUnique({ where: { id } });
   } catch (error) {
-    console.error("Failed to get prophecy:", error);
+    console.error("Failed to get prophecy:", error instanceof Error ? error.message : error);
     return null;
   }
 }
@@ -188,7 +188,7 @@ export async function judgeProphecy(
       },
     });
   } catch (error) {
-    console.error("Failed to judge prophecy:", error);
+    console.error("Failed to judge prophecy:", error instanceof Error ? error.message : error);
     return null;
   }
 }
@@ -207,7 +207,7 @@ export async function getProphecyCounts(): Promise<{
 }> {
   try {
     // SQLite doesn't support groupBy + count efficiently through Prisma's
-    // older API on all versions; do four findMany+count calls. The
+    // older API on all versions; do parallel count calls. The
     // prophecy table will stay small (a few rows per day) so this is
     // cheaper than it looks and avoids version-specific groupBy quirks.
     const [pending, fulfilled, failed, retired, total] = await Promise.all([
@@ -226,7 +226,7 @@ export async function getProphecyCounts(): Promise<{
       total,
     };
   } catch (error) {
-    console.error("Failed to get prophecy counts:", error);
+    console.error("Failed to get prophecy counts:", error instanceof Error ? error.message : error);
     return { pending: 0, fulfilled: 0, failed: 0, retired: 0, total: 0 };
   }
 }
@@ -246,7 +246,7 @@ export async function getJudgedPropheciesForCalibration(): Promise<
       select: { confidence: true, status: true },
     });
   } catch (error) {
-    console.error("Failed to get judged prophecies for calibration:", error);
+    console.error("Failed to get judged prophecies for calibration:", error instanceof Error ? error.message : error);
     return [];
   }
 }
