@@ -99,7 +99,7 @@ export async function listPendingProphecies(): Promise<ProphecyRow[]> {
  *  now. */
 export async function listDueProphecies(asOf: Date = new Date()): Promise<ProphecyRow[]> {
   // Validate asOf parameter
-  if (!(asOf instanceof Date) || isNaN(asOf.getTime())) {
+  if (!asOf || !(asOf instanceof Date) || isNaN(asOf.getTime())) {
     return [];
   }
 
@@ -204,7 +204,7 @@ export async function getProphecyCounts(): Promise<{
     // older API on all versions; do four findMany+count calls. The
     // prophecy table will stay small (a few rows per day) so this is
     // cheaper than it looks and avoids version-specific groupBy quirks.
-    const [pending, fulfilled, failed, retired, total] = await Promise.allSettled([
+    const [pending, fulfilled, failed, retired, total] = await Promise.all([
       db.prophecy.count({ where: { status: "pending" } }),
       db.prophecy.count({ where: { status: "fulfilled" } }),
       db.prophecy.count({ where: { status: "failed" } }),
@@ -212,13 +212,12 @@ export async function getProphecyCounts(): Promise<{
       db.prophecy.count({}),
     ]);
 
-    // Handle potential errors from individual count queries
     return {
-      pending: pending.status === "fulfilled" ? pending.value : 0,
-      fulfilled: fulfilled.status === "fulfilled" ? fulfilled.value : 0,
-      failed: failed.status === "fulfilled" ? failed.value : 0,
-      retired: retired.status === "fulfilled" ? retired.value : 0,
-      total: total.status === "fulfilled" ? total.value : 0,
+      pending,
+      fulfilled,
+      failed,
+      retired,
+      total,
     };
   } catch {
     return { pending: 0, fulfilled: 0, failed: 0, retired: 0, total: 0 };
