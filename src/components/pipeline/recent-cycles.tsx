@@ -115,7 +115,7 @@ export function RecentCycles() {
                       variant="outline"
                       className="text-[9px] uppercase tracking-widest bg-slate-700/40 text-slate-300 border-slate-600/40"
                     >
-                      {c.mode}
+                      {c.mode || 'unknown'}
                     </Badge>
                     <Badge
                       variant="outline"
