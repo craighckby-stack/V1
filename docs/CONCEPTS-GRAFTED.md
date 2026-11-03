@@ -35,7 +35,7 @@ not merely *that* it exists.
   times across prior sessions. There was no gate that scanned the actual
   working-tree diff *before* `git add -A && git commit`.
 - **Module:** `src/lib/pipeline/core/secret-scan.ts`
-- **Integration:** inserted into `push-target.ts` `pushCurrentState()` right
+- **Integration:** inserted into `src/lib/pipeline/autonomous/push-target.ts` `pushCurrentState()` right
   after `git status --porcelain` detects changes and *before* `git add -A`.
   If a non-dummy, non-redacted secret is found in any changed file or in the
   commit message, the commit is **blocked**, the finding is logged, and a
@@ -120,7 +120,9 @@ not merely *that* it exists.
   deferred to keep this session focused on defensive grafts.
 - **Spatiotemporal lifecycle context** (Engine-Harvester `lifecycle.ts`):
   hierarchical scoped DI + event propagation. A larger architectural refactor;
-  the `loop-event-bus.ts` already covers LOOP's event needs.
+  LOOP's procedural pipeline doesn't need an event bus yet (`loop-event-bus.ts`
+  was removed as dead infrastructure with 0 subscribers — audit-3, commit
+  590d908). Revisit if >=3 cross-cutting concerns ever compete for a hook bus.
 - **Chess adversarial state** (DARLEK-CHESS): turn-based game validation.
   Not directly applicable to a pipeline.
 

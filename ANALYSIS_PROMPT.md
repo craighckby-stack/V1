@@ -72,7 +72,7 @@ the closest near-misses. Pay special attention to:
 
 - Write paths that don't call `isProtectedPath` (search for `writeFileSync` / `spawn` / `exec` across `src/lib`).
 - The chat-task apply path (`src/app/api/self-enhance/chat-task/apply/route.ts` → `applyTaskPlan`) — operator-approved plans: what exactly is approved, and is the approved thing the same as the written thing?
-- The push path (`push-target.ts`): what does it stage and push? Could a file written outside the scan scopes ride along in `git add`?
+- The push path (`src/lib/pipeline/autonomous/push-target.ts`): what does it stage and push? Could a file written outside the scan scopes ride along in `git add`?
 - Prompt injection: `self-enhance-loop.ts` builds prompts containing file contents, postmortem text, and lessons from `memory/lessons.md`. Could poisoned memory steer proposals? Note `lesson-store.ts`/`archaeology.ts` are protected — but is the *content* they store attacker-influenced?
 - `agent-llm.ts`: the 429 rate-limit gate lives on `globalThis` (state must survive hot-swaps). Any TOCTOU/multi-instance residue?
 

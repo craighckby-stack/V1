@@ -154,14 +154,14 @@ This is meta-learning with a real feedback signal: the system learns WHICH of it
 
 ---
 
-## The mutation scope — 159 files
+## The mutation scope — 175 files
 
 | Scope | Files | Gate chain |
 |---|---|---|
-| Pipeline logic (`src/lib/pipeline/`) | 56 | ratchet pin → tsc + AST → debate → test gate |
+| Pipeline logic (`src/lib/pipeline/`) | 54 | ratchet pin → tsc + AST → debate → test gate |
 | Display layer (`src/app/display/`) | 1 | same |
 | UI components (`src/components/`) | 63 | same |
-| API routes (`src/app/api/`) | 38 | same |
+| API routes (`src/app/api/`) | 56 | same |
 | Prisma schema (`prisma/schema.prisma`) | 1 | **additive-only gate** (see below) |
 
 Everything the system IS lives inside its own reach: the loop can enhance the components that render it, the routes that serve it, and (additively) the database that remembers for it. Churn is bounded by the saturation lockout — 3 no-growth cycles per file and it locks out until the operator unlocks it.
