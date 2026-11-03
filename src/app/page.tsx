@@ -277,6 +277,29 @@ export default function Home() {
   // polled) so it doesn't burn GitHub API quota. Opened from the
   // [BRANCHES] header button.
   const [branchesOpen, setBranchesOpen] = useState(false);
+  // Live-enhancement banner: track the last file the loop was working on so
+  // the banner stays visible between files (currentFile goes null briefly
+  // between enhanceFile calls — without this, the banner would flash
+  // "idle" for ~50ms between every file and look broken). Also tracks the
+  // last enhancement timestamp so we can show "✓ committed <file> 3s ago"
+  // briefly after a file completes, before the next one starts.
+  const [lastSeenFile, setLastSeenFile] = useState<string | null>(null);
+  const [lastFileAt, setLastFileAt] = useState<number | null>(null);
+  // Spinner frame — rotates every 200ms while the loop is actively
+  // enhancing. Cheap state, only ticks when running && currentFile.
+  const [spinnerFrame, setSpinnerFrame] = useState(0);
+  useEffect(() => {
+    if (!status?.running || !status?.currentFile) return;
+    const t = setInterval(() => setSpinnerFrame((f) => (f + 1) % 8), 200);
+    return () => clearInterval(t);
+  }, [status?.running, status?.currentFile]);
+  // Track the currentFile → lastSeenFile so the banner persists.
+  useEffect(() => {
+    if (status?.currentFile) {
+      setLastSeenFile(status.currentFile);
+      setLastFileAt(Date.now());
+    }
+  }, [status?.currentFile]);
   // Hot-swap indicator — shows the running pipeline fingerprint + swap
   // count next to [START], so the operator can see the system is live-
   //   swapping its own code. Polled alongside the self-enhance status.
@@ -1516,6 +1539,17 @@ export default function Home() {
             50% { opacity: 0.35; }
           }
 
+          /* ── Enhancement banner pulse ─────────────────────────────────
+             The "ENHANCING: <file>" banner pulses brighter than the
+             running-dot loopPulse — this is the system ACTIVELY working
+             on a file right now (not just "the loop is on"). The brighter
+             floor (0.7 vs 0.35) keeps the filename readable through the
+             pulse — you never lose sight of which file is being mutated. */
+          @keyframes enhancePulse {
+            0%, 100% { background: #000; }
+            50% { background: rgba(224, 224, 224, 0.06); }
+          }
+
           /* ── Header button system (.lbtn) ──────────────────────────────
              DOS chrome: square keys, 1px border, invert on press.
              Hierarchy: primary (START) brightest · danger (STOP) red alarm
@@ -1695,6 +1729,132 @@ export default function Home() {
           />
         </div>
       </div>
+
+      {/* ── Live enhancement banner ──────────────────────────────────────
+          The "you can SEE the system enhancing itself" banner. Shows what
+          file the loop is mutating RIGHT NOW, with a rotating spinner and
+          live stats counters. Without this, enhancement activity was only
+          visible as scrolling logs in the ConsoleStream — you had to be
+          staring at the stream at the exact moment to see it happen.
+
+          States:
+            - running + currentFile:   ⚡ ENHANCING: <file>  + spinner
+                                       (bright, pulsing — the system is
+                                       actively mutating this file right now)
+            - running, no currentFile: ⚡ CYCLE: scanning / between files
+                                       (brief — the loop is fetching the
+                                       next file or between enhanceFile calls)
+            - stopped:                 banner hidden entirely (the system
+                                       isn't enhancing anything)
+
+          The banner uses lastSeenFile (persisted from the last
+          currentFile) so it doesn't flash empty between files — the
+          loop sets currentFile to null for ~50ms between enhanceFile
+          calls, which would otherwise look like the banner broke.
+
+          Stats line (always visible when running): shows the cumulative
+          counters so you can watch the system's progress at a glance —
+          enhanced / reverted / pushed / cycles. */}
+      {(() => {
+        const isRunning = status?.running ?? false;
+        if (!isRunning) return null;
+        const activeFile = status?.currentFile ?? lastSeenFile;
+        const isEnhancing = !!status?.currentFile;
+        const spinner = "⠋⠙⠹⠸⠼⠴⠦⠧"[spinnerFrame] ?? "·";
+        const stats = status?.stats;
+        const statsLine = stats
+          ? [
+              `enhanced:${stats.totalEnhanced ?? 0}`,
+              `reverted:${stats.totalReverted ?? 0}`,
+              `pushed:${stats.totalPushed ?? 0}`,
+              `cycles:${stats.cyclesCompleted ?? 0}`,
+            ].join(" · ")
+          : "";
+        // Filename: show basename for readability, full path on hover.
+        const fileDisplay = activeFile
+          ? activeFile.split("/").pop() ?? activeFile
+          : "(scanning…)";
+        return (
+          <div
+            aria-label={
+              isEnhancing
+                ? `Currently enhancing ${activeFile ?? ""}`
+                : "Self-enhancement loop running, between files"
+            }
+            role="status"
+            style={{
+              borderTop: `1px solid ${isEnhancing ? PROMPT_COLOR : DIM_COLOR}`,
+              borderBottom: `1px solid ${DIM_COLOR}`,
+              padding: "6px 8px",
+              background: "#000",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "10px",
+              flexWrap: "wrap",
+              fontSize: "12px",
+              color: isEnhancing ? PROMPT_COLOR : DIM_COLOR,
+              fontWeight: isEnhancing ? "bold" : "normal",
+              animation: isEnhancing
+                ? "enhancePulse 1.4s ease-in-out infinite"
+                : "none",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                minWidth: 0,
+                flex: 1,
+              }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  color: isEnhancing ? PROMPT_COLOR : DIM_COLOR,
+                  fontSize: "14px",
+                  width: "1.2em",
+                  display: "inline-block",
+                  textAlign: "center",
+                }}
+              >
+                {isEnhancing ? spinner : "⚡"}
+              </span>
+              <span style={{ color: isEnhancing ? PROMPT_COLOR : DIM_COLOR }}>
+                {isEnhancing ? "ENHANCING:" : "CYCLE:"}
+              </span>
+              <span
+                title={activeFile ?? ""}
+                style={{
+                  fontFamily: "inherit",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  minWidth: 0,
+                  flex: 1,
+                  color: isEnhancing ? USER_INPUT_COLOR : DIM_COLOR,
+                }}
+              >
+                {fileDisplay}
+              </span>
+            </div>
+            {statsLine && (
+              <span
+                aria-label="Cumulative enhancement stats"
+                style={{
+                  color: DIM_COLOR,
+                  fontSize: "10px",
+                  whiteSpace: "nowrap",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                {statsLine}
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Saturation / lockout panel (phase 1). Shows per-file no-growth
           counters and [unlock] buttons for locked files. When all
