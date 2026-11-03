@@ -126,21 +126,31 @@ export function readOracleEvents(afterSeq?: number): {
   const s = state();
   s.lastReadAt = Date.now();
   
-  if (typeof afterSeq === "number") {
-    if (afterSeq < 0) {
-      throw new Error("Oracle event sequence number cannot be negative");
-    }
-    if (afterSeq >= s.seq) {
-      return { events: [], seq: s.seq };
-    }
-    // The caller has seen `afterSeq` events already. The buffer holds
-    // the most recent MAX_EVENTS; if afterSeq is older than what the
-    // buffer holds, we return the whole buffer (best effort — the
-    // gap events were dropped by the ring).
+  // Handle null/undefined explicitly
+  if (afterSeq == null) {
     return { events: [...s.buffer], seq: s.seq };
   }
   
-  return { events: [...s.buffer], seq: s.seq };
+  if (typeof afterSeq !== "number") {
+    throw new Error("Oracle event sequence number must be a number");
+  }
+  
+  if (afterSeq < 0) {
+    throw new Error("Oracle event sequence number cannot be negative");
+  }
+  
+  // Get the current sequence before checking to avoid race condition
+  const currentSeq = s.seq;
+  
+  if (afterSeq >= currentSeq) {
+    return { events: [], seq: currentSeq };
+  }
+  
+  // The caller has seen `afterSeq` events already. The buffer holds
+  // the most recent MAX_EVENTS; if afterSeq is older than what the
+  // buffer holds, we return the whole buffer (best effort — the
+  // gap events were dropped by the ring).
+  return { events: [...s.buffer], seq: currentSeq };
 }
 
 /** Current sequence — lets a first-time caller snapshot "now" and only
