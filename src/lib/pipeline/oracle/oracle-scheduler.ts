@@ -108,11 +108,19 @@ export async function oracleSchedulerTick(): Promise<{
 
   s.running = true;
   try {
-    const { judged, skipped } = await evaluateDueProphecies();
+    const result = await evaluateDueProphecies();
+    const { judged, skipped } = result;
     s.lastTickAt = Date.now();
     s.lastJudgedCount = judged ? judged.length : 0;
     s.ticks += 1;
     return { ran: true, judged: judged ? judged.length : 0, skipped: skipped ? skipped.length : 0 };
+  } catch (err) {
+    emitOracleEvent(
+      `Oracle scheduler error evaluating prophecies: ${(err as Error).message}`,
+      "error",
+      "scheduler",
+    );
+    return { ran: false, reason: "error evaluating prophecies" };
   } finally {
     s.running = false;
   }
@@ -121,7 +129,14 @@ export async function oracleSchedulerTick(): Promise<{
 /** Boot the scheduler (idempotent). Called on module import. */
 function bootOracleScheduler(): void {
   const s = sched();
-  if (s.booted) return;
+  if (s.booted) {
+    // Clear existing timer to prevent memory leaks if re-booting
+    if (s.timer) {
+      clearInterval(s.timer);
+      s.timer = null;
+    }
+    return;
+  }
   s.booted = true;
 
   // First tick after a short delay (not immediately) — gives the
