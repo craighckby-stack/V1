@@ -30,3 +30,6 @@ tool-results/
 # candidate code lives here during `bun test` and is deleted afterwards;
 # must never be swept into a commit by git add -A
 .loop-sandbox/
+
+# uploaded repo snapshots — never commit 99MB of zips (audit finding 5)
+upload/

@@ -54,9 +54,7 @@ echo ""
 restored_redactions=0
 restored_shebangs=0
 stripped_headers=0
-stripped_execution_contract=0
 removed_postmortems=0
-genuine_changes=0
 errors=0
 
 # ---------------------------------------------------------------------------
@@ -98,7 +96,10 @@ echo ""
 #    for .mjs files and loses the interpreter for .py/.sh files.
 # ---------------------------------------------------------------------------
 echo "=== Step 2: Restoring shebang-damaged files from main ==="
-for evo_f in $(find "$EVO" -type f \( -name "*.mjs" -o -name "*.py" -o -name "*.sh" -o -name "*.cjs" \) -not -path "*/node_modules/*"); do
+# -print0 + read -d '': safe for ANY filename (spaces, newlines, glob
+# chars). Process substitution < <(...) keeps the loop in the main
+# shell so the restored_shebangs counter survives the loop.
+while IFS= read -r -d '' evo_f; do
   rel="${evo_f#$EVO/}"
   main_f="$MAIN/$rel"
   if [ ! -f "$main_f" ]; then
@@ -113,7 +114,7 @@ for evo_f in $(find "$EVO" -type f \( -name "*.mjs" -o -name "*.py" -o -name "*.
     restored_shebangs=$((restored_shebangs + 1))
     echo "  Restored shebang: $rel"
   fi
-done
+done < <(find "$EVO" -type f \( -name "*.mjs" -o -name "*.py" -o -name "*.sh" -o -name "*.cjs" \) -not -path "*/node_modules/*" -print0)
 echo "  Restored $restored_shebangs shebang-damaged files"
 echo ""
 
@@ -132,7 +133,10 @@ echo ""
 #      // Type-safe execution interface\nexport interface ExecutionContract {\n  readonly status: 'active' | 'completed';\n  readonly timestamp: number;\n}\n\n
 # ---------------------------------------------------------------------------
 echo "=== Step 3: Stripping cosmetic headers + ExecutionContract ==="
-for evo_f in $(find "$EVO" -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.swift" -o -name "*.css" -o -name "*.html" -o -name "*.yaml" -o -name "*.yml" -o -name "*.sh" -o -name "*.sql" -o -name "*.md" \) -not -path "*/node_modules/*"); do
+# -print0 + read -d '': filenames with spaces/newlines were split by
+# the old for-in-$(find) form. Process substitution keeps the loop
+# body in the main shell (its stdout still pipes to the counter).
+while IFS= read -r -d '' evo_f; do
   rel="${evo_f#$EVO/}"
   main_f="$MAIN/$rel"
   if [ ! -f "$main_f" ]; then
@@ -201,7 +205,7 @@ if stripped != evo_content:
         f.write(stripped)
     print(f"STRIPPED: {evo_path}")
 PYEOF
-done 2>/dev/null | while read -r line; do
+done < <(find "$EVO" -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.swift" -o -name "*.css" -o -name "*.html" -o -name "*.yaml" -o -name "*.yml" -o -name "*.sh" -o -name "*.sql" -o -name "*.md" \) -not -path "*/node_modules/*" -print0) 2>/dev/null | while read -r line; do
   stripped_headers=$((stripped_headers + 1))
 done
 echo "  Stripped headers from changed files"

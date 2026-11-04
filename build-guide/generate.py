@@ -32,10 +32,10 @@ from reportlab.platypus.tableofcontents import TableOfContents
 from reportlab.platypus.doctemplate import SimpleDocTemplate
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-PDF_SKILL_DIR = "/home/z/my-project/skills/pdf"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PDF_SKILL_DIR = os.path.join(ROOT, "skills", "pdf")
 sys.path.insert(0, os.path.join(PDF_SKILL_DIR, "scripts"))
 
-ROOT = "/home/z/my-project"
 BG = os.path.join(ROOT, "build-guide")
 OUT_BODY = os.path.join(BG, "body.pdf")
 OUT_FINAL = os.path.join(ROOT, "LOOP-Build-Record.pdf")

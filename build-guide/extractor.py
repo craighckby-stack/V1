@@ -20,7 +20,8 @@ import sys
 from collections import Counter, OrderedDict
 from datetime import datetime
 
-ROOT = "/home/z/my-project"
+# Project root = parent of build-guide/ — previously hardcoded
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "build-guide", "data.json")
 
 

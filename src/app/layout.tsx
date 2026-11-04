@@ -1,17 +1,14 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+// Self-hosted Geist via the `geist` package instead of next/font/google —
+// next/font/google fetches from fonts.googleapis.com at build time, which
+// fails the build entirely when the network is unreachable ("Failed to
+// fetch Geist"). The geist package serves the same fonts locally with the
+// SAME CSS variable names (--font-geist-sans / --font-geist-mono), so this
+// is a drop-in replacement.
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "LOOP",
@@ -43,7 +40,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className={`${GeistSans.variable} ${GeistMono.variable} antialiased bg-background text-foreground`}
       >
         {children}
         <Toaster />

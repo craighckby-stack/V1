@@ -19,6 +19,13 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     // React rules
     "react-hooks/exhaustive-deps": "off",
     "react-hooks/purity": "off",
+    // Pin: the BIOS-terminal UI deliberately calls setState inside effects
+    // (polling loops for status/cycle data — the standard pattern for this
+    // dashboard). Not currently firing under the installed eslint-config-next
+    // preset, but pinned off so a future preset upgrade that enables it
+    // (it's part of eslint-plugin-react-hooks v6+ recommended-latest) can't
+    // break `bun run lint` with 6 new errors on code that hasn't changed.
+    "react-hooks/set-state-in-effect": "off",
     "react/no-unescaped-entities": "off",
     "react/display-name": "off",
     "react/prop-types": "off",

@@ -14,7 +14,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-ROOT = "/home/z/my-project"
+# Project root = parent of build-guide/ — previously hardcoded
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 D = json.load(open(os.path.join(ROOT, "build-guide", "data.json"), encoding="utf-8"))
 OUTDIR = os.path.join(ROOT, "build-guide", "charts")
 os.makedirs(OUTDIR, exist_ok=True)

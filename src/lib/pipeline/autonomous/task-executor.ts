@@ -27,7 +27,10 @@ import { llmComplete, extractCodeBlock } from "../llm/agent-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
 import { getTaskMethod } from "./self-task-generator";
 
-const PROJECT_ROOT = "/home/z/my-project";
+// PROJECT_ROOT comes from core/paths (the single source of truth for the
+// project location) — a hardcoded "/home/z/my-project" here broke every
+// other machine this repo is cloned onto.
+import { PROJECT_ROOT } from "../core/paths";
 
 export interface TaskExecutionResult {
   status: "applied" | "deferred" | "failed" | "no-op";

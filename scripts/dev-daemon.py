@@ -24,7 +24,9 @@ import signal
 import subprocess
 import time
 
-ROOT = "/home/z/my-project"
+# Resolve the project root relative to this file (scripts/ is one
+# level below the root) — previously hardcoded /home/z/my-project.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PID_FILE = os.path.join(ROOT, ".dev-daemon.pid")
 LOG_FILE = os.path.join(ROOT, "dev.log")
 

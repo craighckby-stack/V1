@@ -39,8 +39,11 @@
  */
 
 // ── Configuration ──────────────────────────────────────────────────────
-const PROXY_SECRET = process.env.PROXY_SECRET;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+// `?? ""` narrows to plain `string` so the handlers below type-check
+// (TS2345) — the empty-string fallback is inert because the guard below
+// exits the process when either secret is unset/falsy.
+const PROXY_SECRET: string = process.env.PROXY_SECRET ?? "";
+const GEMINI_API_KEY: string = process.env.GEMINI_API_KEY ?? "";
 const PORT = Number(process.env.PORT ?? 8787);
 const UPSTREAM = "https://generativelanguage.googleapis.com";
 
@@ -74,7 +77,12 @@ function healthResponse(req: Request): Response | null {
 }
 
 // ── Main proxy handler ────────────────────────────────────────────────
-function handleProxy(req: Request): Response {
+// async + `return await` (not a bare `return fetch(...)`) so a rejected
+// upstream fetch throws INSIDE this function and the try/catch in
+// Bun.serve's fetch handler turns it into a Gemini-shaped 502. Returning
+// the promise un-awaited made the catch dead code and typed the handler
+// as Response while it actually returned Promise<Response> (TS2740).
+async function handleProxy(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
   // Only forward Gemini API paths. Anything else is a 404 — this is not a
@@ -119,8 +127,10 @@ function handleProxy(req: Request): Response {
 
   // fetch() with duplex:'half' lets us stream a request body upstream if the
   // caller is streaming one; for the typical generateContent JSON body it's
-  // a no-op.
-  return fetch(forwardUrl.toString(), {
+  // a no-op. AWAITED so a network failure rejects here, propagates to the
+  // serve handler's catch, and becomes a 502 instead of an unhandled
+  // rejection the caller sees as a hung request.
+  return await fetch(forwardUrl.toString(), {
     method: req.method,
     headers: forwardHeaders,
     body: req.body ?? undefined,
@@ -132,13 +142,16 @@ function handleProxy(req: Request): Response {
 // ── Server ────────────────────────────────────────────────────────────
 const server = Bun.serve({
   port: PORT,
-  fetch(req) {
+  async fetch(req) {
     // Health probe first — no auth, no logging.
     const health = healthResponse(req);
     if (health) return health;
 
     try {
-      return handleProxy(req);
+      // AWAITED so handleProxy's rejections (upstream DNS failure, timeout,
+      // socket reset) land in this catch and become a 502 — returning the
+      // promise would escape the try/catch entirely.
+      return await handleProxy(req);
     } catch (err) {
       // Never leak internals to the caller. A 502 tells LOOP to fall through
       // to the Z.AI chain, which is the correct behavior on proxy failure.
