@@ -109,9 +109,13 @@ interface Vitals {
    *  status endpoint itself was unreadable (honesty rule: absent data is
    *  never reported as "open"). */
   quotaState: string;
-  /** Epoch ms when the gate opens (0 when open/unknown) — the countdown
-   *  anchor. The splash ticks against it locally every second, so the
-   *  clock stays accurate between the one-shot fetch and ENTER. */
+  /** Client-epoch ms when the gate opens (0 when open/unknown) — the
+   *  countdown anchor. Set to `Date.now() + remainingMs` at fetch time
+   *  (the server's `remainingMs` is a relative duration, accurate at
+   *  response time). The splash ticks against it locally every second,
+   *  so the clock stays accurate between the one-shot fetch and ENTER
+   *  AND is immune to server/client clock skew (both the anchor and
+   *  the tick's `Date.now()` are client-epoch). */
   quotaEndsAtMs: number;
   /** Escalation level of the ACTIVE cooldown (1=2min..4=30min; 0 open). */
   quotaLevel: number;
@@ -184,7 +188,6 @@ async function fetchVitals(): Promise<Vitals> {
     const gate = asObj(pick(asObj(status), "llmGate"));
     const gateActive = gate?.active === true;
     const gateMs = typeof gate?.remainingMs === "number" ? gate.remainingMs : 0;
-    const gateEndsAt = typeof gate?.endsAtMs === "number" ? gate.endsAtMs : 0;
     const gateLevel = typeof gate?.level === "number" ? gate.level : 0;
     const stats = asObj(pick(asObj(status), "stats"));
     const mapped: Vitals = {
@@ -195,7 +198,16 @@ async function fetchVitals(): Promise<Vitals> {
       chainBreaks: txt(pick(asObj(chain), "linkBreaks")),
       prophecies: txt(pick(asObj(pick(asObj(oracle), "counts")), "total")),
       propheciesPending: txt(pick(asObj(pick(asObj(oracle), "counts")), "pending")),
-      llm: gateActive ? `GATE ${gateClock(gateMs)} — COOLING` : "READY",
+      // The original 8 POST lines include an "LLM CORTEX" line. It used
+      // to show a frozen `GATE mm:ss — COOLING` snapshot of the gate's
+      // remaining time at fetch — but the splash only fetches vitals
+      // ONCE, so that countdown was frozen at the fetch-time value
+      // (a 30-min cooldown would show "GATE 29:50" for the whole
+      // splash). The live countdown lives on the API QUOTA line below
+      // (it ticks every second against an anchored client-epoch end).
+      // The LLM CORTEX line now just reports the gate STATE — no
+      // number — so the two lines can't disagree.
+      llm: gateActive ? "THROTTLED — SEE API QUOTA LINE" : "READY",
       cycles: txt(pick(stats, "cyclesCompleted")),
       swaps: txt(pick(asObj(hotswap), "swapCount")),
       // ── boot/scan mapping ──
@@ -240,7 +252,17 @@ async function fetchVitals(): Promise<Vitals> {
       // absent gate must never be reported as "open"), "cooling" when the
       // shared 429 gate is active, "open" when it verifiably is not.
       quotaState: status === null ? "??" : gateActive ? "cooling" : "open",
-      quotaEndsAtMs: gateActive ? gateEndsAt : 0,
+      // Clock-skew fix: anchor to the CLIENT clock. `gateMs` is the
+      // server's `remainingMs` — a relative duration, accurate at the
+      // moment the response was generated. Adding it to the client's
+      // `Date.now()` at fetch-receipt yields a CLIENT-epoch end time, so
+      // the splash's tick (`quotaEndsAtMs - nowMs`, both client-epoch)
+      // is skew-free. The splash only fetches vitals once, so this
+      // anchor is set once and ticks down locally — no chance to drift
+      // further. (The server's own `endsAtMs` epoch is intentionally
+      // NOT used here: diffing it against the client's `Date.now()`
+      // turns server/client clock skew directly into countdown drift.)
+      quotaEndsAtMs: gateActive ? Date.now() + gateMs : 0,
       quotaLevel: gateLevel,
     };
     return mapped;
@@ -286,8 +308,9 @@ function Scramble({ text, start, ms, className }: { text: string; start: boolean
  *  follows it (the provider's connection, then the provider's meter):
  *  when the shared 429 gate is active it renders a LIVE countdown to
  *  the gate opening, ticking every second against `quotaEndsAtMs`
- *  (server epoch — immune to stale fetches); when the gate is open it
- *  stamps OK, and an unreadable gate is never reported as open. */
+ *  (a CLIENT-epoch value — see fetchVitals — immune to server/client
+ *  clock skew); when the gate is open it stamps OK, and an unreadable
+ *  gate is never reported as open. */
 function scanPostLines(v: Vitals, nowMs: number): PostLine[] {
   return [
     {
@@ -584,7 +607,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
           stamp: "OK",
           warn: v.prophecies === "??",
         },
-        { label: "LLM CORTEX", value: v.llm, stamp: v.llm.startsWith("GATE") ? "WAIT" : "OK", warn: v.llm.startsWith("GATE") },
+        { label: "LLM CORTEX", value: v.llm, stamp: v.llm === "READY" ? "OK" : "WAIT", warn: v.llm !== "READY" },
         { label: "HOT-SWAP BAY", value: `${v.swaps} SWAP(S) THIS BOOT`, stamp: "OK", warn: v.swaps === "??" },
         { label: "UPLINK", value: v.repo, stamp: "LINK" },
         { label: "CYCLE COUNTER", value: `${v.cycles} COMPLETED`, stamp: "OK", warn: v.cycles === "??" },

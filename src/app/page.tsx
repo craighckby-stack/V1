@@ -424,6 +424,22 @@ export default function Home() {
         ]);
         if (mounted && statusRes.ok) {
           const s = (await statusRes.json()) as SelfEnhanceStatus;
+          // ── Clock-skew fix: re-anchor the gate's `endsAtMs` to the
+          // CLIENT clock before storing. The server returns both
+          // `remainingMs` (a relative duration, accurate at the moment
+          // it generated the response) and `endsAtMs` (the server's
+          // absolute epoch). The render below computes
+          // `gateEndsAt - nowTick` where `nowTick = Date.now()` (client
+          // epoch) — diffing a server epoch against a client epoch
+          // turns any server/client clock skew directly into countdown
+          // drift (a client 30s ahead of the server shows 30s less
+          // remaining than is actually left). Re-anchoring to
+          // `Date.now() + remainingMs` makes BOTH values client-epoch,
+          // so the diff is skew-free; each 2s poll re-anchors, so
+          // drift only accumulates within one poll window (≤2s).
+          if (s.llmGate?.active && typeof s.llmGate.remainingMs === "number") {
+            s.llmGate.endsAtMs = Date.now() + s.llmGate.remainingMs;
+          }
           setStatus(s);
           // Diff incoming logs against what's already in the unified stream.
           // Only genuinely new logs (timestamp|message not yet seen) are
@@ -472,10 +488,13 @@ export default function Home() {
 
   // LLM cooldown countdown: tick every second WHILE the gate is active so
   // the header chip counts down smoothly between the 2s status polls. The
-  // countdown anchors on `llmGate.endsAtMs` (server epoch), so clock skew
-  // between polls self-corrects — each poll re-anchors, the tick just fills
-  // the gap. When the gate is inactive the interval is cleared (no idle
-  // re-renders).
+  // countdown anchors on `llmGate.endsAtMs` — a CLIENT-epoch value, set
+  // in the poll above by `Date.now() + remainingMs` (the server's
+  // remainingMs is a relative duration, accurate at response time). The
+  // render's `gateEndsAt - nowTick` therefore diffs two client-epoch
+  // values, eliminating server/client clock-skew drift; each 2s poll
+  // re-anchors, so drift only accumulates within one poll window. When
+  // the gate is inactive the interval is cleared (no idle re-renders).
   const gateActive = status?.llmGate?.active ?? false;
   const gateEndsAt = status?.llmGate?.endsAtMs ?? 0;
   const [nowTick, setNowTick] = useState(Date.now());

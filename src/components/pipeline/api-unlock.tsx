@@ -34,15 +34,40 @@ export function ApiUnlock() {
   // null until mounted (avoids SSR/hydration mismatch), then whether a
   // key is already stored in localStorage.
   const [hasKey, setHasKey] = useState<boolean | null>(null);
+  // null until the healthz fetch lands, then whether the server's
+  // middleware is actually configured to gate mutations (LOOP_API_KEY
+  // is set in .env). The middleware fails OPEN when the env var is
+  // unset — mutations are NOT actually locked in that case, so the
+  // "API KEY NOT SET — MUTATIONS LOCKED" hint would be a lie. We hide
+  // it until the server confirms it's gating. On fetch failure we
+  // leave this null (fail-safe: don't claim "locked" when we can't
+  // verify) — the unlock panel on 401 is independent and still fires.
+  const [mutationGateConfigured, setMutationGateConfigured] = useState<boolean | null>(null);
   const [value, setValue] = useState("");
 
   // Listen for 401s from the patched fetch; also detect whether a key is
-  // already stored (drives the subtle "not set" hint).
+  // already stored (drives the subtle "not set" hint). The hint only shows
+  // when BOTH (a) no key is in localStorage AND (b) the server confirms
+  // it has LOOP_API_KEY configured — see mutationGateConfigured above.
   useEffect(() => {
     setHasKey(window.localStorage.getItem(STORAGE_KEY) !== null);
+    let cancelled = false;
+    fetch("/api/healthz", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: unknown) => {
+        if (cancelled) return;
+        const cfg = (d as { mutationGate?: { configured?: unknown } } | null)?.mutationGate?.configured;
+        setMutationGateConfigured(typeof cfg === "boolean" ? cfg : null);
+      })
+      .catch(() => {
+        if (!cancelled) setMutationGateConfigured(null);
+      });
     const onUnauthorized = () => setLocked(true);
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
-    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    };
   }, []);
 
   // Escape dismisses the panel until the next 401.
@@ -124,8 +149,15 @@ export function ApiUnlock() {
     );
   }
 
-  // ── Unlocked but keyless: a subtle hint that mutations are gated ────────
-  if (hasKey === false) {
+  // ── Unlocked but keyless: a subtle hint that mutations are gated.
+  // ONLY shown when the server CONFIRMS it has LOOP_API_KEY configured
+  // (the middleware fails open otherwise — mutations aren't actually
+  // locked, so the hint would be a lie). On fetch-failure or while the
+  // fetch is in flight, `mutationGateConfigured` is null and the hint
+  // stays hidden — we never claim "locked" when we can't verify it.
+  // The unlock panel on 401 is independent and still fires if the
+  // server ever rejects a mutation.
+  if (hasKey === false && mutationGateConfigured === true) {
     return (
       <div className="pointer-events-none fixed bottom-1.5 right-2 z-50 font-mono text-[10px] tracking-widest text-amber-600/50">
         API KEY NOT SET — MUTATIONS LOCKED
