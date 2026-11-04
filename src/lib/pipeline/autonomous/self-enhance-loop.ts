@@ -20,7 +20,7 @@ import { llmComplete, extractSummaryAndCode, llmCooldownMs } from "../llm/agent-
 import { conductLlmDebate } from "../llm/debate-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
 import { queryRelevantPostmortems, formatAncestralPromptBlock } from "../postmortem/ancestral-rag";
-import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopBranch, validateCommitMessage } from "./push-target";
+import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopBranch, validateCommitMessage, amendUuidHeadCommit } from "./push-target";
 import { db } from "@/lib/db";
 import { generateTasks } from "./self-task-generator";
 import { detectTruncation, stripComments, stripLiteralsAndComments } from "./code-analysis";
@@ -569,6 +569,29 @@ class SelfEnhanceLoop {
           `This commit was likely created by the host restore orchestrator (machine restart), not by LOOP. ` +
           `Boot continues — see postmortems/self/main/system:commit-message-guard.json for the full finding.`
         );
+
+        // ── AUTO-AMEND (host-injected commit recovery) ────────────────
+        // If HEAD is still local-only (not pushed), amend its message to a
+        // real, searchable description so git history stays archaeologisable.
+        // amendUuidHeadCommit refuses if HEAD is on origin (would rewrite
+        // pushed history — red-team-flagged), if anything is staged (would
+        // silently bundle it in), or if the new message itself fails the
+        // guard. Best-effort — a refusal never blocks boot; the warn above
+        // already made the host-injection visible.
+        const amend = amendUuidHeadCommit();
+        if (amend.amended) {
+          console.warn(
+            `[SELF-ENHANCE] AUTO-AMEND recovered HEAD message: ` +
+            `${amend.oldSha?.slice(0, 7)} → ${amend.newSha?.slice(0, 7)} ` +
+            `(bare-UUID replaced with "restore: amend bare-UUID host-injected commit (loop boot auto-recovery)"). ` +
+            `The amended commit carries a real message on the next push. `
+          );
+        } else if (amend.attempted && amend.reason) {
+          console.warn(
+            `[SELF-ENHANCE] AUTO-AMEND refused: ${amend.reason} ` +
+            `The UUID commit stays as-is in git history. `
+          );
+        }
       }
     } catch {
       /* git unavailable or no commits yet (fresh repo) — non-fatal, no warn */

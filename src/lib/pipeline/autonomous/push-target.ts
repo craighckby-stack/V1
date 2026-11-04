@@ -646,6 +646,210 @@ export function validateCommitMessage(message: string): string | null {
   return null;
 }
 
+// ── Host-injected UUID commit recovery (amend-on-boot) ───────────────
+// The startup detector in self-enhance-loop.ts calls this to replace a
+// bare-UUID / empty HEAD commit message with a real, searchable one.
+// The host sandbox restore orchestrator injects UUID-named commits
+// during machine-restart snapshot rehydration (outside LOOP's commit
+// path — see validateCommitMessage + postmortem system:commit-message-
+// guard). amendUuidHeadCommit recovers the most recent one IF it's
+// still local-only; if it's already pushed, the UUID is permanent
+// (rewriting pushed history is a red-team-flagged attack) and the
+// detector just warns.
+//
+// Safety invariants (all checked; if any fails, the amend is refused
+// and a reason is returned — the loop boots regardless):
+//   (1) HEAD's message must actually be a bare UUID / empty
+//       (validateCommitMessage returns non-null). A normal HEAD with a
+//       proper message is a no-op.
+//   (2) HEAD must be LOCAL-ONLY — `git rev-list --count origin/main..HEAD`
+//       must be > 0. If HEAD is already on origin, amending rewrites
+//       PUSHED history (the red-team suite flags `git commit --amend`
+//       on pushed commits as a history-rewrite attack vector). In that
+//       case we refuse; the UUID stays in remote history.
+//   (3) Nothing must be staged (`git diff --cached --quiet` exits 0).
+//       `git commit --amend -m "..."` folds staged changes into the
+//       amended commit; if something is staged we refuse rather than
+//       silently bundle an unrelated change into the host-injected
+//       commit. Unstaged changes are safe — amend without `git add`
+//       only changes the message.
+//   (4) The generated replacement message must itself pass
+//       validateCommitMessage (defensive — the template is clean, but
+//       the invariant is enforced at the gate so a future template
+//       bug can't reintroduce the defect class).
+//
+// Returns:
+//   { attempted: false }                       — HEAD message is fine, no-op
+//   { attempted: true, amended: true, oldSha, newSha } — recovered
+//   { attempted: true, amended: false, oldSha?, reason } — refused, see reason
+export function amendUuidHeadCommit(): {
+  attempted: boolean;
+  amended: boolean;
+  oldSha?: string;
+  newSha?: string;
+  reason?: string;
+} {
+  // 1. Read HEAD message + full sha (full sha is preserved in the
+  //    replacement message body for traceability — git short sha alone
+  //    is ambiguous after a future force-push or repo reclone).
+  let headMessage: string;
+  let headSha: string;
+  try {
+    headMessage = execSync("git log -1 --format=%B", {
+      cwd: PROJECT_ROOT,
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: "pipe",
+    });
+    headSha = execSync("git log -1 --format=%H", {
+      cwd: PROJECT_ROOT,
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: "pipe",
+    }).trim();
+  } catch {
+    return {
+      attempted: false,
+      amended: false,
+      reason: "git unavailable or no commits yet (fresh repo)",
+    };
+  }
+
+  // 2. Is HEAD actually a bare UUID / empty message? (No-op if not.)
+  const rejectReason = validateCommitMessage(headMessage);
+  if (!rejectReason) {
+    return { attempted: false, amended: false };
+  }
+
+  // 3. Is HEAD local-only (not yet on origin/main)?
+  //    `git rev-list --count origin/main..HEAD` returns the number of
+  //    commits reachable from HEAD but not origin/main. 0 means HEAD
+  //    IS origin/main (pushed) — amending rewrites pushed history.
+  //    A thrown error means origin/main doesn't exist yet (fresh repo,
+  //    nothing pushed ever) — treat as safe-to-amend.
+  try {
+    const countOut = execSync("git rev-list --count origin/main..HEAD", {
+      cwd: PROJECT_ROOT,
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: "pipe",
+    }).trim();
+    const count = parseInt(countOut, 10);
+    if (Number.isFinite(count) && count === 0) {
+      return {
+        attempted: true,
+        amended: false,
+        oldSha: headSha,
+        reason:
+          "HEAD is on origin/main (already pushed) — amending would rewrite shared history " +
+          "(red-team-flagged history-rewrite attack); the UUID is permanent in remote history",
+      };
+    }
+    // count > 0 (or NaN from empty origin) → local-only, proceed
+  } catch {
+    // origin/main missing (fresh repo, never pushed) — safe to amend
+  }
+
+  // 4. Anything staged? `git commit --amend` would fold staged changes
+  //    into the amended commit, silently bundling unrelated work into
+  //    the host-injected commit. Refuse in that case. `git diff --cached
+  //    --quiet` exits 0 when nothing staged, 1 when something staged,
+  //    >1 on error. execSync throws on non-zero, so the catch branch
+  //    handles both "staged" and "error".
+  try {
+    execSync("git diff --cached --quiet", {
+      cwd: PROJECT_ROOT,
+      timeout: 5000,
+      stdio: "pipe",
+    });
+    // exit 0 → nothing staged, proceed
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status === 1) {
+      return {
+        attempted: true,
+        amended: false,
+        oldSha: headSha,
+        reason:
+          "staged changes present — refusing to fold them into the amended commit " +
+          "(amend would silently bundle staged work into the host-injected commit)",
+      };
+    }
+    return {
+      attempted: true,
+      amended: false,
+      oldSha: headSha,
+      reason: `git diff --cached --quiet failed: ${(err as Error).message.slice(0, 200)}`,
+    };
+  }
+
+  // 5. Generate the replacement message. First line is the conventional
+  //    prefix ("restore:") so commit-archaeology greps find it. Body
+  //    preserves the original UUID + old short sha for traceability
+  //    (an archaeologist reading the amended commit can still recover
+  //    that it was host-injected and what the original UUID was).
+  const shortSha = headSha.slice(0, 7);
+  const originalFirstLine = headMessage.split(/\r?\n/, 1)[0].trim();
+  const newMessage =
+    `restore: amend bare-UUID host-injected commit (loop boot auto-recovery)\n\n` +
+    `Replaces UUID message "${originalFirstLine}" from commit ${shortSha} with a real ` +
+    `description. The host sandbox restore orchestrator injected the original during a ` +
+    `machine-restart snapshot rehydration, bypassing LOOP's commit path. ` +
+    `See postmortem: system:commit-message-guard.`;
+
+  // 6. Validate the new message (defensive — the template is clean).
+  //    A future template edit that accidentally produces a UUID first
+  //    line would be caught here instead of landing a "fixed" UUID commit.
+  const newReject = validateCommitMessage(newMessage);
+  if (newReject) {
+    return {
+      attempted: true,
+      amended: false,
+      oldSha: headSha,
+      reason: `generated replacement message failed validateCommitMessage: ${newReject}`,
+    };
+  }
+
+  // 7. Run the amend. `execFileSync` with arg array — no shell, so the
+  //    multi-line message (containing quotes, parens, colons) can never
+  //    be a command-injection surface. `--no-verify` is NOT passed — the
+  //    amend goes through any git hooks, same as a normal commit.
+  //    `--allow-empty` is required because the host-injected commit may
+  //    itself be empty (the restore orchestrator sometimes commits a
+  //    working-tree rehydration with only mode-bit / timestamp changes
+  //    that git collapses to an empty diff). Without `--allow-empty`,
+  //    git refuses the amend with "doing so would make it empty" —
+  //    leaving the UUID message in place. On a non-empty original,
+  //    `--allow-empty` is a harmless no-op (the amended commit keeps
+  //    the original tree + the new message).
+  try {
+    execFileSync("git", ["commit", "--amend", "--allow-empty", "-m", newMessage], {
+      cwd: PROJECT_ROOT,
+      timeout: 15000,
+      stdio: "pipe",
+    });
+    const newSha = execSync("git log -1 --format=%H", {
+      cwd: PROJECT_ROOT,
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: "pipe",
+    }).trim();
+    return {
+      attempted: true,
+      amended: true,
+      oldSha: headSha,
+      newSha,
+    };
+  } catch (err) {
+    return {
+      attempted: true,
+      amended: false,
+      oldSha: headSha,
+      reason: `git commit --amend failed: ${(err as Error).message.slice(0, 200)}`,
+    };
+  }
+}
+
 // ── Pre-push secret-scan gate (concept: Git-Secret-PII-Sanitizer) ────
 // Scans the working-tree diff AND the commit message for secrets BEFORE
 // `git add -A && git commit`. If a non-dummy, non-redacted secret is
