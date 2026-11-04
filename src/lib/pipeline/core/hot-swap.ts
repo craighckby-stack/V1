@@ -1,4 +1,4 @@
-import { utimesSync } from "fs";
+import { appendFileSync, mkdirSync, readFileSync, utimesSync } from "fs";
 import { join } from "path";
 import { db } from "@/lib/db";
 
@@ -467,11 +467,17 @@ export async function hotSwapPipeline(opts?: {
 
     // PERSISTENT SUCCESS COUNTER (boot-splash "HOT-SWAP LOG · N LIFETIME").
     // swapHistory is in-memory and dies with the process; the SystemFlag
-    // row survives restarts. Counted ONLY on the success path (ok &&
+    // row survives restarts AND the disk journal (.git/info/, wipe-proof)
+    // survives DB rolls. Counted ONLY on the success path (ok &&
     // swapped) — a failed/pending swap never inflates the number.
     // Fire-and-forget: a counter failure must never fail a swap that
     // already succeeded.
-    bumpHotSwapSuccessCounter().catch(() => {
+    bumpHotSwapSuccessCounter({
+      at: result.finishedAt,
+      reason,
+      pinsCleared,
+      durationMs: result.durationMs,
+    }).catch(() => {
       /* counter is best-effort — the swap itself already succeeded */
     });
 
@@ -503,8 +509,67 @@ export function getSwapCount(): number {
 /** SystemFlag key for the persistent (restart-surviving) success count. */
 export const HOT_SWAP_SUCCESS_FLAG = "hot-swap-success-count";
 
-/** Increment the persistent success counter. Success path only. */
-async function bumpHotSwapSuccessCounter(): Promise<void> {
+// ── WIPE-PROOF DISK JOURNAL (the "lifetime" counter's durable tier) ────
+// The DB SystemFlag lives in SQLite, and the sandbox ROLLS THE DB BACK —
+// observed live: the mutation corpus reads 0 attempts while the remote
+// holds 108 loop-NN branches. A swap that really happened must never be
+// erased by a roll, so every successful swap ALSO appends a line to
+// .git/info/loop-hot-swap-journal.jsonl — the same wipe-proof tier as
+// the vault key (.git/info/loop-vault-key) and the push state
+// (.git/info/loop-push-state.json). .git/info/ is never tracked, never
+// committed, and survives DB rolls. The reader takes max(disk, DB) so
+// neither tier can undercount the other (a DB that raced ahead of the
+// journal is still honored; a rolled-back DB is healed from disk).
+const HOT_SWAP_JOURNAL = ".git/info/loop-hot-swap-journal.jsonl";
+
+function journalPath(): string {
+  return join(PROJECT_ROOT, HOT_SWAP_JOURNAL);
+}
+
+interface SwapJournalEntry {
+  at: string;
+  reason: string;
+  pinsCleared: string[];
+  durationMs: number;
+}
+
+/** Append one line per successful swap. Never throws — a journal
+ *  failure must never fail a swap that already succeeded. */
+function appendSwapJournal(entry: SwapJournalEntry): void {
+  try {
+    mkdirSync(join(PROJECT_ROOT, ".git/info"), { recursive: true });
+    appendFileSync(journalPath(), `${JSON.stringify(entry)}\n`, "utf8");
+  } catch {
+    /* best-effort — the DB flag is the other tier */
+  }
+}
+
+/** Count recorded swaps on disk (0 when the journal is absent/unreadable
+ *  — never throws, never fakes). */
+function readSwapJournalCount(): number {
+  try {
+    const raw = readFileSync(journalPath(), "utf8");
+    let n = 0;
+    for (const line of raw.split("\n")) {
+      const t = line.trim();
+      if (!t) continue;
+      try {
+        const e = JSON.parse(t) as SwapJournalEntry;
+        if (e && typeof e.at === "string") n++;
+      } catch {
+        /* torn/partial line (crash mid-append) — not a completed swap */
+      }
+    }
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
+/** Increment the persistent success counter. Success path only.
+ *  Dual-tier: DB SystemFlag + wipe-proof disk journal (see above). */
+async function bumpHotSwapSuccessCounter(entry: SwapJournalEntry): Promise<void> {
+  appendSwapJournal(entry);
   const flag = await db.systemFlag.findUnique({ where: { key: HOT_SWAP_SUCCESS_FLAG } });
   const current = parseInt(flag?.value ?? "0", 10) || 0;
   await db.systemFlag.upsert({
@@ -524,14 +589,24 @@ async function bumpHotSwapSuccessCounter(): Promise<void> {
   });
 }
 
-/** Read the persistent success count (0 on any failure — never throws). */
+/** Read the persistent success count (0 on any failure — never throws).
+ *  max(disk journal, DB flag): the journal survives DB rolls, the DB
+ *  honors swaps that raced ahead of a journal write. */
 export async function getHotSwapSuccessCount(): Promise<number> {
+  let disk = 0;
+  let flagVal = 0;
+  try {
+    disk = readSwapJournalCount();
+  } catch {
+    disk = 0;
+  }
   try {
     const flag = await db.systemFlag.findUnique({ where: { key: HOT_SWAP_SUCCESS_FLAG } });
-    return parseInt(flag?.value ?? "0", 10) || 0;
+    flagVal = parseInt(flag?.value ?? "0", 10) || 0;
   } catch {
-    return 0;
+    flagVal = 0;
   }
+  return Math.max(disk, flagVal);
 }
 
 /** Fingerprint of the currently-loaded pipeline code. With Turbopack
