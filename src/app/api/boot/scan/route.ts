@@ -7,6 +7,11 @@ import {
   getSwapCount,
   getHotSwapSuccessCount,
 } from "@/lib/pipeline/core/hot-swap";
+import {
+  warmZaiCortex,
+  zaiCortexStatus,
+  type ZaiCortexInfo,
+} from "@/lib/pipeline/llm/agent-llm";
 import { autonomousLoopRuntime } from "@/lib/pipeline/autonomous/loop-runtime";
 import { db } from "@/lib/db";
 import { PROJECT_ROOT } from "@/lib/pipeline/core/paths";
@@ -34,6 +39,11 @@ export const runtime = "nodejs";
  *                     happened, regardless of what the DB currently says.)
  *   HOT-SWAP        — lifetime (persistent SystemFlag counter) + this boot.
  *   AUTONOMY        — the live loop's status word.
+ *   Z.AI CORTEX     — the auto-injected provider connection: SDK
+ *                     handshake + one-shot ping, warmed at SERVER BOOT
+ *                     (instrumentation.ts) BEFORE the splash fetches
+ *                     this endpoint. The lazy kick below covers a
+ *                     process that booted before the injection existed.
  *
  * Honesty rules (same as the rest of the splash): any unreadable vital is
  * returned as null/0, never faked — the POST line stamps ?? for it.
@@ -148,6 +158,21 @@ export async function GET() {
     autonomy = null;
   }
 
+  // 6. Z.ai cortex — the auto-injected provider connection. Normally
+  // already warming/ready (instrumentation injected it at server boot,
+  // BEFORE this request); the kick is the belt-and-suspenders path for
+  // processes that started before the hook existed. Idempotent +
+  // throttled inside warmZaiCortex — a dead provider is not hammered.
+  // The status read is instant (no await on the ping) — this endpoint
+  // never blocks on the provider.
+  let zai: ZaiCortexInfo | null = null;
+  try {
+    warmZaiCortex();
+    zai = zaiCortexStatus();
+  } catch {
+    zai = null;
+  }
+
   return NextResponse.json({
     ok: true,
     vault: vaultStatus(),
@@ -156,5 +181,6 @@ export async function GET() {
     scars,
     hotSwap,
     autonomy,
+    zai,
   });
 }

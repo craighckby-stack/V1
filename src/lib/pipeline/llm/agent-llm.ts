@@ -33,7 +33,44 @@ interface LlmGateState {
   blockedUntil: number;
   strikes: number;
   llmCallQueue: Promise<unknown>;
+  /** Z.ai cortex injection state — warmed at SERVER BOOT (see
+   *  instrumentation.ts) so the provider connection exists BEFORE the
+   *  first request (the boot splash reads it via /api/boot/scan). Lives
+   *  on the same globalThis slot so the warmed SDK instance (zaiPromise)
+   *  is the EXACT instance llmComplete callers reuse — one injection,
+   *  one process, across hot-swaps. */
+  cortex: ZaiCortexInternal;
 }
+
+/** Internal (mutable) cortex state. The public snapshot type below is
+ *  what APIs/UI see — this one carries the throttle timestamp. */
+interface ZaiCortexInternal {
+  state: "cold" | "warming" | "ready" | "error";
+  injected: boolean;
+  pingMs?: number;
+  model?: string;
+  error?: string;
+  note?: string;
+  warmedAt?: string;
+  /** Epoch ms of the last warm attempt — throttles error-path retries. */
+  lastAttemptMs?: number;
+}
+
+/** Public cortex snapshot (API response / boot-splash vitals). */
+export interface ZaiCortexInfo {
+  state: "cold" | "warming" | "ready" | "error";
+  injected: boolean;
+  pingMs?: number;
+  model?: string;
+  error?: string;
+  warmedAt?: string;
+  /** Present when the connection is VERIFIED but the provider answered
+   *  with a rate limit (429): the round trip completed — end-to-end
+   *  connectivity is proven, only the quota is cooling. Kept separate
+   *  from `error` (which means the connection could NOT be verified). */
+  note?: string;
+}
+
 const LLM_GATE_SLOT = "__llmGateState";
 function gateState(): LlmGateState {
   const g = globalThis as unknown as { [LLM_GATE_SLOT]?: LlmGateState };
@@ -43,7 +80,16 @@ function gateState(): LlmGateState {
       blockedUntil: 0,
       strikes: 0,
       llmCallQueue: Promise.resolve(),
+      cortex: { state: "cold", injected: false },
     };
+  } else if (!g[LLM_GATE_SLOT].cortex) {
+    // Stale-slot healing: the slot may have been created by a PREVIOUS
+    // module generation (before the cortex field existed) — Turbopack
+    // keeps the globalThis object across re-imports, so an old-shape slot
+    // outlives the module that made it. Without this heal, cortex reads
+    // would crash on `undefined.state` in exactly the process that most
+    // needs the injection (one that booted before this change).
+    g[LLM_GATE_SLOT].cortex = { state: "cold", injected: false };
   }
   return g[LLM_GATE_SLOT]!;
 }
@@ -125,6 +171,118 @@ export function llmGateInfo(): LlmGateInfo {
     remainingMs: active ? gs.blockedUntil - now : 0,
     endsAtMs: active ? gs.blockedUntil : 0,
     level: active ? Math.min(gs.strikes, 4) : 0,
+  };
+}
+
+// ── Z.AI CORTEX AUTO-INJECTION ─────────────────────────────────────
+// "Inject before the splash screen": instrumentation.ts calls
+// warmZaiCortex() at SERVER BOOT — before the first HTTP request, so
+// before the boot splash fetches /api/boot/scan. The warm does two
+// things:
+//   1. ZAI.create() — the SDK handshake, cached in the shared
+//      zaiPromise (the SAME instance every llmComplete call reuses —
+//      no second connection, no duplicate client).
+//   2. A one-shot minimal ping (a 4-token completion) — honest
+//      end-to-end verification that the provider actually answers,
+//      with measured latency + the serving model recorded.
+// The ping bypasses the 429 gate/serialization queue on purpose: it is
+// a health check, not work — it must report the PROVIDER, not the
+// loop's own throttling (the LLM CORTEX splash line already reports
+// the gate). Never throws, never blocks: fire-and-forget.
+const CORTEX_PING_TIMEOUT_MS = 20_000;
+const CORTEX_ERROR_RETRY_MS = 30_000;
+
+/** Idempotent, throttled, fire-and-forget. Safe to call from
+ *  instrumentation (boot) AND from /api/boot/scan (lazy kick when the
+ *  process predates the instrumentation hook). */
+export function warmZaiCortex(): void {
+  const c = gateState().cortex;
+  const now = Date.now();
+  if (c.state === "warming" || c.state === "ready") return; // already injected / in flight
+  if (
+    c.state === "error" &&
+    c.lastAttemptMs &&
+    now - c.lastAttemptMs < CORTEX_ERROR_RETRY_MS
+  ) {
+    return; // errored recently — don't hammer a dead provider on every scan
+  }
+  c.state = "warming";
+  c.lastAttemptMs = now;
+  void (async () => {
+    const t0 = performance.now();
+    try {
+      const zai = await getZai();
+      const createWithOptions = zai.chat.completions.create as unknown as (
+        body: Parameters<typeof zai.chat.completions.create>[0],
+        options?: { signal?: AbortSignal }
+      ) => Promise<any>;
+      const signal = AbortSignal.timeout(CORTEX_PING_TIMEOUT_MS);
+      const completion = await Promise.race([
+        createWithOptions(
+          {
+            messages: [{ role: "user", content: "Reply with exactly: pong" }],
+            thinking: { type: "disabled" },
+            max_tokens: 4,
+          } as Parameters<typeof zai.chat.completions.create>[0],
+          { signal }
+        ),
+        new Promise<never>((_, reject) => {
+          const timeoutError = () =>
+            new Error(`cortex ping timed out after ${CORTEX_PING_TIMEOUT_MS / 1000}s`);
+          if (signal.aborted) {
+            reject(timeoutError());
+            return;
+          }
+          signal.addEventListener("abort", () => reject(timeoutError()), { once: true });
+        }),
+      ]);
+      // Any resolved completion = provider answered. Content is not
+      // required for a health check (models may reply tersely); the
+      // resolve itself is the proof of an end-to-end path.
+      c.state = "ready";
+      c.injected = true;
+      c.pingMs = Math.round(performance.now() - t0);
+      c.model =
+        typeof completion?.model === "string" ? completion.model : undefined;
+      c.warmedAt = new Date().toISOString();
+      c.error = undefined;
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      // A 429 is a structured HTTP answer FROM THE PROVIDER — the full
+      // SDK→API round trip completed, so end-to-end connectivity is
+      // VERIFIED even though the quota is cooling. Report it honestly as
+      // ready-with-note (the work-call gate handles actual throttling;
+      // this health check reports the connection, and the connection
+      // works). Anything else (network, timeout, 5xx) is a real error.
+      const isRateLimit = /\b429\b|too many requests|rate.?limit/i.test(raw);
+      if (isRateLimit) {
+        c.state = "ready";
+        c.injected = true;
+        c.pingMs = Math.round(performance.now() - t0);
+        c.note = "PROVIDER REACHED — 429 QUOTA COOLING";
+        c.warmedAt = new Date().toISOString();
+        c.error = undefined;
+      } else {
+        c.state = "error";
+        c.injected = false;
+        // Compact the reason (SDK errors can embed full JSON bodies).
+        c.error = raw.replace(/\s+/g, " ").slice(0, 120);
+      }
+    }
+  })();
+}
+
+/** Public snapshot of the cortex injection (copy — callers can't mutate). */
+export function zaiCortexStatus(): ZaiCortexInfo {
+  const c = gateState().cortex;
+  return {
+    state: c.state,
+    injected: c.injected,
+    pingMs: c.pingMs,
+    model: c.model,
+    error: c.error,
+    note: c.note,
+    warmedAt: c.warmedAt,
   };
 }
 

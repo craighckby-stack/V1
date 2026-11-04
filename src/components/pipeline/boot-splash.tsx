@@ -55,12 +55,12 @@ const ASCII_LOOP = [
 
 const TAGLINE = "A MACHINE THAT REWRITES ITS OWN CODE.";
 
-/** POST line counts. Cold = 8 original + 5 boot/scan lines. Warm = the
- *  SESSION RESUMED line + the same 5 boot/scan lines. (Warm boots used
+/** POST line counts. Cold = 8 original + 6 boot/scan lines. Warm = the
+ *  SESSION RESUMED line + the same 6 boot/scan lines. (Warm boots used
  *  to show ONE line only — after the first entry, every reload looked
  *  like the splash "never updated". The scan lines now append on both
  *  paths: one definition, two ceremonies, same bytes.) */
-const SCAN_LINE_COUNT = 5;
+const SCAN_LINE_COUNT = 6;
 const COLD_POST_MS = (8 + SCAN_LINE_COUNT) * 130 + 260;
 const WARM_POST_MS = (1 + SCAN_LINE_COUNT) * 130 + 260;
 
@@ -93,6 +93,17 @@ interface Vitals {
   swapsLifetime: string;
   /** The live loop's status word, uppercased. */
   autonomy: string;
+  // ── Z.ai cortex (auto-injected at server boot, before this splash) ──
+  /** "ready" | "warming" | "error" | "cold" | "??" — the provider
+   *  connection state from /api/boot/scan's zai field. */
+  zaiState: string;
+  /** Measured ping latency in ms ("??" unknown). */
+  zaiPing: string;
+  /** Truncated failure reason ("" when none). */
+  zaiError: string;
+  /** Ready-state note — e.g. "PROVIDER REACHED — 429 QUOTA COOLING"
+   *  when the connection is verified but the quota is cooling. */
+  zaiNote: string;
 }
 
 const UNKNOWN_VITALS: Vitals = {
@@ -111,6 +122,10 @@ const UNKNOWN_VITALS: Vitals = {
   scars: "??",
   swapsLifetime: "??",
   autonomy: "??",
+  zaiState: "??",
+  zaiPing: "??",
+  zaiError: "",
+  zaiNote: "",
 };
 
 const asObj = (v: unknown): Json | null => (v && typeof v === "object" ? (v as Json) : null);
@@ -183,6 +198,27 @@ async function fetchVitals(): Promise<Vitals> {
       scars: txt(pick(asObj(scan), "scars")),
       swapsLifetime: txt(pick(asObj(pick(asObj(scan), "hotSwap")), "lifetime")),
       autonomy: txt(pick(asObj(pick(asObj(scan), "autonomy")), "status"), "??").toUpperCase(),
+      // ── Z.ai cortex mapping ──
+      zaiState: (() => {
+        const z = asObj(pick(asObj(scan), "zai"));
+        if (z === null) return "??"; // endpoint unreadable
+        const s = pick(z, "state");
+        return typeof s === "string" ? s : "??";
+      })(),
+      zaiPing: (() => {
+        const z = asObj(pick(asObj(scan), "zai"));
+        return typeof pick(z, "pingMs") === "number" ? String(pick(z, "pingMs")) : "??";
+      })(),
+      zaiError: (() => {
+        const z = asObj(pick(asObj(scan), "zai"));
+        const e = pick(z, "error");
+        return typeof e === "string" ? e.slice(0, 48) : "";
+      })(),
+      zaiNote: (() => {
+        const z = asObj(pick(asObj(scan), "zai"));
+        const n = pick(z, "note");
+        return typeof n === "string" ? n : "";
+      })(),
     };
     return mapped;
   } finally {
@@ -217,13 +253,29 @@ function Scramble({ text, start, ms, className }: { text: string; start: boolean
   return <span className={className}>{out}</span>;
 }
 
-/** The five boot/scan vitals lines — ONE definition, used by both
+/** The six boot/scan vitals lines — ONE definition, used by both
  *  ceremonies: cold appends them after the original 8 (which stay
  *  byte-for-byte untouched), warm appends them after the SESSION
  *  RESUMED line. Same bytes on every entry — the live machine state
- *  is never a cold-boot-only show. */
+ *  is never a cold-boot-only show. The Z.AI CORTEX line leads the
+ *  group: its injection happens at SERVER BOOT, before this splash
+ *  reads it — first in fact, first in report. */
 function scanPostLines(v: Vitals): PostLine[] {
   return [
+    {
+      label: "Z.AI CORTEX",
+      value:
+        v.zaiState === "ready"
+        ? v.zaiNote
+          ? `AUTO-INJECTED · VERIFIED (${v.zaiPing}ms · 429 COOLING)`
+          : `AUTO-INJECTED · VERIFIED (${v.zaiPing}ms PING)`
+        : v.zaiState === "warming" ? "AUTO-INJECTING — HANDSHAKE IN FLIGHT"
+        : v.zaiState === "error" ? `OFFLINE — ${v.zaiError || "PROVIDER UNREACHABLE"}`
+        : v.zaiState === "cold" ? "NOT INJECTED — AWAITING BOOT KICK"
+        : "UNREADABLE",
+      stamp: v.zaiState === "ready" ? "OK" : v.zaiState === "warming" ? "WAIT" : "??",
+      warn: v.zaiState !== "ready",
+    },
     {
       label: "GITHUB AUTH",
       value:
@@ -614,7 +666,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         .bsp-crt--flash { animation: bsp-on 700ms cubic-bezier(.2,.7,.3,1) both; }
         .bsp-crt--exit  { animation: bsp-off 650ms ease-in both; }
         .bsp-text { text-shadow: 0 0 8px rgba(255,176,0,.35), 0 0 2px rgba(255,176,0,.8); }
-        .bsp-post { min-height: ${warm ? "122px" : "264px"}; white-space: pre-wrap; word-break: break-word; }
+        .bsp-post { min-height: ${warm ? "142px" : "288px"}; white-space: pre-wrap; word-break: break-word; }
         .bsp-dim { color: rgba(255,176,0,.55); }
         .bsp-ok { color: #ffd875; }
         .bsp-wait { color: #ff6a3d; }

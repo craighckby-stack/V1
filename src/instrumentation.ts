@@ -30,5 +30,29 @@ export async function register() {
         `[INSTRUMENTATION] uncaughtException (swallowed, process survived): ${msg.slice(0, 200)}`
       );
     });
+
+    // ── Z.AI CORTEX AUTO-INJECTION (before the splash screen) ────────
+    // Runs at SERVER BOOT — before the first HTTP request, so before the
+    // boot splash fetches /api/boot/scan. The injection establishes the
+    // z-ai-web-dev-sdk connection (ZAI.create + a one-shot ping) and
+    // caches it on the shared globalThis slot — the SAME SDK instance
+    // every llmComplete call in the pipeline reuses. The splash then
+    // reports the live state on its Z.AI CORTEX POST line. Dynamic
+    // import (not top-level) so this only loads in the nodejs runtime;
+    // fire-and-forget so a slow provider never blocks server start.
+    try {
+      const { warmZaiCortex } = await import(
+        "./lib/pipeline/llm/agent-llm"
+      );
+      warmZaiCortex();
+      console.log(
+        `[INSTRUMENTATION] Z.ai cortex injection started (SDK handshake + ping in flight)`
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[INSTRUMENTATION] Z.ai cortex injection could not start: ${msg.slice(0, 200)}`
+      );
+    }
   }
 }
