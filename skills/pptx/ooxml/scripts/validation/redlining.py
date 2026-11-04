@@ -8,109 +8,109 @@ import zipfile
 from pathlib import Path
 
 
-class RedliningValidator:
-    """Validator for tracked changes in Word documents."""
-
-    def __init__(self, unpacked_dir, original_docx, verbose=False):
-        self.unpacked_dir = Path(unpacked_dir)
-        self.original_docx = Path(original_docx)
-        self.verbose = verbose
+class XmlParser:
+    """Utility class for parsing XML files with Word namespaces."""
+    
+    def __init__(self):
         self.namespaces = {
             "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
         }
+    
+    def parse_file(self, file_path):
+        """Parse an XML file and return its root element."""
+        import xml.etree.ElementTree as ET
+        tree = ET.parse(file_path)
+        return tree.getroot()
+    
+    def find_tracked_changes(self, root):
+        """Find all tracked changes (del and ins elements) in the XML."""
+        del_elements = root.findall(".//w:del", self.namespaces)
+        ins_elements = root.findall(".//w:ins", self.namespaces)
+        return del_elements, ins_elements
+    
+    def find_zai_changes(self, root):
+        """Find all tracked changes authored by Z.AI."""
+        del_elements, ins_elements = self.find_tracked_changes(root)
+        
+        zai_del_elements = [
+            elem
+            for elem in del_elements
+            if elem.get(f"{{{self.namespaces['w']}}}author") == "Z.AI"
+        ]
+        zai_ins_elements = [
+            elem
+            for elem in ins_elements
+            if elem.get(f"{{{self.namespaces['w']}}}author") == "Z.AI"
+        ]
+        
+        return zai_del_elements, zai_ins_elements
 
-    def validate(self):
-        """Main validation method that returns True if valid, False otherwise."""
-        # Verify unpacked directory exists and has correct structure
-        modified_file = self.unpacked_dir / "word" / "document.xml"
-        if not modified_file.exists():
-            print(f"FAILED - Modified document.xml not found at {modified_file}")
-            return False
 
-        # First, check if there are any tracked changes by Z.AI to validate
-        try:
-            import xml.etree.ElementTree as ET
+class TrackedChanges:
+    """Handler for Z.AI-specific change detection and removal."""
+    
+    def __init__(self, namespaces):
+        self.namespaces = namespaces
+    
+    def remove_zai_tracked_changes(self, root):
+        """Remove all tracked changes authored by Z.AI from the XML tree."""
+        zai_del_elements, zai_ins_elements = self._find_zai_elements(root)
+        
+        # Remove Z.AI deletion elements
+        for elem in zai_del_elements:
+            parent = elem.getparent()
+            if parent is not None:
+                parent.remove(elem)
+        
+        # Remove Z.AI insertion elements
+        for elem in zai_ins_elements:
+            parent = elem.getparent()
+            if parent is not None:
+                parent.remove(elem)
+    
+    def _find_zai_elements(self, root):
+        """Find all Z.AI-specific tracked changes in the XML."""
+        del_elements = root.findall(".//w:del", self.namespaces)
+        ins_elements = root.findall(".//w:ins", self.namespaces)
+        
+        zai_del_elements = [
+            elem
+            for elem in del_elements
+            if elem.get(f"{{{self.namespaces['w']}}}author") == "Z.AI"
+        ]
+        zai_ins_elements = [
+            elem
+            for elem in ins_elements
+            if elem.get(f"{{{self.namespaces['w']}}}author") == "Z.AI"
+        ]
+        
+        return zai_del_elements, zai_ins_elements
 
-            tree = ET.parse(modified_file)
-            root = tree.getroot()
 
-            # Check for w:del or w:ins tags authored by Z.AI
-            del_elements = root.findall(".//w:del", self.namespaces)
-            ins_elements = root.findall(".//w:ins", self.namespaces)
-
-            # Filter to only include changes by Z.AI
-            zai_del_elements = [
-                elem
-                for elem in del_elements
-                if elem.get(f"{{{self.namespaces['w']}}}author") == "Z.AI"
-            ]
-            zai_ins_elements = [
-                elem
-                for elem in ins_elements
-                if elem.get(f"{{{self.namespaces['w']}}}author") == "Z.AI"
-            ]
-
-            # Redlining validation is only needed if tracked changes by Z.AI have been used.
-            if not zai_del_elements and not zai_ins_elements:
-                if self.verbose:
-                    print("PASSED - No tracked changes by Z.AI found.")
-                return True
-
-        except Exception:
-            # If we can't parse the XML, continue with full validation
-            pass
-
-        # Create temporary directory for unpacking original docx
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-
-            # Unpack original docx
-            try:
-                with zipfile.ZipFile(self.original_docx, "r") as zip_ref:
-                    zip_ref.extractall(temp_path)
-            except Exception as e:
-                print(f"FAILED - Error unpacking original docx: {e}")
-                return False
-
-            original_file = temp_path / "word" / "document.xml"
-            if not original_file.exists():
-                print(
-                    f"FAILED - Original document.xml not found in {self.original_docx}"
-                )
-                return False
-
-            # Parse both XML files using xml.etree.ElementTree for redlining validation
-            try:
-                import xml.etree.ElementTree as ET
-
-                modified_tree = ET.parse(modified_file)
-                modified_root = modified_tree.getroot()
-                original_tree = ET.parse(original_file)
-                original_root = original_tree.getroot()
-            except ET.ParseError as e:
-                print(f"FAILED - Error parsing XML files: {e}")
-                return False
-
-            # Remove Z.AI's tracked changes from both documents
-            self._remove_zai_tracked_changes(original_root)
-            self._remove_zai_tracked_changes(modified_root)
-
-            # Extract and compare text content
-            modified_text = self._extract_text_content(modified_root)
-            original_text = self._extract_text_content(original_root)
-
-            if modified_text != original_text:
-                # Show detailed character-level differences for each paragraph
-                error_message = self._generate_detailed_diff(
-                    original_text, modified_text
-                )
-                print(error_message)
-                return False
-
-            if self.verbose:
-                print("PASSED - All changes by Z.AI are properly tracked")
+class DocumentComparator:
+    """Handles text extraction and comparison logic for Word documents."""
+    
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+    
+    def extract_text_content(self, root):
+        """Extract text content from an XML document root."""
+        text_parts = []
+        for elem in root.iter():
+            if elem.text:
+                text_parts.append(elem.text)
+        return "".join(text_parts)
+    
+    def compare_texts(self, original_text, modified_text):
+        """Compare two texts and return True if they match, False otherwise."""
+        if original_text == modified_text:
             return True
-
+        
+        # Generate detailed diff if texts don't match
+        error_message = self._generate_detailed_diff(original_text, modified_text)
+        print(error_message)
+        return False
+    
     def _generate_detailed_diff(self, original_text, modified_text):
         """Generate detailed word-level differences using git word diff."""
         error_parts = [
@@ -135,7 +135,7 @@ class RedliningValidator:
             error_parts.append("Unable to generate word diff (git not available)")
 
         return "\n".join(error_parts)
-
+    
     def _get_git_word_diff(self, original_text, modified_text):
         """Generate word diff using git with character-level precision."""
         try:
@@ -149,131 +149,100 @@ class RedliningValidator:
                 original_file.write_text(original_text, encoding="utf-8")
                 modified_file.write_text(modified_text, encoding="utf-8")
 
-                # Try character-level diff first for precise differences
-                result = subprocess.run(
-                    [
-                        "git",
-                        "diff",
-                        "--word-diff=plain",
-                        "--word-diff-regex=.",  # Character-by-character diff
-                        "-U0",  # Zero lines of context - show only changed lines
-                        "--no-index",
-                        str(original_file),
-                        str(modified_file),
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
+                # Try character-level diff first
+                try:
+                    result = subprocess.run(
+                        ["git", "diff", "--word-diff", "--unified=0", "--no-index", 
+                         str(original_file), str(modified_file)],
+                        capture_output=True, text=True, check=True
+                    )
+                    return result.stdout
+                except subprocess.CalledProcessError:
+                    # Fall back to simpler diff if character-level fails
+                    result = subprocess.run(
+                        ["diff", str(original_file), str(modified_file)],
+                        capture_output=True, text=True
+                    )
+                    return result.stdout
+        except Exception:
+            return None
 
-                if result.stdout.strip():
-                    # Clean up the output - remove git diff header lines
-                    lines = result.stdout.split("\n")
-                    # Skip the header lines (diff --git, index, +++, ---, @@)
-                    content_lines = []
-                    in_content = False
-                    for line in lines:
-                        if line.startswith("@@"):
-                            in_content = True
-                            continue
-                        if in_content and line.strip():
-                            content_lines.append(line)
 
-                    if content_lines:
-                        return "\n".join(content_lines)
+class RedliningValidator:
+    """Validator for tracked changes in Word documents."""
 
-                # Fallback to word-level diff if character-level is too verbose
-                result = subprocess.run(
-                    [
-                        "git",
-                        "diff",
-                        "--word-diff=plain",
-                        "-U0",  # Zero lines of context
-                        "--no-index",
-                        str(original_file),
-                        str(modified_file),
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
+    def __init__(self, unpacked_dir, original_docx, verbose=False):
+        self.unpacked_dir = Path(unpacked_dir)
+        self.original_docx = Path(original_docx)
+        self.verbose = verbose
+        
+        # Initialize helper components
+        self.xml_parser = XmlParser()
+        self.tracked_changes = TrackedChanges(self.xml_parser.namespaces)
+        self.document_comparator = DocumentComparator(verbose)
 
-                if result.stdout.strip():
-                    lines = result.stdout.split("\n")
-                    content_lines = []
-                    in_content = False
-                    for line in lines:
-                        if line.startswith("@@"):
-                            in_content = True
-                            continue
-                        if in_content and line.strip():
-                            content_lines.append(line)
-                    return "\n".join(content_lines)
+    def validate(self):
+        """Main validation method that returns True if valid, False otherwise."""
+        # Verify unpacked directory exists and has correct structure
+        modified_file = self.unpacked_dir / "word" / "document.xml"
+        if not modified_file.exists():
+            print(f"FAILED - Modified document.xml not found at {modified_file}")
+            return False
 
-        except (subprocess.CalledProcessError, FileNotFoundError, Exception):
-            # Git not available or other error, return None to use fallback
+        # First, check if there are any tracked changes by Z.AI to validate
+        try:
+            modified_root = self.xml_parser.parse_file(modified_file)
+            zai_del_elements, zai_ins_elements = self.xml_parser.find_zai_changes(modified_root)
+
+            # Redlining validation is only needed if tracked changes by Z.AI have been used.
+            if not zai_del_elements and not zai_ins_elements:
+                if self.verbose:
+                    print("PASSED - No tracked changes by Z.AI found.")
+                return True
+
+        except Exception as e:
+            if self.verbose:
+                print(f"Warning - Error checking for Z.AI changes: {e}")
+            # If we can't parse the XML, continue with full validation
             pass
 
-        return None
+        # Create temporary directory for unpacking original docx
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-    def _remove_zai_tracked_changes(self, root):
-        """Remove tracked changes authored by Z.AI from the XML root."""
-        ins_tag = f"{{{self.namespaces['w']}}}ins"
-        del_tag = f"{{{self.namespaces['w']}}}del"
-        author_attr = f"{{{self.namespaces['w']}}}author"
+            # Unpack original docx
+            try:
+                with zipfile.ZipFile(self.original_docx, "r") as zip_ref:
+                    zip_ref.extractall(temp_path)
+            except Exception as e:
+                print(f"FAILED - Error unpacking original docx: {e}")
+                return False
 
-        # Remove w:ins elements
-        for parent in root.iter():
-            to_remove = []
-            for child in parent:
-                if child.tag == ins_tag and child.get(author_attr) == "Z.AI":
-                    to_remove.append(child)
-            for elem in to_remove:
-                parent.remove(elem)
+            original_file = temp_path / "word" / "document.xml"
+            if not original_file.exists():
+                print(
+                    f"FAILED - Original document.xml not found in {self.original_docx}"
+                )
+                return False
 
-        # Unwrap content in w:del elements where author is "Z.AI"
-        deltext_tag = f"{{{self.namespaces['w']}}}delText"
-        t_tag = f"{{{self.namespaces['w']}}}t"
+            # Parse both XML files using xml.etree.ElementTree for redlining validation
+            try:
+                original_root = self.xml_parser.parse_file(original_file)
+                modified_root = self.xml_parser.parse_file(modified_file)
+            except Exception as e:
+                print(f"FAILED - Error parsing XML files: {e}")
+                return False
 
-        for parent in root.iter():
-            to_process = []
-            for child in parent:
-                if child.tag == del_tag and child.get(author_attr) == "Z.AI":
-                    to_process.append((child, list(parent).index(child)))
+            # Remove Z.AI's tracked changes from both documents
+            self.tracked_changes.remove_zai_tracked_changes(original_root)
+            self.tracked_changes.remove_zai_tracked_changes(modified_root)
 
-            # Process in reverse order to maintain indices
-            for del_elem, del_index in reversed(to_process):
-                # Convert w:delText to w:t before moving
-                for elem in del_elem.iter():
-                    if elem.tag == deltext_tag:
-                        elem.tag = t_tag
+            # Extract and compare text content
+            modified_text = self.document_comparator.extract_text_content(modified_root)
+            original_text = self.document_comparator.extract_text_content(original_root)
 
-                # Move all children of w:del to its parent before removing w:del
-                for child in reversed(list(del_elem)):
-                    parent.insert(del_index, child)
-                parent.remove(del_elem)
-
-    def _extract_text_content(self, root):
-        """Extract text content from Word XML, preserving paragraph structure.
-
-        Empty paragraphs are skipped to avoid false positives when tracked
-        insertions add only structural elements without text content.
-        """
-        p_tag = f"{{{self.namespaces['w']}}}p"
-        t_tag = f"{{{self.namespaces['w']}}}t"
-
-        paragraphs = []
-        for p_elem in root.findall(f".//{p_tag}"):
-            # Get all text elements within this paragraph
-            text_parts = []
-            for t_elem in p_elem.findall(f".//{t_tag}"):
-                if t_elem.text:
-                    text_parts.append(t_elem.text)
-            paragraph_text = "".join(text_parts)
-            # Skip empty paragraphs - they don't affect content validation
-            if paragraph_text:
-                paragraphs.append(paragraph_text)
-
-        return "\n".join(paragraphs)
-
-
-if __name__ == "__main__":
-    raise RuntimeError("This module should not be run directly.")
+            if self.document_comparator.compare_texts(original_text, modified_text):
+                if self.verbose:
+                    print("PASSED - All changes by Z.AI are properly tracked")
+                return True
+            return False
