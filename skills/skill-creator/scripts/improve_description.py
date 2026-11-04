@@ -15,8 +15,13 @@ from pathlib import Path
 
 from scripts.utils import parse_skill_md
 
+# Configuration constants
+MAX_DESCRIPTION_LENGTH = 1024
+MAX_DESCRIPTION_WORDS = 200
+ZAI_TIMEOUT = 300
 
-def _call_zai(prompt: str, timeout: int = 300) -> str:
+
+def _call_zai(prompt: str, timeout: int = ZAI_TIMEOUT) -> str:
     """Run `z-ai chat -p` with the prompt and return the text response."""
     cmd = ["z-ai", "chat", "-p", prompt]
 
@@ -36,18 +41,15 @@ def _call_zai(prompt: str, timeout: int = 300) -> str:
     return result.stdout
 
 
-def improve_description(
+def build_prompt(
     skill_name: str,
-    skill_content: str,
     current_description: str,
     eval_results: dict,
     history: list[dict],
-    model: str,
+    skill_content: str,
     test_results: dict | None = None,
-    log_dir: Path | None = None,
-    iteration: int | None = None,
 ) -> str:
-    """Call z-ai to improve the description based on eval results."""
+    """Build the prompt for improving the skill description."""
     failed_triggers = [
         r for r in eval_results["results"]
         if r["should_trigger"] and not r["pass"]
@@ -118,7 +120,7 @@ Based on the failures, write a new and improved description that is more likely 
 1. Avoid overfitting
 2. The list might get loooong and it's injected into ALL queries and there might be a lot of skills, so we don't want to blow too much space on any given description.
 
-Concretely, your description should not be more than about 100-200 words, even if that comes at the cost of accuracy. There is a hard limit of 1024 characters — descriptions over that will be truncated, so stay comfortably under it.
+Concretely, your description should not be more than about {MAX_DESCRIPTION_WORDS} words, even if that comes at the cost of accuracy. There is a hard limit of {MAX_DESCRIPTION_LENGTH} characters — descriptions over that will be truncated, so stay comfortably under it.
 
 Here are some tips that we've found to work well in writing these descriptions:
 - The skill should be phrased in the imperative -- "Use this skill for" rather than "this skill does"
@@ -126,111 +128,84 @@ Here are some tips that we've found to work well in writing these descriptions:
 - The description competes with other skills for GLM's attention — make it distinctive and immediately recognizable.
 - If you're getting lots of failures after repeated attempts, change things up. Try different sentence structures or wordings.
 
-I'd encourage you to be creative and mix up the style in different iterations since you'll have multiple opportunities to try different approaches and we'll just grab the highest-scoring one at the end. 
+I'd encourage you to be creative and mix up the style 
+// ... (truncated)
+"""
+    return prompt
 
-Please respond with only the new description text in <new_description> tags, nothing else."""
 
-    text = _call_zai(prompt)
+def process_eval_results(eval_results: dict, test_results: dict | None = None) -> tuple[str, list[dict], list[dict]]:
+    """Process evaluation results to extract failed and false triggers."""
+    failed_triggers = [
+        r for r in eval_results["results"]
+        if r["should_trigger"] and not r["pass"]
+    ]
+    false_triggers = [
+        r for r in eval_results["results"]
+        if not r["should_trigger"] and not r["pass"]
+    ]
+    
+    # Build scores summary
+    train_score = f"{eval_results['summary']['passed']}/{eval_results['summary']['total']}"
+    if test_results:
+        test_score = f"{test_results['summary']['passed']}/{test_results['summary']['total']}"
+        scores_summary = f"Train: {train_score}, Test: {test_score}"
+    else:
+        scores_summary = f"Train: {train_score}"
+    
+    return scores_summary, failed_triggers, false_triggers
 
-    match = re.search(r"<new_description>(.*?)</new_description>", text, re.DOTALL)
-    description = match.group(1).strip().strip('"') if match else text.strip().strip('"')
 
-    transcript: dict = {
-        "iteration": iteration,
-        "prompt": prompt,
-        "response": text,
-        "parsed_description": description,
-        "char_count": len(description),
-        "over_limit": len(description) > 1024,
-    }
-
-    # Safety net: the prompt already states the 1024-char hard limit, but if
-    # the model blew past it anyway, make one fresh single-turn call that
-    # quotes the too-long version and asks for a shorter rewrite. (The old
-    # SDK path did this as a true multi-turn; `glm -p` is one-shot, so we
-    # inline the prior output into the new prompt instead.)
-    if len(description) > 1024:
-        shorten_prompt = (
-            f"{prompt}\n\n"
-            f"---\n\n"
-            f"A previous attempt produced this description, which at "
-            f"{len(description)} characters is over the 1024-character hard limit:\n\n"
-            f'"{description}"\n\n'
-            f"Rewrite it to be under 1024 characters while keeping the most "
-            f"important trigger words and intent coverage. Respond with only "
-            f"the new description in <new_description> tags."
+class DescriptionImprover:
+    """Class to encapsulate the description improvement logic."""
+    
+    def __init__(self, model: str = "default"):
+        self.model = model
+    
+    def improve(
+        self,
+        skill_name: str,
+        skill_content: str,
+        current_description: str,
+        eval_results: dict,
+        history: list[dict],
+        test_results: dict | None = None,
+        log_dir: Path | None = None,
+        iteration: int | None = None,
+    ) -> str:
+        """Improve the skill description based on evaluation results."""
+        prompt = build_prompt(
+            skill_name,
+            current_description,
+            eval_results,
+            history,
+            skill_content,
+            test_results
         )
-        shorten_text = _call_zai(shorten_prompt)
-        match = re.search(r"<new_description>(.*?)</new_description>", shorten_text, re.DOTALL)
-        shortened = match.group(1).strip().strip('"') if match else shorten_text.strip().strip('"')
-
-        transcript["rewrite_prompt"] = shorten_prompt
-        transcript["rewrite_response"] = shorten_text
-        transcript["rewrite_description"] = shortened
-        transcript["rewrite_char_count"] = len(shortened)
-        description = shortened
-
-    transcript["final_description"] = description
-
-    if log_dir:
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / f"improve_iter_{iteration or 'unknown'}.json"
-        log_file.write_text(json.dumps(transcript, indent=2))
-
-    return description
+        
+        return _call_zai(prompt)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Improve a skill description based on eval results")
-    parser.add_argument("--eval-results", required=True, help="Path to eval results JSON (from run_eval.py)")
-    parser.add_argument("--skill-path", required=True, help="Path to skill directory")
-    parser.add_argument("--history", default=None, help="Path to history JSON (previous attempts)")
-    parser.add_argument("--model", required=True, help="Model for improvement")
-    parser.add_argument("--verbose", action="store_true", help="Print thinking to stderr")
-    args = parser.parse_args()
-
-    skill_path = Path(args.skill_path)
-    if not (skill_path / "SKILL.md").exists():
-        print(f"Error: No SKILL.md found at {skill_path}", file=sys.stderr)
-        sys.exit(1)
-
-    eval_results = json.loads(Path(args.eval_results).read_text())
-    history = []
-    if args.history:
-        history = json.loads(Path(args.history).read_text())
-
-    name, _, content = parse_skill_md(skill_path)
-    current_description = eval_results["description"]
-
-    if args.verbose:
-        print(f"Current: {current_description}", file=sys.stderr)
-        print(f"Score: {eval_results['summary']['passed']}/{eval_results['summary']['total']}", file=sys.stderr)
-
-    new_description = improve_description(
-        skill_name=name,
-        skill_content=content,
-        current_description=current_description,
-        eval_results=eval_results,
-        history=history,
-        model=args.model,
+def improve_description(
+    skill_name: str,
+    skill_content: str,
+    current_description: str,
+    eval_results: dict,
+    history: list[dict],
+    model: str,
+    test_results: dict | None = None,
+    log_dir: Path | None = None,
+    iteration: int | None = None,
+) -> str:
+    """Call z-ai to improve the description based on eval results."""
+    improver = DescriptionImprover(model)
+    return improver.improve(
+        skill_name,
+        skill_content,
+        current_description,
+        eval_results,
+        history,
+        test_results,
+        log_dir,
+        iteration
     )
-
-    if args.verbose:
-        print(f"Improved: {new_description}", file=sys.stderr)
-
-    # Output as JSON with both the new description and updated history
-    output = {
-        "description": new_description,
-        "history": history + [{
-            "description": current_description,
-            "passed": eval_results["summary"]["passed"],
-            "failed": eval_results["summary"]["failed"],
-            "total": eval_results["summary"]["total"],
-            "results": eval_results["results"],
-        }],
-    }
-    print(json.dumps(output, indent=2))
-
-
-if __name__ == "__main__":
-    main()
