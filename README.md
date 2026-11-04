@@ -35,6 +35,32 @@ The system boots like a 1980s CRT terminal. It fetches its own live vitals from 
 
 The POST is honest: any vital it can't read stamps `[ ?? ]` in amber. It never fakes an `OK`. Press ENTER and you're in the terminal — splash → system, nothing in between.
 
+### The 15 POST lines (cold boot)
+
+The cold-boot POST stamps 15 checks in order. The first 8 are the original machine vitals; the last 7 are the boot/scan group — appended after the sealed-PAT vault landed, so every entry reports the live machine state:
+
+| # | Line | What it reports |
+|---|---|---|
+| 1 | CHECKING OBSERVER | HUMAN AT TERMINAL 0 |
+| 2 | MUTATION LEDGER | `N ON REMOTE · NEXT loop-NN` (from `/api/branches`) |
+| 3 | POSTMORTEM CHAIN | `N VERIFIED · 0 BROKEN` (chain integrity) |
+| 4 | PROPHECY ENGINE | `N SEEDED · N PENDING` |
+| 5 | LLM CORTEX | `READY` or `THROTTLED — SEE API QUOTA LINE` |
+| 6 | HOT-SWAP BAY | swaps this boot |
+| 7 | UPLINK | the configured `owner/repo` |
+| 8 | CYCLE COUNTER | `N COMPLETED` |
+| 9 | **Z.AI CORTEX** | the auto-injected provider connection — `AUTO-INJECTED · VERIFIED (Nms PING)`. The SDK handshake + one-shot ping happens at **SERVER BOOT** (the Next.js instrumentation hook fires `warmZaiCortex()` before the first HTTP request), so the splash reads a connection that already exists, not one it has to wait for. |
+| 10 | **API QUOTA** | the shared 429 gate. When the gate is active: `THROTTLED L{1-4} — QUOTA READY IN MM:SS` with a **live countdown** ticking every second against a client-anchored end time. When open: `AVAILABLE — NO 429 GATE ON FILE`. |
+| 11 | **GITHUB AUTH** | the sealed PAT auto-connect — `AUTHENTICATED AS <login>`. The server opens the sealed token from the vault (zero operator input) and asks GitHub `GET /user`. |
+| 12 | **TOKEN VAULT** | `AES-256-GCM · SEALED AT REST` (or `PLAINTEXT — KEY MISSING` if the vault key isn't seeded). |
+| 13 | **MUTATION TOTALS** | `N SUCCEEDED · N FAILED` — succeeded from the branch ledger, failed from the wipe-proof disk scar count. |
+| 14 | **HOT-SWAP LOG** | `N LIFETIME · M THIS BOOT` — the lifetime counter is **wipe-proof**: a disk journal in `.git/info/` is the source of truth, the DB is a mirror. A sandbox DB rollback can't erase it. |
+| 15 | **AUTONOMY** | `ARMED — <state>` or `LIVE — SELF-DRIVEN`. The loop runs by itself when the quota gate is open. |
+
+### Warm boot shows the same vitals
+
+Warm boots (already entered this browser session) used to show one `SESSION RESUMED` line and nothing else — every reload read as "not updated". Now the warm POST appends the **same 7 boot/scan lines** after the SESSION RESUMED line. One definition, two ceremonies, same bytes on every entry — the live machine state is never a cold-boot-only show. Force the full cold POST with `?boot=force`.
+
 ### The terminal
 
 After the splash, you get the actual interface:
@@ -95,7 +121,7 @@ Each successful enhancement pushes to its own git branch:
 loop-01  ← first full mutation
   └─ loop-02  ← second, built on loop-01's tip
        └─ loop-03 ← third
-            └─ ...loop-38 (current)
+            └─ ...loop-108 (current)
 ```
 
 - **Each branch = one successful mutation.** Failed attempts don't get a branch — they go to the postmortem DB. So `loop-NN` counts wins only.
@@ -122,12 +148,15 @@ The system can change **how** things look. It can **never** change **what you co
 
 As of this README:
 
-- **63 mutation branches** on GitHub (`loop-01` through `loop-63`), next will be `loop-64`.
-- **32 postmortems** in the chain, **0 broken links** (every postmortem traces to a real commit).
-- **159 files in mutation scope** — pipeline logic, UI components, API routes, and the Prisma schema (see below).
+- **108 mutation branches** on GitHub (`loop-01` through `loop-108`), next will be `loop-109`.
+- **89 postmortems** in the chain, **0 broken links** (every postmortem traces to a real commit). **90 scar files** on disk — the wipe-proof failure record that survives sandbox DB rollbacks.
+- **178 files in mutation scope** — pipeline logic, UI components, API routes, and the Prisma schema (see below).
 - The repo (`craighckby-stack/V1`) is **public** — commit links in the BRANCHES dialog resolve for anyone.
+- **Z.ai cortex auto-injects at server boot.** The Next.js instrumentation hook (`src/instrumentation.ts`) fires `warmZaiCortex()` before the first HTTP request: `ZAI.create()` (the SDK handshake, cached in a shared globalThis slot — the SAME instance every LLM call reuses) + a one-shot 4-token ping. The splash's Z.AI CORTEX line reads a connection that already exists, not one it has to wait for.
+- **The loop runs by itself when the quota allows.** When the shared 429 gate is active, the loop auto-pauses (stop is still honored within 1s) and the API QUOTA line counts down to the gate opening. When the gate clears, the loop auto-resumes — no operator input. The gate escalates 2min → 5min → 15min → 30min on consecutive 429s; one successful call de-escalates.
+- **Hot-swap lifetime is wipe-proof.** A disk journal in `.git/info/` is the source of truth; the DB is a mirror. A sandbox DB rollback can't erase the lifetime count.
 
-The system is currently running against a free-tier LLM API, which rate-limits frequently. When it does, the loop backs off honestly — each retry fires a log line in real time rather than going silent. No fake progress.
+The system is currently running against a free-tier LLM API, which rate-limits frequently. When it does, the loop backs off honestly — each retry fires a log line in real time, the API QUOTA line counts down, and the loop auto-resumes the moment the gate opens. No fake progress.
 
 ---
 
@@ -187,7 +216,7 @@ The loop's own brain (gate chain, loop runtime, push auth, LLM wrappers, the les
 - **Prisma ORM** + SQLite
 - **Socket.io** for the real-time activity stream (mini-service on port 3003)
 - **TypeScript Compiler API** for the AST diff gate
-- **z-ai-web-dev-sdk** for LLM calls (server-side only)
+- **z-ai-web-dev-sdk** for LLM calls (server-side only) — auto-injected at **server boot** via the Next.js instrumentation hook, so the provider connection exists before the first request
 - **Web Audio API** for the synthesized boot soundtrack (no audio assets — all oscillators)
 
 ---
@@ -200,12 +229,16 @@ bun run db:push
 bun run dev
 
 # In another terminal — the real-time stream mini-service
-cd mini-services/chat-service && bun run dev
+cd mini-services/loop-ws-service && bun run dev
 ```
 
 Open the preview panel. Type `start`. Watch it work.
 
-To configure the push target (so mutations land on GitHub), type `config` or click `[CONFIG]` and paste a classic PAT (repo scope) + `owner/repo`.
+To configure the push target (so mutations land on GitHub), type `config` or click `[CONFIG]` and paste a classic PAT (repo scope) + `owner/repo`. The PAT is sealed at rest with AES-256-GCM the moment it lands; subsequent boots auto-connect (the server opens the vault and asks GitHub `GET /user` with zero operator input).
+
+### Optional: API key gate
+
+Set `LOOP_API_KEY` in `.env` to lock down mutating API routes (POST/PUT/PATCH/DELETE). The middleware (`src/middleware.ts`) gates every mutating request against the `x-loop-key` header; GET/HEAD/OPTIONS pass through untouched so polling and health checks keep working. When unset, the gate **fails open** (with a one-time console warning) so the system stays bootable — and the UI's bottom-right `API KEY NOT SET — MUTATIONS LOCKED` hint only renders when the server confirms it's actually configured to gate. Enter the key in the UI unlock panel (bottom-right) when a mutation 401s; it's stored in `localStorage` and attached to every mutating fetch from then on.
 
 ---
 
@@ -223,7 +256,7 @@ To configure the push target (so mutations land on GitHub), type `config` or cli
 ## What this is not
 
 - Not AGI. Not conscious. Not dangerous. Not a demo that stops when you stop watching.
-- Not a parlour trick either — it's a real, running, bounded autonomous self-mutation experiment that has produced 38 compiler-verified patches to its own source code and pushed them to a public git history you can audit right now.
+- Not a parlour trick either — it's a real, running, bounded autonomous self-mutation experiment that has produced 108 compiler-verified patches to its own source code and pushed them to a public git history you can audit right now.
 
 The engineering is in the gating, the persistence (3-tier state survival across sandbox restarts), and the boundary (the loop can't rewrite its own OFF switch). That's the craft. The LLM is the easy part.
 
