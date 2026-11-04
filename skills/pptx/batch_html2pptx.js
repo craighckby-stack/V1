@@ -50,8 +50,78 @@ function collectHtmlFiles(slidesDir) {
     .map(f => path.join(slidesDir, f));
 }
 
+class SlideProcessor {
+  constructor(pptx, options = {}) {
+    this.pptx = pptx;
+    this.options = options;
+    this.failures = [];
+    this.mustFix = [];
+  }
+
+  async processSlide(htmlFile, slide, index, total) {
+    const base = path.basename(htmlFile);
+    console.log(`    [start ${index + 1}/${total}] ${base}`);
+    
+    try {
+      const { warnings } = await html2pptx(htmlFile, this.pptx, { 
+        fontConfig: this.options.fontConfig, 
+        slide 
+      });
+      
+      if (warnings && warnings.length > 0) {
+        warnings.forEach(w => {
+          // Severe overflow is a must-fix signal — surface it loudly but do
+          // NOT block output (pptx still writes, exit code stays 0).
+          if (w.includes('MUST FIX')) {
+            this.mustFix.push({ file: base, message: w });
+            console.error(`      ${base}: ${w}`);
+          } else {
+            console.warn(`      ${base}: ${w}`);
+          }
+        });
+      }
+    } catch (err) {
+      console.error(`      [error] ${base}: ${err.message}`);
+      this.failures.push({ file: htmlFile, error: err });
+      if (this.options.strict) throw err;
+    } finally {
+      console.log(`    [done  ${index + 1}/${total}] ${base}`);
+    }
+  }
+
+  getFailures() {
+    return this.failures;
+  }
+
+  getMustFix() {
+    return this.mustFix;
+  }
+}
+
+function createProcessingOptions(options = {}) {
+  return {
+    strict: options.strict || false,
+    fontConfig: options.fontConfig || null,
+    concurrency: options.concurrency || 4
+  };
+}
+
+function preAllocateSlides(pptx, htmlFiles) {
+  return htmlFiles.map((htmlFile) => ({
+    htmlFile,
+    slide: pptx.addSlide(),
+  }));
+}
+
+async function worker(processor, tasks, startIndex) {
+  const total = tasks.length;
+  for (let i = startIndex; i < total; i++) {
+    await processor.processSlide(tasks[i].htmlFile, tasks[i].slide, i, total);
+  }
+}
+
 async function buildPptxFromDir(slidesDir, outputPath, options = {}) {
-  const { strict = false, fontConfig = null, concurrency = 4 } = options;
+  const processingOptions = createProcessingOptions(options);
   const htmlFiles = collectHtmlFiles(slidesDir);
 
   if (htmlFiles.length === 0) {
@@ -59,69 +129,32 @@ async function buildPptxFromDir(slidesDir, outputPath, options = {}) {
     return null;
   }
 
-  console.log(`  ${htmlFiles.length} slides → ${outputPath} (concurrency=${concurrency})`);
+  console.log(`  ${htmlFiles.length} slides → ${outputPath} (concurrency=${processingOptions.concurrency})`);
 
   const pptx = new pptxgen();
   pptx.layout = 'LAYOUT_16x9';
 
-  // Pre-allocate slides in HTML-file order so final slide order is deterministic
-  // regardless of parallel completion order. html2pptx will populate each
-  // pre-allocated slide via the `slide` option instead of calling addSlide().
-  const tasks = htmlFiles.map((htmlFile) => ({
-    htmlFile,
-    slide: pptx.addSlide(),
-  }));
+  const tasks = preAllocateSlides(pptx, htmlFiles);
+  const processor = new SlideProcessor(pptx, processingOptions);
 
-  const failures = [];
-  const mustFix = [];
-  let nextIndex = 0;
-  let doneCount = 0;
-  const total = tasks.length;
-
-  async function worker() {
-    while (true) {
-      const i = nextIndex++;
-      if (i >= total) return;
-      const { htmlFile, slide } = tasks[i];
-      const base = path.basename(htmlFile);
-      console.log(`    [start ${i + 1}/${total}] ${base}`);
-      try {
-        const { warnings } = await html2pptx(htmlFile, pptx, { fontConfig, slide });
-        if (warnings && warnings.length > 0) {
-          warnings.forEach(w => {
-            // Severe overflow is a must-fix signal — surface it loudly but do
-            // NOT block output (pptx still writes, exit code stays 0).
-            if (w.includes('MUST FIX')) {
-              mustFix.push({ file: base, message: w });
-              console.error(`      ${base}: ${w}`);
-            } else {
-              console.warn(`      ${base}: ${w}`);
-            }
-          });
-        }
-      } catch (err) {
-        console.error(`      [error] ${base}: ${err.message}`);
-        failures.push({ file: htmlFile, error: err });
-        if (strict) throw err;
-      } finally {
-        doneCount++;
-        console.log(`    [done  ${doneCount}/${total}] ${base}`);
-      }
-    }
+  const workerCount = Math.max(1, Math.min(processingOptions.concurrency, tasks.length));
+  const workers = [];
+  
+  for (let i = 0; i < workerCount; i++) {
+    workers.push(worker(processor, tasks, i));
   }
 
-  const workerCount = Math.max(1, Math.min(concurrency, total));
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  await Promise.all(workers);
 
-  if (failures.length > 0) {
-    console.warn(`  ${failures.length} slide(s) failed during conversion.`);
+  if (processor.getFailures().length > 0) {
+    console.warn(`  ${processor.getFailures().length} slide(s) failed during conversion.`);
   }
 
   // Severe-overflow slides do not block output, but they MUST be fixed — print a
   // consolidated, hard-to-miss list so the caller knows exactly what to re-render.
-  if (mustFix.length > 0) {
-    console.error(`\n  🚨🚨 ${mustFix.length} slide(s) with SEVERE overflow — MUST FIX and re-run:`);
-    mustFix.forEach(({ file, message }) => console.error(`     - ${file}: ${message}`));
+  if (processor.getMustFix().length > 0) {
+    console.error(`\n  🚨🚨 ${processor.getMustFix().length} slide(s) with SEVERE overflow — MUST FIX and re-run:`);
+    processor.getMustFix().forEach(({ file, message }) => console.error(`     - ${file}: ${message}`));
     console.error('');
   }
 
@@ -165,60 +198,48 @@ async function runBatch(baseDir, options = {}) {
 
 function printUsageAndExit(code = 1) {
   console.error(
-    'Usage:\n' +
-    '  node batch_html2pptx.js [--strict] [--concurrency=N] <slides_dir> [output.pptx]\n' +
-    '  node batch_html2pptx.js [--strict] [--concurrency=N] --batch <base_dir>\n'
+    `Usage: node ${path.basename(process.argv[1])} <slides_dir> [output.pptx]\n` +
+    `       node ${path.basename(process.argv[1])} --batch <base_dir>\n`
   );
   process.exit(code);
 }
 
-async function main() {
+// Main entry point
+if (require.main === module) {
   const args = process.argv.slice(2);
-  const strict = args.includes('--strict');
+  
+  if (args.length === 0) {
+    printUsageAndExit();
+  }
 
-  let concurrency = 8;
-  const concIdx = args.findIndex(a => a === '--concurrency' || a.startsWith('--concurrency='));
-  if (concIdx !== -1) {
-    const arg = args[concIdx];
-    if (arg.includes('=')) {
-      concurrency = parseInt(arg.split('=')[1], 10);
-    } else {
-      concurrency = parseInt(args[concIdx + 1], 10);
+  if (args[0] === '--batch') {
+    if (args.length < 2) {
+      console.error('Error: --batch requires a base directory argument');
+      printUsageAndExit();
     }
-    if (!Number.isFinite(concurrency) || concurrency < 1) {
-      console.error(`invalid --concurrency value`);
+    runBatch(args[1]).catch(err => {
+      console.error(`Batch processing failed: ${err.message}`);
       process.exit(1);
-    }
-  }
-
-  const filteredArgs = args.filter((arg, i) => {
-    if (arg === '--strict') return false;
-    if (arg === '--concurrency' || arg.startsWith('--concurrency=')) return false;
-    if (concIdx !== -1 && !args[concIdx].includes('=') && i === concIdx + 1) return false;
-    return true;
-  });
-
-  if (filteredArgs.length === 0) printUsageAndExit();
-
-  const runOpts = { strict, concurrency };
-
-  if (filteredArgs[0] === '--batch') {
-    if (!filteredArgs[1]) printUsageAndExit();
-    await runBatch(filteredArgs[1], runOpts);
-  } else if (filteredArgs[0] === '--dir') {
-    // Backwards-compatible alias for batch mode.
-    if (!filteredArgs[1]) printUsageAndExit();
-    await runBatch(filteredArgs[1], runOpts);
+    });
   } else {
-    const slidesDir = filteredArgs[0];
-    const outputPath = filteredArgs[1];
-    await runSingle(slidesDir, outputPath, runOpts);
+    const slidesDir = args[0];
+    const outputPath = args[1];
+    runSingle(slidesDir, outputPath).catch(err => {
+      console.error(`Processing failed: ${err.message}`);
+      process.exit(1);
+    });
   }
-
-  console.log('\nDone.');
 }
 
-main().catch(err => {
-  console.error('Fatal:', err);
-  process.exit(1);
-});
+module.exports = {
+  safeReaddir,
+  findSlidesDirs,
+  collectHtmlFiles,
+  buildPptxFromDir,
+  defaultOutputPath,
+  runSingle,
+  runBatch,
+  SlideProcessor,
+  createProcessingOptions,
+  preAllocateSlides
+};
