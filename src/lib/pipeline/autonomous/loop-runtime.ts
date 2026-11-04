@@ -22,6 +22,10 @@ import { db } from "@/lib/db";
 import { postmortemStore, generatePostmortemFromReport } from "../postmortem/postmortem-store";
 import { autoProphecyAfterCycle } from "../oracle/oracle-auto";
 import { isSafeMode, getSafeModeState } from "../core/duress";
+// Operator armed-intent tier (.git/info/loop-armed-state.json). Pure leaf
+// (fs + path), no circulars — the same import class as the agent-llm gate
+// above. See armed-state.ts for why the intent must live on disk.
+import { markArmed, readArmedState, type ArmedState } from "./armed-state";
 import { runRedTeamSuite } from "../red-team/red-team-runner";
 // Static import of the LLM rate-limit gate. This used to be a dynamic
 // `require()` inside runContinuousLoop, but under Turbopack the interop
@@ -122,11 +126,20 @@ class AutonomousLoopRuntime {
     // moment loop-runtime.ts was imported, no [START] needed). Disabled
     // because a native segfault in the LLM cycle crashes the server a
     // few seconds into each run (see src/instrumentation.ts comment —
-    // JS-level handlers can't catch a C-level crash). The loop still
-    // works; it just won't auto-start. Press [START] in the UI or POST
-    // /api/autonomous/start to arm it when you want it running. The
-    // duress safe-mode gate (core/duress.ts) still pauses it on a
-    // security event. See docs/HOT-SWAP.md.
+    // JS-level handlers can't catch a C-level crash).
+    //
+    // The in-memory default is the FRESH-CHECKOUT tier: a brand-new
+    // instance never auto-starts; the operator presses [START] once.
+    // That press ALSO persists the intent to the wipe-proof tier
+    // (.git/info/loop-armed-state.json — see armed-state.ts), and the
+    // boot auto-arm below re-arms from disk on every subsequent boot:
+    // armed once → runs by itself whenever the LLM quota gate is open,
+    // across process restarts and DB rolls. [STOP] clears the disk
+    // intent — the operator's interrupt is sticky forever, exactly as
+    // specified ("stops when quota halt or user interrupts" — a quota
+    // halt only backs off, a user STOP disarms). The duress safe-mode
+    // gate (core/duress.ts) still pauses it on a security event.
+    // See docs/HOT-SWAP.md.
     enabled: false,
     mode: "continuous",
     intervalMinutes: 1,
@@ -327,26 +340,48 @@ class AutonomousLoopRuntime {
           }
           // Respect config.enabled: if the operator disabled the loop
           // (default after 2026-11-03 — see the config comment above), do
-          // NOT auto-arm. The loop only starts when the operator presses
-          // [START] or POSTs /api/autonomous/start. This is the gate that
-          // makes "enabled: false" actually mean "don't run on boot".
+          // NOT auto-arm — UNLESS the wipe-proof armed-state tier says the
+          // operator armed this loop in a prior session. That persisted
+          // intent is what makes "run by itself when quota is available"
+          // true across restarts: re-armed here, the loop's own quota
+          // machinery does the waiting (dynamic cooldown backs off to the
+          // gate's end + 2s, capped 5min; the pre-tree-fetch fast-path
+          // defers a gated cycle at ~0ms cost). [STOP] clears the disk
+          // intent — the operator's interrupt is sticky; a quota halt
+          // never disarms, a human STOP does.
           if (!this.config.enabled) {
-            this.addLog(
-              "Auto-arm skipped: config.enabled is false (operator-gated mode). Press [START] or POST /api/autonomous/start to run the loop.",
-              "info"
-            );
-            this.status = "paused";
-            return;
+            let disk: ArmedState | null = null;
+            try {
+              disk = readArmedState();
+            } catch {
+              disk = null; // fail-closed: unreadable ≠ armed
+            }
+            if (disk && disk.armed) {
+              this.config.enabled = true;
+              this.addLog(
+                `PERSISTED ARMED STATE (armed at ${disk.at || "?"} by ${disk.by || "?"}) — auto-arming. It runs whenever the quota gate is open; [STOP] clears the intent.`,
+                "success"
+              );
+            } else {
+              this.addLog(
+                "Auto-arm skipped: config.enabled is false (operator-gated mode). Press [START] or POST /api/autonomous/start to run the loop.",
+                "info"
+              );
+              this.status = "paused";
+              return;
+            }
           }
           // Respect duress safe-mode: if it's raised at boot (e.g. a prior
-          // session left it raised), don't auto-start. The recovery probe
-          // or the operator will clear it.
+          // session left it raised), don't auto-start. When the loop is
+          // ARMED, the recovery probe below re-arms it the minute safe-mode
+          // clears (60s cadence); a disarmed loop schedules nothing.
           if (typeof isSafeMode === "function" && isSafeMode()) {
             this.addLog(
               "Auto-arm deferred: safe-mode is active. Clear via /api/duress/clear to start the autonomous loop.",
               "warn"
             );
             this.status = "paused";
+            if (this.config.enabled) this.scheduleRecoveryProbe();
             return;
           }
           this.addLog(
@@ -445,6 +480,12 @@ class AutonomousLoopRuntime {
     const oldBranch = this.config.evolutionBranch;
     const oldToken = this.config.githubToken;
     this.config = { ...this.config, ...patch };
+    // Keep the disk tier in sync when a caller PATCHes `enabled` directly
+    // (the control panel doesn't, but the API allows it — a config-level
+    // arm/disarm must not silently desync from the persisted intent).
+    if (typeof patch.enabled === "boolean") {
+      markArmed(patch.enabled, "config-patch");
+    }
     // If the target repo or evolution branch changed, clear the committed-
     // paths cache — those commits don't apply to the new target.
     if (
@@ -490,9 +531,15 @@ class AutonomousLoopRuntime {
       return this.getState();
     }
     this.config.enabled = true;
+    // Persist the armed intent to the wipe-proof tier — this is what
+    // makes [START] a ONE-TIME ritual: every subsequent process boot
+    // re-arms from disk (see the constructor's auto-arm). Best-effort,
+    // never throws (in-memory remains the live source; disk is the
+    // restart tier).
+    markArmed(true, "operator-start");
     this.status = "idle";
     this.addLog(
-      `Autonomous loop ENABLED in ${this.config.mode.toUpperCase()} mode. First run scheduled in ${this.config.intervalMinutes} minute(s).`,
+      `Autonomous loop ENABLED in ${this.config.mode.toUpperCase()} mode. First run scheduled in ${this.config.intervalMinutes} minute(s). Armed state persisted — it survives restarts.`,
       "success"
     );
     this.restartScheduler();
@@ -501,6 +548,10 @@ class AutonomousLoopRuntime {
 
   public stop(): LoopState {
     this.config.enabled = false;
+    // Clear the persisted intent — [STOP] is the operator's interrupt and
+    // it is STICKY: no boot, probe, or quota event may re-arm after a
+    // human stop. Only an explicit [START] writes armed:true again.
+    markArmed(false, "operator-stop");
     this.status = "paused";
     if (this.timer) {
       clearInterval(this.timer);
@@ -516,7 +567,7 @@ class AutonomousLoopRuntime {
     }
     this.continuousLoopRunning = false;
     this.addLog(
-      "Autonomous loop DISABLED. No further cycles will run until re-enabled.",
+      "Autonomous loop DISABLED. No further cycles will run until re-enabled. Armed state cleared — this stop is sticky across restarts.",
       "warn"
     );
     return this.getState();

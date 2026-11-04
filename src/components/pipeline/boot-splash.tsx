@@ -23,7 +23,7 @@
  *
  * The rite fires on EVERY entry — warm boot or cold. Warm boots (already
  * entered this browser session) take the fast path — the SESSION RESUMED
- * line first, then the same five boot/scan vitals lines appended after
+ * line first, then the same seven boot/scan vitals lines appended after
  * it, so the live machine state is reported on EVERY entry, not just
  * the first. prefers-reduced-motion flattens
  * the fancy animation (the CRT effects go static) but does NOT cancel
@@ -55,12 +55,12 @@ const ASCII_LOOP = [
 
 const TAGLINE = "A MACHINE THAT REWRITES ITS OWN CODE.";
 
-/** POST line counts. Cold = 8 original + 6 boot/scan lines. Warm = the
- *  SESSION RESUMED line + the same 6 boot/scan lines. (Warm boots used
+/** POST line counts. Cold = 8 original + 7 boot/scan lines. Warm = the
+ *  SESSION RESUMED line + the same 7 boot/scan lines. (Warm boots used
  *  to show ONE line only — after the first entry, every reload looked
  *  like the splash "never updated". The scan lines now append on both
  *  paths: one definition, two ceremonies, same bytes.) */
-const SCAN_LINE_COUNT = 6;
+const SCAN_LINE_COUNT = 7;
 const COLD_POST_MS = (8 + SCAN_LINE_COUNT) * 130 + 260;
 const WARM_POST_MS = (1 + SCAN_LINE_COUNT) * 130 + 260;
 
@@ -104,6 +104,17 @@ interface Vitals {
   /** Ready-state note — e.g. "PROVIDER REACHED — 429 QUOTA COOLING"
    *  when the connection is verified but the quota is cooling. */
   zaiNote: string;
+  // ── LLM quota gate (the 429 escalation gate, shared process-wide) ──
+  /** "open" | "cooling" | "??" — the provider quota gate. "??" when the
+   *  status endpoint itself was unreadable (honesty rule: absent data is
+   *  never reported as "open"). */
+  quotaState: string;
+  /** Epoch ms when the gate opens (0 when open/unknown) — the countdown
+   *  anchor. The splash ticks against it locally every second, so the
+   *  clock stays accurate between the one-shot fetch and ENTER. */
+  quotaEndsAtMs: number;
+  /** Escalation level of the ACTIVE cooldown (1=2min..4=30min; 0 open). */
+  quotaLevel: number;
 }
 
 const UNKNOWN_VITALS: Vitals = {
@@ -126,6 +137,9 @@ const UNKNOWN_VITALS: Vitals = {
   zaiPing: "??",
   zaiError: "",
   zaiNote: "",
+  quotaState: "??",
+  quotaEndsAtMs: 0,
+  quotaLevel: 0,
 };
 
 const asObj = (v: unknown): Json | null => (v && typeof v === "object" ? (v as Json) : null);
@@ -170,6 +184,8 @@ async function fetchVitals(): Promise<Vitals> {
     const gate = asObj(pick(asObj(status), "llmGate"));
     const gateActive = gate?.active === true;
     const gateMs = typeof gate?.remainingMs === "number" ? gate.remainingMs : 0;
+    const gateEndsAt = typeof gate?.endsAtMs === "number" ? gate.endsAtMs : 0;
+    const gateLevel = typeof gate?.level === "number" ? gate.level : 0;
     const stats = asObj(pick(asObj(status), "stats"));
     const mapped: Vitals = {
       branchesTotal: txt(pick(asObj(br), "total")),
@@ -219,6 +235,13 @@ async function fetchVitals(): Promise<Vitals> {
         const n = pick(z, "note");
         return typeof n === "string" ? n : "";
       })(),
+      // ── quota gate mapping ──
+      // Honest three-state: "??" when the endpoint was unreadable (an
+      // absent gate must never be reported as "open"), "cooling" when the
+      // shared 429 gate is active, "open" when it verifiably is not.
+      quotaState: status === null ? "??" : gateActive ? "cooling" : "open",
+      quotaEndsAtMs: gateActive ? gateEndsAt : 0,
+      quotaLevel: gateLevel,
     };
     return mapped;
   } finally {
@@ -253,14 +276,19 @@ function Scramble({ text, start, ms, className }: { text: string; start: boolean
   return <span className={className}>{out}</span>;
 }
 
-/** The six boot/scan vitals lines — ONE definition, used by both
+/** The seven boot/scan vitals lines — ONE definition, used by both
  *  ceremonies: cold appends them after the original 8 (which stay
  *  byte-for-byte untouched), warm appends them after the SESSION
  *  RESUMED line. Same bytes on every entry — the live machine state
  *  is never a cold-boot-only show. The Z.AI CORTEX line leads the
  *  group: its injection happens at SERVER BOOT, before this splash
- *  reads it — first in fact, first in report. */
-function scanPostLines(v: Vitals): PostLine[] {
+ *  reads it — first in fact, first in report. The API QUOTA line
+ *  follows it (the provider's connection, then the provider's meter):
+ *  when the shared 429 gate is active it renders a LIVE countdown to
+ *  the gate opening, ticking every second against `quotaEndsAtMs`
+ *  (server epoch — immune to stale fetches); when the gate is open it
+ *  stamps OK, and an unreadable gate is never reported as open. */
+function scanPostLines(v: Vitals, nowMs: number): PostLine[] {
   return [
     {
       label: "Z.AI CORTEX",
@@ -275,6 +303,17 @@ function scanPostLines(v: Vitals): PostLine[] {
         : "UNREADABLE",
       stamp: v.zaiState === "ready" ? "OK" : v.zaiState === "warming" ? "WAIT" : "??",
       warn: v.zaiState !== "ready",
+    },
+    {
+      label: "API QUOTA",
+      value:
+        v.quotaState === "??" ? "UNREADABLE"
+        : v.quotaState === "open" ? "AVAILABLE — NO 429 GATE ON FILE"
+        : v.quotaEndsAtMs > nowMs
+        ? `THROTTLED L${v.quotaLevel || 1} — QUOTA READY IN ${gateClock(v.quotaEndsAtMs - nowMs)}`
+        : "GATE EXPIRED — NEXT CALL RECHECKS",
+      stamp: v.quotaState === "open" ? "OK" : v.quotaState === "??" ? "??" : "WAIT",
+      warn: v.quotaState !== "open",
     },
     {
       label: "GITHUB AUTH",
@@ -406,7 +445,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
     reducedRef.current = mq.matches;
 
-    // Warm boots fetch vitals too now: their POST appends the same five
+    // Warm boots fetch vitals too now: their POST appends the same seven
     // boot/scan lines after the SESSION RESUMED line. The fetch races
     // the (fast) warm timeline and never blocks it — the first stamp
     // still lands at 650ms; late-arriving values fill their lines in
@@ -417,13 +456,13 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
 
     if (isWarm) {
       // Warm boot: quick phosphor flash + the SESSION RESUMED line,
-      // then the five scan lines stamp in — the machine reports its
+      // then the seven scan lines stamp in — the machine reports its
       // live vitals on EVERY entry — but it still asks. There is no
       // auto-enter: ENTER always runs the full rite (owner's "each
       // time" decree), so the invite is the stop.
       const warmPostAt = reducedRef.current ? 100 : 650;
       later(() => setPhase("post"), warmPostAt);
-      // The invite flips in after the last (6th) line stamps + settle.
+      // The invite flips in after the last (7th) line stamps + settle.
       later(
         () => setPhase((p) => (p === "post" ? "invite" : p)),
         warmPostAt + (reducedRef.current ? 150 : WARM_POST_MS)
@@ -454,7 +493,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   // POST line stamping — reveal one line per tick while in "post".
   // `warm` is settled (set at mount via a 0ms tick) long before "post"
   // can flip (≥100ms), so reading it here just picks the line count:
-  // 13 cold / 6 warm.
+  // 15 cold / 8 warm.
   useEffect(() => {
     if (phase !== "post") return;
     const total = warm ? 1 + SCAN_LINE_COUNT : 8 + SCAN_LINE_COUNT;
@@ -504,12 +543,24 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   }, [phase]);
 
   const v = vitals;
+  // Live quota clock: ticks once per second ONLY while the 429 gate is
+  // active, so the API QUOTA line counts down to the gate opening in real
+  // time. Anchored on the server's `endsAtMs` epoch — the tick fills the
+  // gap between the one-shot vitals fetch and ENTER; no idle re-renders
+  // when the gate is open (same pattern as the terminal's header chip).
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (vitals.quotaState !== "cooling") return;
+    setNowMs(Date.now());
+    const iv = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(iv);
+  }, [vitals.quotaState]);
   // One definition of the scan lines feeds both ceremonies.
-  const scan = scanPostLines(v);
+  const scan = scanPostLines(v, nowMs);
   const postLines: PostLine[] = warm
     ? [
         { label: "WARM BOOT", value: "SESSION RESUMED", stamp: "OK" },
-        // The same five scan lines as cold — the live vitals report on
+        // The same seven scan lines as cold — the live vitals report on
         // every entry, so a reload never reads as "not updated".
         ...scan,
       ]
@@ -539,7 +590,8 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         { label: "CYCLE COUNTER", value: `${v.cycles} COMPLETED`, stamp: "OK", warn: v.cycles === "??" },
         // ── boot/scan additions — appended AFTER the original 8, which are
         // byte-for-byte untouched above (operator: "enhance without changing
-        // what's there"). Lines 9-13: auto-connect identity, sealed-token
+        // what's there"). Lines 9-15: auto-connect identity, provider
+        // quota gate (live countdown), sealed-token
         // vault, total mutations + failures, live hot-swap success, autonomy.
         ...scan,
       ];

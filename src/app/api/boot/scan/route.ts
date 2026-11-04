@@ -10,6 +10,7 @@ import {
 import {
   warmZaiCortex,
   zaiCortexStatus,
+  llmGateInfo,
   type ZaiCortexInfo,
 } from "@/lib/pipeline/llm/agent-llm";
 import { autonomousLoopRuntime } from "@/lib/pipeline/autonomous/loop-runtime";
@@ -44,6 +45,10 @@ export const runtime = "nodejs";
  *                     (instrumentation.ts) BEFORE the splash fetches
  *                     this endpoint. The lazy kick below covers a
  *                     process that booted before the injection existed.
+ *   API QUOTA       — the shared 429 gate snapshot (llmGateInfo: the
+ *                     escalation level + the epoch the gate opens).
+ *                     Same source the terminal polls every 2s; one
+ *                     definition of the quota, every consumer.
  *
  * Honesty rules (same as the rest of the splash): any unreadable vital is
  * returned as null/0, never faked — the POST line stamps ?? for it.
@@ -182,5 +187,9 @@ export async function GET() {
     hotSwap,
     autonomy,
     zai,
+    // The provider quota gate — live snapshot, zero I/O (the gate state
+    // lives on globalThis). `endsAtMs` is the countdown anchor: consumers
+    // tick against it locally instead of re-polling.
+    quota: llmGateInfo(),
   });
 }
