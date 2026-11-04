@@ -10,7 +10,10 @@
  *     (auth is injected per-push via GIT_CONFIG_* env vars, so the token never
  *     appears in `git remote -v`, error output, or the process command line)
  *
- * Security: the token is stored in the local SQLite DB and is NEVER returned
+ * Security: the token is stored SEALED (AES-256-GCM envelope, see
+ * crypto/token-vault.ts) in every tier — the DB row, the root state file,
+ * and .git/info/. Legacy plaintext tiers are migrated automatically on
+ * first read (migratePlaintextTokenToVault). The token is NEVER returned
  * to the client. All error messages are scrubbed of the token.
  */
 
@@ -28,6 +31,7 @@ import {
 import { recordPushSuccess, recordPushAuthFailure, isSafeMode, raiseSafeModeFlag } from "../core/duress";
 import { recoverCrashedTestGate } from "../core/test-gate-journal";
 import { PROJECT_ROOT } from "../core/paths";
+import { sealToken, openToken, isSealedEnvelope } from "../crypto/token-vault";
 
 const SINGLETON_ID = "singleton";
 
@@ -72,7 +76,12 @@ function readStateFile(): LoopPushState | null {
     // flow unchecked into the `git remote add origin <url>` shell command.
     // Re-validate the charset here so a hostile file reads as absent.
     if (!validRepoFormat(parsed.repo)) return null;
-    return parsed;
+    // TOKEN VAULT: open on read. A sealed envelope decrypts here; legacy
+    // plaintext passes through; a failed decrypt (missing/corrupt key)
+    // reads as absent — callers never see a half-truth.
+    const token = openToken(parsed.token);
+    if (!token) return null;
+    return { ...parsed, token };
   } catch {
     return null;
   }
@@ -89,16 +98,26 @@ function readPersistentStateFile(): LoopPushState | null {
     if (!parsed.repo || !parsed.token || !parsed.branch) return null;
     // Audit 3 (17b): same charset re-validation as tier-2.
     if (!validRepoFormat(parsed.repo)) return null;
-    return parsed;
+    // TOKEN VAULT: same open-on-read as tier-2.
+    const token = openToken(parsed.token);
+    if (!token) return null;
+    return { ...parsed, token };
   } catch {
     return null;
   }
 }
 
 function writeStateFile(state: LoopPushState): { tier2Ok: boolean; tier3Ok: boolean } {
+  // TOKEN VAULT: the on-disk bytes are the SEALED envelope — never the
+  // plaintext PAT. sealToken is idempotent (envelope in → envelope out),
+  // so callers may pass either form; both file tiers + both read-backs
+  // use this normalized copy. cmpToken is the opened form — the read-back
+  // readers return OPENED tokens, so the comparison basis must be too.
+  const diskState: LoopPushState = { ...state, token: sealToken(state.token) };
+  const cmpToken = openToken(state.token);
   const tmp = `${STATE_FILE}.tmp`;
   // 0o600 — the file holds the PAT; never group/world-readable.
-  writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
+  writeFileSync(tmp, JSON.stringify(diskState, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
   renameSync(tmp, STATE_FILE); // atomic — never a half-written config
 
   // ── Load-bearing read-back (concept: PKM pkm_orchestrator.c phase_wp) ──
@@ -111,7 +130,7 @@ function writeStateFile(state: LoopPushState): { tier2Ok: boolean; tier3Ok: bool
   let tier2Ok = true;
   try {
     const readBack = readStateFile();
-    if (!readBack || readBack.token !== state.token || readBack.repo !== state.repo) {
+    if (!readBack || readBack.token !== cmpToken || readBack.repo !== state.repo) {
       tier2Ok = false;
       console.error("[PUSH-TARGET] tier-2 read-back MISMATCH — write did not round-trip");
     }
@@ -128,11 +147,11 @@ function writeStateFile(state: LoopPushState): { tier2Ok: boolean; tier3Ok: bool
   try {
     mkdirSync(dirname(PERSISTENT_STATE_FILE), { recursive: true });
     const ptmp = `${PERSISTENT_STATE_FILE}.tmp`;
-    writeFileSync(ptmp, JSON.stringify(state, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
+    writeFileSync(ptmp, JSON.stringify(diskState, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
     renameSync(ptmp, PERSISTENT_STATE_FILE);
     // Read-back the tier-3 file too — same load-bearing principle.
     const readBack3 = readPersistentStateFile();
-    if (!readBack3 || readBack3.token !== state.token || readBack3.repo !== state.repo) {
+    if (!readBack3 || readBack3.token !== cmpToken || readBack3.repo !== state.repo) {
       tier3Ok = false;
       console.error("[PUSH-TARGET] tier-3 read-back MISMATCH — .git/info write did not round-trip");
     }
@@ -160,7 +179,8 @@ async function seedDbFromStateFile(): Promise<LoopPushState | null> {
       create: {
         id: SINGLETON_ID,
         repo: state.repo,
-        token: state.token,
+        // TOKEN VAULT: the DB column stores the sealed envelope.
+        token: sealToken(state.token),
         branch: state.branch,
         createdRepo: state.createdRepo,
         lastBranchNumber: state.lastBranchNumber,
@@ -239,11 +259,84 @@ function validTokenFormat(token: string): boolean {
   return token.length >= 20 && !/\s/.test(token);
 }
 
+/** Raw tier read WITHOUT opening — the migration needs to see what is
+ *  physically on disk so it can rewrite plaintext into sealed envelopes.
+ *  Never used outside migratePlaintextTokenToVault. */
+function readRawTierFile(path: string): LoopPushState | null {
+  try {
+    if (!existsSync(path)) return null;
+    const parsed = JSON.parse(readFileSync(path, "utf-8")) as LoopPushState;
+    if (!parsed?.repo || !parsed?.token) return null;
+    if (!validRepoFormat(parsed.repo)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+let vaultMigrationAttempted = false;
+
+/**
+ * TOKEN VAULT migration (one-shot per process): rewrite any tier that
+ * still holds the PAT in PLAINTEXT into a sealed enc:v1: envelope.
+ *
+ * Runs lazily from the read entry points (getStoredTarget,
+ * getStoredTargetSync, getPushTargetPublic) — so the very first status
+ * request after this change seals all three tiers with ZERO operator
+ * action. That is the "encrypt my token" half of the request: from the
+ * next process start, the PAT exists in plaintext ONLY in process memory.
+ *
+ * Convergence note: the two file tiers are mirrors of one config. If they
+ * diverged, tier-2 wins (that is already the read order); rewriting through
+ * writeStateFile re-seals BOTH files from the winning state.
+ */
+export function migratePlaintextTokenToVault(): void {
+  if (vaultMigrationAttempted) return;
+  vaultMigrationAttempted = true;
+  try {
+    let sealedTiers = 0;
+    for (const p of [STATE_FILE, PERSISTENT_STATE_FILE]) {
+      const raw = readRawTierFile(p);
+      if (!raw) continue;
+      if (isSealedEnvelope(raw.token)) continue; // already sealed
+      if (raw.token.length < 20 || /\s/.test(raw.token)) continue; // not a plausible PAT
+      const r = writeStateFile({ ...raw, savedAt: new Date().toISOString() });
+      if (r.tier2Ok || r.tier3Ok) sealedTiers++;
+    }
+    // DB row — async, fire-and-forget: callers of the sync entry point
+    // cannot await, and the file tiers are the source of truth anyway.
+    db.gitPushTarget
+      .findUnique({ where: { id: SINGLETON_ID } })
+      .then((row) => {
+        if (!row?.token || isSealedEnvelope(row.token)) return null;
+        if (row.token.length < 20 || /\s/.test(row.token)) return null;
+        return db.gitPushTarget
+          .update({ where: { id: SINGLETON_ID }, data: { token: sealToken(row.token) } })
+          .then(() => {
+            sealedTiers++;
+          });
+      })
+      .catch(() => {
+        /* DB unavailable — the file tiers carry the config */
+      })
+      .finally(() => {
+        if (sealedTiers > 0) {
+          console.log(
+            `[TOKEN-VAULT] sealed ${sealedTiers} tier(s) — the PAT no longer rests in plaintext anywhere`
+          );
+        }
+      });
+  } catch {
+    /* never break a read path over migration */
+  }
+}
+
 /** Read the stored target (with token) — server-side only. Exported so
  *  sibling server modules (commit-archaeology's token resolution) can
  *  reuse the same DB → state-file → tier-3 fallback chain instead of
  *  re-implementing it. NEVER call from a client component. */
 export async function getStoredTarget(): Promise<StoredTarget | null> {
+  migratePlaintextTokenToVault();
   let row: Awaited<ReturnType<typeof db.gitPushTarget.findUnique>> = null;
   try {
     row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
@@ -256,7 +349,11 @@ export async function getStoredTarget(): Promise<StoredTarget | null> {
     if (state) return { repo: state.repo, token: state.token, branch: state.branch };
     return null;
   }
-  return { repo: row.repo, token: row.token, branch: row.branch };
+  // TOKEN VAULT: the DB column may hold a sealed envelope (post-migration)
+  // or legacy plaintext (pre-migration) — open either way.
+  const token = openToken(row.token);
+  if (!token) return null;
+  return { repo: row.repo, token, branch: row.branch };
 }
 
 /** Synchronous, file-only read of the stored target. For callers that
@@ -272,6 +369,7 @@ export async function getStoredTarget(): Promise<StoredTarget | null> {
  *  it. This is the same pattern that made the 3-tier persistence robust
  *  to sandbox wipes. */
 export function getStoredTargetSync(): { repo: string; token: string; branch: string } | null {
+  migratePlaintextTokenToVault();
   const state = readStateFile() ?? readPersistentStateFile();
   if (!state) return null;
   if (!state.token || state.token.length < 8) return null;
@@ -280,6 +378,7 @@ export function getStoredTargetSync(): { repo: string; token: string; branch: st
 
 /** Public view of the push target — token never included. */
 export async function getPushTargetPublic(): Promise<PushTargetPublic> {
+  migratePlaintextTokenToVault();
   let row: Awaited<ReturnType<typeof db.gitPushTarget.findUnique>> = null;
   try {
     row = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
@@ -469,8 +568,10 @@ export async function setPushTarget(opts: {
   try {
     await db.gitPushTarget.upsert({
       where: { id: SINGLETON_ID },
-      update: { repo, token, branch: "main", createdRepo: created, lastPushError: null },
-      create: { id: SINGLETON_ID, repo, token, branch: "main", createdRepo: created },
+      // TOKEN VAULT: the DB column stores the sealed envelope. (The state
+      // file written above was already sealed by writeStateFile.)
+      update: { repo, token: sealToken(token), branch: "main", createdRepo: created, lastPushError: null },
+      create: { id: SINGLETON_ID, repo, token: sealToken(token), branch: "main", createdRepo: created },
     });
   } catch (err) {
     // DB unavailable/recreated — the state file already holds the config;
@@ -1435,7 +1536,7 @@ export async function getLastBranchNumber(): Promise<number> {
           create: {
             id: SINGLETON_ID,
             repo: state?.repo ?? "craighckby-stack/V1",
-            token: state?.token ?? "",
+            token: sealToken(state?.token ?? ""),
             branch: state?.branch ?? "main",
             lastBranchNumber: reconciled,
           },

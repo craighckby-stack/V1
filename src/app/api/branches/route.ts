@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * GET /api/branches
+ * GET /api/branches[?details=1]
  * Lists the `loop-NN` mutation branches on the configured GitHub remote.
  *
  * WHY THIS EXISTS: the autonomous loop creates one branch per
@@ -16,10 +16,36 @@ export const runtime = "nodejs";
  * history visible + inspectable so the operator can audit what the loop
  * has actually produced, and verify the counter reconciliation.
  *
+ * PAGINATION (audit 3 F8 — same fix as reconcileBranchNumberFromGitHub):
+ * the repo holds 108+ loop branches; the old single `?per_page=100` page
+ * silently undercounted. Pages are walked until a short page returns
+ * (cap 30 pages ≈ 3000 refs, GitHub's own ceiling). `truncated` now means
+ * the cap was hit, not "100 on the first page".
+ *
+ * DETAILS ON DEMAND: the per-branch commit message/date costs one GitHub
+ * GET per branch (108+ calls). The boot splash only needs the COUNT, so
+ * per-commit metadata is fetched only when `?details=1` is present (the
+ * branches panel passes it; the splash path stays one-cheap-call).
+ *
  * Returns: { total, branches: [{ name, number, sha, message, date, url }] }
  */
-export async function GET() {
+
+interface BranchRow {
+  name: string;
+  commit?: {
+    sha?: string;
+    commit?: {
+      message?: string;
+      author?: { date?: string };
+      html_url?: string;
+    };
+  };
+  _links?: { html?: string };
+}
+
+export async function GET(req: Request) {
   try {
+    const wantDetails = new URL(req.url).searchParams.get("details") === "1";
     const target = await getStoredTarget();
     if (!target || !target.token) {
       return NextResponse.json(
@@ -33,48 +59,38 @@ export async function GET() {
       );
     }
 
-    // Fetch all branches (per_page=100 covers the current 38; if it ever
-    // exceeds 100, pagination would be needed — flagged with truncated:true).
-    const res = await fetch(
-      `https://api.github.com/repos/${target.repo}/branches?per_page=100`,
-      {
-        headers: {
-          Authorization: `Bearer ${target.token}`,
-          Accept: "application/vnd.github.v3+json",
-          "User-Agent": "Architecture-Helper-Pipeline",
-        },
-      }
-    );
-    if (!res.ok) {
-      return NextResponse.json(
+    // Walk ALL pages. Short page (<100) = last page. 30-page hard cap
+    // mirrors GitHub's ~3000-ref API ceiling.
+    const data: BranchRow[] = [];
+    let hitCap = false;
+    for (let page = 1; page <= 30; page++) {
+      const res = await fetch(
+        `https://api.github.com/repos/${target.repo}/branches?per_page=100&page=${page}`,
         {
-          ok: false,
-          total: 0,
-          branches: [],
-          reason: `GitHub API returned ${res.status}`,
-        },
-        { status: 200 }
+          headers: {
+            Authorization: `Bearer ${target.token}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Architecture-Helper-Pipeline",
+          },
+        }
       );
+      if (!res.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            total: 0,
+            branches: [],
+            reason: `GitHub API returned ${res.status}`,
+          },
+          { status: 200 }
+        );
+      }
+      const pageData = (await res.json()) as BranchRow[];
+      data.push(...pageData);
+      if (pageData.length < 100) break;
+      if (page === 30) hitCap = true;
     }
 
-    const data = (await res.json()) as Array<{
-      name: string;
-      commit?: {
-        sha?: string;
-        commit?: {
-          message?: string;
-          author?: { date?: string };
-          html_url?: string;
-        };
-      };
-      _links?: { html?: string };
-    }>;
-
-    // The branches LIST endpoint only returns { sha, url } per commit —
-    // no message, no date. To show what each mutation actually did, fetch
-    // each branch's HEAD commit in parallel (38 small GETs complete in
-    // ~1-2s; GitHub tolerates parallel reads fine). This is on-demand
-    // (only when the operator opens the branches view), not per-cycle.
     const loopMeta: Array<{ name: string; number: number; sha: string }> = [];
     let maxNumber = 0;
     for (const b of data) {
@@ -89,41 +105,45 @@ export async function GET() {
       });
     }
 
-    const commitDetails = await Promise.all(
-      loopMeta.map(async (lm) => {
-        if (!lm.sha) {
-          return { ...lm, message: "(no sha)", date: null, url: "" };
-        }
-        try {
-          const cRes = await fetch(
-            `https://api.github.com/repos/${target.repo}/commits/${lm.sha}`,
-            {
-              headers: {
-                Authorization: `Bearer ${target.token}`,
-                Accept: "application/vnd.github.v3+json",
-                "User-Agent": "Architecture-Helper-Pipeline",
-              },
+    // Per-commit metadata only when the caller asked for it. The names-only
+    // path (splash, counter reconciliation) does ZERO extra GitHub calls.
+    const commitDetails = wantDetails
+      ? await Promise.all(
+          loopMeta.map(async (lm) => {
+            if (!lm.sha) {
+              return { ...lm, message: "(no sha)", date: null, url: "" };
             }
-          );
-          if (!cRes.ok) {
-            return { ...lm, message: `(fetch failed: ${cRes.status})`, date: null, url: "" };
-          }
-          const cData = (await cRes.json()) as {
-            commit?: { message?: string; author?: { date?: string } };
-            html_url?: string;
-          };
-          const fullMsg = cData.commit?.message ?? "(no message)";
-          return {
-            ...lm,
-            message: fullMsg.split("\n")[0]?.slice(0, 120) ?? "",
-            date: cData.commit?.author?.date ?? null,
-            url: cData.html_url ?? "",
-          };
-        } catch {
-          return { ...lm, message: "(fetch error)", date: null, url: "" };
-        }
-      })
-    );
+            try {
+              const cRes = await fetch(
+                `https://api.github.com/repos/${target.repo}/commits/${lm.sha}`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${target.token}`,
+                    Accept: "application/vnd.github.v3+json",
+                    "User-Agent": "Architecture-Helper-Pipeline",
+                  },
+                }
+              );
+              if (!cRes.ok) {
+                return { ...lm, message: `(fetch failed: ${cRes.status})`, date: null, url: "" };
+              }
+              const cData = (await cRes.json()) as {
+                commit?: { message?: string; author?: { date?: string } };
+                html_url?: string;
+              };
+              const fullMsg = cData.commit?.message ?? "(no message)";
+              return {
+                ...lm,
+                message: fullMsg.split("\n")[0]?.slice(0, 120) ?? "",
+                date: cData.commit?.author?.date ?? null,
+                url: cData.html_url ?? "",
+              };
+            } catch {
+              return { ...lm, message: "(fetch error)", date: null, url: "" };
+            }
+          })
+        )
+      : loopMeta.map((lm) => ({ ...lm, message: "", date: null, url: "" }));
 
     const loopBranches = commitDetails
       .map((c) => ({
@@ -153,7 +173,7 @@ export async function GET() {
       total: loopBranches.length,
       maxLoopNumber: maxNumber,
       nextMutationBranch: `loop-${String(maxNumber + 1).padStart(2, "0")}`,
-      truncated: data.length >= 100,
+      truncated: hitCap,
       branches: loopBranches,
       otherBranches,
     });

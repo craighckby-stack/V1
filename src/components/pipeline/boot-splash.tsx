@@ -11,6 +11,10 @@
  *   - LLM cortex       (/api/self-enhance/status) → READY or GATE mm:ss
  *   - hot-swap bay     (/api/hot-swap/status)   → swaps this boot
  *   - uplink           (repo from /api/branches)
+ *   - boot scan        (/api/boot/scan)        → NEW (additive): GitHub
+ *     auto-connect identity (the sealed PAT is opened server-side, zero
+ *     operator input), token-vault status, total mutations + failures,
+ *     hot-swap lifetime count, autonomy status
  *
  * Sequence (cold boot): CRT power-on flash → POST lines stamp in one by
  * one → the LOOP sigil scrambles out of noise → the machine addresses the
@@ -60,6 +64,17 @@ interface Vitals {
   llm: string;
   cycles: string;
   swaps: string;
+  // ── boot/scan additions (cold-boot POST lines 9-13) ──
+  /** GitHub login from GET /user, "REFUSED" on auth failure, "" when no PAT is on file, "??" unreadable. */
+  authLogin: string;
+  /** "SEALED" | "PLAINTEXT" | "??" — is the PAT resting in an enc:v1: envelope. */
+  vaultSealed: string;
+  /** Postmortem JSON files on disk — the wipe-proof failure record. */
+  scars: string;
+  /** Persistent (restart-surviving) successful hot-swap count. */
+  swapsLifetime: string;
+  /** The live loop's status word, uppercased. */
+  autonomy: string;
 }
 
 const UNKNOWN_VITALS: Vitals = {
@@ -73,6 +88,11 @@ const UNKNOWN_VITALS: Vitals = {
   llm: "UNKNOWN",
   cycles: "??",
   swaps: "??",
+  authLogin: "??",
+  vaultSealed: "??",
+  scars: "??",
+  swapsLifetime: "??",
+  autonomy: "??",
 };
 
 const asObj = (v: unknown): Json | null => (v && typeof v === "object" ? (v as Json) : null);
@@ -103,12 +123,16 @@ async function fetchVitals(): Promise<Vitals> {
     }
   };
   try {
-    const [br, chain, oracle, status, hotswap] = await Promise.all([
+    const [br, chain, oracle, status, hotswap, scan] = await Promise.all([
       get("/api/branches", 3000),
       get("/api/postmortems/chain", 1800),
       get("/api/oracle/status", 1800),
       get("/api/self-enhance/status", 1800),
       get("/api/hot-swap/status", 1800),
+      // boot/scan — auto-connect + vault + totals. Its own (longer) budget:
+      // the GitHub /user round trip must not be killed by the fast local
+      // endpoints' budget (same reasoning as the ledger fetch above).
+      get("/api/boot/scan", 4000),
     ]);
     const gate = asObj(pick(asObj(status), "llmGate"));
     const gateActive = gate?.active === true;
@@ -125,6 +149,22 @@ async function fetchVitals(): Promise<Vitals> {
       llm: gateActive ? `GATE ${gateClock(gateMs)} — COOLING` : "READY",
       cycles: txt(pick(stats, "cyclesCompleted")),
       swaps: txt(pick(asObj(hotswap), "swapCount")),
+      // ── boot/scan mapping ──
+      authLogin: (() => {
+        if (scan === null) return "??"; // endpoint unreadable
+        const a = asObj(pick(asObj(scan), "auth"));
+        if (a === null) return ""; // auth:null — no PAT on file
+        if (a.ok === true) return txt(pick(a, "login"), "??");
+        return "REFUSED"; // GitHub rejected the sealed PAT
+      })(),
+      vaultSealed: (() => {
+        const v = asObj(pick(asObj(scan), "vault"));
+        if (!v) return "??";
+        return v.sealed === true ? "SEALED" : "PLAINTEXT";
+      })(),
+      scars: txt(pick(asObj(scan), "scars")),
+      swapsLifetime: txt(pick(asObj(pick(asObj(scan), "hotSwap")), "lifetime")),
+      autonomy: txt(pick(asObj(pick(asObj(scan), "autonomy")), "status"), "??").toUpperCase(),
     };
     return mapped;
   } finally {
@@ -266,7 +306,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         later(
           () => {
             setPhase("post");
-            const postMs = reducedRef.current ? 120 : 9 * 130 + 260;
+            const postMs = reducedRef.current ? 120 : 13 * 130 + 260;
             later(() => setPhase((p) => (p === "post" ? "title" : p)), postMs);
             // Invite flips 120ms AFTER the longest scramble (tagline
             // 1150ms) completes, so the rAF never gets canceled at the
@@ -293,7 +333,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     if (!reducedRef.current) {
       iv = window.setInterval(() => {
         setShown((s) => {
-          if (s >= 9) {
+          if (s >= 13) {
             window.clearInterval(iv);
             return s;
           }
@@ -358,6 +398,50 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         { label: "HOT-SWAP BAY", value: `${v.swaps} SWAP(S) THIS BOOT`, stamp: "OK", warn: v.swaps === "??" },
         { label: "UPLINK", value: v.repo, stamp: "LINK" },
         { label: "CYCLE COUNTER", value: `${v.cycles} COMPLETED`, stamp: "OK", warn: v.cycles === "??" },
+        // ── boot/scan additions — appended AFTER the original 8, which are
+        // byte-for-byte untouched above (operator: "enhance without changing
+        // what's there"). Lines 9-13: auto-connect identity, sealed-token
+        // vault, total mutations + failures, live hot-swap success, autonomy.
+        {
+          label: "GITHUB AUTH",
+          value:
+            v.authLogin === "" ? "NO PAT ON FILE — ENTER VIA [CONFIG]"
+            : v.authLogin === "??" ? "AUTO-CONNECT UNREADABLE"
+            : v.authLogin === "REFUSED" ? "TOKEN REJECTED — RE-ENTER VIA [CONFIG]"
+            : `AUTHENTICATED AS ${v.authLogin}`,
+          stamp: v.authLogin === "REFUSED" ? "!!" : v.authLogin !== "" && v.authLogin !== "??" ? "OK" : "??",
+          warn: v.authLogin === "" || v.authLogin === "??" || v.authLogin === "REFUSED",
+        },
+        {
+          label: "TOKEN VAULT",
+          value:
+            v.vaultSealed === "SEALED" ? "AES-256-GCM · SEALED AT REST"
+            : v.vaultSealed === "PLAINTEXT" ? "PLAINTEXT — KEY MISSING"
+            : "UNREADABLE",
+          stamp: v.vaultSealed === "SEALED" ? "OK" : "??",
+          warn: v.vaultSealed !== "SEALED",
+        },
+        {
+          label: "MUTATION TOTALS",
+          value: `${v.branchesTotal} SUCCEEDED · ${v.scars} FAILED`,
+          stamp: "OK",
+          warn: v.branchesTotal === "??" || v.scars === "??",
+        },
+        {
+          label: "HOT-SWAP LOG",
+          value: `${v.swapsLifetime} LIFETIME · ${v.swaps} THIS BOOT`,
+          stamp: "OK",
+          warn: v.swapsLifetime === "??" || v.swaps === "??",
+        },
+        {
+          label: "AUTONOMY",
+          value:
+            v.autonomy === "RUNNING" ? "LIVE — SELF-DRIVEN"
+            : v.autonomy === "??" ? "UNREADABLE"
+            : `ARMED — ${v.autonomy}`,
+          stamp: v.autonomy === "RUNNING" ? "LIVE" : "OK",
+          warn: v.autonomy === "ERROR" || v.autonomy === "??",
+        },
       ];
 
   const pad = (label: string, value: string) => {
@@ -482,7 +566,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         .bsp-crt--flash { animation: bsp-on 700ms cubic-bezier(.2,.7,.3,1) both; }
         .bsp-crt--exit  { animation: bsp-off 650ms ease-in both; }
         .bsp-text { text-shadow: 0 0 8px rgba(255,176,0,.35), 0 0 2px rgba(255,176,0,.8); }
-        .bsp-post { min-height: ${warm ? "22px" : "200px"}; white-space: pre-wrap; word-break: break-word; }
+        .bsp-post { min-height: ${warm ? "22px" : "264px"}; white-space: pre-wrap; word-break: break-word; }
         .bsp-dim { color: rgba(255,176,0,.55); }
         .bsp-ok { color: #ffd875; }
         .bsp-wait { color: #ff6a3d; }

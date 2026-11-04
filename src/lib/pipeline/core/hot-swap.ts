@@ -1,5 +1,6 @@
 import { utimesSync } from "fs";
 import { join } from "path";
+import { db } from "@/lib/db";
 
 /**
  * Hot-Swap Manager — the mechanism that lets the autonomous loop replace
@@ -464,6 +465,16 @@ export async function hotSwapPipeline(opts?: {
     state.swapHistory.push(result);
     if (state.swapHistory.length > SWAP_HISTORY_MAX) state.swapHistory.shift();
 
+    // PERSISTENT SUCCESS COUNTER (boot-splash "HOT-SWAP LOG · N LIFETIME").
+    // swapHistory is in-memory and dies with the process; the SystemFlag
+    // row survives restarts. Counted ONLY on the success path (ok &&
+    // swapped) — a failed/pending swap never inflates the number.
+    // Fire-and-forget: a counter failure must never fail a swap that
+    // already succeeded.
+    bumpHotSwapSuccessCounter().catch(() => {
+      /* counter is best-effort — the swap itself already succeeded */
+    });
+
     // Log the prod so the operator knows why Turbopack recompiled (the
     // mtime touch is invisible otherwise — no file content changed).
     if (prodded.length > 0) {
@@ -487,6 +498,40 @@ export function getSwapHistory(): HotSwapResult[] {
 /** Count of swaps since process start. Same globalThis read. */
 export function getSwapCount(): number {
   return getHotSwapState().swapHistory.length;
+}
+
+/** SystemFlag key for the persistent (restart-surviving) success count. */
+export const HOT_SWAP_SUCCESS_FLAG = "hot-swap-success-count";
+
+/** Increment the persistent success counter. Success path only. */
+async function bumpHotSwapSuccessCounter(): Promise<void> {
+  const flag = await db.systemFlag.findUnique({ where: { key: HOT_SWAP_SUCCESS_FLAG } });
+  const current = parseInt(flag?.value ?? "0", 10) || 0;
+  await db.systemFlag.upsert({
+    where: { key: HOT_SWAP_SUCCESS_FLAG },
+    update: {
+      value: String(current + 1),
+      setBy: "hot-swap",
+      reason: "one more successful live hot-swap (pins cleared, snapshot stashed, ok+swapped)",
+      setAt: new Date(),
+    },
+    create: {
+      key: HOT_SWAP_SUCCESS_FLAG,
+      value: "1",
+      setBy: "hot-swap",
+      reason: "first successful live hot-swap (pins cleared, snapshot stashed, ok+swapped)",
+    },
+  });
+}
+
+/** Read the persistent success count (0 on any failure — never throws). */
+export async function getHotSwapSuccessCount(): Promise<number> {
+  try {
+    const flag = await db.systemFlag.findUnique({ where: { key: HOT_SWAP_SUCCESS_FLAG } });
+    return parseInt(flag?.value ?? "0", 10) || 0;
+  } catch {
+    return 0;
+  }
 }
 
 /** Fingerprint of the currently-loaded pipeline code. With Turbopack

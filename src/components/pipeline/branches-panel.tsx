@@ -87,7 +87,7 @@ export function BranchesPanel({ open, onClose }: Props) {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("/api/branches", { cache: "no-store" });
+        const res = await fetch("/api/branches?details=1", { cache: "no-store" });
         const json = (await res.json()) as BranchesData;
         if (!cancelled) {
           setData(json);
@@ -158,7 +158,7 @@ export function BranchesPanel({ open, onClose }: Props) {
               onClick={() => {
                 // Force a refetch by toggling state via the effect dep.
                 setLoading(true);
-                fetch("/api/branches", { cache: "no-store" })
+                fetch("/api/branches?details=1", { cache: "no-store" })
                   .then((r) => r.json())
                   .then((j: BranchesData) => {
                     setData(j);
