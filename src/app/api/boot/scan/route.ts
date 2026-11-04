@@ -155,10 +155,25 @@ export async function GET() {
   }
 
   // 5. Autonomy — the live status word from the same source
-  // /api/autonomous/status serves.
-  let autonomy: { status: string } | null = null;
+  // /api/autonomous/status serves. Now carries the derived `livePhase`
+  // (DISARMED / ARMED-RUNNING / ARMED-THROTTLED / ARMED-RECOVERING /
+  // ARMED-PAUSED) — the splash renders this instead of the raw
+  // `status`, so the operator sees what the loop is actually DOING
+  // (throttled vs. running vs. paused) instead of the scheduler's
+  // internal word. `recoveryRemainingMs` is the ARMED-RECOVERING
+  // countdown (a RELATIVE duration, accurate at response time — the
+  // splash re-anchors to its own clock, same skew-free pattern as the
+  // quota gate's remainingMs).
+  let autonomy:
+    | { status: string; livePhase: string; recoveryRemainingMs: number }
+    | null = null;
   try {
-    autonomy = { status: autonomousLoopRuntime.getState().status };
+    const state = autonomousLoopRuntime.getState();
+    autonomy = {
+      status: state.status,
+      livePhase: state.livePhase,
+      recoveryRemainingMs: state.recoveryRemainingMs,
+    };
   } catch {
     autonomy = null;
   }

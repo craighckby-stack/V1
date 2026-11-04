@@ -26,6 +26,21 @@ import { isSafeMode, getSafeModeState } from "../core/duress";
 // (fs + path), no circulars — the same import class as the agent-llm gate
 // above. See armed-state.ts for why the intent must live on disk.
 import { markArmed, readArmedState, type ArmedState } from "./armed-state";
+// Operator crash-budget tier (.git/info/loop-crash-budget.json). Same
+// wipe-proof pattern as armed-state — the count survives process death
+// AND sandbox DB rollbacks, so a segfault that kills the process and the
+// auto-restart boots a fresh instance can still trip the wall (the
+// in-memory count alone would reset on every restart). Pure leaf.
+import {
+  readCrashBudget,
+  writeCrashBudget,
+  resetCrashBudget,
+} from "./crash-budget";
+// Operator last-touch tier (.git/info/loop-operator-touch.json) — powers
+// the dead-man's switch: if the operator hasn't touched the system in
+// 24h, the loop auto-PAUSES (no boot auto-arm). The operator must check
+// in at least once a day for the autonomy to keep running. Pure leaf.
+import { markOperatorTouch, isDeadMansTripped } from "./operator-touch";
 import { runRedTeamSuite } from "../red-team/red-team-runner";
 // Static import of the LLM rate-limit gate. This used to be a dynamic
 // `require()` inside runContinuousLoop, but under Turbopack the interop
@@ -44,6 +59,46 @@ const RED_TEAM_PERIOD = 20;
 
 export type LoopMode = "scheduled" | "watch" | "continuous" | "manual";
 export type LoopStatus = "idle" | "running" | "paused" | "error";
+
+/**
+ * The derived LIVE phase of the autonomous loop — what the UI reports.
+ * This is a function of `(config.enabled, status, llmIsCoolingDown,
+ * recoveryDeadlineMs, crashWall)`, NOT a free variable. The internal
+ * `LoopStatus` (idle/running/paused/error) is the raw scheduler state;
+ * `LivePhase` is what the operator actually wants to know: "is the
+ * loop working, throttled, recovering, paused, or off?".
+ *
+ *   DISARMED          — config.enabled is false AND no crash-wall. The
+ *                       loop does nothing. Press [START] to arm.
+ *   ARMED-RUNNING     — armed, gate open, a cycle is in flight (or
+ *                       about to start). The loop is making progress.
+ *   ARMED-THROTTLED   — armed, the LLM 429 gate is active. The loop
+ *                       auto-pauses until the gate clears. STOP still
+ *                       works within 1s.
+ *   ARMED-RECOVERING  — armed, the gate just cleared, the loop waits a
+ *                       30s settle window before the next cycle so the
+ *                       provider has a clean slate (avoids the immediate
+ *                       re-429 you get when you fire the moment the gate
+ *                       opens). Counts down via recoveryDeadlineMs.
+ *   ARMED-PAUSED      — armed but stopped: either the operator pressed
+ *                       [STOP] (sticky), OR the crash-wall tripped (3
+ *                       consecutive same-class cycle crashes). Only an
+ *                       explicit [START] releases this state — no boot,
+ *                       probe, or quota event re-arms from here.
+ *
+ * The state machine:
+ *   DISARMED → [START] → ARMED-RUNNING
+ *   ARMED-RUNNING → quota halt → ARMED-THROTTLED
+ *   ARMED-THROTTLED → quota reset → ARMED-RECOVERING (30s)
+ *   ARMED-RECOVERING → timer → ARMED-RUNNING / [PAUSE] → ARMED-PAUSED
+ *   ARMED-PAUSED (sticky, only manual [START] releases it)
+ */
+export type LivePhase =
+  | "DISARMED"
+  | "ARMED-RUNNING"
+  | "ARMED-THROTTLED"
+  | "ARMED-RECOVERING"
+  | "ARMED-PAUSED";
 
 export interface LoopConfig {
   enabled: boolean;
@@ -79,6 +134,16 @@ export interface LoopLogEntry {
 export interface LoopState {
   config: LoopConfig;
   status: LoopStatus;
+  /** The derived LIVE phase — see LivePhase. This is what the UI reports
+   *  (the raw `status` is the scheduler's internal word; the operator
+   *  wants to know DISARMED / ARMED-RUNNING / ARMED-THROTTLED /
+   *  ARMED-RECOVERING / ARMED-PAUSED). */
+  livePhase: LivePhase;
+  /** Milliseconds remaining in the ARMED-RECOVERING window (0 when not
+   *  recovering). A RELATIVE duration, accurate at response time — the
+   *  UI re-anchors to its own clock as `Date.now() + recoveryRemainingMs`
+   *  (same skew-free pattern as the quota gate's remainingMs). */
+  recoveryRemainingMs: number;
   stats: LoopStats;
   logs: LoopLogEntry[];
   currentCycle: AutonomousCycleState | null;
@@ -168,6 +233,50 @@ class AutonomousLoopRuntime {
   private recentCycles: AutonomousCycleSummary[] = [];
   private timer: NodeJS.Timeout | null = null;
   private continuousLoopRunning = false;
+  /** ARMED-RECOVERING countdown anchor (epoch ms). 0 when not recovering.
+   *  Set to `Date.now() + RECOVERY_SETTLE_MS` the moment the LLM 429 gate
+   *  transitions from active → clear. While > Date.now(), `livePhase()`
+   *  reports ARMED-RECOVERING and `runContinuousLoop` waits out the
+   *  remainder before starting the next cycle. The 30s settle window
+   *  avoids the immediate re-429 you get when you fire the exact moment
+   *  the gate opens. */
+  private recoveryDeadlineMs = 0;
+  /** The 30s settle window between quota-clear and next-cycle. Chosen
+   *  to be long enough for the provider to fully reset its rate-limit
+   *  counters but short enough that the operator doesn't think the loop
+   *  died. The UI shows a live countdown. */
+  private static readonly RECOVERY_SETTLE_MS = 30_000;
+  /** Sticky crash-budget wall. Set true when 3 consecutive same-class
+   *  cycle crashes happen (see runContinuousLoop's catch). Cleared
+   *  ONLY by an explicit [START] — no boot, probe, or quota event
+   *  re-arms from this state. Persisted to .git/info/loop-crash-budget.json
+   *  so it survives process death (a segfault that kills the process
+   *  and the auto-restart boots a fresh instance must STILL see the
+   *  wall — the in-memory flag alone would reset). */
+  private crashWall = false;
+  /** Dead-man's switch: tripped when the operator hasn't touched the
+   *  system in >24h. STICKY — only an explicit [START] clears it (same
+   *  release path as crashWall). When tripped, `livePhase()` returns
+   *  ARMED-PAUSED (not DISARMED) because the operator's LAST RECORDED
+   *  intent was "armed" — the switch silently disarmed them overnight,
+   *  and the splash must honestly say "ARMED — PAUSED — MANUAL [START]
+   *  REQUIRED" so the operator knows to re-arm, not "DISARMED" (which
+   *  would be a lie — they DID arm, the switch tripped). Cleared by
+   *  start() (which refreshes the touch timestamp AND resets this
+   *  flag). NOT persisted to disk: it's RE-DERIVED on every boot from
+   *  the touch file (isDeadMansTripped reads the file fresh). */
+  private deadMansTripped = false;
+  /** In-memory consecutive same-class crash counter. Mirrored to the
+   *  disk tier on every change so it survives restarts. Reset to 0 on
+   *  a clean cycle (completed or halted — per-file failures inside a
+   *  cycle do NOT count as a crash for this purpose, they're caught
+   *  inside the for-loop and reported through postmortems). */
+  private consecutiveCrashCount = 0;
+  /** The error class (Error.name / constructor name) of the last crash.
+   *  Different classes reset the count — only SUSTAINED same-class
+   *  crashes trip the wall. A network blip followed by a segfault is 2
+   *  different problems, not a pattern. */
+  private lastCrashClass = "";
   /**
    * Set of file paths already committed to the evolution branch in prior
    * cycles — skipped so each cycle processes NEW files instead of re-doing
@@ -313,6 +422,31 @@ class AutonomousLoopRuntime {
       /* hot-swap module not yet loaded — first boot, no snapshot */
     }
 
+    // ── Crash-budget restore ─────────────────────────────────────────
+    // The crash wall is persisted to .git/info/loop-crash-budget.json so
+    // a segfault that KILLS the process and the auto-restart boots a
+    // fresh instance still sees the wall. Without this restore, the
+    // in-memory crashWall would reset to false on every restart and the
+    // wall would never trip on a real crash loop. Fail-closed: a
+    // missing/malformed file is treated as "no wall" (a fresh install
+    // has no crash history).
+    try {
+      const persisted = readCrashBudget();
+      if (persisted) {
+        this.crashWall = persisted.crashWall;
+        this.consecutiveCrashCount = persisted.crashWall ? 0 : persisted.count;
+        this.lastCrashClass = persisted.crashWall ? "" : persisted.lastClass;
+        if (persisted.crashWall) {
+          this.addLog(
+            `PERSISTED CRASH-WALL (tripped at ${persisted.at} after ${3} consecutive ${persisted.lastClass} cycles). Loop will NOT auto-arm — manual [START] required to clear.`,
+            "warn"
+          );
+        }
+      }
+    } catch {
+      /* best-effort — in-memory remains the live source */
+    }
+
     // Auto-arm on construction. The singleton is created at module load
     // (server boot), so this starts the autonomous loop WITHOUT requiring
     // an operator to press [START]. A deferred 2-second setTimeout lets
@@ -357,6 +491,48 @@ class AutonomousLoopRuntime {
               disk = null; // fail-closed: unreadable ≠ armed
             }
             if (disk && disk.armed) {
+              // ── Crash-wall gate ─────────────────────────────────────
+              // If a prior session tripped the crash-wall (3 consecutive
+              // same-class cycle crashes, persisted to .git/info/loop-
+              // crash-budget.json), do NOT auto-arm even if the disk
+              // says armed. The wall is STICKY — only an explicit [START]
+              // (the operator's re-arm gesture) clears it. A process
+              // restart that auto-rearms from disk would defeat the
+              // wall's whole purpose (the segfault that killed the
+              // process would, on auto-restart, silently re-arm and
+              // start crashing again).
+              if (this.crashWall) {
+                this.addLog(
+                  "Auto-arm skipped: crash-wall is tripped. The loop crashed 3 consecutive times on the same error class in a prior session. Manual [START] required to clear the wall and re-arm.",
+                  "error"
+                );
+                this.status = "paused";
+                return;
+              }
+              // ── Dead-man's switch ───────────────────────────────────
+              // If the operator hasn't touched the system in >24h, do
+              // NOT auto-arm. The dead-man's switch stops a runaway
+              // loop from quietly burning API quota for days while the
+              // operator is away. The operator must press [START] at
+              // least once a day for the autonomy to keep running.
+              // Fail-closed: an unreadable touch file is treated as
+              // tripped (never fabricate a recent touch from a bad
+              // read — same dual-layer contract as the armed-state).
+              let deadMansTripped = false;
+              try {
+                deadMansTripped = isDeadMansTripped();
+              } catch {
+                deadMansTripped = true; // unreadable → tripped (fail-closed)
+              }
+              if (deadMansTripped) {
+                this.deadMansTripped = true;
+                this.addLog(
+                  "DEAD-MAN'S SWITCH TRIPPED — last operator touch >24h ago (or no touch on record). Loop auto-arm denied. Press [START] to re-arm and refresh the touch timestamp.",
+                  "warn"
+                );
+                this.status = "paused";
+                return;
+              }
               this.config.enabled = true;
               this.addLog(
                 `PERSISTED ARMED STATE (armed at ${disk.at || "?"} by ${disk.by || "?"}) — auto-arming. It runs whenever the quota gate is open; [STOP] clears the intent.`,
@@ -458,6 +634,62 @@ class AutonomousLoopRuntime {
     console.log(`[AUTONOMOUS:${source}] [${type.toUpperCase()}] ${message}`);
   }
 
+  /**
+   * The derived LIVE phase of the loop — see {@link LivePhase}. This is
+   * a pure function of `(config.enabled, status, llmIsCoolingDown,
+   * recoveryDeadlineMs, crashWall)`. The branch order matters:
+   *
+   *   1. DISARMED      — config.enabled is false AND no crash-wall.
+   *   2. ARMED-PAUSED  — crashWall OR status==="paused" (operator STOP
+   *                      is sticky; crash-wall is sticky; both require
+   *                      manual [START]).
+   *   3. ARMED-RECOVERING — recoveryDeadline > now (30s settle window
+   *                      after a 429 gate clears, before the next cycle).
+   *   4. ARMED-THROTTLED  — LLM 429 gate active (auto-pause until clear).
+   *   5. ARMED-RUNNING  — armed, gate open, not paused, not recovering.
+   *
+   * The crash-wall check is FIRST among the armed branches so a
+   * wall-tripped loop reports ARMED-PAUSED (the operator's actionable
+   * state: "press [START]") even if the gate happens to also be active.
+   */
+  private livePhase(): LivePhase {
+    // DISARMED only when the operator has NOT armed AND no sticky
+    // wall is tripped. The dead-man's switch is a STICKY wall: when
+    // tripped, the operator's last recorded intent was "armed", so
+    // the honest report is ARMED-PAUSED (the switch silently disarmed
+    // them overnight — the splash must say "press [START] to re-arm",
+    // not "DISARMED" which would hide the reason).
+    if (!this.config.enabled && !this.crashWall && !this.deadMansTripped) return "DISARMED";
+    // Armed from here on (config.enabled OR crashWall OR deadMansTripped
+    // — any of these means the operator armed at some point and a sticky
+    // wall or the live config is holding the armed state).
+    if (this.crashWall || this.deadMansTripped || this.status === "paused") return "ARMED-PAUSED";
+    if (this.recoveryDeadlineMs > Date.now()) return "ARMED-RECOVERING";
+    if (llmIsCoolingDown()) return "ARMED-THROTTLED";
+    return "ARMED-RUNNING";
+  }
+
+  /** Milliseconds remaining in the ARMED-RECOVERING window. 0 when not
+   *  recovering. A RELATIVE duration (not an absolute epoch) so the UI
+   *  can re-anchor to its own clock skew-free — same pattern as the
+   *  LLM gate's `remainingMs`. */
+  private recoveryRemainingMs(): number {
+    if (this.recoveryDeadlineMs <= 0) return 0;
+    return Math.max(0, this.recoveryDeadlineMs - Date.now());
+  }
+
+  /** Record an operator touch to the wipe-proof tier. Called from
+   *  start() / stop() / updateConfig() — the three operator gestures.
+   *  Best-effort, never throws (the in-memory state is the live source;
+   *  the disk file is the dead-man's-switch restart tier). */
+  private markOperatorTouch(by: string): void {
+    try {
+      markOperatorTouch(by);
+    } catch {
+      /* best-effort */
+    }
+  }
+
   // --- Public API ---
   public getState(): LoopState {
     return {
@@ -466,6 +698,8 @@ class AutonomousLoopRuntime {
         githubToken: this.config.githubToken ? "[REDACTED]" : "",
       },
       status: this.status,
+      livePhase: this.livePhase(),
+      recoveryRemainingMs: this.recoveryRemainingMs(),
       stats: { ...this.stats },
       logs: [...this.logs],
       currentCycle: this.currentCycle ? { ...this.currentCycle } : null,
@@ -474,6 +708,11 @@ class AutonomousLoopRuntime {
   }
 
   public updateConfig(patch: Partial<LoopConfig>): LoopConfig {
+    // An operator config PATCH counts as a "touch" for the dead-man's
+    // switch — the operator is interacting with the system, so the 24h
+    // auto-pause timer resets. Recorded first so a throw later in this
+    // method can't lose the touch.
+    this.markOperatorTouch("config-patch");
     const wasEnabled = this.config.enabled;
     const oldMode = this.config.mode;
     const oldRepo = this.config.targetRepo;
@@ -526,17 +765,53 @@ class AutonomousLoopRuntime {
   }
 
   public start(): LoopState {
-    if (this.config.enabled && this.status !== "paused") {
+    if (this.config.enabled && this.status !== "paused" && !this.crashWall) {
       this.addLog("Loop already enabled.", "info");
       return this.getState();
     }
     this.config.enabled = true;
+    // ── [START] is the ONE gesture that clears the crash-wall ──────────
+    // The wall is STICKY: no boot, probe, or quota event re-arms from
+    // it. The operator pressing [START] is the explicit re-arm gesture
+    // — it clears the wall, resets the in-memory crash count, and
+    // resets the disk tier so a subsequent process restart sees a
+    // clean budget. This is the single path that releases ARMED-PAUSED
+    // (the crash-wall variant) back to ARMED-RUNNING.
+    if (this.crashWall) {
+      this.crashWall = false;
+      this.consecutiveCrashCount = 0;
+      this.lastCrashClass = "";
+      resetCrashBudget();
+      this.addLog(
+        "Crash-wall CLEARED by operator [START]. Budget reset; the loop resumes from a clean crash slate.",
+        "success"
+      );
+    }
+    // ── [START] also clears the dead-man's switch ────────────────────
+    // The dead-man's switch is a STICKY wall (same release path as the
+    // crash-wall). The operator pressing [START] refreshes the touch
+    // timestamp AND clears the tripped flag — the loop re-arms.
+    if (this.deadMansTripped) {
+      this.deadMansTripped = false;
+      this.addLog(
+        "Dead-man's switch CLEARED by operator [START]. Touch timestamp refreshed; the loop resumes.",
+        "success"
+      );
+    }
     // Persist the armed intent to the wipe-proof tier — this is what
     // makes [START] a ONE-TIME ritual: every subsequent process boot
     // re-arms from disk (see the constructor's auto-arm). Best-effort,
     // never throws (in-memory remains the live source; disk is the
     // restart tier).
     markArmed(true, "operator-start");
+    // ── Dead-man's switch: [START] refreshes the touch timestamp ────
+    // The 24h auto-pause timer resets on every operator gesture. This
+    // is the gesture that LEGITIMIZES continued autonomy — record it
+    // first so a throw later in this method can't lose the touch.
+    this.markOperatorTouch("operator-start");
+    // Clear any stale recovery deadline — a re-arm starts a fresh cycle,
+    // not a recovery window.
+    this.recoveryDeadlineMs = 0;
     this.status = "idle";
     this.addLog(
       `Autonomous loop ENABLED in ${this.config.mode.toUpperCase()} mode. First run scheduled in ${this.config.intervalMinutes} minute(s). Armed state persisted — it survives restarts.`,
@@ -552,6 +827,17 @@ class AutonomousLoopRuntime {
     // it is STICKY: no boot, probe, or quota event may re-arm after a
     // human stop. Only an explicit [START] writes armed:true again.
     markArmed(false, "operator-stop");
+    // ── Dead-man's switch: [STOP] also counts as a touch ─────────────
+    // The operator is interacting with the system, so the 24h auto-pause
+    // timer resets. (A [STOP] followed by 25h of silence would NOT trip
+    // the dead-man's switch on the next [START] — the [STOP] itself
+    // refreshed the touch. This is correct: the operator who pressed
+    // [STOP] demonstrably knows the loop exists.)
+    this.markOperatorTouch("operator-stop");
+    // Clear the recovery deadline so a re-arm doesn't think it's mid-
+    // recovery. Same reasoning as start() — a re-arm starts a fresh
+    // cycle, not a recovery window.
+    this.recoveryDeadlineMs = 0;
     this.status = "paused";
     if (this.timer) {
       clearInterval(this.timer);
@@ -640,21 +926,70 @@ class AutonomousLoopRuntime {
     // try/catch around the whole loop body guarantees a future refactor
     // can't accidentally make one uncaught throw kill the loop forever.
     //
-    // DYNAMIC COOLDOWN: the base cooldown is 1.5s, but when the LLM is
+    // DYNAMIC COOLDOWN: the base cooldown is 10s, but when the LLM is
     // rate-limited (429 gate active), the cooldown extends to avoid
     // hammering the API. Without this, the loop starts a new cycle every
-    // 1.5s even while the LLM gate is on a 150s cooldown — each cycle
+    // 10s even while the LLM gate is on a 150s cooldown — each cycle
     // immediately hits the gate, returns "deferred", and the loop tries
-    // again 1.5s later. That saturates the event loop (every cycle does
+    // again 10s later. That saturates the event loop (every cycle does
     // a GitHub tree fetch + 3 file reads + gate check before deferring)
     // and the HTTP server stops responding to requests. With the backoff,
     // the loop waits for the gate to clear before starting the next cycle.
+    //
+    // CRASH BUDGET: a single thrown cycle is tolerated (the catch logs
+    // and continues — the "never-stop" guarantee). But 3 consecutive
+    // cycles throwing the SAME error class trip the crash-wall: the loop
+    // transitions to ARMED-PAUSED and persists the wall to
+    // .git/info/loop-crash-budget.json so a process restart doesn't
+    // silently reset the count and re-arm into the same crash loop.
+    // Different error classes reset the count — a network blip followed
+    // by a segfault is 2 different problems, not a pattern. The wall is
+    // STICKY: only an explicit [START] clears it (see start()).
+    //
+    // ARMED-RECOVERING: when the LLM 429 gate transitions from active →
+    // clear, the loop does NOT immediately fire the next cycle. It enters
+    // a 30s settle window (RECOVERY_SETTLE_MS) so the provider has a
+    // clean slate — firing the exact moment the gate opens often re-429s
+    // immediately. The UI shows a live countdown via recoveryRemainingMs.
+    let wasThrottled = false;
     while (
       this.continuousLoopRunning &&
       this.config.enabled &&
-      this.config.mode === "continuous"
+      this.config.mode === "continuous" &&
+      !this.crashWall
     ) {
       try {
+        // ── ARMED-RECOVERING settle window ─────────────────────────
+        // If we just came out of a throttle, hold for 30s before the
+        // next cycle. The transition is detected by `wasThrottled && !nowThrottled`.
+        // The deadline is set ONCE (when the transition fires); subsequent
+        // iterations just check it. While recovering, skip executeCycle
+        // and wait out the remaining window.
+        const nowThrottled = llmIsCoolingDown();
+        if (
+          wasThrottled &&
+          !nowThrottled &&
+          this.recoveryDeadlineMs <= Date.now()
+        ) {
+          this.recoveryDeadlineMs = Date.now() + AutonomousLoopRuntime.RECOVERY_SETTLE_MS;
+          this.addLog(
+            `Quota reset — entering ARMED-RECOVERING for ${AutonomousLoopRuntime.RECOVERY_SETTLE_MS / 1000}s before the next cycle (avoids immediate re-429).`,
+            "info"
+          );
+        }
+        wasThrottled = nowThrottled;
+        if (this.recoveryDeadlineMs > Date.now()) {
+          // Still in the recovery window — wait it out, then loop.
+          const waitMs = Math.min(
+            AutonomousLoopRuntime.RECOVERY_SETTLE_MS,
+            this.recoveryDeadlineMs - Date.now() + 100
+          );
+          await new Promise((r) => setTimeout(r, waitMs));
+          // After the wait, the deadline has passed → next iteration
+          // falls through to executeCycle. Skip this iteration's
+          // executeCycle + cooldown entirely.
+          continue;
+        }
         const cycle = await this.executeCycle("continuous");
         if (!cycle) {
           // executeCycle returned null — either another cycle is already
@@ -672,11 +1007,62 @@ class AutonomousLoopRuntime {
           return;
         }
       } catch (err) {
-        // A throw escaping executeCycle is a bug, but the loop's job is
-        // to keep running. Log it and continue — the next cycle starts
-        // fresh. This is what makes the loop "never-stop".
+        // ── Crash-budget accounting ─────────────────────────────────
+        // A throw escaping executeCycle is a real bug (executeCycle has
+        // its own try/catch around the cycle body, so something escaped
+        // THAT — typically a native crash or a bug in the catch itself).
+        // Tolerated once or twice; 3 consecutive SAME-CLASS crashes trip
+        // the wall. Different error classes reset the count.
+        const errClass = (err as Error)?.name || (err as Error)?.constructor?.name || "Error";
+        if (errClass === this.lastCrashClass) {
+          this.consecutiveCrashCount++;
+        } else {
+          this.consecutiveCrashCount = 1;
+          this.lastCrashClass = errClass;
+        }
+        const msg = (err as Error).message || String(err);
+        if (this.consecutiveCrashCount >= 3) {
+          // ── CRASH-WALL TRIPPED ──────────────────────────────────────
+          // Persist the wall to the wipe-proof tier so a process restart
+          // (or auto-restart after a segfault) doesn't silently reset
+          // the count and re-arm into the same crash loop. Disarm the
+          // loop AND mark the wall — the operator must press [START] to
+          // clear it (the single legitimate release path).
+          this.crashWall = true;
+          this.config.enabled = false;
+          markArmed(false, "crash-budget");
+          const wallState = {
+            count: this.consecutiveCrashCount,
+            lastClass: this.lastCrashClass,
+            at: new Date().toISOString(),
+            crashWall: true,
+          };
+          writeCrashBudget(wallState);
+          this.addLog(
+            `CRASH BUDGET EXHAUSTED — ${this.consecutiveCrashCount} consecutive ${this.lastCrashClass} cycles (last: ${msg.slice(0, 120)}). Loop ARMED-PAUSED. Manual [START] required to clear the wall.`,
+            "error"
+          );
+          this.status = "paused";
+          this.continuousLoopRunning = false;
+          if (this.timer) {
+            clearInterval(this.timer);
+            this.timer = null;
+          }
+          if (this.recoveryProbeTimer) {
+            clearTimeout(this.recoveryProbeTimer);
+            this.recoveryProbeTimer = null;
+          }
+          return; // exit the while loop — wall is sticky, no re-arm here
+        }
+        // Persist the running budget so a restart sees the count.
+        writeCrashBudget({
+          count: this.consecutiveCrashCount,
+          lastClass: this.lastCrashClass,
+          at: new Date().toISOString(),
+          crashWall: false,
+        });
         this.addLog(
-          `Cycle threw (continuous loop survived): ${(err as Error).message}`,
+          `Cycle threw (continuous loop survived, crash budget ${this.consecutiveCrashCount}/3 ${errClass}): ${msg}`,
           "error"
         );
       }
@@ -1277,6 +1663,27 @@ class AutonomousLoopRuntime {
       cycleStatus = "error";
     } finally {
       this.finalizeCycle(cycleId, cycleStatus, cycleProofHash);
+      // ── Crash-budget reset on a clean cycle ─────────────────────────
+      // A cycle that ran to completion or halted (governor saturation)
+      // is "clean" for crash-budget purposes: the loop is structurally
+      // fine — per-file failures inside the cycle are caught in the
+      // for-loop above and reported through postmortems, they do NOT
+      // reach the runContinuousLoop catch and do NOT count as a crash.
+      // Resetting the budget on a clean cycle is what makes the wall
+      // trip only on SUSTAINED crashes, not on a single crash followed
+      // by 100 clean cycles followed by another single crash.
+      if (
+        (cycleStatus === "completed" || cycleStatus === "halted") &&
+        this.consecutiveCrashCount > 0
+      ) {
+        this.consecutiveCrashCount = 0;
+        this.lastCrashClass = "";
+        try {
+          resetCrashBudget();
+        } catch {
+          /* best-effort — in-memory is the live source */
+        }
+      }
       this.status = this.config.enabled ? "idle" : "paused";
       if (this.config.enabled && this.config.mode !== "continuous") {
         const ms = Math.max(15_000, this.config.intervalMinutes * 60 * 1000);

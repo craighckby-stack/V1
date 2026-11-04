@@ -91,8 +91,23 @@ interface Vitals {
   scars: string;
   /** Persistent (restart-surviving) successful hot-swap count. */
   swapsLifetime: string;
-  /** The live loop's status word, uppercased. */
+  /** The live loop's raw status word (idle/running/paused/error),
+   *  uppercased. Kept for back-compat with the old splash logic — the
+   *  rendered AUTONOMY line now uses `livePhase` (see below) instead. */
   autonomy: string;
+  /** The derived LIVE phase from /api/boot/scan's autonomy.livePhase:
+   *  "DISARMED" | "ARMED-RUNNING" | "ARMED-THROTTLED" |
+   *  "ARMED-RECOVERING" | "ARMED-PAUSED" | "??". This is what the
+   *  AUTONOMY POST line renders — the operator's actionable view of
+   *  what the loop is doing (not the scheduler's internal word). */
+  livePhase: string;
+  /** Client-epoch ms when the ARMED-RECOVERING window ends (0 when not
+   *  recovering). Anchored to the client clock at fetch time:
+   *  `Date.now() + recoveryRemainingMs` (the server's recoveryRemainingMs
+   *  is a relative duration, accurate at response time). The splash
+   *  ticks against it locally every second, immune to server/client
+   *  clock skew (same pattern as quotaEndsAtMs). */
+  recoveryEndsAtMs: number;
   // ── Z.ai cortex (auto-injected at server boot, before this splash) ──
   /** "ready" | "warming" | "error" | "cold" | "??" — the provider
    *  connection state from /api/boot/scan's zai field. */
@@ -137,6 +152,8 @@ const UNKNOWN_VITALS: Vitals = {
   scars: "??",
   swapsLifetime: "??",
   autonomy: "??",
+  livePhase: "??",
+  recoveryEndsAtMs: 0,
   zaiState: "??",
   zaiPing: "??",
   zaiError: "",
@@ -225,7 +242,32 @@ async function fetchVitals(): Promise<Vitals> {
       })(),
       scars: txt(pick(asObj(scan), "scars")),
       swapsLifetime: txt(pick(asObj(pick(asObj(scan), "hotSwap")), "lifetime")),
+      // Raw scheduler status (kept for back-compat / debug). The
+      // AUTONOMY POST line renders `livePhase` instead — this raw word
+      // is the scheduler's internal idle/running/paused/error, which
+      // is dishonest when the loop is armed but throttled (it says
+      // "IDLE" when the loop is actually waiting out a 429 gate).
       autonomy: txt(pick(asObj(pick(asObj(scan), "autonomy")), "status"), "??").toUpperCase(),
+      // ── livePhase + recovery countdown ──
+      // The derived LIVE phase (DISARMED / ARMED-RUNNING /
+      // ARMED-THROTTLED / ARMED-RECOVERING / ARMED-PAUSED). This is the
+      // operator's actionable view — the AUTONOMY POST line renders it.
+      livePhase: (() => {
+        const a = asObj(pick(asObj(scan), "autonomy"));
+        const lp = pick(a, "livePhase");
+        return typeof lp === "string" ? lp : "??";
+      })(),
+      // Clock-skew fix: anchor the recovery deadline to the CLIENT
+      // clock. `recoveryRemainingMs` is the server's relative duration,
+      // accurate at response time. Adding it to the client's Date.now()
+      // at fetch-receipt yields a CLIENT-epoch end time, so the splash's
+      // tick (`recoveryEndsAtMs - nowMs`, both client-epoch) is skew-free
+      // (same pattern as quotaEndsAtMs).
+      recoveryEndsAtMs: (() => {
+        const a = asObj(pick(asObj(scan), "autonomy"));
+        const r = pick(a, "recoveryRemainingMs");
+        return typeof r === "number" && r > 0 ? Date.now() + r : 0;
+      })(),
       // ── Z.ai cortex mapping ──
       zaiState: (() => {
         const z = asObj(pick(asObj(scan), "zai"));
@@ -371,12 +413,38 @@ function scanPostLines(v: Vitals, nowMs: number): PostLine[] {
     },
     {
       label: "AUTONOMY",
+      // The derived LIVE phase — see Vitals.livePhase. This is the
+      // operator's actionable view of what the loop is doing, not the
+      // scheduler's internal word. Each phase maps to a concrete
+      // operator action:
+      //   ARMED-RUNNING     → "LIVE — SELF-DRIVEN" (no action needed)
+      //   ARMED-THROTTLED   → countdown to the 429 gate clearing (auto-
+      //                       resumes; STOP still works within 1s)
+      //   ARMED-RECOVERING  → 30s settle countdown before the next cycle
+      //                       (auto-resumes; no action needed)
+      //   ARMED-PAUSED      → "MANUAL [START] REQUIRED" — the loop is
+      //                       stopped (operator [STOP]) OR the crash-wall
+      //                       tripped (3 consecutive same-class crashes).
+      //                       Only [START] releases this state.
+      //   DISARMED          → "PRESS [START]" — the loop is off.
       value:
-        v.autonomy === "RUNNING" ? "LIVE — SELF-DRIVEN"
-        : v.autonomy === "??" ? "UNREADABLE"
-        : `ARMED — ${v.autonomy}`,
-      stamp: v.autonomy === "RUNNING" ? "LIVE" : "OK",
-      warn: v.autonomy === "ERROR" || v.autonomy === "??",
+        v.livePhase === "ARMED-RUNNING" ? "LIVE — SELF-DRIVEN"
+        : v.livePhase === "ARMED-THROTTLED" ? `ARMED — THROTTLED — QUOTA READY IN ${gateClock(v.quotaEndsAtMs - nowMs)}`
+        : v.livePhase === "ARMED-RECOVERING" && v.recoveryEndsAtMs > nowMs ? `ARMED — RECOVERING — RESUME IN ${gateClock(v.recoveryEndsAtMs - nowMs)}`
+        : v.livePhase === "ARMED-RECOVERING" ? "ARMED — RECOVERING — RESUMING"
+        : v.livePhase === "ARMED-PAUSED" ? "ARMED — PAUSED — MANUAL [START] REQUIRED"
+        : v.livePhase === "DISARMED" ? "DISARMED — PRESS [START]"
+        : v.livePhase === "??" ? "UNREADABLE"
+        : `ARMED — ${v.livePhase}`,
+      stamp:
+        v.livePhase === "ARMED-RUNNING" ? "LIVE"
+        : v.livePhase === "ARMED-PAUSED" || v.livePhase === "??" ? "WAIT"
+        : v.livePhase === "DISARMED" ? "OK"
+        : "WAIT",
+      warn:
+        v.livePhase === "ARMED-PAUSED" ||
+        v.livePhase === "??" ||
+        v.livePhase === "ARMED-THROTTLED",
     },
   ];
 }
@@ -566,18 +634,23 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   }, [phase]);
 
   const v = vitals;
-  // Live quota clock: ticks once per second ONLY while the 429 gate is
-  // active, so the API QUOTA line counts down to the gate opening in real
-  // time. Anchored on the server's `endsAtMs` epoch — the tick fills the
-  // gap between the one-shot vitals fetch and ENTER; no idle re-renders
-  // when the gate is open (same pattern as the terminal's header chip).
+  // Live clock: ticks once per second ONLY while a countdown is active
+  // (the 429 quota gate OR the ARMED-RECOVERING settle window), so the
+  // API QUOTA and AUTONOMY lines count down in real time. Anchored on
+  // CLIENT-epoch endsAtMs values (set in fetchVitals) — the tick fills
+  // the gap between the one-shot vitals fetch and ENTER; no idle
+  // re-renders when neither countdown is active (same pattern as the
+  // terminal's header chip).
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    if (vitals.quotaState !== "cooling") return;
+    const needsTick =
+      vitals.quotaState === "cooling" ||
+      (v.livePhase === "ARMED-RECOVERING" && v.recoveryEndsAtMs > 0);
+    if (!needsTick) return;
     setNowMs(Date.now());
     const iv = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(iv);
-  }, [vitals.quotaState]);
+  }, [vitals.quotaState, v.livePhase, v.recoveryEndsAtMs]);
   // One definition of the scan lines feeds both ceremonies.
   const scan = scanPostLines(v, nowMs);
   const postLines: PostLine[] = warm

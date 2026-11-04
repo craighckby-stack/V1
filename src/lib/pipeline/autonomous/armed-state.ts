@@ -70,7 +70,10 @@ export function markArmed(armed: boolean, by: string): void {
 
 /** Read the persisted intent. null when absent, unreadable, or torn —
  *  the caller treats null as "not armed" (fail-closed: a missing file
- *  must never fabricate an armed state). */
+ *  must never fabricate an armed state). A MALFORMED file (bad JSON,
+ *  missing `armed` boolean) is ALSO null — never fabricate armed from
+ *  a bad read. This is the dual-layer fail-closed contract: the boot
+ *  auto-arm only proceeds when the disk EXPLICITLY says armed:true. */
 export function readArmedState(): ArmedState | null {
   try {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
