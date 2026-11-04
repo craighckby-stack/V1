@@ -78,10 +78,10 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 function StageCard({ stage }: { stage: PipelineStageState }) {
-  const meta = STAGE_META[stage.id ?? "stage0_ingestion"] ?? STAGE_META.stage0_ingestion;
+  const meta = STAGE_META[stage.id] ?? STAGE_META.stage0_ingestion;
   const Icon = meta.icon;
-  const StatusIcon = STATUS_ICON[stage.status ?? "pending"] ?? Circle;
-  const color = STATUS_COLOR[stage.status ?? "pending"] ?? "text-slate-500";
+  const StatusIcon = STATUS_ICON[stage.status] ?? Circle;
+  const color = STATUS_COLOR[stage.status] ?? "text-slate-500";
   const isRunning = stage.status === "running";
 
   return (
@@ -121,26 +121,19 @@ function StageCard({ stage }: { stage: PipelineStageState }) {
               className={cn("h-4 w-4 shrink-0", color, isRunning && "animate-spin")}
             />
           </div>
-          <p className="text-xs text-slate-400 mt-1 leading-snug line-clamp-2">
-            {stage.summary || "No summary available"}
-          </p>
+          <p className="text-xs text-slate-400 mt-1 leading-snug line-clamp-2">{stage.summary}</p>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
-            {stage.durationMs !== undefined && typeof stage.durationMs === "number" && (
+            {stage.durationMs !== undefined && (
               <div className="text-[10px] text-slate-500 font-mono">{stage.durationMs}ms</div>
             )}
             {stage.id === "stage2_reasoning" &&
-              stage.details &&
-              typeof stage.details === "object" &&
-              "llmUsed" in stage.details &&
-              (stage.details as { llmUsed?: boolean }).llmUsed && (
+              (stage.details as { llmUsed?: boolean } | undefined)?.llmUsed && (
                 <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-emerald-500/15 text-emerald-300 border-emerald-500/40">
                   LLM
                 </span>
               )}
             {stage.id === "stage3_ast_gate" &&
-              stage.details &&
-              typeof stage.details === "object" &&
-              "parserUsed" in stage.details && (
+              (stage.details as { parserUsed?: string } | undefined)?.parserUsed && (
                 <span
                   className={cn(
                     "text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border",
@@ -155,18 +148,13 @@ function StageCard({ stage }: { stage: PipelineStageState }) {
                 </span>
               )}
             {stage.id === "stage4_review" &&
-              stage.details &&
-              typeof stage.details === "object" &&
-              "usedLlm" in stage.details && (
+              (stage.details as { usedLlm?: boolean } | undefined)?.usedLlm && (
                 <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-emerald-500/15 text-emerald-300 border-emerald-500/40">
                   LLM Tribunal
                 </span>
               )}
             {stage.id === "stage4_review" &&
-              stage.details &&
-              typeof stage.details === "object" &&
-              "usedLlm" in stage.details &&
-              (stage.details as { usedLlm?: boolean }).usedLlm === false && (
+              (stage.details as { usedLlm?: boolean } | undefined)?.usedLlm === false && (
                 <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-amber-500/15 text-amber-300 border-amber-500/40">
                   Rule-based
                 </span>
@@ -194,23 +182,18 @@ export function PipelineStages() {
   const stages = report ? Object.values(report.stages) : emptyStages;
   const statusCounts = stages.reduce(
     (acc, s) => {
-      // Validate stage status to prevent undefined values
-      const status = s.status || "pending";
-      acc[status] = (acc[status] ?? 0) + 1;
+      acc[s.status] = (acc[s.status] ?? 0) + 1;
       return acc;
     },
     {} as Record<string, number>
   );
-  
-  // Calculate progress with null checks
-  const succeededCount = statusCounts.succeeded ?? 0;
-  const blockedCount = statusCounts.blocked ?? 0;
-  const skippedCount = statusCounts.skipped ?? 0;
-  const totalStages = stages.length || 1; // Avoid division by zero
-  
   const progressPct = report
     ? Math.round(
-        ((succeededCount + blockedCount * 0.5 + skippedCount) / totalStages) * 100
+        ((statusCounts.succeeded ?? 0) +
+          (statusCounts.blocked ?? 0) * 0.5 +
+          (statusCounts.skipped ?? 0)) /
+          stages.length *
+          100
       )
     : 0;
 
@@ -230,11 +213,11 @@ export function PipelineStages() {
                 variant="outline"
                 className={cn(
                   "uppercase text-[10px] tracking-widest",
-                  (report.status === "COMPLETED")
+                  report.status === "COMPLETED"
                     ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-                    : (report.status === "REJECTED")
+                    : report.status === "REJECTED"
                     ? "bg-rose-500/15 text-rose-300 border-rose-500/40"
-                    : (report.status === "HALTED")
+                    : report.status === "HALTED"
                     ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
                     : "bg-cyan-500/15 text-cyan-300 border-cyan-500/40"
                 )}

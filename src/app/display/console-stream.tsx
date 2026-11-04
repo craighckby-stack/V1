@@ -66,17 +66,7 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
     >
       {lines.map((line) => {
         // Skip invalid line entries
-        if (
-          !line || 
-          typeof line !== "object" || 
-          !line.id || 
-          typeof line.id !== "string" || 
-          !line.id.trim() ||
-          !line.type || 
-          !["system", "command", "output", "log"].includes(line.type) ||
-          typeof line.text !== "string"
-        ) {
-          console.error("ConsoleStream: Invalid line entry", line);
+        if (!line || typeof line !== "object" || !line.id || !line.type) {
           return null;
         }
 
@@ -91,9 +81,7 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
           <div key={line.id} style={{ color, whiteSpace: "pre-wrap" }}>
             {line.type === "command" && "> "}
             {line.type === "log" && line.ts && (
-              <span style={{ color: DIM_COLOR }}>
-                {typeof line.ts === "string" ? `[${line.ts}] ` : "[INVALID_TIMESTAMP] "}
-              </span>
+              <span style={{ color: DIM_COLOR }}>[{line.ts}] </span>
             )}
             {line.text || "\u00a0"}
           </div>

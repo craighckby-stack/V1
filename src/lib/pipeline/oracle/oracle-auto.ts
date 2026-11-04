@@ -53,17 +53,7 @@ export function autoProphecyAfterCycle(): void {
       // Guard 2: too many unjudged prophecies → skip until the
       // evaluator catches up.
       const counts = await getProphecyCounts();
-      if (!counts) {
-        emitOracleEvent(
-          "Oracle auto-prophecy error — failed to get prophecy counts",
-          "error",
-          "scheduler",
-        );
-        return;
-      }
-      
-      // Added null check for counts.pending to prevent potential runtime error
-      if (counts.pending == null || counts.pending >= MAX_PENDING_PROPHECIES) {
+      if (counts.pending >= MAX_PENDING_PROPHECIES) {
         return; // silent — bounded backlog by design
       }
 
@@ -73,11 +63,11 @@ export function autoProphecyAfterCycle(): void {
       // event on success; a failure here simply means no prophecy this
       // cycle, which is fine.
       await generateProphecy();
-    } catch (error) {
+    } catch {
       // Never let the oracle take down the loop. A background
       // introspection must not become a foreground failure.
       emitOracleEvent(
-        `Oracle auto-prophecy error (cycle hook) — failed to generate prophecy: ${error instanceof Error ? error.message : String(error)}`,
+        "Oracle auto-prophecy error (cycle hook) — skipped this cycle",
         "error",
         "scheduler",
       );

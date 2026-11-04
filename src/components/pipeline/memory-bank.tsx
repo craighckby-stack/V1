@@ -15,16 +15,6 @@ const PROVENANCE_META: Record<string, { icon: typeof ShieldCheck; color: string;
   contradicted: { icon: ShieldX, color: "text-amber-300", bg: "bg-amber-500/15 border-amber-500/40" },
 };
 
-interface MemoryEntry {
-  id: string;
-  content: string;
-  provenance: string;
-  trust: string;
-  filePath?: string;
-  diagnosis?: string;
-  cleanSnippet?: string;
-}
-
 export function MemoryBank() {
   const entries = usePipelineStore((s) => s.memoryEntries);
   const setEntries = usePipelineStore((s) => s.setMemoryEntries);
@@ -34,17 +24,12 @@ export function MemoryBank() {
     (async () => {
       try {
         const res = await fetch("/api/memory/entries");
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
-        }
         const data = await res.json();
         if (!cancelled && Array.isArray(data?.entries)) {
-          setEntries(data.entries as MemoryEntry[]);
-        } else if (!cancelled) {
-          console.error("Failed to load memory entries: Invalid data format");
+          setEntries(data.entries);
         }
-      } catch (error) {
-        console.error("Failed to load memory entries:", error);
+      } catch {
+        /* ignore */
       }
     })();
     return () => {
@@ -69,10 +54,6 @@ export function MemoryBank() {
           <ScrollArea className="h-[280px] pr-3">
             <div className="space-y-2">
               {entries.map((entry) => {
-                if (!entry || !entry.id) {
-                  return null;
-                }
-                
                 const meta = PROVENANCE_META[entry.provenance] ?? PROVENANCE_META.clean;
                 const Icon = meta.icon;
                 return (
@@ -86,13 +67,13 @@ export function MemoryBank() {
                         variant="outline"
                         className={cn("text-[9px] uppercase tracking-widest", meta.bg)}
                       >
-                        {entry.provenance || "unknown"}
+                        {entry.provenance}
                       </Badge>
                       <Badge
                         variant="outline"
                         className="text-[9px] uppercase tracking-widest bg-slate-700/40 text-slate-300 border-slate-600/40"
                       >
-                        {entry.trust || "unknown"}
+                        {entry.trust}
                       </Badge>
                       {entry.filePath && (
                         <span className="ml-auto text-[10px] text-slate-500 font-mono truncate" title={entry.filePath}>
@@ -100,7 +81,7 @@ export function MemoryBank() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-200 leading-relaxed">{entry.content || "No content available"}</p>
+                    <p className="text-xs text-slate-200 leading-relaxed">{entry.content}</p>
                     {entry.diagnosis && (
                       <p className="text-[11px] text-slate-400 mt-1 italic">→ {entry.diagnosis}</p>
                     )}

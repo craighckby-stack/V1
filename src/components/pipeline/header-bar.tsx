@@ -9,7 +9,7 @@ export function HeaderBar() {
   const wsConnected = usePipelineStore((s) => s.wsConnected);
   const loopState = usePipelineStore((s) => s.loopState);
   const status = loopState?.status ?? "idle";
-  const stats = loopState?.stats ?? null;
+  const stats = loopState?.stats;
 
   const statusColor: Record<string, string> = {
     idle: "bg-slate-500/15 text-slate-300 border-slate-500/40",
@@ -112,7 +112,7 @@ export function HeaderBar() {
           </Badge>
 
           {/* Cycle count */}
-          {stats && stats.totalRuns !== undefined && (
+          {stats && (
             <Badge
               variant="outline"
               className="text-[10px] uppercase tracking-widest bg-slate-900/60 text-amber-300 border-amber-700/40 whitespace-nowrap"

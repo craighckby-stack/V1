@@ -54,89 +54,32 @@ export function PostmortemPanel() {
     setLoading(true);
     try {
       const res = await fetch("/api/postmortems");
-      if (!res.ok) {
-        throw new Error(`Failed to fetch postmortems: ${res.status} ${res.statusText}`);
-      }
       const data = await res.json();
-      
-      // Validate the API response structure
-      if (!data || typeof data !== "object") {
-        throw new Error("Invalid response structure from API");
+      if (Array.isArray(data?.postmortems)) {
+        setPostmortems(data.postmortems);
       }
-      
-      if (!Array.isArray(data?.postmortems)) {
-        throw new Error("Invalid postmortem data received from API");
-      }
-      
-      // Validate each postmortem record
-      const validatedPostmortems = data.postmortems.filter((pm: any) => {
-        return pm && 
-          typeof pm === "object" && 
-          pm.id && 
-          typeof pm.id === "string" &&
-          pm.filePath && 
-          typeof pm.filePath === "string" &&
-          pm.failureType && 
-          typeof pm.failureType === "string";
-      });
-      
-      setPostmortems(validatedPostmortems);
-    } catch (error) {
-      toast({
-        title: "Failed to load postmortems",
-        description: error instanceof Error ? error.message : "Unknown error occurred",
-        variant: "destructive",
-      });
+    } catch {
+      /* ignore */
     } finally {
       setLoading(false);
     }
   }
 
   async function dismiss(id: string, filePath: string) {
-    // Input validation
-    if (!id || typeof id !== "string") {
-      toast({
-        title: "Invalid dismiss request",
-        description: "Invalid postmortem ID",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    if (!filePath || typeof filePath !== "string") {
-      toast({
-        title: "Invalid dismiss request",
-        description: "Invalid file path",
-        variant: "destructive",
-      });
-      return;
-    }
-
     try {
       const res = await fetch(`/api/postmortems?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
-      
-      if (!res.ok) {
-        let errorMessage;
-        try {
-          const errorData = await res.json();
-          errorMessage = errorData.message || `Failed to dismiss postmortem: ${res.status} ${res.statusText}`;
-        } catch {
-          errorMessage = `Failed to dismiss postmortem: ${res.status} ${res.statusText}`;
-        }
-        throw new Error(errorMessage);
-      }
-      
+      if (!res.ok) throw new Error("Failed to dismiss postmortem");
       setPostmortems((prev) => prev.filter((p) => p.id !== id));
       toast({
         title: "Postmortem dismissed",
         description: `Constraints for ${filePath} removed.`,
       });
-    } catch (error) {
+    } catch (e) {
       toast({
         title: "Dismiss failed",
-        description: error instanceof Error ? error.message : "Failed to dismiss postmortem",
+        description: (e as Error).message,
         variant: "destructive",
       });
     }

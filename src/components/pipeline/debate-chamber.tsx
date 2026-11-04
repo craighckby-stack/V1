@@ -42,8 +42,8 @@ export function DebateChamber() {
   }
 
   const verdict = report.reviewVerdict;
-  const consensusPct = verdict?.consensusCoefficient ? Math.round(verdict.consensusCoefficient * 100) : 0;
-  const frictionPct = verdict?.cognitiveFriction ? Math.round(verdict.cognitiveFriction * 100) : 0;
+  const consensusPct = Math.round(verdict.consensusCoefficient * 100);
+  const frictionPct = Math.round(verdict.cognitiveFriction * 100);
 
   return (
     <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur">
@@ -58,14 +58,14 @@ export function DebateChamber() {
               variant="outline"
               className={cn(
                 "uppercase text-[10px] tracking-widest",
-                verdict?.consensus === "APPROVED"
+                verdict.consensus === "APPROVED"
                   ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-                  : verdict?.consensus === "CONDITIONAL_APPROVAL"
+                  : verdict.consensus === "CONDITIONAL_APPROVAL"
                   ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
                   : "bg-rose-500/15 text-rose-300 border-rose-500/40"
               )}
             >
-              {verdict?.consensus?.replace("_", " ") || "UNKNOWN"}
+              {verdict.consensus.replace("_", " ")}
             </Badge>
             <div className="text-right">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Consensus</div>
@@ -101,7 +101,7 @@ export function DebateChamber() {
       <CardContent>
         <div className="space-y-2.5">
           <AnimatePresence>
-            {(verdict?.arguments || []).map((arg, idx) => (
+            {verdict.arguments.map((arg, idx) => (
               <motion.div
                 key={`${arg.speaker}-${idx}`}
                 initial={{ opacity: 0, y: 8 }}
@@ -127,7 +127,7 @@ export function DebateChamber() {
                   </span>
                 </div>
                 <p className="text-xs text-slate-200 leading-relaxed">{arg.statement}</p>
-                {(arg.citations || []).length > 0 && (
+                {arg.citations.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1">
                     {arg.citations.map((c) => (
                       <span
@@ -150,7 +150,7 @@ export function DebateChamber() {
             <div className="flex-1">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Security Findings</div>
               <ul className="text-xs text-slate-300 space-y-0.5 mt-0.5">
-                {(verdict?.securityPoints || []).map((p, i) => (
+                {verdict.securityPoints.map((p, i) => (
                   <li key={i}>• {p}</li>
                 ))}
               </ul>
@@ -161,7 +161,7 @@ export function DebateChamber() {
             <div className="flex-1">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Architecture Findings</div>
               <ul className="text-xs text-slate-300 space-y-0.5 mt-0.5">
-                {(verdict?.architecturePoints || []).map((p, i) => (
+                {verdict.architecturePoints.map((p, i) => (
                   <li key={i}>• {p}</li>
                 ))}
               </ul>
@@ -171,7 +171,7 @@ export function DebateChamber() {
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300 mt-0.5 shrink-0" />
             <div className="flex-1">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Lead Verdict</div>
-              <p className="text-xs text-slate-200 mt-0.5">{verdict?.leadSummary || "No summary available"}</p>
+              <p className="text-xs text-slate-200 mt-0.5">{verdict.leadSummary}</p>
             </div>
           </div>
         </div>

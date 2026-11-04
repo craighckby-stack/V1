@@ -22,48 +22,7 @@ export function AstInspectorModal() {
   const { toast } = useToast();
 
   if (!inspectorFile) return null;
-  
-  // Validate required properties exist
-  if (!inspectorFile.path || !inspectorFile.original || !inspectorFile.evolved || !inspectorFile.report) {
-    toast({
-      title: "Invalid file data",
-      description: "The file data is missing required properties",
-      variant: "destructive"
-    });
-    return null;
-  }
-  
   const { path, original, evolved, report } = inspectorFile;
-  
-  // Validate AST and sanitizer results exist
-  if (!report.astDiffResult || !report.sanitizerResult) {
-    toast({
-      title: "Missing analysis data",
-      description: "The file analysis is incomplete",
-      variant: "destructive"
-    });
-    return null;
-  }
-  
-  // Validate nested properties in AST and sanitizer results
-  if (!report.astDiffResult.symbolMap || !report.astDiffResult.violations) {
-    toast({
-      title: "Invalid AST data",
-      description: "The AST analysis data is malformed",
-      variant: "destructive"
-    });
-    return null;
-  }
-  
-  if (!report.sanitizerResult.violations) {
-    toast({
-      title: "Invalid sanitizer data",
-      description: "The sanitizer analysis data is malformed",
-      variant: "destructive"
-    });
-    return null;
-  }
-  
   const ast = report.astDiffResult;
   const sanitizer = report.sanitizerResult;
 
@@ -127,18 +86,8 @@ export function AstInspectorModal() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  navigator.clipboard.writeText(evolved)
-                    .then(() => {
-                      toast({ title: "Copied evolved code", description: `${evolved.length} bytes to clipboard` });
-                    })
-                    .catch((error) => {
-                      toast({
-                        title: "Failed to copy code",
-                        description: error instanceof Error ? error.message : "Could not copy to clipboard. Please try again.",
-                        variant: "destructive"
-                      });
-                      console.error("Clipboard error:", error);
-                    });
+                  navigator.clipboard.writeText(evolved);
+                  toast({ title: "Copied evolved code", description: `${evolved.length} bytes to clipboard` });
                 }}
                 className="bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-200"
               >
@@ -215,7 +164,7 @@ export function AstInspectorModal() {
               ) : (
                 <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
                   {ast.violations.map((v, i) => {
-                    const Icon = violationIcon[v.severity] || AlertTriangle;
+                    const Icon = violationIcon[v.severity] ?? AlertTriangle;
                     return (
                       <div key={i} className="flex items-start gap-1.5 text-[11px]">
                         <Icon

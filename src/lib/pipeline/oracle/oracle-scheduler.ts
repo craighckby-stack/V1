@@ -48,7 +48,6 @@ interface SchedulerState {
   lastJudgedCount: number;
   ticks: number;
   booted: boolean;
-  lockToken?: number;
 }
 
 const g = globalThis as unknown as { __oracleScheduler?: SchedulerState };
@@ -77,14 +76,7 @@ export async function oracleSchedulerTick(): Promise<{
   reason?: string;
 }> {
   const s = sched();
-  
-  // Generate a unique lock token for this tick attempt
-  const lockToken = Date.now();
-  
-  // Check if already running with a different lock token
-  if (s.running && s.lockToken !== lockToken) {
-    return { ran: false, reason: "previous tick still running" };
-  }
+  if (s.running) return { ran: false, reason: "previous tick still running" };
 
   // Skip entirely while the shared LLM gate is closed — never steal
   // quota from the mutation loop, never hammer a 429ing provider.
@@ -92,97 +84,33 @@ export async function oracleSchedulerTick(): Promise<{
     return { ran: false, reason: "LLM cooldown active — skipping tick" };
   }
 
-  // Set the lock token and running flag
-  s.lockToken = lockToken;
-  s.running = true;
-
   // Cheap pre-check: are there any due prophecies? One indexed count
   // beats kicking off the evaluator for nothing (the evaluator's own
   // DB read is cheap too, but this keeps the tick's happy path at
   // exactly one query and no LLM calls at all).
-  let due: any[] = [];
-  try {
-    due = await listDueProphecies();
-    
-    // Validate input to handle potential null/undefined results
-    if (!due || !Array.isArray(due)) {
-      emitOracleEvent(
-        "Oracle scheduler error: listDueProphecies returned invalid data",
-        "error",
-        "scheduler",
-      );
-      return { ran: false, reason: "invalid data from prophecy store" };
-    }
-  } catch (err) {
-    emitOracleEvent(
-      `Oracle scheduler error listing due prophecies: ${(err as Error).message}`,
-      "error",
-      "scheduler",
-    );
-    return { ran: false, reason: "error listing prophecies" };
-  }
-
+  const due = await listDueProphecies();
   if (due.length === 0) {
     s.lastTickAt = Date.now();
     s.ticks += 1;
-    s.running = false;
-    delete s.lockToken;
     return { ran: true, judged: 0, skipped: 0 };
   }
 
+  s.running = true;
   try {
-    const result = await evaluateDueProphecies();
-    
-    // Validate the result structure
-    if (!result || typeof result !== 'object' || !('judged' in result) || !('skipped' in result)) {
-      emitOracleEvent(
-        "Oracle scheduler error: evaluateDueProphecies returned invalid result structure",
-        "error",
-        "scheduler",
-      );
-      return { ran: false, reason: "invalid result structure from prophecy evaluator" };
-    }
-    
-    const { judged, skipped } = result;
-    
-    // Validate judged and skipped are arrays
-    if (!Array.isArray(judged) || !Array.isArray(skipped)) {
-      emitOracleEvent(
-        "Oracle scheduler error: evaluateDueProphecies returned non-array for judged or skipped",
-        "error",
-        "scheduler",
-      );
-      return { ran: false, reason: "invalid array structure from prophecy evaluator" };
-    }
-    
+    const { judged, skipped } = await evaluateDueProphecies();
     s.lastTickAt = Date.now();
     s.lastJudgedCount = judged.length;
     s.ticks += 1;
     return { ran: true, judged: judged.length, skipped: skipped.length };
-  } catch (err) {
-    emitOracleEvent(
-      `Oracle scheduler error evaluating prophecies: ${(err as Error).message}`,
-      "error",
-      "scheduler",
-    );
-    return { ran: false, reason: "error evaluating prophecies" };
   } finally {
     s.running = false;
-    delete s.lockToken;
   }
 }
 
 /** Boot the scheduler (idempotent). Called on module import. */
 function bootOracleScheduler(): void {
   const s = sched();
-  if (s.booted) {
-    // Clear existing timer to prevent memory leaks if re-booting
-    if (s.timer) {
-      clearInterval(s.timer);
-      s.timer = null;
-    }
-    return;
-  }
+  if (s.booted) return;
   s.booted = true;
 
   // First tick after a short delay (not immediately) — gives the
@@ -199,7 +127,7 @@ function bootOracleScheduler(): void {
   }, TICK_MS);
 
   // Never keep the process alive just for the scheduler.
-  if (timer && typeof timer.unref === "function") timer.unref();
+  if (typeof timer.unref === "function") timer.unref();
   s.timer = timer;
 
   emitOracleEvent(

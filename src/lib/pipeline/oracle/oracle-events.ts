@@ -79,26 +79,6 @@ export function emitOracleEvent(
   type: OracleEvent["type"] = "info",
   source: OracleEvent["source"] = "scheduler",
 ): OracleEvent {
-  if (message == null) {
-    throw new Error("Oracle event message cannot be null or undefined");
-  }
-  
-  if (typeof message !== "string") {
-    throw new Error("Oracle event message must be a string");
-  }
-  
-  if (message.trim() === "") {
-    throw new Error("Oracle event message cannot be empty");
-  }
-
-  if (!["info", "success", "warn", "error"].includes(type)) {
-    throw new Error(`Oracle event type must be one of: info, success, warn, error (received: ${type})`);
-  }
-
-  if (!["generator", "evaluator", "scheduler"].includes(source)) {
-    throw new Error(`Oracle event source must be one of: generator, evaluator, scheduler (received: ${source})`);
-  }
-
   const s = state();
   const trimmed =
     message.length > 300 ? `${message.slice(0, 299)}…` : message;
@@ -125,32 +105,14 @@ export function readOracleEvents(afterSeq?: number): {
 } {
   const s = state();
   s.lastReadAt = Date.now();
-  
-  // Handle null/undefined explicitly
-  if (afterSeq == null) {
+  if (typeof afterSeq === "number" && afterSeq >= 0 && afterSeq < s.seq) {
+    // The caller has seen `afterSeq` events already. The buffer holds
+    // the most recent MAX_EVENTS; if afterSeq is older than what the
+    // buffer holds, we return the whole buffer (best effort — the
+    // gap events were dropped by the ring).
     return { events: [...s.buffer], seq: s.seq };
   }
-  
-  if (typeof afterSeq !== "number") {
-    throw new Error("Oracle event sequence number must be a number");
-  }
-  
-  if (afterSeq < 0) {
-    throw new Error("Oracle event sequence number cannot be negative");
-  }
-  
-  // Get the current sequence before checking to avoid race condition
-  const currentSeq = s.seq;
-  
-  if (afterSeq >= currentSeq) {
-    return { events: [], seq: currentSeq };
-  }
-  
-  // The caller has seen `afterSeq` events already. The buffer holds
-  // the most recent MAX_EVENTS; if afterSeq is older than what the
-  // buffer holds, we return the whole buffer (best effort — the
-  // gap events were dropped by the ring).
-  return { events: [...s.buffer], seq: currentSeq };
+  return { events: [...s.buffer], seq: s.seq };
 }
 
 /** Current sequence — lets a first-time caller snapshot "now" and only
