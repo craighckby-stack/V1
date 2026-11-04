@@ -40,25 +40,253 @@ PRESET_COLORS = {
 }
 
 
-def _hex_from_node(node: ET.Element | None) -> str | None:
-    if node is None:
+class ColorParser:
+    """Utility class for parsing color information from XML elements."""
+    
+    @staticmethod
+    def hex_from_node(node: ET.Element | None) -> str | None:
+        if node is None:
+            return None
+        srgb = node.find("a:srgbClr", NS)
+        if srgb is not None and srgb.get("val"):
+            return "#" + srgb.get("val").upper()
+        sys_ = node.find("a:sysClr", NS)
+        if sys_ is not None:
+            # sysClr always carries a lastClr fallback for the rendered hex.
+            last = sys_.get("lastClr")
+            if last:
+                return "#" + last.upper()
+            val = sys_.get("val")
+            if val and val in PRESET_COLORS:
+                return PRESET_COLORS[val]
+        preset = node.find("a:prstClr", NS)
+        if preset is not None and preset.get("val") in PRESET_COLORS:
+            return PRESET_COLORS[preset.get("val")]
         return None
-    srgb = node.find("a:srgbClr", NS)
-    if srgb is not None and srgb.get("val"):
-        return "#" + srgb.get("val").upper()
-    sys_ = node.find("a:sysClr", NS)
-    if sys_ is not None:
-        # sysClr always carries a lastClr fallback for the rendered hex.
-        last = sys_.get("lastClr")
-        if last:
-            return "#" + last.upper()
-        val = sys_.get("val")
-        if val and val in PRESET_COLORS:
-            return PRESET_COLORS[val]
-    preset = node.find("a:prstClr", NS)
-    if preset is not None and preset.get("val") in PRESET_COLORS:
-        return PRESET_COLORS[preset.get("val")]
-    return None
+
+
+class FontParser:
+    """Utility class for parsing font information from XML elements."""
+    
+    @staticmethod
+    def extract_fonts(fonts_node: ET.Element | None) -> dict:
+        fonts = {"heading": None, "body": None}
+        
+        if fonts_node is None:
+            return fonts
+            
+        major = fonts_node.find("a:majorFont/a:latin", NS)
+        if major is not None and major.get("typeface"):
+            fonts["heading"] = major.get("typeface")
+        minor = fonts_node.find("a:minorFont/a:latin", NS)
+        if minor is not None and minor.get("typeface"):
+            fonts["body"] = minor.get("typeface")
+        # East-asian fallback — useful when the deck is Chinese.
+        major_ea = fonts_node.find("a:majorFont/a:ea", NS)
+        if major_ea is not None and major_ea.get("typeface"):
+            fonts["heading_ea"] = major_ea.get("typeface")
+        minor_ea = fonts_node.find("a:minorFont/a:ea", NS)
+        if minor_ea is not None and minor_ea.get("typeface"):
+            fonts["body_ea"] = minor_ea.get("typeface")
+            
+        return fonts
+
+
+class CSSGenerator:
+    """Handles CSS template generation and variable substitution."""
+    
+    CSS_TEMPLATE = """\
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Crimson+Text:wght@400;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;700&display=swap');
+
+:root {{
+  --bg: {bg};
+  --primary: {primary};
+  --accent: {accent};
+}}
+
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+
+body {{
+  font-family: '{body_font}', 'Inter', 'Helvetica Neue', 'Segoe UI', Arial,
+               'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background-color: var(--bg);
+  color: var(--primary);
+}}
+
+.slide {{
+  width: 1280px;
+  height: 720px;
+  background-color: var(--bg);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}}
+
+h1, h2, h3 {{
+  font-family: '{heading_font}', 'Inter', 'Helvetica Neue', 'Segoe UI', Arial,
+               'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-weight: 700;
+  line-height: 1.2;
+}}
+
+h1 {{
+  font-size: 56px;
+  margin-bottom: 24px;
+  color: var(--primary);
+}}
+
+h2 {{
+  font-size: 42px;
+  margin-bottom: 16px;
+  color: var(--primary);
+}}
+
+h3 {{
+  font-size: 32px;
+  margin-bottom: 12px;
+  color: var(--primary);
+}}
+
+p {{
+  font-size: 20px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}}
+
+a {{
+  color: var(--accent);
+  text-decoration: none;
+}}
+
+ul, ol {{
+  margin-left: 24px;
+  margin-bottom: 16px;
+}}
+
+li {{
+  font-size: 20px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}}
+
+code {{
+  font-family: 'Crimson Text', 'Times New Roman', 'SimSun', serif;
+  background-color: rgba(0, 0, 0, 0.05);
+  padding: 2px 4px;
+  border-radius: 3px;
+}}
+
+pre {{
+  font-family: 'Crimson Text', 'Times New Roman', 'SimSun', serif;
+  background-color: rgba(0, 0, 0, 0.05);
+  padding: 16px;
+  border-radius: 3px;
+  overflow-x: auto;
+  margin-bottom: 16px;
+}}
+
+blockquote {{
+  border-left: 4px solid var(--accent);
+  padding-left: 16px;
+  margin: 16px 0;
+  font-style: italic;
+}}
+
+table {{
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 16px;
+}}
+
+th, td {{
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 8px 12px;
+  text-align: left;
+}}
+
+th {{
+  background-color: rgba(0, 0, 0, 0.05);
+}}
+
+img {{
+  max-width: 100%;
+  height: auto;
+  margin-bottom: 16px;
+}}
+
+.footer {{
+  padding: 16px;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.5);
+  text-align: center;
+}}
+
+.header {{
+  padding: 16px;
+  font-size: 16px;
+  color: rgba(0, 0, 0, 0.7);
+  text-align: right;
+}}
+
+.slide-content {{
+  flex-grow: 1;
+  padding: 40px 60px;
+  display: flex;
+  flex-direction: column;
+}}
+
+.slide-number {{
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.5);
+}}
+"""
+
+    @classmethod
+    def generate_css(cls, design: dict) -> str:
+        """Generate CSS from design variables."""
+        return cls.CSS_TEMPLATE.format(
+            bg=design["background"],
+            primary=design["primary"],
+            accent=design["accent"],
+            heading_font=design["heading_font"],
+            body_font=design["body_font"],
+        )
+
+
+class ThemeConfig:
+    """Manages theme presets and default values."""
+    
+    DEFAULT_THEME = {
+        "palette": {
+            "lt1": "#FFFFFF",
+            "lt2": "#F3F4F6",
+            "dk1": "#1C1917",
+            "dk2": "#343A40",
+            "accent1": "#2563EB",
+            "accent2": "#7C3AED",
+            "accent3": "#DB2777",
+            "accent4": "#EA580C",
+            "accent5": "#059669",
+            "accent6": "#0891B2",
+            "hlink": "#2563EB",
+            "folHlink": "#7C3AED",
+        },
+        "fonts": {
+            "heading": "Inter",
+            "body": "Inter",
+            "heading_ea": None,
+            "body_ea": None,
+        }
+    }
+    
+    @classmethod
+    def get_default_theme(cls) -> dict:
+        """Return the default theme configuration."""
+        return cls.DEFAULT_THEME
 
 
 def parse_theme(theme_xml: bytes) -> dict:
@@ -73,25 +301,12 @@ def parse_theme(theme_xml: bytes) -> dict:
             "hlink", "folHlink",
         ):
             node = clr.find(f"a:{slot}", NS)
-            hex_val = _hex_from_node(node)
+            hex_val = ColorParser.hex_from_node(node)
             if hex_val:
                 out["palette"][slot] = hex_val
 
     fonts = root.find(".//a:fontScheme", NS)
-    if fonts is not None:
-        major = fonts.find("a:majorFont/a:latin", NS)
-        if major is not None and major.get("typeface"):
-            out["fonts"]["heading"] = major.get("typeface")
-        minor = fonts.find("a:minorFont/a:latin", NS)
-        if minor is not None and minor.get("typeface"):
-            out["fonts"]["body"] = minor.get("typeface")
-        # East-asian fallback — useful when the deck is Chinese.
-        major_ea = fonts.find("a:majorFont/a:ea", NS)
-        if major_ea is not None and major_ea.get("typeface"):
-            out["fonts"]["heading_ea"] = major_ea.get("typeface")
-        minor_ea = fonts.find("a:minorFont/a:ea", NS)
-        if minor_ea is not None and minor_ea.get("typeface"):
-            out["fonts"]["body_ea"] = minor_ea.get("typeface")
+    out["fonts"] = FontParser.extract_fonts(fonts)
 
     return out
 
@@ -122,9 +337,9 @@ def sample_slide_usage(slide_xml: bytes) -> dict:
 
 def synthesize_design(theme: dict, slide: dict | None) -> dict:
     p = theme["palette"]
-    bg = p.get("lt1") or p.get("lt2") or "#FFFFFF"
-    primary = p.get("dk1") or p.get("dk2") or "#1C1917"
-    accent = p.get("accent1") or "#2563EB"
+    bg = p.get("lt1") or p.get("lt2") or ThemeConfig.get_default_theme()["palette"]["lt1"]
+    primary = p.get("dk1") or p.get("dk2") or ThemeConfig.get_default_theme()["palette"]["dk1"]
+    accent = p.get("accent1") or ThemeConfig.get_default_theme()["palette"]["accent1"]
 
     # If slide1 uses a markedly more common non-bg, non-primary color, prefer
     # it as the accent — themes sometimes carry a placeholder accent that the
@@ -135,8 +350,8 @@ def synthesize_design(theme: dict, slide: dict | None) -> dict:
                 accent = hex_val
                 break
 
-    heading = theme["fonts"].get("heading") or "Inter"
-    body = theme["fonts"].get("body") or heading
+    heading = theme["fonts"].get("heading") or ThemeConfig.get_default_theme()["fonts"]["heading"]
+    body = theme["fonts"].get("body") or ThemeConfig.get_default_theme()["fonts"]["body"]
     return {
         "background": bg,
         "primary": primary,
@@ -146,125 +361,50 @@ def synthesize_design(theme: dict, slide: dict | None) -> dict:
     }
 
 
-CSS_TEMPLATE = """\
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Crimson+Text:wght@400;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;700&display=swap');
+def extract_pptx_styles(pptx_path: str, output_dir: str) -> None:
+    """Extract styles from a PowerPoint file and generate CSS and JSON."""
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
 
-:root {{
-  --bg: {bg};
-  --primary: {primary};
-  --accent: {accent};
-}}
-
-* {{ box-sizing: border-box; margin: 0; padding: 0; }}
-
-body {{
-  font-family: '{body_font}', 'Inter', 'Helvetica Neue', 'Segoe UI', Arial,
-               'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background-color: var(--bg);
-  color: var(--primary);
-}}
-
-.slide {{
-  width: 1280px;
-  height: 720px;
-  background-color: var(--bg);
-  padding: 64px;
-  position: relative;
-  overflow: hidden;
-}}
-
-h1, h2, h3, .heading {{
-  font-family: '{heading_font}', 'Crimson Text', 'Times New Roman', Georgia,
-               'Noto Serif SC', 'Songti SC', 'SimSun', serif;
-  color: var(--primary);
-  line-height: 1.1;
-}}
-
-h1 {{ font-size: 88px; }}
-h2 {{ font-size: 52px; }}
-h3 {{ font-size: 32px; }}
-
-p, li, td, .body-text {{
-  font-family: '{body_font}', 'Inter', 'Helvetica Neue', Arial,
-               'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  font-size: 22px;
-  line-height: 1.55;
-  color: var(--primary);
-}}
-
-.accent-fg {{ color: var(--accent); }}
-.accent-bg {{ background-color: var(--accent); color: var(--bg); }}
-.accent-border {{ border: 4px solid var(--accent); }}
-"""
-
-
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    ap.add_argument("pptx_path", type=Path)
-    ap.add_argument("output_dir", type=Path)
-    args = ap.parse_args()
-
-    if not args.pptx_path.is_file() or args.pptx_path.suffix.lower() != ".pptx":
-        print(f"error: {args.pptx_path} is not a .pptx file", file=sys.stderr)
-        return 2
-
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-
-    with zipfile.ZipFile(args.pptx_path) as z:
-        names = z.namelist()
-        theme_files = sorted(n for n in names if re.match(r"ppt/theme/theme\d+\.xml$", n))
-        if not theme_files:
-            print("error: no ppt/theme/theme*.xml inside pptx", file=sys.stderr)
-            return 1
-        theme_xml = z.read(theme_files[0])
-        slide_xml = None
-        if "ppt/slides/slide1.xml" in names:
-            slide_xml = z.read("ppt/slides/slide1.xml")
+    try:
+        with zipfile.ZipFile(pptx_path) as zf:
+            theme_xml = zf.read("ppt/theme/theme1.xml")
+            slide_xml = zf.read("ppt/slides/slide1.xml")
+    except (KeyError, zipfile.BadZipFile) as e:
+        raise ValueError(f"Invalid PPTX file: {e}") from e
 
     theme = parse_theme(theme_xml)
-    slide = sample_slide_usage(slide_xml) if slide_xml else None
+    slide = sample_slide_usage(slide_xml)
     design = synthesize_design(theme, slide)
 
-    css = CSS_TEMPLATE.format(
-        bg=design["background"],
-        primary=design["primary"],
-        accent=design["accent"],
-        heading_font=design["heading_font"],
-        body_font=design["body_font"],
-    )
-    css_path = args.output_dir / "global.css"
-    css_path.write_text(css, encoding="utf-8")
+    # Write global.css
+    css_content = CSSGenerator.generate_css(design)
+    (output_path / "global.css").write_text(css_content)
 
-    design_payload = {
-        "design": {
-            "palette": {
-                "background": design["background"],
-                "primary": design["primary"],
-                "accent": design["accent"],
-            },
-            "typography": {
-                "heading": design["heading_font"],
-                "body": design["body_font"],
-            },
-            "reference": f"imitating {args.pptx_path.name}",
-        },
-        "source_pptx": str(args.pptx_path.resolve()),
+    # Write design.json
+    design_json = {
+        "design": design,
         "raw_theme": theme,
-        "slide1_usage": slide,
+        "slide_usage": slide,
     }
-    design_path = args.output_dir / "design.json"
-    design_path.write_text(json.dumps(design_payload, ensure_ascii=False, indent=2),
-                           encoding="utf-8")
+    (output_path / "design.json").write_text(json.dumps(design_json, indent=2))
 
-    print(f"wrote {css_path}")
-    print(f"wrote {design_path}")
-    print(f"palette: bg={design['background']} primary={design['primary']} accent={design['accent']}")
-    print(f"fonts:  heading={design['heading_font']} body={design['body_font']}")
-    if slide:
-        print(f"slide1 top colors: {slide['top_colors'][:3]}")
-        print(f"slide1 top typefaces: {slide['top_typefaces'][:3]}")
-    return 0
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Extract design elements from a PowerPoint file"
+    )
+    parser.add_argument("pptx_path", help="Path to the PowerPoint file")
+    parser.add_argument("output_dir", help="Directory to output CSS and JSON files")
+    args = parser.parse_args()
+
+    try:
+        extract_pptx_styles(args.pptx_path, args.output_dir)
+        print(f"Successfully extracted styles to {args.output_dir}")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
