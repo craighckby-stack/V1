@@ -587,6 +587,65 @@ export async function verifyPatGoneFromAllTiers(): Promise<{ tier2Gone: boolean;
   return { tier2Gone, tier3Gone, dbGone, allGone: tier2Gone && tier3Gone && dbGone };
 }
 
+// ── Commit-message shape guard (commit-archaeology UUID-defense) ────
+// A bare-UUID commit message landed on `main` (commit e5d2b7a, message
+// "dc951e0f-8247-4972-be3f-17ca5c301b75"). Investigation concluded the
+// commit was NOT created by any LOOP-internal committer — every LOOP
+// commit site passes an explicit, human-readable message:
+//   - pushCurrentState (here, L698 fallback path & L778 main path)
+//   - self-enhance-loop gitPush() routes through pushCurrentState
+//   - lessons-markdown.ts export path ("memory: lessons.md export (...)")
+// `git reflog --date=iso` showed a 3-hour gap with no entries around the
+// commit, and the machine restarted two minutes before it landed. The
+// conclusion: the host restore orchestrator that rehydrates the project
+// directory from a snapshot on machine restart created the commit, using
+// a bare UUID as a placeholder message. This is OUTSIDE LOOP's commit
+// path — LOOP cannot prevent it directly, only:
+//   (1) Defend internally — this guard ensures LOOP itself never produces
+//       one. If a caller accidentally passes an empty/UUID message we
+//       return a clear error before `git add -A` runs (matching how the
+//       preCommitSecretGate below aborts), and the push outcome stays
+//       honestly `pushed: false` with the reason.
+//   (2) Detect on startup — self-enhance-loop.ts runs this same validator
+//       against `git log -1 --format=%B` once at boot and `console.warn`s
+//       if the latest commit looks host-injected (it cannot block boot —
+//       the commit is already on disk by the time LOOP runs).
+// See postmortems/self/main/system:commit-message-guard.json for the full
+// recorded finding, blast radius, and the internal-committer invariants.
+//
+// Returns null if the message is acceptable, or a block-reason string
+// explaining why the message was rejected. Mirrors the return contract of
+// `preCommitSecretGate` so the two gates compose cleanly at the commit
+// sites (validateCommitMessage runs first — a malformed message shouldn't
+// even reach the secret scan).
+export function validateCommitMessage(message: string): string | null {
+  // Empty / whitespace-only — a commit message with no intent is
+  // unsearchable, unarchaeologisable, and breaks the message-prefix
+  // convention the rest of the loop relies on (commit-archaeology.ts
+  // greps for "Self-enhancement:", "memory:", etc.). The trim handles
+  // the "caller passed `opts.message` but it was all spaces" edge case
+  // that an empty-string check alone would miss.
+  if (!message || message.trim().length === 0) {
+    return "Commit message is empty — LOOP requires an explicit, human-readable intent (the host restore orchestrator can inject bare-UUID commits that bypass LOOP; this guard ensures LOOP itself never produces one)";
+  }
+  // Bare UUID first line (e.g. "dc951e0f-8247-4972-be3f-17ca5c301b75").
+  // Matches the exact shape of the host-injected commit so a future
+  // accidental pass of a UUID (e.g. a caller copying a snapshot id into
+  // the message field) is caught here instead of landing in git history.
+  // First-line-only match: a multi-line message whose body legitimately
+  // contains a UUID (e.g. "Self-enhancement: refactored X (trace: <uuid>)")
+  // is still accepted — only a bare UUID as the FIRST line is rejected.
+  const firstLine = message.split(/\r?\n/, 1)[0].trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(firstLine)) {
+    return (
+      `Commit message is a bare UUID ("${firstLine}") — LOOP requires a human-readable intent ` +
+      `(this shape is what the host restore orchestrator injects when it rehydrates the project from a snapshot; ` +
+      `LOOP itself must never produce one)`
+    );
+  }
+  return null;
+}
+
 // ── Pre-push secret-scan gate (concept: Git-Secret-PII-Sanitizer) ────
 // Scans the working-tree diff AND the commit message for secrets BEFORE
 // `git add -A && git commit`. If a non-dummy, non-redacted secret is
@@ -696,6 +755,15 @@ export async function pushCurrentState(opts?: {
       });
       if (status.trim()) {
         const message = opts?.message ?? "Self-enhancement: current live state";
+        // ── Commit-message shape guard (commit-archaeology UUID-defense) ──
+        // Rejects empty / bare-UUID messages BEFORE they reach git add,
+        // mirroring the secret-gate's abort contract below. See
+        // validateCommitMessage for the full rationale (the host restore
+        // orchestrator UUID-injection finding).
+        const messageReject = validateCommitMessage(message);
+        if (messageReject) {
+          return { pushed: false, error: messageReject };
+        }
         // ── Pre-push secret-scan gate (GRAFT 1) ── block BEFORE git add.
         const blockReason = preCommitSecretGate(message);
         if (blockReason) {
@@ -776,6 +844,19 @@ export async function pushCurrentState(opts?: {
       // contain LLM-generated change summaries) can never be a command-
       // injection surface. Backticks/quotes/$() are just characters.
       const message = opts?.message ?? "Self-enhancement: current live state";
+      // ── Commit-message shape guard (commit-archaeology UUID-defense) ──
+      // Rejects empty / bare-UUID messages BEFORE they reach git add,
+      // mirroring the secret-gate's abort contract below. Records the
+      // reason into lastPushError (same as the secret-gate failure path)
+      // so an operator looking at the push-target UI sees a clear cause
+      // instead of a silent `pushed: false`. See validateCommitMessage
+      // for the full rationale (the host restore orchestrator UUID-
+      // injection finding).
+      const messageReject = validateCommitMessage(message);
+      if (messageReject) {
+        await record({ lastPushError: messageReject.slice(0, 300) });
+        return { pushed: false, repo: target.repo, error: messageReject };
+      }
       // ── Pre-push secret-scan gate (GRAFT 1) ── block BEFORE git add.
       // Scans the working-tree diff + the commit message. If a non-dummy,
       // non-redacted secret is found, the commit is BLOCKED and a postmortem

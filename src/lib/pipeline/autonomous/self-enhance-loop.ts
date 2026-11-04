@@ -13,14 +13,14 @@
  */
 
 import { readFileSync, writeFileSync, readdirSync, existsSync, rmSync } from "fs";
-import { spawnSync } from "child_process";
+import { spawnSync, execSync } from "child_process";
 import { join, relative, resolve, basename, dirname } from "path";
 import { createHash } from "crypto";
 import { llmComplete, extractSummaryAndCode, llmCooldownMs } from "../llm/agent-llm";
 import { conductLlmDebate } from "../llm/debate-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
 import { queryRelevantPostmortems, formatAncestralPromptBlock } from "../postmortem/ancestral-rag";
-import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopBranch } from "./push-target";
+import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopBranch, validateCommitMessage } from "./push-target";
 import { db } from "@/lib/db";
 import { generateTasks } from "./self-task-generator";
 import { detectTruncation, stripComments, stripLiteralsAndComments } from "./code-analysis";
@@ -523,6 +523,55 @@ class SelfEnhanceLoop {
       }
     } catch {
       /* hot-swap module not loaded — first boot, no snapshot (normal) */
+    }
+
+    // ── HOST-INJECTED UUID-COMMIT DETECTOR (commit-archaeology defense) ──
+    // A bare-UUID commit message landed on `main` (commit e5d2b7a, message
+    // "dc951e0f-8247-4972-be3f-17ca5c301b75"). Investigation concluded the
+    // commit was created by the host restore orchestrator that rehydrates
+    // the project directory from a snapshot on machine restart — OUTSIDE
+    // LOOP's commit path. LOOP cannot prevent it (the orchestrator runs
+    // before LOOP boots); the two-layer defense is:
+    //   (1) Internal guard — pushCurrentState calls validateCommitMessage
+    //       before every `git add -A` and aborts with `pushed: false` if
+    //       the message is empty or a bare UUID. This guarantees LOOP
+    //       itself never produces one.
+    //   (2) This startup detector — runs ONCE at boot, reads HEAD's commit
+    //       message via `git log -1 --format=%B`, and `console.warn`s if
+    //       the latest commit looks host-injected (empty first line or a
+    //       bare UUID). It does NOT block boot — the commit is already on
+    //       disk by the time LOOP runs; blocking would brick the loop on a
+    //       restore. The warn makes the host-injection event visible in
+    //       dev.log and signals an operator that commit-archaeology on
+    //       that SHA will be a dead-end (UUIDs are unsearchable, break
+    //       the message-prefix convention, and make
+    //       commit-archaeology.ts return a UUID where intent was expected).
+    // See postmortems/self/main/system:commit-message-guard.json for the
+    // full finding. Best-effort: a git failure here never blocks the loop.
+    try {
+      const headMessage = execSync("git log -1 --format=%B", {
+        cwd: PROJECT_ROOT,
+        encoding: "utf-8",
+        timeout: 5000,
+        stdio: "pipe",
+      });
+      const rejectReason = validateCommitMessage(headMessage);
+      if (rejectReason) {
+        const headSha = execSync("git log -1 --format=%H", {
+          cwd: PROJECT_ROOT,
+          encoding: "utf-8",
+          timeout: 5000,
+          stdio: "pipe",
+        }).trim();
+        console.warn(
+          `[SELF-ENHANCE] HOST-INJECTED COMMIT DETECTED at boot: HEAD is ${headSha.slice(0, 7)} ` +
+          `with a bare-UUID / empty commit message. ${rejectReason} ` +
+          `This commit was likely created by the host restore orchestrator (machine restart), not by LOOP. ` +
+          `Boot continues — see postmortems/self/main/system:commit-message-guard.json for the full finding.`
+        );
+      }
+    } catch {
+      /* git unavailable or no commits yet (fresh repo) — non-fatal, no warn */
     }
   }
 
