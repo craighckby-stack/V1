@@ -25,7 +25,7 @@ import {
   isIgnoredScanPath,
   type SecretFinding,
 } from "../core/secret-scan";
-import { recordPushSuccess, recordPushAuthFailure } from "../core/duress";
+import { recordPushSuccess, recordPushAuthFailure, isSafeMode, raiseSafeModeFlag } from "../core/duress";
 import { recoverCrashedTestGate } from "../core/test-gate-journal";
 import { PROJECT_ROOT } from "../core/paths";
 
@@ -68,6 +68,10 @@ function readStateFile(): LoopPushState | null {
     if (!existsSync(STATE_FILE)) return null;
     const parsed = JSON.parse(readFileSync(STATE_FILE, "utf-8")) as LoopPushState;
     if (!parsed.repo || !parsed.token || !parsed.branch) return null;
+    // Audit 3 (17b): a tampered/corrupted state file's repo field used to
+    // flow unchecked into the `git remote add origin <url>` shell command.
+    // Re-validate the charset here so a hostile file reads as absent.
+    if (!validRepoFormat(parsed.repo)) return null;
     return parsed;
   } catch {
     return null;
@@ -83,6 +87,8 @@ function readPersistentStateFile(): LoopPushState | null {
     if (!existsSync(PERSISTENT_STATE_FILE)) return null;
     const parsed = JSON.parse(readFileSync(PERSISTENT_STATE_FILE, "utf-8")) as LoopPushState;
     if (!parsed.repo || !parsed.token || !parsed.branch) return null;
+    // Audit 3 (17b): same charset re-validation as tier-2.
+    if (!validRepoFormat(parsed.repo)) return null;
     return parsed;
   } catch {
     return null;
@@ -721,33 +727,68 @@ export function amendUuidHeadCommit(): {
     return { attempted: false, amended: false };
   }
 
-  // 3. Is HEAD local-only (not yet on origin/main)?
-  //    `git rev-list --count origin/main..HEAD` returns the number of
-  //    commits reachable from HEAD but not origin/main. 0 means HEAD
-  //    IS origin/main (pushed) — amending rewrites pushed history.
-  //    A thrown error means origin/main doesn't exist yet (fresh repo,
-  //    nothing pushed ever) — treat as safe-to-amend.
+  // 3. Is HEAD local-only (not on ANY remote branch)?
+  //    Audit 3 (F4): the old check (`git rev-list --count
+  //    origin/main..HEAD`) tested the WRONG ref — the loop pushes every
+  //    mutation to a loop-NN branch, so origin/main lags perpetually and
+  //    the count was >0 even when HEAD was already pushed: the guard was
+  //    systematically vacuous and could amend already-pushed commits
+  //    (exactly the history-rewrite attack it claimed to refuse). The
+  //    correct question is whether ANY remote-tracking branch contains
+  //    HEAD. We fetch first so the remote-tracking refs are fresh (sandbox
+  //    restores can rewind .git), and if we cannot verify, we REFUSE —
+  //    fail-closed: unverifiable is unsafe to rewrite.
   try {
-    const countOut = execSync("git rev-list --count origin/main..HEAD", {
+    execSync("git fetch --quiet", {
+      cwd: PROJECT_ROOT,
+      encoding: "utf-8",
+      timeout: 20000,
+      stdio: "pipe",
+    });
+  } catch {
+    return {
+      attempted: true,
+      amended: false,
+      oldSha: headSha,
+      reason:
+        "could not fetch to verify HEAD is local-only (offline?) — refusing to amend: " +
+        "unable to verify local-only is unsafe to rewrite (fail-closed)",
+    };
+  }
+  try {
+    const containing = execSync("git branch -r --contains HEAD", {
       cwd: PROJECT_ROOT,
       encoding: "utf-8",
       timeout: 5000,
       stdio: "pipe",
     }).trim();
-    const count = parseInt(countOut, 10);
-    if (Number.isFinite(count) && count === 0) {
+    if (containing.length > 0) {
+      const branches = containing
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(", ");
       return {
         attempted: true,
         amended: false,
         oldSha: headSha,
         reason:
-          "HEAD is on origin/main (already pushed) — amending would rewrite shared history " +
-          "(red-team-flagged history-rewrite attack); the UUID is permanent in remote history",
+          `HEAD is already pushed (contained by remote branch(es): ${branches}) — ` +
+          "amending would rewrite shared history (red-team-flagged history-rewrite attack); " +
+          "the UUID is permanent in remote history",
       };
     }
-    // count > 0 (or NaN from empty origin) → local-only, proceed
+    // No remote branch contains HEAD → genuinely local-only, proceed.
   } catch {
-    // origin/main missing (fresh repo, never pushed) — safe to amend
+    return {
+      attempted: true,
+      amended: false,
+      oldSha: headSha,
+      reason:
+        "could not verify HEAD is local-only (`git branch -r --contains` failed) — " +
+        "refusing to amend (fail-closed)",
+    };
   }
 
   // 4. Anything staged? `git commit --amend` would fold staged changes
@@ -850,28 +891,69 @@ export function amendUuidHeadCommit(): {
   }
 }
 
+// ── PUSH-FAILURE CIRCUIT BREAKER (audit 3, F8) ──────────────────
+// A wedged git (stale index.lock, revoked PAT, deleted remote) used to
+// yield unbounded silent divergence: the loop kept mutating, hot-
+// swapping, and logging one warn per file while totalPushed stalled and
+// "what's on GitHub is what's running" silently void. After
+// PUSH_FAILURE_THRESHOLD consecutive failed pushes, safe-mode is raised
+// — which the self-enhance loop now checks (F1) — halting mutations
+// until an operator resolves the git state and clears it.
+const PUSH_FAILURE_THRESHOLD = 5;
+let consecutivePushFailures = 0;
+
+async function notePushFailure(reason: string): Promise<void> {
+  consecutivePushFailures++;
+  console.error(
+    `[PUSH-TARGET] push failure ${consecutivePushFailures}/${PUSH_FAILURE_THRESHOLD}` +
+      (consecutivePushFailures >= PUSH_FAILURE_THRESHOLD ? " — CIRCUIT BREAKER TRIPPING" : "") +
+      `: ${reason.slice(0, 160)}`
+  );
+  if (consecutivePushFailures >= PUSH_FAILURE_THRESHOLD) {
+    try {
+      // Idempotent: re-raising past the threshold just refreshes the
+      // reason/timestamp — safe-mode is already halting the loop.
+      await raiseSafeModeFlag(
+        "push-failure-circuit-breaker",
+        `${consecutivePushFailures} consecutive push failures — git appears wedged (last: ${reason.slice(0, 200)}). Self-enhancement halted; resolve the git state, then clear safe-mode.`
+      );
+    } catch {
+      /* duress unavailable — the counter + log still surface the wedge */
+    }
+  }
+}
+
 // ── Pre-push secret-scan gate (concept: Git-Secret-PII-Sanitizer) ────
-// Scans the working-tree diff AND the commit message for secrets BEFORE
-// `git add -A && git commit`. If a non-dummy, non-redacted secret is
-// found, the commit is BLOCKED — the PAT can never leak into git history
-// again. Returns null to proceed, or a block-reason string to abort.
+// Scans the STAGED diff (the caller stages with `git add -A` first) AND
+// the commit message for secrets BEFORE `git commit`. Audit 3 hardening:
+//   (1) The old `git diff HEAD` scan was blind to untracked (new) files,
+//       which `git add -A` then committed unscanned — e.g. freshly written
+//       postmortem JSONs whose evidence fields embed raw LLM text.
+//   (2) A git error is now FAIL-CLOSED: an unreadable staged diff must
+//       not produce an unscanned commit (the old catch set diff="" and
+//       proceeded).
+// If a non-dummy, non-redacted secret is found, the commit is BLOCKED
+// (the caller unstages) — the PAT can never leak into git history.
+// Returns null to proceed, or a block-reason string to abort.
 // See docs/CONCEPTS-GRAFTED.md GRAFT 1.
 function preCommitSecretGate(message: string): string | null {
   let diff = "";
   try {
-    // Unstaged + staged changes vs HEAD — exactly what's about to land.
-    diff = execSync("git diff HEAD --no-color", {
+    // STAGED changes — exactly what's about to land, including new files.
+    diff = execSync("git diff --cached --no-color", {
       cwd: PROJECT_ROOT,
       encoding: "utf-8",
       timeout: 15000,
       maxBuffer: 8 * 1024 * 1024,
     });
-  } catch {
-    // No diff (clean tree) or git failed — nothing to scan, proceed.
-    diff = "";
+  } catch (err) {
+    return (
+      `secret-scan gate: could not read the staged diff ` +
+      `(${(err as Error).message.slice(0, 120)}) — refusing to commit unscanned content (fail-closed)`
+    );
   }
   const findings: SecretFinding[] = [];
-  if (diff) findings.push(...scanDiff(diff, "diff"));
+  if (diff) findings.push(...scanDiff(diff, "staged-diff"));
   // The commit message is free text the diff scanner doesn't see — a
   // secret pasted into the message would survive every other gate.
   const msgFindings = scanCommitMessage(message);
@@ -882,6 +964,9 @@ function preCommitSecretGate(message: string): string | null {
   // Record a postmortem so the failure memory carries the gate block.
   // Best-effort — a failure to write the postmortem MUST NOT un-block
   // the commit (the block is a safety action; the postmortem is a record).
+  // observed:false — this is a system event, not an observed mutation
+  // failure (audit 3: the convention must keep it from upgrading
+  // same-path candidates to verified).
   try {
     void import("../postmortem/postmortem-store").then(({ postmortemStore }) => {
       void postmortemStore.recordFailure({
@@ -895,10 +980,11 @@ function preCommitSecretGate(message: string): string | null {
           .join("; ")
           .slice(0, 500),
         constraints:
-          "A secret was detected in the working-tree diff or commit message. " +
+          "A secret was detected in the staged diff or commit message. " +
           "Remove the secret, redact it, or add it to the scanner's " +
           "isDocumentationOrDummySecret allowlist if it's a known false positive. " +
           "The PAT must NEVER be committed to tracked source.",
+        observed: false,
       });
     });
   } catch { /* best-effort — don't un-block on postmortem failure */ }
@@ -910,11 +996,12 @@ function preCommitSecretGate(message: string): string | null {
  * Auth is injected per-push via GIT_CONFIG_* env vars — the token is never
  * written to git config, remotes, or the command line.
  *
- * Divergence self-heal: if the push is rejected because the remote has
- * commits local doesn't (history lost to a past reset), this automatically
- * fetches, merges with -s ours (local live tree stays byte-identical; the
- * remote commits are preserved as ancestors — no force, nothing orphaned),
- * and retries once. Only if the heal fails does it suggest 'push force'.
+ * Divergence handling (audit 3): a fetch-first rejection (remote has
+ * commits local doesn't) is NOT auto-merged anymore — the old `-s ours`
+ * heal silently discarded the remote side's content while making history
+ * look merged. A genuine divergence now refuses with a loud postmortem
+ * and requires an operator decision; the push-failure circuit breaker
+ * escalates to safe-mode if it persists.
  */
 export async function pushCurrentState(opts?: {
   message?: string;
@@ -926,18 +1013,19 @@ export async function pushCurrentState(opts?: {
    */
   branchOverride?: string;
 }): Promise<PushOutcome> {
-  // ── TEST-GATE CRASH RECOVERY (external audit, finding 1) ──────────────
-  // A leftover test-gate journal means a test run crashed with an
-  // UNVERIFIED candidate live on disk. `git add -A` below would silently
-  // sweep that candidate into whatever commit happens next — an unrelated
-  // enhancement, a schema mutation, an operator push. Restore the original
-  // BEFORE any staging can happen. Synchronous + idempotent: a missing
-  // journal (the common case) costs one existsSync.
-  const tgRecovery = recoverCrashedTestGate();
-  if (tgRecovery.recovered) {
-    console.error(
-      `[PUSH-TARGET] TEST-GATE CRASH RECOVERY: restored original ${tgRecovery.filePath} (journal armed ${tgRecovery.armedAt ?? "unknown"}) before committing — an unverified candidate was live on disk`
-    );
+  // ── SAFE-MODE GATE (audit 3, F1) ──────────────────────────────────
+  // A raised safe-mode means the defense layer judged the mutation/push
+  // path untrustworthy (red-team bypass, gate-integrity failure, duress
+  // purge, or the push-failure circuit breaker below). Refuse to commit
+  // or push until an operator clears it. The loop-level checks in
+  // self-enhance-loop.ts are the primary halt; this is belt-and-braces
+  // so no OTHER caller (API route, lessons export) can push through a
+  // raised flag either.
+  if (isSafeMode()) {
+    return {
+      pushed: false,
+      error: "SAFE-MODE active — commits and pushes refused until an operator clears it (see /api/duress/status)",
+    };
   }
 
   const target = await getStoredTarget();
@@ -952,6 +1040,15 @@ export async function pushCurrentState(opts?: {
     }
     pushInProgress = true;
     try {
+      // ── TEST-GATE CRASH RECOVERY — inside the lock (audit 3): the old
+      // entry-point position ran BEFORE the pushInProgress check, so two
+      // concurrent pushes could both execute the file-restoring recovery.
+      const tgRecovery = recoverCrashedTestGate();
+      if (tgRecovery.recovered) {
+        console.error(
+          `[PUSH-TARGET] TEST-GATE CRASH RECOVERY: restored original ${tgRecovery.filePath} (journal armed ${tgRecovery.armedAt ?? "unknown"}) before committing — an unverified candidate was live on disk`
+        );
+      }
       const status = execSync("git status --porcelain", {
         cwd: PROJECT_ROOT,
         encoding: "utf-8",
@@ -968,12 +1065,15 @@ export async function pushCurrentState(opts?: {
         if (messageReject) {
           return { pushed: false, error: messageReject };
         }
-        // ── Pre-push secret-scan gate (GRAFT 1) ── block BEFORE git add.
+        // ── Pre-push secret-scan gate (GRAFT 1, audit 3) ── stage FIRST,
+        // then scan the STAGED diff (untracked files included), then
+        // commit. A block unstages so nothing is left half-staged.
+        execFileSync("git", ["add", "-A"], { cwd: PROJECT_ROOT, timeout: 10000 });
         const blockReason = preCommitSecretGate(message);
         if (blockReason) {
+          try { execFileSync("git", ["reset"], { cwd: PROJECT_ROOT, timeout: 10000, stdio: "pipe" }); } catch { /* best-effort unstage */ }
           return { pushed: false, error: blockReason };
         }
-        execFileSync("git", ["add", "-A"], { cwd: PROJECT_ROOT, timeout: 10000 });
         execFileSync("git", ["commit", "-m", message], {
           cwd: PROJECT_ROOT,
           timeout: 10000,
@@ -1002,6 +1102,16 @@ export async function pushCurrentState(opts?: {
     return { pushed: false, error: "A push is already in progress", repo: target.repo };
   }
   pushInProgress = true;
+
+  // ── TEST-GATE CRASH RECOVERY — inside the lock (audit 3): the old
+  // entry-point position ran BEFORE the pushInProgress check, so two
+  // concurrent pushes could both execute the file-restoring recovery.
+  const tgRecovery = recoverCrashedTestGate();
+  if (tgRecovery.recovered) {
+    console.error(
+      `[PUSH-TARGET] TEST-GATE CRASH RECOVERY: restored original ${tgRecovery.filePath} (journal armed ${tgRecovery.armedAt ?? "unknown"}) before committing — an unverified candidate was live on disk`
+    );
+  }
 
   const record = async (patch: { lastPushSha?: string | null; lastPushError?: string | null }) => {
     await db.gitPushTarget.update({
@@ -1061,16 +1171,19 @@ export async function pushCurrentState(opts?: {
         await record({ lastPushError: messageReject.slice(0, 300) });
         return { pushed: false, repo: target.repo, error: messageReject };
       }
-      // ── Pre-push secret-scan gate (GRAFT 1) ── block BEFORE git add.
-      // Scans the working-tree diff + the commit message. If a non-dummy,
-      // non-redacted secret is found, the commit is BLOCKED and a postmortem
-      // is recorded. The PAT can never leak into git history through this path.
+      // ── Pre-push secret-scan gate (GRAFT 1, audit 3) ── stage FIRST,
+      // then scan the STAGED diff (untracked files included), then commit.
+      // The old order (scan `git diff HEAD` → add -A → commit) was blind
+      // to untracked (new) files — a freshly written postmortem JSON
+      // whose evidence embedded a leaked token was committed unscanned.
+      // A block unstages so nothing is left half-staged.
+      execFileSync("git", ["add", "-A"], { cwd: PROJECT_ROOT, timeout: 10000 });
       const blockReason = preCommitSecretGate(message);
       if (blockReason) {
+        try { execFileSync("git", ["reset"], { cwd: PROJECT_ROOT, timeout: 10000, stdio: "pipe" }); } catch { /* best-effort unstage */ }
         await record({ lastPushError: blockReason.slice(0, 300) });
         return { pushed: false, repo: target.repo, error: blockReason };
       }
-      execFileSync("git", ["add", "-A"], { cwd: PROJECT_ROOT, timeout: 10000 });
       execFileSync("git", ["commit", "-m", message], {
         cwd: PROJECT_ROOT,
         timeout: 10000,
@@ -1105,13 +1218,18 @@ export async function pushCurrentState(opts?: {
     } catch (err) {
       let stderr = scrub(String((err as { stderr?: string }).stderr ?? (err as Error).message ?? ""), target.token);
 
-      // SELF-HEAL: a fetch-first rejection means the remote holds commits
-      // this repo doesn't (e.g. local history lost to a past reset). The
-      // local tree IS the live running system, so preserve BOTH sides:
-      // fetch, merge with -s ours (local tree stays byte-identical, remote
-      // commits remain reachable as ancestors — nothing orphaned), then
-      // retry the push once. Only suggest force if the heal itself fails.
-      // Skipped on explicit force pushes (overwrite is the intent there).
+      // ── DIVERGENCE: REFUSE (audit 3, redesigned) ─────────────────────
+      // A fetch-first rejection means the remote holds commits this repo
+      // doesn't. The old heal merged with `-s ours` — local tree stayed
+      // byte-identical and remote commits became ancestors — which
+      // SILENTLY DISCARDED the remote side's content while making history
+      // look merged. If a human (or a second LOOP instance) pushed real
+      // changes, the heal reverted their work invisibly. Now: fetch (to
+      // update remote-tracking refs for inspection), record a loud
+      // postmortem, and REFUSE — a genuine divergence needs an operator
+      // decision (rebase/merge deliberately). The push-failure circuit
+      // breaker escalates to safe-mode if the condition persists.
+      // Skipped on explicit force pushes (overwrite is the stated intent).
       if (/non-fast-forward|fetch first|rejected/.test(stderr) && !opts?.force) {
         try {
           execSync("git fetch origin", {
@@ -1120,48 +1238,44 @@ export async function pushCurrentState(opts?: {
             stdio: "pipe",
             env: pushEnv,
           });
-          // Audit 2: the heal must merge the branch ACTUALLY BEING PUSHED
-          // (pushBranch, e.g. loop-NN). It used to merge the configured seed
-          // branch (target.branch, e.g. main): on a fresh auto-created repo
-          // there is no origin/main, so the heal always failed and surfaced
-          // a misleading "run push force" hint — and even when origin/main
-          // existed it did nothing to resolve the loop-NN divergence.
-          execSync(
-            `git merge -s ours origin/${pushBranch} -m "merge origin/${pushBranch} (self-heal): remote history preserved as ancestors; local live state is authoritative"`,
-            { cwd: PROJECT_ROOT, timeout: 30000, stdio: "pipe" }
-          );
-          execSync(`git push origin ${refspec}`, {
-            cwd: PROJECT_ROOT,
-            timeout: 60000,
-            stdio: "pipe",
-            env: pushEnv,
-          });
-          const healedSha = execSync("git rev-parse HEAD", {
-            cwd: PROJECT_ROOT,
-            encoding: "utf-8",
-            timeout: 5000,
-          }).trim().slice(0, 7);
-          await record({ lastPushSha: healedSha, lastPushError: null });
-          return {
-            pushed: true,
-            commitSha: healedSha,
-            hadChanges: Boolean(commitSha),
-            repo: target.repo,
-            divergenceHealed: true,
-          };
-        } catch (healErr) {
-          const healStderr = scrub(
-            String((healErr as { stderr?: string }).stderr ?? (healErr as Error).message ?? ""),
-            target.token
-          );
-          stderr = `${stderr} | auto-heal failed: ${healStderr.slice(0, 200)}`;
+        } catch {
+          /* fetch failed — the postmortem below still records the divergence */
         }
+        const divReason =
+          `remote branch ${pushBranch} has diverged from local history — manual resolution required ` +
+          `(inspect: git log --oneline HEAD..origin/${pushBranch}, then rebase or merge deliberately; ` +
+          `auto-merge was removed because it silently discarded remote changes)`;
+        try {
+          void import("../postmortem/postmortem-store").then(({ postmortemStore }) => {
+            void postmortemStore.recordFailure({
+              repo: "self",
+              branch: "main",
+              filePath: "system:push-divergence",
+              failureType: "OTHER",
+              symptom: `Push to ${pushBranch} rejected: remote has commits local doesn't (divergence)`,
+              evidence: `git push stderr: ${stderr.slice(0, 300)}`,
+              constraints:
+                `The remote branch diverged from local history. Never auto-discard remote content: ` +
+                `inspect origin/${pushBranch} and reconcile deliberately (rebase or merge) before pushing again.`,
+              observed: false,
+            });
+          });
+        } catch {
+          /* best-effort scar */
+        }
+        await notePushFailure(divReason);
+        await record({ lastPushError: `git push failed (diverged): ${stderr.slice(0, 300)}` });
+        return {
+          pushed: false,
+          commitSha,
+          hadChanges: Boolean(commitSha),
+          repo: target.repo,
+          error: divReason.slice(0, 400),
+        };
       }
 
       let hint = "";
-      if (/non-fast-forward|fetch first|rejected/.test(stderr)) {
-        hint = " (remote has diverged and auto-heal failed — run 'push force' to overwrite it)";
-      } else if (/could not read Username|Authentication failed|403|401/.test(stderr)) {
+      if (/could not read Username|Authentication failed|403|401/.test(stderr)) {
         hint = " (GitHub rejected the credentials — the token may be invalid/revoked or lack repo access; reconfigure with 'push <token> <owner/repo>')";
         // ── Duress anomaly detection (GRAFT 2) ── a 401/403 increments the
         // consecutive-auth-failure counter. Past the threshold (5 by
@@ -1178,6 +1292,7 @@ export async function pushCurrentState(opts?: {
           }
         } catch { /* best-effort — the hint still surfaces */ }
       }
+      await notePushFailure(stderr);
       await record({ lastPushError: `git push failed: ${stderr.slice(0, 300)}${hint}` });
       return { pushed: false, commitSha, hadChanges: Boolean(commitSha), repo: target.repo, error: `${stderr.slice(0, 300)}${hint}` };
     }
@@ -1192,9 +1307,13 @@ export async function pushCurrentState(opts?: {
     // ── Duress anomaly detection (GRAFT 2) ── a successful push resets the
     // consecutive-auth-failure counter. A single success clears the suspicion.
     recordPushSuccess();
+    // ── Circuit breaker (audit 3, F8) ── a successful push also resets the
+    // consecutive-push-failure counter.
+    consecutivePushFailures = 0;
     return { pushed: true, commitSha: headSha, hadChanges: Boolean(commitSha), repo: target.repo };
   } catch (err) {
     const msg = scrub((err as Error).message, target.token);
+    await notePushFailure(msg);
     await record({ lastPushError: msg.slice(0, 300) });
     return { pushed: false, error: msg.slice(0, 300), repo: target.repo };
   } finally {
@@ -1221,29 +1340,39 @@ export async function reconcileBranchNumberFromGitHub(): Promise<number> {
   try {
     const target = await getStoredTarget();
     if (!target || !target.token) return 0;
-    const res = await fetch(
-      `https://api.github.com/repos/${target.repo}/branches?per_page=100`,
-      {
-        headers: {
-          Authorization: `Bearer ${target.token}`,
-          Accept: "application/vnd.github.v3+json",
-          "User-Agent": "Architecture-Helper-Pipeline",
-        },
-      }
-    );
-    if (!res.ok) return 0;
-    const branches = (await res.json()) as Array<{ name: string }>;
+    // Audit 3 (F8): PAGINATE. The repo already has 108+ loop branches — a
+    // single `?per_page=100` page silently undercounts the true max once
+    // branches spill past the first page, and the loop would reuse an
+    // existing mutation branch (the exact contamination this reconciliation
+    // exists to prevent). Walk pages until a short page comes back.
+    let page = 1;
     let max = 0;
-    for (const b of branches) {
-      // Match "loop-NN" where NN is 1+ digits. Handles both the
-      // zero-padded (loop-01..loop-09) and unpadded (loop-100+) forms.
-      const m = /^loop-(\d+)$/.exec(b.name);
-      if (m) {
-        const n = parseInt(m[1], 10);
-        if (n > max) max = n;
+    for (;;) {
+      const res = await fetch(
+        `https://api.github.com/repos/${target.repo}/branches?per_page=100&page=${page}`,
+        {
+          headers: {
+            Authorization: `Bearer ${target.token}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Architecture-Helper-Pipeline",
+          },
+        }
+      );
+      if (!res.ok) return max > 0 ? max : 0;
+      const branches = (await res.json()) as Array<{ name: string }>;
+      for (const b of branches) {
+        // Match "loop-NN" where NN is 1+ digits. Handles both the
+        // zero-padded (loop-01..loop-09) and unpadded (loop-100+) forms.
+        const m = /^loop-(\d+)$/.exec(b.name);
+        if (m) {
+          const n = parseInt(m[1], 10);
+          if (n > max) max = n;
+        }
       }
+      if (branches.length < 100) return max; // last page
+      page++;
+      if (page > 30) return max; // hard cap (GitHub caps ~3000 refs via API)
     }
-    return max;
   } catch {
     return 0; // fail-open
   }

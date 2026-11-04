@@ -61,11 +61,22 @@ async function main() {
 
   // Gate 1: STRUCTURAL — compare against the original on disk.
   // Catches destructive refactors that would still compile.
+  // Fail-closed (audit 3 F12): if the original can't be read, BOTH the
+  // structural gate and the AST symbol-retention gate below used to be
+  // skipped (originalCode stayed ""), so the final write could RECREATE a
+  // deleted file through the weaker syntax+typecheck-only path. A refactor
+  // verification with no original to diff against is meaningless — reject.
   let originalCode = "";
   try {
     originalCode = readFileSync(resolve(PROJECT_ROOT, filePath), "utf-8");
   } catch {
-    // If the original can't be read (new file?), skip structural — typecheck will catch issues
+    console.log(JSON.stringify({
+      ok: false,
+      errors: [
+        "original file unreadable — cannot verify a refactor against a missing original (fail-closed, audit 3 F12)",
+      ],
+    }));
+    process.exit(1);
   }
 
   // Gate 0: MUTATION GUARD — newly-introduced evil tokens + protected path

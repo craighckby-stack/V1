@@ -6,6 +6,7 @@ import { OraclePanel } from "@/components/pipeline/oracle-panel";
 import { DefensePanel } from "@/components/pipeline/defense-panel";
 import { BranchesPanel } from "@/components/pipeline/branches-panel";
 import { BootSplash } from "@/components/pipeline/boot-splash";
+import { ApiUnlock } from "@/components/pipeline/api-unlock";
 
 interface LogEntry {
   timestamp: string;
@@ -169,6 +170,11 @@ const cfgBtnStyle = {
   cursor: "pointer",
 };
 
+/** Cap for the unified console stream — long sessions (the loop never
+ *  stops logging) must not grow consoleLines (and its DOM) without bound.
+ *  Oldest lines drop off the top, like a real terminal's scrollback. */
+const CONSOLE_LINE_CAP = 400;
+
 /** Header chrome button — DOS-styled square key. Shared CSS lives in the
  *  <style> block inside the header (.lbtn family). Dialog openers get
  *  aria-haspopup/aria-expanded plus an inverted "pressed key" look while
@@ -321,6 +327,90 @@ export default function Home() {
   const lineIdCounter = useRef(0);
   const nextId = () => `cl-${++lineIdCounter.current}`;
 
+  // API-key unlock (auth middleware): patch window.fetch for the lifetime
+  // of the page so every MUTATING request (POST/PUT/PATCH/DELETE) to an
+  // /api/ path carries the "x-loop-key" header from localStorage
+  // ("loopApiKey"). Read-only verbs and non-API paths pass through
+  // untouched. Any 401 from an /api/ path dispatches the
+  // "loop-api-unauthorized" event, which <ApiUnlock /> listens for.
+  // Idempotent (flag on window) so remounts/hot reloads never wrap fetch
+  // twice; the original is restored on unmount.
+  useEffect(() => {
+    const w = window as Window & { __loopFetchPatched?: boolean };
+    if (w.__loopFetchPatched) return;
+    w.__loopFetchPatched = true;
+
+    const originalFetch = window.fetch;
+    const patchedFetch: typeof fetch = (input, init) => {
+      // Resolve the method — init wins, else a Request object's own
+      // method, else GET (plain string/URL input).
+      const method = (
+        init?.method ?? (input instanceof Request ? input.method : "GET")
+      ).toUpperCase();
+      const isMutating =
+        method === "POST" ||
+        method === "PUT" ||
+        method === "PATCH" ||
+        method === "DELETE";
+
+      // Resolve the path for /api/ detection (string, URL, or Request).
+      let path = "";
+      try {
+        const raw =
+          typeof input === "string" || input instanceof URL
+            ? new URL(input, window.location.origin)
+            : new URL(input.url, window.location.origin);
+        path = raw.pathname;
+      } catch {
+        path = String(input);
+      }
+      const isApi = path.includes("/api/");
+
+      if (isApi && isMutating) {
+        const key = window.localStorage.getItem("loopApiKey");
+        if (key) {
+          const headers = new Headers(init?.headers);
+          // A Request object may carry its own headers — preserve them
+          // (init headers win, matching fetch semantics).
+          if (input instanceof Request) {
+            input.headers.forEach((v, k) => {
+              if (!headers.has(k)) headers.set(k, v);
+            });
+          }
+          headers.set("x-loop-key", key);
+          init = { ...init, headers };
+        }
+      }
+
+      const response = originalFetch.call(window, input, init);
+      // Surface 401s from API routes to the unlock panel. Attached on a
+      // separate chain so callers still receive the untouched promise.
+      if (isApi) {
+        response.then(
+          (res) => {
+            if (res.status === 401) {
+              window.dispatchEvent(new CustomEvent("loop-api-unauthorized"));
+            }
+          },
+          () => {
+            /* network error — callers handle it */
+          }
+        );
+      }
+      return response;
+    };
+
+    window.fetch = patchedFetch;
+    return () => {
+      // Restore the original — but only if our patch is still the
+      // installed one (something else may have wrapped it since).
+      if (window.fetch === patchedFetch) {
+        window.fetch = originalFetch;
+        w.__loopFetchPatched = false;
+      }
+    };
+  }, []);
+
   // Poll for status + push target every 2 seconds
   useEffect(() => {
     let mounted = true;
@@ -344,16 +434,18 @@ export default function Home() {
           );
           if (newLogs.length > 0) {
             for (const l of newLogs) seenLogKeys.current.add(`${l.timestamp}|${l.message}`);
-            setConsoleLines((prev) => [
-              ...prev,
-              ...newLogs.map((l) => ({
-                id: nextId(),
-                type: "log" as const,
-                text: l.message,
-                ts: l.timestamp,
-                logType: l.type,
-              })),
-            ]);
+            setConsoleLines((prev) =>
+              [
+                ...prev,
+                ...newLogs.map((l) => ({
+                  id: nextId(),
+                  type: "log" as const,
+                  text: l.message,
+                  ts: l.timestamp,
+                  logType: l.type,
+                })),
+              ].slice(-CONSOLE_LINE_CAP)
+            );
           }
         }
         if (mounted && targetRes.ok) setPushTarget(await targetRes.json());
@@ -461,16 +553,18 @@ export default function Home() {
         );
         if (fresh.length === 0) return;
         for (const e of fresh) seenLogKeys.current.add(`oracle|${e.timestamp}|${e.message}`);
-        setConsoleLines((prev) => [
-          ...prev,
-          ...fresh.map((e) => ({
-            id: nextId(),
-            type: "log" as const,
-            text: `[${e.source}] ${e.message}`,
-            ts: e.timestamp,
-            logType: (e.type === "success" ? "success" : e.type === "error" ? "error" : e.type === "warn" ? "warn" : "info") as LogEntry["type"],
-          })),
-        ]);
+        setConsoleLines((prev) =>
+          [
+            ...prev,
+            ...fresh.map((e) => ({
+              id: nextId(),
+              type: "log" as const,
+              text: `[${e.source}] ${e.message}`,
+              ts: e.timestamp,
+              logType: (e.type === "success" ? "success" : e.type === "error" ? "error" : e.type === "warn" ? "warn" : "info") as LogEntry["type"],
+            })),
+          ].slice(-CONSOLE_LINE_CAP)
+        );
       } catch {
         // ignore — next poll will retry
       }
@@ -519,10 +613,11 @@ export default function Home() {
   /** Append output lines to the unified console stream. */
   function emitOutput(lines: string[]) {
     if (lines.length === 0) return;
-    setConsoleLines((prev) => [
-      ...prev,
-      ...lines.map((l) => ({ id: nextId(), type: "output" as const, text: l })),
-    ]);
+    setConsoleLines((prev) =>
+      [...prev, ...lines.map((l) => ({ id: nextId(), type: "output" as const, text: l }))].slice(
+        -CONSOLE_LINE_CAP
+      )
+    );
   }
 
   /** Clear the entire console (boot + commands + output + logs). Seen-log
@@ -681,7 +776,7 @@ export default function Home() {
           setCfgError(`Connected, but initial push failed: ${pushData.error ?? "unknown"}`);
         }
       } catch {
-        setCfgError("Connected, but initial push failed (network error). Try 'push force' from the terminal.");
+        setCfgError("Connected, but initial push failed (network error). Try 'push' from the terminal.");
       }
     } catch (e) {
       setCfgError((e as Error).message);
@@ -818,7 +913,7 @@ export default function Home() {
           "  push        — Push current live state to GitHub",
           "  push <token> <owner/repo> [public] — Configure the GitHub push target",
           "                (auto-creates the repo if missing; private by default)",
-          "  push force  — Force-push (overwrite a diverged remote)",
+          "  push force  — (removed) force-push disabled (audit 3); runs a normal push",
           "  push clear  — Disconnect the push target",
           "  config      — Open the Git config panel (or click [CONFIG] in header)",
           "  logs        — Show recent logs",
@@ -954,17 +1049,15 @@ export default function Home() {
       case "push": {
         const sub = parts[1]; // raw (case-preserved) subcommand/arg
 
-        // push force — overwrite a diverged remote
+        // push force — force-push REMOVED (audit 3: history rewrites are
+        // no longer possible). The route ignores body.force entirely, so
+        // this subcommand now performs a normal push.
         if (sub && sub.toLowerCase() === "force") {
           try {
-            const res = await fetch("/api/self-enhance/push", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ force: true }),
-            });
+            const res = await fetch("/api/self-enhance/push", { method: "POST" });
             const data = await res.json();
-            if (data.pushed) return [`Force-pushed to GitHub: commit ${data.commitSha} (${data.repo})`];
-            return [`Force-push failed: ${data.error ?? "unknown error"}`];
+            if (data.pushed) return [`Pushed to GitHub: commit ${data.commitSha} (${data.repo})`];
+            return [`Push failed: ${data.error ?? "unknown error"}`];
           } catch (e) {
             return [`Error: ${(e as Error).message}`];
           }
@@ -1011,7 +1104,7 @@ export default function Home() {
                 lines.push(`Initial push failed: ${pushData.error ?? "unknown"}`);
               }
             } catch {
-              lines.push("Initial push failed — check 'push force' if the remote diverged");
+              lines.push("Initial push failed — the remote may have diverged (force-push is disabled)");
             }
             return lines;
           } catch (e) {
@@ -1459,15 +1552,18 @@ export default function Home() {
       /\b(ghp_|github_pat_|gho_|ghu_|ghr_|ghs_)[A-Za-z0-9_]+/g,
       "$1****"
     );
-    setConsoleLines((prev) => [...prev, { id: nextId(), type: "command", text: masked }]);
+    setConsoleLines((prev) =>
+      [...prev, { id: nextId(), type: "command" as const, text: masked }].slice(-CONSOLE_LINE_CAP)
+    );
 
     // Execute and show output
     const output = await executeCommand(cmd);
     if (output && output.length > 0) {
-      setConsoleLines((prev) => [
-        ...prev,
-        ...output.map((line) => ({ id: nextId(), type: "output" as const, text: line })),
-      ]);
+      setConsoleLines((prev) =>
+        [...prev, ...output.map((line) => ({ id: nextId(), type: "output" as const, text: line }))].slice(
+          -CONSOLE_LINE_CAP
+        )
+      );
     }
 
     // Force a status poll
@@ -2340,6 +2436,11 @@ export default function Home() {
           }}
         />
       )}
+
+      {/* API unlock panel — listens for 401s from the patched fetch
+          (auth middleware) and prompts for the API key. Fixed
+          bottom-right; only appears when a mutation is rejected. */}
+      <ApiUnlock />
     </div>
   );
 }

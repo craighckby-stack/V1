@@ -8,7 +8,10 @@
  * revert/fix messages the authors already wrote.
  *
  * Optional query params:
- *   token     — override the configured push-target PAT (else uses it)
+ *   token      — PAT for the request. Required for any repo other than the
+ *               configured push target: the stored PAT is only ever used
+ *               for the target's own repo (audit 3), never as a proxy for
+ *               caller-chosen repositories.
  *   maxCommits — cap on commits fetched (default 30, max 100)
  *
  * Response: { repo, branch, pairs: [...], counts: { total, correct, wrong, pairs }, deadlineMs }
@@ -31,6 +34,48 @@ import { getStoredTarget } from "@/lib/pipeline/autonomous/push-target";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+/**
+ * Token resolution (audit 3): an explicit `token` param always wins. The
+ * stored push-target PAT is used ONLY when the requested repo IS the
+ * configured target's own repo — previously ANY caller-supplied repo was
+ * fetched with the OWNER's stored PAT, making this route a silent read-
+ * proxy for every private repo that PAT can see. A different repo without
+ * an explicit token is rejected with a 400. With no configured target at
+ * all, requests proceed unauthenticated (public repos only) — there is no
+ * stored credential to abuse in that case.
+ */
+async function resolveToken(
+  repo: string,
+  tokenParam: string | null
+): Promise<{ token: string | null; error: string | null }> {
+  const explicit = tokenParam && tokenParam.length >= 20 ? tokenParam : null;
+  if (explicit) return { token: explicit, error: null };
+
+  let configuredRepo: string | null = null;
+  let storedToken: string | null = null;
+  try {
+    const target = await getStoredTarget();
+    if (target) {
+      configuredRepo = target.repo;
+      storedToken = target.token;
+    }
+  } catch {
+    /* no stored target — proceed unauthenticated (public repo only) */
+  }
+
+  // The stored PAT binds to the configured target's repo ONLY (audit 3).
+  if (storedToken && configuredRepo === repo) {
+    return { token: storedToken, error: null };
+  }
+  if (configuredRepo !== null && configuredRepo !== repo) {
+    return {
+      token: null,
+      error: "a personal access token is required for repositories other than the configured target",
+    };
+  }
+  return { token: null, error: null };
+}
+
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const repo = sp.get("repo");
@@ -43,15 +88,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "repo query param required (owner/name)" }, { status: 400 });
   }
 
-  // Token resolution: explicit param → configured push-target PAT → none.
-  let token: string | null = tokenParam && tokenParam.length >= 20 ? tokenParam : null;
-  if (!token) {
-    try {
-      const target = await getStoredTarget();
-      if (target) token = target.token;
-    } catch {
-      /* no stored target — proceed unauthenticated (public repo only) */
-    }
+  // Token resolution: explicit param → the configured push-target PAT, but
+  // ONLY for the configured target's own repo (audit 3).
+  const { token, error: tokenError } = await resolveToken(repo, tokenParam);
+  if (tokenError) {
+    return NextResponse.json({ ok: false, error: tokenError }, { status: 400 });
   }
 
   try {
@@ -101,14 +142,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "repo query param required (owner/name)" }, { status: 400 });
   }
 
-  let token: string | null = tokenParam && tokenParam.length >= 20 ? tokenParam : null;
-  if (!token) {
-    try {
-      const target = await getStoredTarget();
-      if (target) token = target.token;
-    } catch {
-      /* no stored target */
-    }
+  // Token resolution: explicit param → the configured push-target PAT, but
+  // ONLY for the configured target's own repo (audit 3).
+  const { token, error: tokenError } = await resolveToken(repo, tokenParam);
+  if (tokenError) {
+    return NextResponse.json({ ok: false, error: tokenError }, { status: 400 });
   }
 
   try {

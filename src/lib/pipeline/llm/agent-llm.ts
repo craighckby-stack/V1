@@ -83,6 +83,13 @@ async function getZai(): Promise<ZAIType> {
 // itself lives on globalThis — see gateState() above for why.)
 const COOLDOWNS_MS = [2, 5, 15, 30].map((m) => m * 60_000); // 2min, 5min, 15min, 30min
 
+// Hard ceiling on a SINGLE provider call (audit 3): a hung SDK call (socket
+// open, zero bytes flowing) used to stall the process-wide serialization
+// queue forever — every llmComplete consumer (ratchet, enhance, debate
+// tribunal, red-team) waits on that one queue. See the race in
+// performLlmComplete for why a plain SDK option isn't enough.
+const LLM_CALL_TIMEOUT_MS = 180_000; // 180s
+
 /** Milliseconds until the gate opens. 0 means clear. Callers (the loop) can
  *  poll this to decide whether to attempt a call or sleep until it clears. */
 export function llmCooldownMs(): number {
@@ -224,7 +231,11 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
       // and we don't want to model the full OpenAI-compatible surface here.
       const createParams: Parameters<typeof zai.chat.completions.create>[0] = {
         messages: [
-          { role: "assistant", content: opts.systemPrompt },
+          // "system", not "assistant": instruction authority of the
+          // tribunal/gate prompts depends on the provider treating this
+          // turn as a directive, not as a prior assistant reply it may
+          // freely continue or contradict. Standard chat-API role.
+          { role: "system", content: opts.systemPrompt },
           { role: "user", content: opts.userPrompt },
         ],
         thinking: { type: "disabled" },
@@ -236,7 +247,50 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
         // OpenAI-style field name; the SDK forwards to the provider as-is.
         (createParams as Record<string, unknown>).max_tokens = opts.maxTokens;
       }
-      const completion = await zai.chat.completions.create(createParams);
+      // Timeout (audit 3): 180s ceiling per provider call. The SDK
+      // (z-ai-web-dev-sdk@0.0.18) takes NO request-options argument —
+      // `create(body)` is its entire signature (dist/index.d.ts) and its
+      // internal fetch() passes no signal (dist/index.js); a signal inside
+      // the body would just be JSON-serialized into the payload. So:
+      //   1. Pass { signal } as a second options argument via a widened
+      //      (cast) view of the method, so a future SDK that accepts
+      //      standard request options honors the abort.
+      //   2. Race the call against the SAME AbortSignal.timeout(180s) so
+      //      the deadline is REAL with the current SDK: on abort the race
+      //      rejects, the rejection lands in the catch below (NOT
+      //      swallowed), and the existing retry/gate machinery takes
+      //      over. The abandoned underlying fetch (unabortable through
+      //      this SDK) is left to the runtime's own socket timeouts; its
+      //      eventual rejection is handled by Promise.race and ignored.
+      const timeoutSignal = AbortSignal.timeout(LLM_CALL_TIMEOUT_MS);
+      // The SDK's signature is fixed-arity (`create(body)` — no options
+      // parameter), so the second argument needs a widened view of the
+      // method; casting the options OBJECT alone can't satisfy TS2554.
+      const createWithOptions = zai.chat.completions.create as unknown as (
+        body: Parameters<typeof zai.chat.completions.create>[0],
+        options?: { signal?: AbortSignal }
+      ) => Promise<any>;
+      const callPromise = createWithOptions(
+        createParams,
+        // Not in the SDK's type surface (v0.0.18): standard fetch request
+        // options — ignored by the current implementation; the race below
+        // is what actually enforces the deadline.
+        { signal: timeoutSignal }
+      );
+      const completion = await Promise.race([
+        callPromise,
+        new Promise<never>((_, reject) => {
+          const timeoutError = () =>
+            new Error(`LLM call timed out after ${LLM_CALL_TIMEOUT_MS / 1000}s`);
+          if (timeoutSignal.aborted) {
+            reject(timeoutError());
+            return;
+          }
+          timeoutSignal.addEventListener("abort", () => reject(timeoutError()), {
+            once: true,
+          });
+        }),
+      ]);
       const content = completion.choices?.[0]?.message?.content ?? "";
       if (!content.trim()) {
         throw new Error("Empty LLM response");

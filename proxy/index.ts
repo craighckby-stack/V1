@@ -130,10 +130,20 @@ async function handleProxy(req: Request): Promise<Response> {
   // a no-op. AWAITED so a network failure rejects here, propagates to the
   // serve handler's catch, and becomes a 502 instead of an unhandled
   // rejection the caller sees as a hung request.
+  //
+  // Upstream timeout (audit 3): a stalled Gemini connection used to hang
+  // this request — and LOOP's LLM callers behind it — forever; the catch
+  // in Bun.serve's fetch handler claimed timeouts became 502s, but nothing
+  // ever timed out. The 120s abort makes that promise true: the fetch
+  // rejects on abort, the rejection lands in that catch → Gemini-shaped
+  // 502 → LOOP falls through to the Z.AI chain. Note this bounds TOTAL
+  // stream duration too (streamGenerateContent SSE must finish inside
+  // 120s), which every current Gemini response comfortably does.
   return await fetch(forwardUrl.toString(), {
     method: req.method,
     headers: forwardHeaders,
     body: req.body ?? undefined,
+    signal: AbortSignal.timeout(120_000),
     // @ts-expect-error: duplex is a Node/Bun-specific option accepted by fetch
     duplex: "half",
   });
@@ -153,9 +163,24 @@ const server = Bun.serve({
       // promise would escape the try/catch entirely.
       return await handleProxy(req);
     } catch (err) {
+      // Key-leak scrub (audit 3): fetch/connection errors embed the full
+      // request URL in their message — and we inject the REAL GEMINI_API_KEY
+      // into that URL's query string, so an unsanitized log line would paste
+      // Google's key straight into Fly.io logs. The header of this file
+      // promises the key never appears in logs; make it true. Split/join on
+      // the actual key value so EVERY occurrence is redacted, whatever the
+      // runtime quotes (Bun error messages often contain the whole URL).
+      // Empty key is impossible here (the startup guard exits), but guard
+      // anyway — split("") would shred the message into single characters.
+      const rawMsg: string = (err as Error)?.message ?? String(err);
+      const safeMsg = GEMINI_API_KEY
+        ? rawMsg.split(GEMINI_API_KEY).join("***")
+        : rawMsg;
       // Never leak internals to the caller. A 502 tells LOOP to fall through
       // to the Z.AI chain, which is the correct behavior on proxy failure.
-      console.error("[proxy] handler error:", (err as Error).message);
+      // (This is the ONLY site that logs error text; the 502 body is fixed
+      // and carries no URL/key material.)
+      console.error("[proxy] handler error:", safeMsg);
       return new Response(
         JSON.stringify({
           error: {

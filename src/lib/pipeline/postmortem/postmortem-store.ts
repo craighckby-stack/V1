@@ -28,6 +28,8 @@ import {
   readPostmortemFromDisk,
   resolvePostmortemOnDisk,
   listFromDisk,
+  listAllPostmortemsFromDisk,
+  deletePostmortemFromDisk,
   rehydrateSqliteFromDisk,
 } from "./postmortem-repo";
 
@@ -37,12 +39,36 @@ import {
 // sha256 over (parentHash + canonical(content)). Recomputed on every write
 // so a direct DB edit (without recomputing) is detectable as a content
 // mismatch — see verifyPostmortemChain.
+//
+// AUDIT 3: LIFECYCLE FIELDS ARE EXCLUDED FROM THE HASHED CONTENT. The hash
+// used to cover `status` (and `verificationStatus`), so the resolve path —
+// markResolved / resolvePostmortemOnDisk flipping active→resolved (and
+// candidate→rejected) WITHOUT recomputing — turned every resolved record
+// into a permanent contentMismatch: a false "someone edited the DB" alarm
+// on exactly the records where nothing was edited. Resolution is a
+// legitimate lifecycle event, not content tampering. With `status` and
+// `verificationStatus` out of the hash input (resolvedAt was never in it —
+// timestamps are excluded by design), the resolve path never needs to
+// touch hashes and the chain stays quiet; what the hash still covers is
+// the CONTENT proper — what failed, the evidence, the constraints, the
+// attempt count, the file identity — the parts a tamper would actually
+// want to rewrite. Documented trade-off: a direct DB edit that flips ONLY
+// verificationStatus (e.g. rejected→verified to un-gate prompt injection)
+// is no longer chain-detectable; the operative guard remains
+// getConstraintsForFile's verified-only injection gate, and recordFailure
+// still recomputes the hash on every write it makes. NOTE: this changes
+// hash VALUES for every existing record — expected and fine; the chain
+// backfill endpoint (POST /api/postmortems/chain) recomputes them. Never
+// call it from inside the store.
 
-/** The content a postmortem's hash covers. Excludes timestamps, ids, and
- *  the hashes themselves (those are derived). Deterministic key order via
- *  object-literal insertion order (preserved by JSON.stringify for string
- *  keys), so the same logical record always produces the same canonical
- *  string regardless of how the caller constructed it. */
+/** The content a postmortem's hash covers. Excludes timestamps, ids, the
+ *  hashes themselves (those are derived), and — per audit 3 — the
+ *  lifecycle fields (`status`, `verificationStatus`; `resolvedAt` was
+ *  never in the input), which the resolve path legitimately flips without
+ *  rehashing. Deterministic key order via object-literal insertion order
+ *  (preserved by JSON.stringify for string keys), so the same logical
+ *  record always produces the same canonical string regardless of how
+ *  the caller constructed it. */
 interface PostmortemChainContent {
   targetRepo: string;
   branch: string;
@@ -52,8 +78,6 @@ interface PostmortemChainContent {
   evidence: string;
   constraints: string;
   attempts: number;
-  status: string;
-  verificationStatus: string;
 }
 
 function canonicalPostmortemContent(c: PostmortemChainContent): string {
@@ -67,8 +91,6 @@ function canonicalPostmortemContent(c: PostmortemChainContent): string {
     evidence: c.evidence,
     constraints: c.constraints,
     attempts: c.attempts,
-    status: c.status,
-    verificationStatus: c.verificationStatus,
   });
 }
 
@@ -102,7 +124,10 @@ async function getLatestPostmortemHash(): Promise<string | null> {
  *     points at the pre-update hash). Informational, NOT an attack signal.
  *   - contentMismatches: count of records whose stored hash ≠ recomputed
  *     hash. This means someone edited the row directly in the DB WITHOUT
- *     recomputing the hash — a tamper alarm.
+ *     recomputing the hash — a tamper alarm. AUDIT 3: lifecycle fields
+ *     (status / verificationStatus / resolvedAt) are excluded from the
+ *     hashed content, so markResolved's no-rehash resolve can never trip
+ *     this — a mismatch here means CONTENT was edited.
  * `ok` is true only when both counts are zero. Callers (the API + UI) can
  *  surface both numbers so the operator can tell "records were updated in
  *  place" (linkBreaks, fine) from "the DB was tampered with"
@@ -121,7 +146,7 @@ export async function verifyPostmortemChain(): Promise<{
         id: true, hash: true, parentHash: true,
         targetRepo: true, branch: true, filePath: true,
         failureType: true, symptom: true, evidence: true, constraints: true,
-        attempts: true, status: true, verificationStatus: true,
+        attempts: true,
       },
     });
     let linkBreaks = 0;
@@ -130,11 +155,12 @@ export async function verifyPostmortemChain(): Promise<{
     let prevHash: string | null = null;
     for (let i = 0; i < records.length; i++) {
       const r = records[i];
+      // Lifecycle fields are excluded from the hashed content (audit 3) —
+      // see canonicalPostmortemContent above.
       const canonical = canonicalPostmortemContent({
         targetRepo: r.targetRepo, branch: r.branch, filePath: r.filePath,
         failureType: r.failureType, symptom: r.symptom, evidence: r.evidence,
         constraints: r.constraints, attempts: r.attempts,
-        status: r.status, verificationStatus: r.verificationStatus,
       });
       const recomputed = computePostmortemHash(r.parentHash, canonical);
       if (r.hash && r.hash !== recomputed) {
@@ -180,17 +206,19 @@ export async function backfillPostmortemChain(): Promise<{
         id: true, hash: true, parentHash: true,
         targetRepo: true, branch: true, filePath: true,
         failureType: true, symptom: true, evidence: true, constraints: true,
-        attempts: true, status: true, verificationStatus: true,
+        attempts: true,
       },
     });
     let backfilled = 0;
     let prevHash: string | null = null;
     for (const r of records) {
+      // Lifecycle fields are excluded from the hashed content (audit 3) —
+      // see canonicalPostmortemContent above. This recomputation is what
+      // heals the resolved-pre-FIX records: their old hashes covered status.
       const canonical = canonicalPostmortemContent({
         targetRepo: r.targetRepo, branch: r.branch, filePath: r.filePath,
         failureType: r.failureType, symptom: r.symptom, evidence: r.evidence,
         constraints: r.constraints, attempts: r.attempts,
-        status: r.status, verificationStatus: r.verificationStatus,
       });
       const expectedHash = computePostmortemHash(prevHash, canonical);
       // Only write if the record is missing its hash OR has a stale hash
@@ -268,6 +296,23 @@ export interface PostmortemConstraints {
   attempts?: number;
   /** Formatted block to inject into the LLM prompt */
   promptBlock: string;
+}
+
+/** AUDIT 3 (F6): bounded, control-char-free prompt injection for the
+ *  postmortem block. Fields that go into mutation prompts are hard-capped
+ *  (the cut is marked "…[truncated]") and stripped of control characters:
+ *  the class keeps \t, \n, \r (legitimate formatting in multi-line
+ *  evidence/constraints) and replaces every other C0 control char plus
+ *  DEL with a space, so a poisoned record can't smuggle terminal escapes,
+ *  framing characters, or NUL-cutoff tricks into the prompt. Applied in
+ *  formatPromptBlock — the single choke point every prompt injection of a
+ *  postmortem flows through (unified-pipeline, task-executor,
+ *  self-enhance-loop). */
+function sanitizeInjectedPostmortemField(text: string, limit: number): string {
+  // Strip first, truncate second — the cap then applies to visible chars.
+  const safe = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ");
+  if (safe.length <= limit) return safe;
+  return `${safe.slice(0, limit)}…[truncated]`;
 }
 
 class PostmortemStore {
@@ -427,6 +472,18 @@ class PostmortemStore {
    * sees the constraints as hard requirements.
    */
   private formatPromptBlock(pm: PostmortemRecord): string {
+    // AUDIT 3 (F6): bounded, control-char-free injection. symptom/evidence/
+    // constraints used to go into mutation prompts VERBATIM with no
+    // truncation, and evidence includes raw LLM text (debate reasons,
+    // change summaries) — an unbounded, unsanitized block let a poisoned
+    // rejection reason live forever as a "CONSTRAINTS (MUST follow ALL)"
+    // instruction. Caps: symptom 300, evidence 500, constraints 500;
+    // control chars (everything except \t/\n/\r) become spaces — see
+    // sanitizeInjectedPostmortemField. (Reflection is separately bounded
+    // at write time — storeReflection slices to 400.)
+    const symptom = sanitizeInjectedPostmortemField(pm.symptom, 300);
+    const evidence = sanitizeInjectedPostmortemField(pm.evidence, 500);
+    const constraints = sanitizeInjectedPostmortemField(pm.constraints, 500);
     // D7 (Reflexion): the prior self-diagnosis rides WITH the constraints —
     // per the Reflexion finding, a stored self-reflection across trials
     // materially reduces repetition of the same reasoning error. The
@@ -438,11 +495,11 @@ ${pm.reflection}\n`
       : "";
     return `\n\n--- POSTMORTEM CONSTRAINTS (this file failed ${pm.attempts} time(s) before) ---
 FAILURE TYPE: ${pm.failureType}
-SYMPTOM: ${pm.symptom}
+SYMPTOM: ${symptom}
 EVIDENCE:
-${pm.evidence}
+${evidence}
 CONSTRAINTS (MUST follow ALL of these):
-${pm.constraints}
+${constraints}
 ${reflectionBlock}
 --- END POSTMORTEM CONSTRAINTS ---\n\n`;
   }
@@ -528,10 +585,12 @@ ${reflectionBlock}
           existing.verificationStatus === "candidate" && isObservation
             ? "verified"
             : verificationStatus;
+        // Lifecycle fields (status / verificationStatus) are excluded from
+        // the hashed content (audit 3) — only the content proper is hashed;
+        // verificationStatus is still PERSISTED, just not hashed.
         const canonical = canonicalPostmortemContent({
           targetRepo: repo, branch, filePath, failureType, symptom, evidence, constraints,
-          attempts: existing.attempts + 1, status: "active",
-          verificationStatus: nextVerification,
+          attempts: existing.attempts + 1,
         });
         const newHash = computePostmortemHash(existing.parentHash, canonical);
         const updated = await db.postmortem.update({
@@ -555,7 +614,7 @@ ${reflectionBlock}
         const parentHash = await getLatestPostmortemHash();
         const canonical = canonicalPostmortemContent({
           targetRepo: repo, branch, filePath, failureType, symptom, evidence, constraints,
-          attempts: 1, status: "active", verificationStatus,
+          attempts: 1,
         });
         const hash = computePostmortemHash(parentHash, canonical);
         const created = await db.postmortem.create({
@@ -610,6 +669,11 @@ ${reflectionBlock}
    * Kept for history — getActivePostmortem skips resolved records.
    * Also resolves the on-disk copy so the repo's audit trail reflects
    * "failed then fixed" instead of staying active forever.
+   *
+   * AUDIT 3: no rehash on resolve — the lifecycle fields this flips
+   * (status, verificationStatus, resolvedAt) are excluded from the chain's
+   * hashed content (see canonicalPostmortemContent), so this update can
+   * never register as content tampering in verifyPostmortemChain.
    */
   async markResolved(repo: string, branch: string, filePath: string): Promise<void> {
     // Two-phase update so a CANDIDATE being resolved is REJECTED (the
@@ -681,12 +745,60 @@ ${reflectionBlock}
 
   /**
    * Delete a postmortem by ID (for the UI's "dismiss" button).
-   * Returns TRUE when a row was actually deleted, FALSE when the id
-   * does not exist — the caller reports a 404, never a false success.
+   * Returns TRUE when the DB row and/or its on-disk file was actually
+   * deleted, FALSE when neither exists — the caller reports a 404, never
+   * a false success.
+   *
+   * AUDIT 3 (defect 2): this used to delete ONLY the SQLite row. The
+   * on-disk JSON under postmortems/ is the declared source of truth, so
+   * ensureRehydrated re-imported the file on the next boot and the
+   * "dismissed" record resurrected. Now the disk file is removed too.
+   * The file's path is resolved from the DB row's (repo, branch,
+   * filePath) when the DB knows the id; when it doesn't (record exists
+   * ONLY on disk — wiped DB, failed rehydration, or DB down), the
+   * composite id disk records carry (`repo/branch/filePath`, minted by
+   * fromFileShape) is matched against the disk list instead, so a
+   * disk-only postmortem can also be dismissed — otherwise it could
+   * NEVER be dismissed and kept being re-imported (and re-injected)
+   * forever. The file removal is best-effort: a missing or unreadable
+   * file must not fail the DB delete.
    */
   async delete(id: string): Promise<boolean> {
+    // 1. Resolve the record's (repo, branch, filePath) from the DB row.
+    let target: { repo: string; branch: string; filePath: string } | null = null;
+    try {
+      const row = await db.postmortem.findUnique({
+        where: { id },
+        select: { targetRepo: true, branch: true, filePath: true },
+      });
+      if (row) target = { repo: row.targetRepo, branch: row.branch, filePath: row.filePath };
+    } catch {
+      /* DB read failed — try the composite disk-id fallback below */
+    }
+    // 2. Remove the on-disk file (source of truth) — best-effort.
+    let fileRemoved = false;
+    if (target) {
+      try {
+        fileRemoved = deletePostmortemFromDisk(target.repo, target.branch, target.filePath);
+      } catch {
+        /* best-effort — the DB delete below still runs */
+      }
+    } else {
+      // Disk-only record: match the composite id (`repo/branch/filePath`).
+      try {
+        for (const rec of listAllPostmortemsFromDisk()) {
+          if (rec.id === id) {
+            fileRemoved = deletePostmortemFromDisk(rec.targetRepo, rec.branch, rec.filePath);
+            break;
+          }
+        }
+      } catch {
+        /* best-effort */
+      }
+    }
+    // 3. Delete the DB row.
     const result = await db.postmortem.deleteMany({ where: { id } });
-    return result.count > 0;
+    return result.count > 0 || fileRemoved;
   }
 
   // Typed against the generated Prisma row — was `any`, which silently

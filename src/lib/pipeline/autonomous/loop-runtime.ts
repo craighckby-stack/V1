@@ -556,12 +556,21 @@ class AutonomousLoopRuntime {
     const ms = Math.max(15_000, this.config.intervalMinutes * 60 * 1000);
     this.status = "idle";
     this.stats.nextRunAt = new Date(Date.now() + ms).toISOString();
-    this.addLog(`Scheduler armed. Next automatic cycle at ${this.stats.nextRunAt}`, "info");
-    this.timer = setInterval(() => {
-      this.executeCycle(this.config.mode).catch((err) => {
-        this.addLog(`Scheduler cycle failed: ${(err as Error).message}`, "error");
-      });
-    }, ms);
+    // Audit 3 (F16): in continuous mode, do NOT also arm the setInterval
+    // scheduler — the continuous while-loop already drives cycles with
+    // dynamic pacing (LLM-gate-aware), and the interval double-scheduled
+    // cycles that bypassed that pacing. The `status === "running"` guard
+    // in executeCycle prevented overlap, but two schedulers interleaved
+    // cycle accounting for no benefit. Interval scheduling stays for the
+    // scheduled/one-shot modes only.
+    if (this.config.mode !== "continuous") {
+      this.addLog(`Scheduler armed. Next automatic cycle at ${this.stats.nextRunAt}`, "info");
+      this.timer = setInterval(() => {
+        this.executeCycle(this.config.mode).catch((err) => {
+          this.addLog(`Scheduler cycle failed: ${(err as Error).message}`, "error");
+        });
+      }, ms);
+    }
 
     if (this.config.mode === "continuous") {
       this.continuousLoopRunning = true;

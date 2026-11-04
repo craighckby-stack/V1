@@ -105,9 +105,14 @@ function buildSandbox(): { root: string; dbOverride?: string } | null {
 
     // DB isolation: rewrite DATABASE_URL to a sandbox copy when possible so
     // tests that write through Prisma mutate the disposable DB, not the
-    // live one. Fallback (huge/missing/unparseable DB): inherit the real
-    // URL — identical to how tests ran before the sandbox existed.
+    // live one. Audit 3 (F11): the old fallback when the copy was skipped
+    // (DB >32MB — it is already 178MB — unreadable, or .env unparseable)
+    // was to INHERIT the real URL, so LLM-drafted tests executed against
+    // PRODUCTION data. Now the fallback is a blank sandbox DB file: a
+    // DB-dependent test FAILS (missing tables) and the gate rejects the
+    // candidate — fail-closed isolation instead of silent live-DB access.
     let dbOverride: string | undefined;
+    let dbIsolated = false;
     try {
       const envSrc = readFileSync(join(PROJECT_ROOT, ".env"), "utf-8");
       const m = envSrc.match(/^DATABASE_URL=file:(.+)$/m);
@@ -145,12 +150,47 @@ function buildSandbox(): { root: string; dbOverride?: string } | null {
                 `DATABASE_URL=${dbOverride}`
               );
               writeFileSync(join(root, ".env"), envSandbox, "utf-8");
+              dbIsolated = true;
             }
           }
         }
       }
     } catch {
-      // No .env / unreadable / copy failed — fall back to inherited env.
+      // No .env / unreadable / copy failed — fall through to the blank-DB
+      // isolation below (audit 3: never inherit the live URL).
+    }
+    if (!dbIsolated) {
+      // Audit 3 (F11): FAIL-CLOSED isolation — point the sandbox at a BLANK
+      // DB file inside the sandbox. Prisma opens it (creating an empty
+      // SQLite file), and any query fails with "table does not exist" →
+      // the test fails → the candidate is rejected. DB-independent tests
+      // still pass, so this only rejects mutations whose tests genuinely
+      // need production data (which must never be touched).
+      const blankDb = join(root, "db", "sandbox-blank.db");
+      try {
+        mkdirSync(join(root, "db"), { recursive: true });
+        writeFileSync(blankDb, "", { flag: "w" });
+        dbOverride = `file:${blankDb}`;
+        try {
+          const envSrc2 = readFileSync(join(PROJECT_ROOT, ".env"), "utf-8");
+          writeFileSync(
+            join(root, ".env"),
+            envSrc2.replace(/^DATABASE_URL=file:.+$/m, `DATABASE_URL=${dbOverride}`),
+            "utf-8"
+          );
+        } catch {
+          writeFileSync(join(root, ".env"), `DATABASE_URL=${dbOverride}\n`, "utf-8");
+        }
+        console.warn(
+          `[SANDBOX] live DB too large/unreadable for copy — using BLANK isolated DB (${blankDb}). ` +
+            `DB-dependent tests will fail by design (fail-closed isolation, audit 3 F11).`
+        );
+      } catch {
+        // Could not even create the blank file — run with NO override but
+        // an explicitly nulled DATABASE_URL so Prisma fails fast rather
+        // than silently connecting to production.
+        dbOverride = "file:/nonexistent-sandbox-db-fail-closed.db";
+      }
     }
 
     return { root, dbOverride };

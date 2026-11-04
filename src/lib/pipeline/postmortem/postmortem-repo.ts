@@ -23,7 +23,7 @@
  * is the filesystem.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, readdirSync, statSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, readdirSync, statSync, rmSync } from "fs";
 import { join, dirname, relative, sep } from "path";
 import type { PostmortemRecord, PostmortemFailureType } from "./postmortem-store";
 
@@ -47,20 +47,82 @@ function sanitizeBranch(branch: string): string {
   return branch.replace(/[^a-zA-Z0-9._-]/g, "__");
 }
 
-/** Turn a relative source path like "src/lib/pipeline/emg/debate.ts"
- *  into a safe JSON filename with no extension collision. The ".json"
- *  suffix replaces the source extension so "debate.ts" → "debate.json"
- *  (a directory tree of them is unambiguous and git-friendly). */
-function relativePathToPostmortemFile(repo: string, branch: string, filePath: string): string {
-  // Strip the source extension; keep directory structure.
-  const noExt = filePath.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "");
-  return join(POSTMORTEM_DIR, sanitizeRepo(repo), sanitizeBranch(branch), `${noExt}.json`);
+/** Split a source filePath into safe path segments for the postmortem
+ *  tree:
+ *    - split on "/" (and "\\" — a Windows-style separator must not become
+ *      a filename character here)
+ *    - drop empty segments and "."
+ *    - drop every ".." segment — AUDIT 3 (F4a): the seed endpoint
+ *      previously allowed traversal, and an unsanitized ".." would let
+ *      the join escape postmortems/<repo>/<branch>/ into the wider tree
+ *      (path.join normalizes it away). Defense in depth: the route is
+ *      being fixed separately; every caller of the mapping (write, read,
+ *      delete) is protected regardless of where the filePath came from. */
+function safeSegments(filePath: string): string[] {
+  return filePath
+    .split(/[\\/]+/)
+    .filter((s) => s.length > 0 && s !== "." && s !== "..");
 }
 
-/** Reverse: turn a postmortem filename back into (repo, branch, filePath)
- *  for listActive / enumeration. The source extension is unknowable from
- *  the filename alone (we stripped it), so we return ".ts" as the default
- *  — the only extension the loop mutates. */
+/** Join sanitized repo/branch + safe segments + a trailing ".json" onto
+ *  an extension-less-or-not basename. Shared by both filename forms. */
+function joinPostmortemPath(
+  repo: string,
+  branch: string,
+  segments: string[],
+  suffix: string
+): string {
+  const dirs = segments.slice(0, -1);
+  const name = `${segments.length > 0 ? segments[segments.length - 1] : "postmortem"}${suffix}`;
+  return join(POSTMORTEM_DIR, sanitizeRepo(repo), sanitizeBranch(branch), ...dirs, name);
+}
+
+/** Turn a relative source path like "src/lib/pipeline/emg/debate.ts"
+ *  into a safe JSON filename.
+ *
+ *  CURRENT form (AUDIT 3, F14): the FULL basename with its source
+ *  extension plus ".json" — "a/x.ts" → "a/x.ts.json", "a/x.tsx" →
+ *  "a/x.tsx.json". The pre-F14 form stripped the extension, so "a/x.ts"
+ *  and "a/x.tsx" both mapped to "a/x.json": the second write silently
+ *  overwrote the first record's memory, and after a DB wipe the
+ *  resurrected file was the wrong one's. Extension-less source paths
+ *  ("system:duress", "red-team:rt-*") map identically under both forms,
+ *  so they have no legacy twin.
+ *
+ *  AUDIT 3 (F4a): ".." segments are dropped (see safeSegments) so the
+ *  join can never escape postmortems/<repo>/<branch>/. */
+function relativePathToPostmortemFile(repo: string, branch: string, filePath: string): string {
+  // Keep the FULL basename with extension; keep directory structure.
+  return joinPostmortemPath(repo, branch, safeSegments(filePath), ".json");
+}
+
+/** LEGACY form (pre-F14): source extension stripped + ".json" —
+ *  "a/x.ts" → "a/x.json". READ-ONLY: the ~dozens of files already on
+ *  disk in this shape keep loading (readPostmortemFromDisk tries the
+ *  current form first and falls back to this), while every new write
+ *  lands in the current form and removes its legacy twin
+ *  (writePostmortemToDisk). Never used for writing. */
+function legacyPathToPostmortemFile(repo: string, branch: string, filePath: string): string {
+  const noExt = filePath.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "");
+  return joinPostmortemPath(repo, branch, safeSegments(noExt), ".json");
+}
+
+/** Every on-disk filename a (repo, branch, filePath) record may occupy,
+ *  in lookup order: current F14 form first, legacy extension-less form
+ *  second (audit 3, F14). Deduped — for extension-less source paths the
+ *  two coincide. Readers try them in order; deleters remove all of them. */
+function postmortemFileCandidates(repo: string, branch: string, filePath: string): string[] {
+  const current = relativePathToPostmortemFile(repo, branch, filePath);
+  const legacy = legacyPathToPostmortemFile(repo, branch, filePath);
+  return legacy === current ? [current] : [current, legacy];
+}
+
+/** Reverse: turn a postmortem filename back into a source filePath for
+ *  listActive / enumeration (walkAndCollect). Current-form filenames
+ *  embed the full basename, so the extension is derived from the JSON
+ *  filename itself; legacy extension-less files lost that information
+ *  when they were written and keep the pre-F14 ".ts" default. See
+ *  walkAndCollect. */
 interface DiscoveredRecord {
   repo: string;
   branch: string;
@@ -168,35 +230,55 @@ export function writePostmortemToDisk(rec: PostmortemRecord): void {
   const tmpPath = `${absPath}.tmp`;
   writeFileSync(tmpPath, json, "utf-8");
   renameSync(tmpPath, absPath);
+  // AUDIT 3 (F14): if this record previously lived in the legacy
+  // extension-less form, that file is now a STALE TWIN of the one just
+  // written — same record, two files. The twin would resurrect the record
+  // after a dismiss that removed only one of them, and listFromDisk would
+  // enumerate the record twice. Remove it; best-effort (a missing twin is
+  // the common case once the tree has migrated).
+  const legacy = legacyPathToPostmortemFile(rec.targetRepo, rec.branch, rec.filePath);
+  if (legacy !== absPath) {
+    try {
+      rmSync(legacy, { force: true });
+    } catch {
+      /* best-effort — the current-form file is already authoritative */
+    }
+  }
 }
 
 /** Read a single postmortem record from disk. Returns null if the file
- *  doesn't exist or fails schema validation. */
+ *  doesn't exist or fails schema validation.
+ *
+ *  AUDIT 3 (F14): tries the CURRENT filename form (full basename +
+ *  ".json") first, then falls back to the LEGACY extension-less form, so
+ *  the ~dozens of pre-F14 on-disk files keep loading. A candidate that
+ *  exists but fails to parse / schema-check / identity-check falls
+ *  through to the next candidate instead of failing the whole read. */
 export function readPostmortemFromDisk(
   repo: string,
   branch: string,
   filePath: string
 ): PostmortemRecord | null {
-  const absPath = relativePathToPostmortemFile(repo, branch, filePath);
-  if (!existsSync(absPath)) return null;
-  try {
-    const raw = readFileSync(absPath, "utf-8");
-    const parsed = JSON.parse(raw) as PostmortemFile;
-    if (!COMPATIBLE_SCHEMAS.has(parsed.schema)) {
-      // Unknown schema — ignore rather than misparse. A future migration
-      // path can read + upgrade; for now, the SQLite cache still serves
-      // and the next recordFailure will overwrite with the current shape.
-      return null;
+  for (const absPath of postmortemFileCandidates(repo, branch, filePath)) {
+    if (!existsSync(absPath)) continue;
+    try {
+      const raw = readFileSync(absPath, "utf-8");
+      const parsed = JSON.parse(raw) as PostmortemFile;
+      if (!COMPATIBLE_SCHEMAS.has(parsed.schema)) {
+        // Unknown schema — ignore rather than misparse; try the twin.
+        continue;
+      }
+      // Sanity: the file must be for THIS (repo, branch, filePath) — a
+      // misplaced file shouldn't poison a different file's constraints.
+      if (parsed.targetRepo !== repo || parsed.branch !== branch || parsed.filePath !== filePath) {
+        continue;
+      }
+      return fromFileShape(parsed);
+    } catch {
+      continue; // unreadable JSON — try the twin before giving up
     }
-    // Sanity: the file must be for THIS (repo, branch, filePath) — a
-    // misplaced file shouldn't poison a different file's constraints.
-    if (parsed.targetRepo !== repo || parsed.branch !== branch || parsed.filePath !== filePath) {
-      return null;
-    }
-    return fromFileShape(parsed);
-  } catch {
-    return null;
   }
+  return null;
 }
 
 /** Mark an on-disk postmortem as resolved (status + resolvedAt timestamp).
@@ -207,7 +289,14 @@ export function readPostmortemFromDisk(
  *  Also flips a CANDIDATE to REJECTED on resolve: the external claim was
  *  contradicted by the file succeeding without the claimed failure
  *  occurring. (A VERIFIED record stays verified — the failure was real,
- *  it's now fixed.) Mirrors the DB-side markResolved two-phase update. */
+ *  it's now fixed.) Mirrors the DB-side markResolved two-phase update.
+ *
+ *  AUDIT 3: no rehash here (or in markResolved) — the lifecycle fields
+ *  this flips (status, verificationStatus, resolvedAt) are EXCLUDED from
+ *  the chain's hashed content (see canonicalPostmortemContent in
+ *  postmortem-store.ts), so this legitimate lifecycle flip can never
+ *  register as content tampering. The record's stored hash keeps
+ *  verifying across the resolve. */
 export function resolvePostmortemOnDisk(
   repo: string,
   branch: string,
@@ -223,6 +312,35 @@ export function resolvePostmortemOnDisk(
   existing.resolvedAt = nowIso();
   existing.updatedAt = nowIso();
   writePostmortemToDisk(existing);
+}
+
+/** Remove a postmortem's on-disk file(s) — the UI "dismiss" path
+ *  (postmortem-store.delete).
+ *
+ *  AUDIT 3 (defect 2): delete() used to remove only the SQLite row while
+ *  the disk JSON is the declared source of truth, so ensureRehydrated
+ *  re-imported the file on the next boot and the dismissed record
+ *  resurrected. This removes EVERY filename form the record may occupy
+ *  (current F14 form + legacy extension-less twin) so no stale copy can
+ *  resurrect it. Best-effort and never throws — a missing file is a
+ *  no-op, not a failure; an unreadable one must not fail the DB delete.
+ *  Returns true when at least one file was actually removed. */
+export function deletePostmortemFromDisk(
+  repo: string,
+  branch: string,
+  filePath: string
+): boolean {
+  let removed = false;
+  for (const absPath of postmortemFileCandidates(repo, branch, filePath)) {
+    try {
+      if (!existsSync(absPath)) continue;
+      rmSync(absPath, { force: true });
+      removed = true;
+    } catch {
+      /* best-effort — never let a file problem fail the DB delete */
+    }
+  }
+  return removed;
 }
 
 /** Walk the postmortems/ tree and return every record (active + resolved).
@@ -274,14 +392,22 @@ function walkAndCollect(dir: string, branch: string, repoSlug: string, out: Post
         const raw = readFileSync(fullPath, "utf-8");
         const parsed = JSON.parse(raw) as PostmortemFile;
         if (!COMPATIBLE_SCHEMAS.has(parsed.schema)) continue;
-        // Reconstruct filePath from the path under postmortems/<repo>/<branch>/
+        // Reconstruct filePath from the path under postmortems/<repo>/<branch>/.
+        // AUDIT 3 (F14): current-form filenames embed the FULL source
+        // basename — "a/x.ts.json" → "a/x.ts", "a/x.tsx.json" → "a/x.tsx" —
+        // so the extension is derived from the JSON filename itself (any
+        // known source extension is preserved as-is). Legacy extension-less
+        // files ("a/x.json") destroyed that information when they were
+        // written; those keep the pre-F14 heuristic (default ".ts", the
+        // only extension the loop mutates). The in-file filePath is
+        // preferred whenever present — it carries the truth for both forms;
+        // the reconstruction is only the fallback.
         const rel = relative(join(POSTMORTEM_DIR, repoSlug, branch), fullPath)
-          .replace(/\.json$/, ".ts") // default ext — see relativePathToPostmortemFile
           .split(sep)
           .join("/");
-        // Prefer the in-file filePath if it matches the path (it should);
-        // otherwise fall back to the reconstructed one.
-        const filePath = parsed.filePath || rel;
+        let reconstructed = rel.replace(/\.json$/, "");
+        if (!/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(reconstructed)) reconstructed += ".ts";
+        const filePath = parsed.filePath || reconstructed;
         out.push(fromFileShape({ ...parsed, filePath }));
       } catch {
         /* unreadable JSON — skip */

@@ -19,8 +19,17 @@ function isInvalidToken(token: string): boolean {
   );
 }
 
+/**
+ * Resolve the token to use for a GitHub API call (audit 3): ONLY the
+ * client-supplied token is considered. The old
+ * `clientToken ?? process.env.GITHUB_TOKEN` fallback would have turned
+ * /api/github/commit-file and batch-commit into anonymous write-proxies
+ * riding the owner's credential the moment GITHUB_TOKEN was ever exported
+ * in the server environment. It is unset today, so runtime behavior is
+ * identical — the latent hole is closed.
+ */
 export function getUsableToken(clientToken?: string): string | null {
-  const candidate = (clientToken ?? (process.env?.GITHUB_TOKEN ?? "")).trim();
+  const candidate = (clientToken ?? "").trim();
   
   if (
     !candidate ||

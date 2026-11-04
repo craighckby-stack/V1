@@ -125,12 +125,17 @@ export function classifyGrowth(reason: string): GrowthClassification {
   if (reason.startsWith("Deferred")) return "neutral";
   if (reason.startsWith("LLM unavailable")) return "neutral";
   if (reason.startsWith("Stopped")) return "neutral";
+  if (reason.startsWith("Conflict")) return "neutral"; // audit 3: TOCTOU abort — not a verdict on the file
+  // Audit 3: transient infrastructure errors (EMFILE, DB hiccup, ENOSPC)
+  // are NOT a verdict on the file either — classifying them as no-growth
+  // locked perfectly good files out for the rest of the pass after three
+  // unlucky FS hiccups. Neutral: retry next cycle without punishment.
+  if (reason.startsWith("Error")) return "neutral";
   // LLM looked and found nothing, or proposed trivial/bad change — no-growth
   if (reason === "No issues found") return "no-growth";
   if (reason.startsWith("Skipped (only cosmetic")) return "no-growth";
   if (reason.startsWith("LLM returned no code")) return "no-growth";
   if (reason.startsWith("Rejected")) return "no-growth";
-  if (reason.startsWith("Error")) return "no-growth";
   // Deterministic skip — same outcome every cycle by construction.
   // Classified as no-growth (not neutral) so a permanently-too-large file
   // actually locks out after SATURATION_THRESHOLD cycles; otherwise it

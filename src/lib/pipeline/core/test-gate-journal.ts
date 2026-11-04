@@ -41,6 +41,10 @@ import { PROJECT_ROOT } from "./paths";
 
 const JOURNAL_DIR = join(PROJECT_ROOT, ".git", "info");
 const JOURNAL_PATH = join(JOURNAL_DIR, "test-gate-journal.json");
+// Audit 3 (F13): a journal older than this is stale archaeology, not
+// crash insurance — recovery clears it WITHOUT restoring (a stale
+// "original" could silently revert committed work).
+const JOURNAL_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
 
 interface TestGateJournal {
   /** Absolute path of the file whose candidate was about to go live. */
@@ -110,6 +114,24 @@ export function recoverCrashedTestGate(): CrashRecovery {
       // every future push behind a permanent "recovery failed" state.
       clearTestGateJournal();
       return { recovered: false, alreadyIntact: false, error: "corrupt journal entry — cleared" };
+    }
+    // ── JOURNAL AGE EXPIRY (audit 3, F13) ───────────────────────────
+    // A stale journal whose "original" predates a subsequently COMMITTED
+    // file state used to overwrite the live file with the old original on
+    // the next push — silently reverting verified, committed work. The
+    // journal exists to cover a crash WINDOW (seconds); an entry older
+    // than JOURNAL_MAX_AGE_MS is archaeology, not crash insurance — clear
+    // it without touching the file.
+    const armedAtMs = Date.parse(entry.armedAt);
+    if (Number.isFinite(armedAtMs) && Date.now() - armedAtMs > JOURNAL_MAX_AGE_MS) {
+      clearTestGateJournal();
+      return {
+        recovered: false,
+        alreadyIntact: false,
+        filePath: entry.filePath,
+        armedAt: entry.armedAt,
+        error: `journal expired (armed ${entry.armedAt} > ${JOURNAL_MAX_AGE_MS / 60000}min ago) — cleared WITHOUT restore; disk state may be legitimately newer`,
+      };
     }
     let onDisk = "";
     try {

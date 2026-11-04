@@ -6,14 +6,17 @@ export const runtime = "nodejs";
 
 /**
  * POST /api/self-enhance/push
- * Body: { force?: boolean }
  *
  * Commits (if dirty) and pushes the current live state to the configured
  * GitHub target. Returns needsConfig when no target is set.
+ *
+ * Force-push REMOVED (audit 3): this route used to accept { force?: boolean }
+ * and forward it to pushCurrentState — a force-push to main rewrites the
+ * remote's history. The body is no longer read at all; pushes are always
+ * non-forcing, regardless of what the client sends.
  */
-export async function POST(req: Request) {
+export async function POST() {
   try {
-    const body = (await req.json().catch(() => ({}))) as { force?: boolean };
     const target = await getPushTargetPublic();
     if (!target.configured) {
       return NextResponse.json({
@@ -25,7 +28,6 @@ export async function POST(req: Request) {
 
     const outcome = await pushCurrentState({
       message: "Manual push: current live state",
-      force: Boolean(body.force),
     });
 
     return NextResponse.json({

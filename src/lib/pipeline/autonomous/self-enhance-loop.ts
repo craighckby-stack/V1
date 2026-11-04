@@ -70,6 +70,16 @@ import { noteAttemptOutcome, maybeMetaTune } from "./meta-tuner";
 import { seedMetaParams } from "./meta-params";
 import { runTestAttacker, ATTACKER_INTERVAL } from "../red-team/test-attacker";
 import { runGateIntegrityProbes, PROBE_INTERVAL } from "../red-team/gate-integrity-probe";
+// Audit 3 (F1): safe-mode was raised by red-team/probes/duress but NEVER
+// checked by this loop — the flag halted only the (disabled) remote-repo
+// runtime while the self-mutation path kept writing and pushing through
+// the exact condition the flag was raised for. Static import is safe:
+// core/duress imports push-target, never this module.
+import { isSafeMode } from "../core/duress";
+// Audit 3 (F10): serialize live-tree writes against chat-task's
+// applyTaskPlan — two independent writers previously raced (its rollback
+// could silently revert a gated, already-pushed enhancement).
+import { withTreeLock } from "../core/tree-lock";
 
 const PIPELINE_SRC_DIR = join(PROJECT_ROOT, "src/lib/pipeline");
 const DISPLAY_SRC_DIR = join(PROJECT_ROOT, "src/app/display");
@@ -471,14 +481,30 @@ class SelfEnhanceLoop {
     // snapshot).
     try {
       // require, not import: mirrors loop-runtime's snapshot consume —
-      // avoids any static-import cycle at module-eval time.
+      // avoids any static-import cycle at module-eval time. Audit 3 (F12):
+      // typeof-guarded like loop-runtime's own requires — an unguarded
+      // destructure over an empty interop namespace throws, and the outer
+      // catch then misdiagnoses a REAL snapshot as "first boot, none".
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { consumeSelfEnhanceSnapshot, clearSelfEnhanceSnapshot } = require("../core/hot-swap") as {
+      const hotSwapMod = require("../core/hot-swap") as Partial<{
         consumeSelfEnhanceSnapshot: () => import("../core/hot-swap").SelfEnhanceSnapshot | null;
         clearSelfEnhanceSnapshot: () => void;
-      };
-      const snap = consumeSelfEnhanceSnapshot();
+      }>;
+      const consumeSnap =
+        typeof hotSwapMod.consumeSelfEnhanceSnapshot === "function"
+          ? hotSwapMod.consumeSelfEnhanceSnapshot
+          : null;
+      const clearSnap =
+        typeof hotSwapMod.clearSelfEnhanceSnapshot === "function"
+          ? hotSwapMod.clearSelfEnhanceSnapshot
+          : null;
+      const snap = consumeSnap ? consumeSnap() : null;
       if (snap) {
+        // Audit 3 (F2 secondary): the consumed snapshot is cleared
+        // immediately, not only inside the resume timer — a
+        // continuous:false snapshot used to linger on globalThis until
+        // the next swap overwrote it.
+        if (clearSnap) clearSnap();
         this.stats = { ...this.stats, ...snap.stats };
         this.saturation = new Map(snap.saturation as Array<[string, FileSaturation]>);
         this.consecutiveCooldownCycles = snap.consecutiveCooldownCycles;
@@ -511,7 +537,6 @@ class SelfEnhanceLoop {
           const g = globalThis as unknown as { __selfEnhanceLoop?: SelfEnhanceLoop };
           setTimeout(() => {
             if (g.__selfEnhanceLoop !== this) return; // a different instance won the pin
-            clearSelfEnhanceSnapshot();
             if (!this.continuous) {
               this.log("Resuming continuous self-enhancement after hot-swap", "success");
               void this.runContinuous().catch((err) => {
@@ -996,6 +1021,10 @@ class SelfEnhanceLoop {
     const ext = filePath.endsWith(".tsx") ? ".tsx" : ".ts";
     const base = basename(filePath, ext);
     const testPath = join(dirname(filePath), `${base}.test${ext}`);
+    // Audit 3: becomes true the moment the pin's live write lands — the
+    // catch below must never delete an ALREADY-WRITTEN (possibly pushed)
+    // pin because of a later exception in the same try block.
+    let pinned = false;
 
     if (existsSync(testPath)) return false; // already pinned
     const now = Date.now();
@@ -1146,6 +1175,7 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // module run against these tests (the test gate finds co-located
       // tests — also sandboxed from here on).
       writeFileSync(testPath, code, "utf-8");
+      pinned = true;
       this.stats.testsWritten++;
       const testCount = (code.match(/\btest\s*\(/g) ?? []).length;
       this.log(`Ratchet: PINNED ${relPath} with ${testCount} characterization tests — future refactors run against them (${debate.reason})`, "success");
@@ -1159,8 +1189,11 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // The sandbox flow never writes the draft to the live tree before the
       // gates pass, so there is normally nothing to clean up — but stay
       // defensive: if a FUTURE code path writes early, remove the stray.
+      // Audit 3: only when the pin never landed — deleting a written (and
+      // possibly already pushed) pin was a latent footgun one refactor
+      // away from destroying live ratchet coverage.
       try {
-        if (existsSync(testPath)) rmSync(testPath);
+        if (!pinned && existsSync(testPath)) rmSync(testPath);
       } catch {
         /* ignore */
       }
@@ -1214,6 +1247,10 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
     };
 
     try {
+      // Audit 3: clear the PREVIOUS file's provenance FIRST — if the read
+      // below throws, the corpus writer must not record the previous
+      // file's shas under THIS file's path.
+      this.lastAttemptInfo = { originalSha: "", mutatedSha: null, transformSummary: null, branchNumber: thisN };
       // 1. Read the current file
       const originalCode = readFileSync(filePath, "utf-8");
       result.oldBytes = originalCode.length;
@@ -1579,27 +1616,18 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         );
       }
 
-      // 6. Typecheck passed — NOW it's safe to write the improved code to the live file.
-      // Turbopack will hot-reload it and see only valid code.
-      // (If the test gate already wrote it, this is a no-op.)
-      writeFileSync(filePath, cleanCode, "utf-8");
-
-      // 9. Enhancement succeeded — the file is now LIVE (hot-reload will pick it up)
-      result.enhanced = true;
-      result.reason = changeSummary ? "Enhanced and live" : "Enhanced and live (no summary)";
-      this.stats.totalEnhanced++;
-      this.stats.lastEnhancementAt = new Date().toISOString();
-
-      // Log the enhancement WITH the change summary so you can see WHAT was fixed
-      const shortSummary = changeSummary
-        ? changeSummary.split("\n").slice(0, 3).join(" | ").slice(0, 200)
-        : "no summary provided";
-      this.log(`Enhanced ${relPath} (${result.diffBytes}b diff): ${shortSummary}`, "success");
-
-      // 10. Git commit + push (the proof) — the message carries the ACTUAL
-      // verification level: which gates ran AND whether any behavioral test
-      // executed. An audit of git history alone can tell a tested mutation
-      // from a static-gates-only one (external audit, finding 2).
+      // 6. (audit 3 — F3/F6/F10) The live-write phase: highest blast radius.
+      // Everything from here through the push is now:
+      //   (a) STOPPABLE — run-token checkpoint BEFORE the live write. The
+      //       write→push→hot-swap phase was previously unstoppable once the
+      //       LLM call began (the only checkpoint was before the LLM call).
+      //   (b) CONFLICT-CHECKED — the file on disk must still be the content
+      //       this candidate was gated against (TOCTOU: a concurrent writer
+      //       between the read at the top and this write would be silently
+      //       clobbered by a candidate built from OLDER content).
+      //   (c) EXCLUSIVE — the tree lock serializes against chat-task's
+      //       applyTaskPlan (its rollback could previously revert a gated,
+      //       already-pushed enhancement mid-flight).
       const coverageNote =
         testResult.testCount > 0
           ? `${testResult.testCount} test file(s) passed`
@@ -1607,10 +1635,65 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       const commitMessage = changeSummary
         ? `Self-enhancement: ${relPath}\n\n${changeSummary}\n\n(tsc verified, ${coverageNote}, ${result.diffBytes}b diff)`
         : `Self-enhancement: ${relPath} (tsc verified, ${coverageNote}, ${result.diffBytes}b diff)`;
-      const pushResult = await this.gitPush(commitMessage);
-      result.pushed = pushResult.pushed;
-      result.commitSha = pushResult.commitSha;
-      if (pushResult.pushed) {
+      type WriteOutcome =
+        | { kind: "stopped" }
+        | { kind: "conflict" }
+        | { kind: "done"; pushed: boolean; commitSha?: string };
+      const writeOutcome = await withTreeLock<WriteOutcome>(async () => {
+        if (myRun !== this.runId) {
+          this.log(`Aborting enhance for ${relPath} — stop requested before live write`, "warn");
+          return { kind: "stopped" };
+        }
+        const diskNow = readFileSync(filePath, "utf-8");
+        if (sha16(diskNow) !== sha16(originalCode)) {
+          this.log(`CONFLICT: ${relPath} changed on disk while the gates ran — aborting instead of clobbering the concurrent write`, "error");
+          await postmortemStore
+            .recordFailure({
+              repo: "self",
+              branch: "main",
+              filePath: relPath,
+              failureType: "OTHER",
+              symptom: `TOCTOU conflict on ${relPath}: disk content changed between read and gated write`,
+              evidence: `gated-from sha ${sha16(originalCode)} vs on-disk sha ${sha16(diskNow)} — a concurrent writer (chat-task, operator edit, or host restore) landed mid-gate-chain`,
+              constraints: `Re-read the current file before proposing changes — the disk state moved during the last gate chain; clobbering it would revert someone else's verified work.`,
+              observed: false,
+            })
+            .catch(() => {
+              /* best-effort scar */
+            });
+          return { kind: "conflict" };
+        }
+        // Typecheck passed — NOW it's safe to write the improved code to
+        // the live file. Turbopack will hot-reload it and see only valid
+        // code.
+        writeFileSync(filePath, cleanCode, "utf-8");
+        const pushOutcome = await this.gitPush(commitMessage);
+        return { kind: "done", pushed: pushOutcome.pushed, commitSha: pushOutcome.commitSha };
+      });
+      if (writeOutcome.kind === "stopped") {
+        result.reason = "Stopped before live write";
+        return result;
+      }
+      if (writeOutcome.kind === "conflict") {
+        result.reason = "Conflict — file changed on disk during enhancement";
+        return result;
+      }
+
+      // 9. Enhancement succeeded — the file is now LIVE (hot-reload will pick it up)
+      result.enhanced = true;
+      result.reason = changeSummary ? "Enhanced and live" : "Enhanced and live (no summary)";
+      this.stats.totalEnhanced++;
+      this.stats.lastEnhancementAt = new Date().toISOString();
+      result.pushed = writeOutcome.pushed;
+      result.commitSha = writeOutcome.commitSha;
+
+      // Log the enhancement WITH the change summary so you can see WHAT was fixed
+      const shortSummary = changeSummary
+        ? changeSummary.split("\n").slice(0, 3).join(" | ").slice(0, 200)
+        : "no summary provided";
+      this.log(`Enhanced ${relPath} (${result.diffBytes}b diff): ${shortSummary}`, "success");
+
+      if (writeOutcome.pushed) {
         this.stats.totalPushed++;
         // Bump the per-cycle branch counter — this mutation now lives on
         // `loop-{thisN}` on the remote. The next enhanceFile will compute
@@ -1631,7 +1714,10 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         // NOT fail this enhancement (the commit + push already succeeded;
         // the swap is an optimization, not a gate). The hot-swap module
         // records its own postmortem on failure.
-        if (relPath.startsWith("src/lib/pipeline/")) {
+        // Audit 3 (F3): a stopped run skips the swap — the operator (or the
+        // resumed loop, thanks to the snapshot-before-pause fix in
+        // hot-swap.ts) picks up the new module on next start.
+        if (relPath.startsWith("src/lib/pipeline/") && myRun === this.runId) {
           try {
             const { hotSwapPipeline } = await import("../core/hot-swap");
             void hotSwapPipeline({
@@ -1877,9 +1963,39 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       result.newBytes = proposed.length;
       result.diffBytes = Math.abs(proposed.length - original.length);
 
+      // ── DEBATE FIRST (audit 3, F2): the tribunal reviews the proposal
+      // BEFORE anything is written. The old order (apply → canary → debate
+      // → "revert") was broken twice over: the schema went live in file +
+      // SQLite before semantic review, and the revert call itself was
+      // rejected by applySchemaMutation's additive-only gate (removing the
+      // just-added model reads as "destructive") — so a REJECTED proposal
+      // stayed live until the next unrelated `git add -A` swept it in.
+      const debate = await this.debateGate(filePath, original, proposed, changeSummary);
+      if (!debate.approved) {
+        if (debate.deferred) {
+          // Tribunal unavailable — fail-closed, nothing was applied.
+          result.reason = `Deferred (debate tribunal unavailable)`;
+          this.log(`Deferring schema mutation — tribunal unavailable, nothing applied`, "warn");
+          return result;
+        }
+        this.log(`Rejected by debate (nothing applied): ${debate.reason}`, "warn");
+        await postmortemStore.recordFailure({
+          repo: "self",
+          branch: "main",
+          filePath: relPath,
+          failureType: "REVIEW_REJECTED",
+          symptom: `Debate rejected the schema change: ${debate.reason.slice(0, 160)}`,
+          evidence: `Change summary: ${changeSummary.slice(0, 400)}`,
+          constraints: `The previous schema change was rejected by the debate tribunal. Only propose models the pipeline genuinely needs.`,
+        });
+        result.reason = `Rejected by debate (${debate.verdict})`;
+        return result;
+      }
+
       // ── THE SCHEMA GATE: additive check → validate → push → canary ──
-      // Any failure auto-reverts the file AND re-pushes the original, so
-      // the live DB and the file never desync.
+      // Debate approved — now apply. On any step-2+ failure (validate/db
+      // push/canary) applySchemaMutation restores the ORIGINAL file and
+      // re-pushes it internally, so the live DB and file never desync.
       this.log(`Schema gate: checking additive-only diff...`, "info");
       const gate = applySchemaMutation(proposed);
       if (!gate.ok) {
@@ -1898,32 +2014,6 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       }
       result.compiled = true; // gate chain (validate+push+canary) passed
       this.log(`Schema gate PASSED: ${gate.reason}`, "success");
-
-      // ── DEBATE: does this model actually make sense? ──
-      const debate = await this.debateGate(filePath, original, proposed, changeSummary);
-      if (!debate.approved) {
-        if (debate.deferred) {
-          // Revert the applied schema — a deferred tribunal is not an
-          // approval, and the DB now carries a change nobody reviewed.
-          const revert = applySchemaMutation(original);
-          this.log(`Reverted schema (tribunal deferred): ${revert.ok ? "clean" : revert.reason}`, "warn");
-          result.reason = `Deferred (debate tribunal unavailable)`;
-          return result;
-        }
-        const revert = applySchemaMutation(original);
-        this.log(`Rejected by debate, schema reverted (${revert.ok ? "clean" : revert.reason}): ${debate.reason}`, "warn");
-        await postmortemStore.recordFailure({
-          repo: "self",
-          branch: "main",
-          filePath: relPath,
-          failureType: "REVIEW_REJECTED",
-          symptom: `Debate rejected the schema change: ${debate.reason.slice(0, 160)}`,
-          evidence: `Change summary: ${changeSummary.slice(0, 400)}`,
-          constraints: `The previous schema change was rejected by the debate tribunal. Only propose models the pipeline genuinely needs.`,
-        });
-        result.reason = `Rejected by debate (${debate.verdict})`;
-        return result;
-      }
 
       // ── PASSED — the schema is live. Commit + push like any mutation. ──
       result.enhanced = true;
@@ -1983,6 +2073,15 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
   async runCycle(): Promise<{ filesScanned: number; filesEnhanced: number; results: SelfEnhanceResult[] }> {
     if (this.running) {
       // Don't log — the continuous runner polls runCycle and this is normal
+      return { filesScanned: 0, filesEnhanced: 0, results: [] };
+    }
+    // Audit 3 (F1): safe-mode is the emergency brake for THIS loop — the
+    // one that writes live source and pushes. A raised flag (red-team
+    // bypass, gate-integrity failure, duress purge, push-failure circuit
+    // breaker) means the defense layer judged the mutation path
+    // untrustworthy: refuse the cycle, loudly.
+    if (isSafeMode()) {
+      this.log("SAFE-MODE active — self-enhancement cycle refused (clear via the Duress panel after review)", "error");
       return { filesScanned: 0, filesEnhanced: 0, results: [] };
     }
     this.running = true;
@@ -2061,6 +2160,13 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         // completion (or until an explicit stop).
         if (myRun !== this.runId) {
           this.log("Stop requested — breaking out of cycle", "warn");
+          break;
+        }
+        // Audit 3 (F1): a safe-mode raised mid-cycle (probe round, red-team
+        // run, duress) halts the pass immediately — no further files are
+        // mutated through the distrusted path.
+        if (isSafeMode()) {
+          this.log("SAFE-MODE raised mid-cycle — halting self-enhancement pass", "error");
           break;
         }
         const relPath = relative(PROJECT_ROOT, file);
@@ -2256,7 +2362,12 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         this.quotaExhaustedLogged = false;
       }
 
-      this.stats.cyclesCompleted++;
+      // Audit 3: a stop-aborted cycle (break above) is not a completed
+      // cycle — counting it skewed the distill/probe/attacker cadence by
+      // one per stop.
+      if (myRun === this.runId) {
+        this.stats.cyclesCompleted++;
+      }
       this.currentFile = null;
       // Same honest counting: locked-among-scanned, not whole-map.
       const lockedNow = files.filter(
@@ -2315,8 +2426,11 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
           } else if (cycleNow % (PROBE_INTERVAL * 10) === 0) {
             this.log(`Gate integrity: ${probes.passed}/${probes.total} probes passed`, "info");
           }
-        } catch {
-          /* probes are best-effort but loud on failure */
+        } catch (probeErr) {
+          // Audit 3 (F9): the old silent catch contradicted its own comment
+          // — a crashed probe suite means the integrity check DID NOT RUN,
+          // which must be visible, not swallowed.
+          this.log(`Gate-integrity probe suite CRASHED (integrity unverified): ${(probeErr as Error).message}`, "error");
         }
       }
       // Test-attacker round (every ATTACKER_INTERVAL cycles, LLM,
@@ -2394,6 +2508,13 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
     const myRun = this.runId;
     this.log("Starting continuous self-enhancement loop", "success");
     while (this.continuous && myRun === this.runId) {
+      // Audit 3 (F1): check the brake every iteration, not just inside
+      // runCycle — a raised flag ends the continuous loop itself, not
+      // merely the current cycle.
+      if (isSafeMode()) {
+        this.log("SAFE-MODE active — continuous self-enhancement loop halted (clear via the Duress panel after review)", "error");
+        break;
+      }
       await this.runCycle();
       if (onUpdate) onUpdate();
       if (!(this.continuous && myRun === this.runId)) break;

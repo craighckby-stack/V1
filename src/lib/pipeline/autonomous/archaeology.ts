@@ -50,7 +50,7 @@
  */
 
 import { spawnSync } from "child_process";
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, renameSync } from "fs";
 import { join } from "path";
 import { db } from "@/lib/db";
 import { exportLessonsMarkdown } from "./lessons-markdown";
@@ -458,7 +458,14 @@ export async function runArchaeology(force = false): Promise<ArchaeologyReport> 
 
   try {
     mkdirSync(join(PROJECT_ROOT, "postmortems"), { recursive: true });
-    writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2));
+    // AUDIT 3 (F15): atomic write — tmp + rename (the writeStateFile pattern
+    // in push-target.ts). A plain writeFileSync could be swept by a
+    // concurrent `git add -A` mid-write, committing a torn
+    // archaeology-report.json to the repo. The tmp+rename makes the swap
+    // atomic at the filesystem level.
+    const tmpPath = `${REPORT_PATH}.tmp`;
+    writeFileSync(tmpPath, JSON.stringify(report, null, 2));
+    renameSync(tmpPath, REPORT_PATH);
   } catch {
     /* report is advisory; a write failure must not fail the run */
   }

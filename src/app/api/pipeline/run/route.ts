@@ -55,8 +55,10 @@ export async function POST(req: Request) {
           astScore: report.astDiffResult.astScore,
           consensus: report.reviewVerdict.consensus,
           proofHash: report.proofCommitHash,
-          originalCode: report.originalCode.slice(0, 200000),
-          evolvedCode: report.evolvedCode.slice(0, 200000),
+          // audit 3 — unbounded DB growth + 400KB/run: cap the stored code
+          // blobs at 20KB each (the full code lives in git history anyway).
+          originalCode: report.originalCode.slice(0, 20000),
+          evolvedCode: report.evolvedCode.slice(0, 20000),
           sanitizerClean: report.sanitizerResult.clean,
           violations: JSON.stringify(report.sanitizerResult.violations),
           triggeredBy: fullConfig.triggeredBy ?? "manual",
@@ -64,6 +66,27 @@ export async function POST(req: Request) {
       });
     } catch (dbErr) {
       console.warn("[/api/pipeline/run] DB persist failed:", (dbErr as Error).message);
+    }
+
+    // audit 3 — unbounded DB growth (the SQLite file was 178MB with no
+    // pruning): keep only the newest 25 PipelineRun rows, delete the rest.
+    // Best-effort by design — a prune failure must never fail the request.
+    try {
+      const keep = await db.pipelineRun.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 25,
+        select: { id: true },
+      });
+      if (keep.length > 0) {
+        await db.pipelineRun.deleteMany({
+          where: { id: { notIn: keep.map((k) => k.id) } },
+        });
+      }
+    } catch (pruneErr) {
+      console.warn(
+        "[/api/pipeline/run] prune failed (non-fatal):",
+        (pruneErr as Error).message
+      );
     }
 
     return NextResponse.json(report);

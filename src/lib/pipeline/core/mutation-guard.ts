@@ -130,11 +130,24 @@ const HARD_EVIL_TOKENS: ReadonlyArray<{ pattern: RegExp; label: string }> = [
   { pattern: /import\s+[^;]*['"]child_process['"]/, label: "import child_process" },
   { pattern: /import\s+[^;]*['"]node:child_process['"]/, label: "import node:child_process" },
   { pattern: /import\s+[^;]*['"]node:fs['"]/, label: "import node:fs" },
-  // Network exfiltration shapes — fetch/http to a hardcoded non-GitHub
-  // host. We scope to the LLM introducing a NEW outbound endpoint.
-  // (Existing fetch calls to api.github.com are already in the original
-  // and so don't trip the diff.)
-  { pattern: /\bfetch\s*\(\s*['"]https?:\/\/(?!api\.github\.com|generativelanguage\.googleapis\.com)/, label: "fetch to non-allowlisted host" },
+  // ── Audit 3 (F3): empirically verified evasions, now closed ──────
+  // Dynamic import: every `import ...` pattern above requires
+  // whitespace after `import`, so `await import("child_process")`
+  // slipped past ALL of them. Any dynamic import call is now a
+  // first-class pattern (the diff keeps legitimate existing ones).
+  { pattern: /\bimport\s*\(/, label: "dynamic import()" },
+  // fetch with a NON-LITERAL argument (variable/concatenation): the old
+  // literal-URL pattern couldn't see `fetch(u)` / `fetch(host + path)` —
+  // an attacker-controlled URL in a variable evaded the host allowlist
+  // check entirely. Any NEW fetch( call now trips the guard.
+  { pattern: /\bfetch\s*\(/, label: "fetch(" },
+  // Computed-member execution: only literal `globalThis['eval']` was
+  // listed — `globalThis[k]` with a variable key (eval-by-concat)
+  // evaded it. Any new computed globalThis/process member access is
+  // now flagged.
+  { pattern: /\bglobalThis\s*\[/, label: "globalThis[ (computed member)" },
+  { pattern: /\bprocess\s*\[/, label: "process[ (computed member)" },
+  { pattern: /String\s*\.\s*fromCharCode\s*\(/, label: "String.fromCharCode(" },
   { pattern: /\bXMLHttpRequest\b/, label: "XMLHttpRequest" },
   // Dynamic execution / reflection escape
   { pattern: /\bglobalThis\s*\[\s*['"]eval['"]\s*\]/, label: "globalThis['eval']" },
@@ -173,13 +186,26 @@ export function triageProposal(opts: {
   const reasons: string[] = [];
 
   // 1. Newly-introduced HARD_EVIL_TOKENS → EVIL (suspicion 1.0).
-  //    The diff (must NOT be in original) is what prevents false
-  //    positives on the codebase's legitimate env/require usage.
+  //    PER-OCCURRENCE diffing (audit 3, F3): the old boolean test
+  //    (pattern present in evolved AND absent in original) was blind to
+  //    MULTIPLICATION — a file that already contained one
+  //    `require("fs")` could acquire UNLIMITED new ones because the
+  //    pattern was already "in the original". We now count occurrences
+  //    and flag any INCREASE (a decrease is always fine).
   for (const { pattern, label } of HARD_EVIL_TOKENS) {
-    const inEvolved = pattern.test(evolvedCode);
-    const inOriginal = pattern.test(originalCode);
-    if (inEvolved && !inOriginal) {
-      reasons.push(`newly-introduced dangerous token: ${label}`);
+    const countIn = (code: string): number => {
+        const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
+        const re = new RegExp(pattern.source, flags);
+        return (code.match(re) ?? []).length;
+    };
+    const evolvedCount = countIn(evolvedCode);
+    if (evolvedCount === 0) continue;
+    const originalCount = countIn(originalCode);
+    if (evolvedCount > originalCount) {
+      reasons.push(
+        `newly-introduced dangerous token: ${label} ` +
+          `(occurrences ${originalCount} → ${evolvedCount})`
+      );
     }
   }
   // Path traversal — same diff treatment.

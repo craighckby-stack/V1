@@ -380,6 +380,17 @@ export async function hotSwapPipeline(opts?: {
     const reason = opts?.reason ?? "post-enhancement swap";
     // 1. SNAPSHOT (before pausing — the state is most accurate now)
     const snapshot = snapshotLoop();
+    // 1b. SNAPSHOT THE SELF-ENHANCE LOOP TOO (audit 3, F2 — critical
+    //     ordering). snapshotSelfEnhance captures `continuous:
+    //     sel.isContinuous()`. pauseLoop() (step 2) calls sel.stop(),
+    //     which sets continuous=false. Taking this snapshot AFTER the
+    //     pause — as the old order did — always recorded
+    //     continuous:false, so the new instance's resume branch
+    //     (`if (snap.continuous)`) was dead code: the "fully autonomous"
+    //     loop silently died after EVERY successful pipeline-file
+    //     enhancement until a human pressed START. Both snapshots now sit
+    //     on the same side of pauseLoop().
+    const selfSnap = snapshotSelfEnhance(reason);
 
     if (opts?.dryRun) {
       const pinsPresent = GLOBAL_PINS.filter(
@@ -406,11 +417,10 @@ export async function hotSwapPipeline(opts?: {
     // 4. STASH SNAPSHOT so the new instance can restore
     if (snapshot) stashSnapshot(snapshot, reason);
 
-    // 4b. STASH the self-enhance loop's state (audit 3). Separate slot,
-    //     separate consumer (the SelfEnhanceLoop constructor). Without
+    // 4b. STASH the self-enhance snapshot taken in step 1b (separate slot,
+    //     separate consumer — the SelfEnhanceLoop constructor). Without
     //     this, every swap reset cyclesCompleted/saturation/cooldown
     //     state — see the SELF_SNAPSHOT_SLOT note above.
-    const selfSnap = snapshotSelfEnhance(reason);
     if (selfSnap) {
       (globalThis as any)[SELF_SNAPSHOT_SLOT] = selfSnap;
     }

@@ -133,7 +133,16 @@ export async function exportLessonsMarkdown(): Promise<boolean> {
 /** Best-effort git add+commit. No push — the loop's next pushCurrentState
  *  carries the file (it commits the live state). Contention with the
  *  loop's own git operations is expected occasionally; a failed commit
- *  here is caught and swallowed — the next export retries. */
+ *  here is caught and swallowed — the next export retries.
+ *
+ *  AUDIT 3 (F12): the commit is PATHSPEC-SCOPED (`git commit --
+ *  memory/lessons.md`). The old pathless `git commit -m …` committed
+ *  EVERYTHING staged — if the loop's own commit died mid-crash with
+ *  files staged, the next lessons export folded the whole staged mutation
+ *  into a commit labeled "memory: lessons.md export", misattributing the
+ *  loop's changes to the distiller. With the pathspec, only lessons.md is
+ *  committed (from the working tree we just wrote) and any unrelated
+ *  staged files stay staged for their rightful owner. */
 function commitLessonsFile(): void {
   try {
     const add = spawnSync("git", ["add", "memory/lessons.md"], { cwd: PROJECT_ROOT, timeout: 15000, stdio: "pipe" });
@@ -144,7 +153,14 @@ function commitLessonsFile(): void {
     if (quiet.status === 0) return;
     spawnSync(
       "git",
-      ["commit", "-m", "memory: lessons.md export (post-distillation mirror of the Lesson table)", "--no-verify"],
+      [
+        "commit",
+        "-m", "memory: lessons.md export (post-distillation mirror of the Lesson table)",
+        "--no-verify",
+        // AUDIT 3 (F12): pathspec — commit ONLY lessons.md, never whatever
+        // else happens to be staged.
+        "--", "memory/lessons.md",
+      ],
       { cwd: PROJECT_ROOT, timeout: 30000, stdio: "pipe" }
     );
   } catch {

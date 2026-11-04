@@ -123,6 +123,31 @@ export const PROTECTED_PREFIXES = [
   "src/app/api/duress/", // audit 3: the safe-mode control API
   "src/app/api/health/",
   "src/app/api/healthz",
+  // ── Audit 3 (F7): defense-relevant API surface ────────────────────
+  // The loop's scan scope previously included ALL of src/app/api — a
+  // "reasonable cleanup" of these routes could neuter the operator's
+  // red-team trigger, forge/clear the scar memory, rewrite the PAT-using
+  // GitHub proxy, or weaken the pipeline/secret-scan/emg/evolution
+  // entry points. Prefix protection prevents EDITING gate modules, but
+  // these ROUTES import and invoke them with route-controlled arguments
+  // — they are part of the defense surface and get the same rule.
+  "src/app/api/red-team/", // the operator's integrity-probe trigger
+  "src/app/api/postmortems/", // the scar-memory read/seed/chain API
+  "src/app/api/pipeline/", // the remote-repo pipeline entry
+  "src/app/api/github/", // PAT-using GitHub proxy (commit/fetch)
+  "src/app/api/oracle/", // archaeology uses the stored PAT
+  "src/app/api/memory/", // RAG memory read API
+  "src/app/api/secret-scan/", // the scanner's own API
+  "src/app/api/evolution/", // the debate/coherence gate API
+  "src/app/api/emg/", // the sanitizer's own API
+  "src/app/api/engines/", // engine catalog API
+  "src/app/api/branches", // stored-PAT branch listing
+  "src/app/api/route.ts", // the API index (recon/docs surface)
+  // ── Audit 3 (F7): the proposal ENGINE itself ──────────────────────
+  // clean-room-runtime is the LLM engine that generates proposals on the
+  // remote path — imported by the (protected) unified-pipeline. The
+  // orchestrator was protected; the code-producer was not.
+  "src/lib/pipeline/engines/", // audit 3: the proposal engine
   "src/lib/pipeline/core/", // audit 3: the gate machinery
   "src/lib/pipeline/emg/", // audit 3: the sanitizer/halt/RAG/debate layer
   "src/lib/pipeline/postmortem/", // audit 3: the scar memory
