@@ -22,8 +22,10 @@
  * terminal. Splash → system, nothing in between.
  *
  * The rite fires on EVERY entry — warm boot or cold. Warm boots (already
- * entered this browser session) take the fast path — one SESSION RESUMED
- * line — but still end at the invite. prefers-reduced-motion flattens
+ * entered this browser session) take the fast path — the SESSION RESUMED
+ * line first, then the same five boot/scan vitals lines appended after
+ * it, so the live machine state is reported on EVERY entry, not just
+ * the first. prefers-reduced-motion flattens
  * the fancy animation (the CRT effects go static) but does NOT cancel
  * the ceremony. Force the full cold POST with ?boot=force.
  *
@@ -52,6 +54,22 @@ const ASCII_LOOP = [
 ].join("\n");
 
 const TAGLINE = "A MACHINE THAT REWRITES ITS OWN CODE.";
+
+/** POST line counts. Cold = 8 original + 5 boot/scan lines. Warm = the
+ *  SESSION RESUMED line + the same 5 boot/scan lines. (Warm boots used
+ *  to show ONE line only — after the first entry, every reload looked
+ *  like the splash "never updated". The scan lines now append on both
+ *  paths: one definition, two ceremonies, same bytes.) */
+const SCAN_LINE_COUNT = 5;
+const COLD_POST_MS = (8 + SCAN_LINE_COUNT) * 130 + 260;
+const WARM_POST_MS = (1 + SCAN_LINE_COUNT) * 130 + 260;
+
+interface PostLine {
+  label: string;
+  value: string;
+  stamp: string;
+  warn?: boolean;
+}
 
 interface Vitals {
   branchesTotal: string;
@@ -199,6 +217,56 @@ function Scramble({ text, start, ms, className }: { text: string; start: boolean
   return <span className={className}>{out}</span>;
 }
 
+/** The five boot/scan vitals lines — ONE definition, used by both
+ *  ceremonies: cold appends them after the original 8 (which stay
+ *  byte-for-byte untouched), warm appends them after the SESSION
+ *  RESUMED line. Same bytes on every entry — the live machine state
+ *  is never a cold-boot-only show. */
+function scanPostLines(v: Vitals): PostLine[] {
+  return [
+    {
+      label: "GITHUB AUTH",
+      value:
+        v.authLogin === "" ? "NO PAT ON FILE — ENTER VIA [CONFIG]"
+        : v.authLogin === "??" ? "AUTO-CONNECT UNREADABLE"
+        : v.authLogin === "REFUSED" ? "TOKEN REJECTED — RE-ENTER VIA [CONFIG]"
+        : `AUTHENTICATED AS ${v.authLogin}`,
+      stamp: v.authLogin === "REFUSED" ? "!!" : v.authLogin !== "" && v.authLogin !== "??" ? "OK" : "??",
+      warn: v.authLogin === "" || v.authLogin === "??" || v.authLogin === "REFUSED",
+    },
+    {
+      label: "TOKEN VAULT",
+      value:
+        v.vaultSealed === "SEALED" ? "AES-256-GCM · SEALED AT REST"
+        : v.vaultSealed === "PLAINTEXT" ? "PLAINTEXT — KEY MISSING"
+        : "UNREADABLE",
+      stamp: v.vaultSealed === "SEALED" ? "OK" : "??",
+      warn: v.vaultSealed !== "SEALED",
+    },
+    {
+      label: "MUTATION TOTALS",
+      value: `${v.branchesTotal} SUCCEEDED · ${v.scars} FAILED`,
+      stamp: "OK",
+      warn: v.branchesTotal === "??" || v.scars === "??",
+    },
+    {
+      label: "HOT-SWAP LOG",
+      value: `${v.swapsLifetime} LIFETIME · ${v.swaps} THIS BOOT`,
+      stamp: "OK",
+      warn: v.swapsLifetime === "??" || v.swaps === "??",
+    },
+    {
+      label: "AUTONOMY",
+      value:
+        v.autonomy === "RUNNING" ? "LIVE — SELF-DRIVEN"
+        : v.autonomy === "??" ? "UNREADABLE"
+        : `ARMED — ${v.autonomy}`,
+      stamp: v.autonomy === "RUNNING" ? "LIVE" : "OK",
+      warn: v.autonomy === "ERROR" || v.autonomy === "??",
+    },
+  ];
+}
+
 export function BootSplash({ onEnter }: { onEnter: () => void }) {
   const [phase, setPhase] = useState<Phase>("flash");
   const [shown, setShown] = useState(0);
@@ -286,27 +354,35 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
     reducedRef.current = mq.matches;
 
-    // Warm boots never show vitals (one SESSION RESUMED line only), so
-    // don't even fetch them — the fast path stays fast and quiet.
-    const vitalsP = isWarm
-      ? Promise.resolve(UNKNOWN_VITALS)
-      : fetchVitals()
-          .then((v) => setVitals(v))
-          .catch(() => setVitals(UNKNOWN_VITALS));
+    // Warm boots fetch vitals too now: their POST appends the same five
+    // boot/scan lines after the SESSION RESUMED line. The fetch races
+    // the (fast) warm timeline and never blocks it — the first stamp
+    // still lands at 650ms; late-arriving values fill their lines in
+    // retroactively (POST lines re-render from live state).
+    const vitalsP = fetchVitals()
+      .then((v) => setVitals(v))
+      .catch(() => setVitals(UNKNOWN_VITALS));
 
     if (isWarm) {
-      // Warm boot: quick phosphor flash + one line — but the machine
-      // still asks. There is no auto-enter: ENTER always runs the full
-      // rite (owner's "each time" decree), so the invite is the stop.
-      later(() => setPhase("post"), reducedRef.current ? 100 : 650);
-      later(() => setPhase((p) => (p === "post" ? "invite" : p)), reducedRef.current ? 250 : 1350);
+      // Warm boot: quick phosphor flash + the SESSION RESUMED line,
+      // then the five scan lines stamp in — the machine reports its
+      // live vitals on EVERY entry — but it still asks. There is no
+      // auto-enter: ENTER always runs the full rite (owner's "each
+      // time" decree), so the invite is the stop.
+      const warmPostAt = reducedRef.current ? 100 : 650;
+      later(() => setPhase("post"), warmPostAt);
+      // The invite flips in after the last (6th) line stamps + settle.
+      later(
+        () => setPhase((p) => (p === "post" ? "invite" : p)),
+        warmPostAt + (reducedRef.current ? 150 : WARM_POST_MS)
+      );
     } else {
       // Cold boot: wait for CRT warm-up AND vitals (≤1.8s), then POST.
       Promise.race([vitalsP, new Promise((r) => window.setTimeout(r, 1850))]).then(() => {
         later(
           () => {
             setPhase("post");
-            const postMs = reducedRef.current ? 120 : 13 * 130 + 260;
+            const postMs = reducedRef.current ? 120 : COLD_POST_MS;
             later(() => setPhase((p) => (p === "post" ? "title" : p)), postMs);
             // Invite flips 120ms AFTER the longest scramble (tagline
             // 1150ms) completes, so the rAF never gets canceled at the
@@ -324,8 +400,12 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   }, [clearTimers, later]);
 
   // POST line stamping — reveal one line per tick while in "post".
+  // `warm` is settled (set at mount via a 0ms tick) long before "post"
+  // can flip (≥100ms), so reading it here just picks the line count:
+  // 13 cold / 6 warm.
   useEffect(() => {
     if (phase !== "post") return;
+    const total = warm ? 1 + SCAN_LINE_COUNT : 8 + SCAN_LINE_COUNT;
     // Reset/complete the counter asynchronously (async setState keeps the
     // effect from triggering a cascading render on the same commit).
     const reset = window.setTimeout(() => setShown(reducedRef.current ? 99 : 0), 0);
@@ -333,7 +413,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     if (!reducedRef.current) {
       iv = window.setInterval(() => {
         setShown((s) => {
-          if (s >= 13) {
+          if (s >= total) {
             window.clearInterval(iv);
             return s;
           }
@@ -345,7 +425,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
       window.clearTimeout(reset);
       if (iv) window.clearInterval(iv);
     };
-  }, [phase]);
+  }, [phase, warm]);
 
   // Kill any still-sounding audio when the splash unmounts.
   useEffect(() => () => stopAllAudio(), []);
@@ -372,8 +452,15 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   }, [phase]);
 
   const v = vitals;
-  const postLines: Array<{ label: string; value: string; stamp: string; warn?: boolean }> = warm
-    ? [{ label: "WARM BOOT", value: "SESSION RESUMED", stamp: "OK" }]
+  // One definition of the scan lines feeds both ceremonies.
+  const scan = scanPostLines(v);
+  const postLines: PostLine[] = warm
+    ? [
+        { label: "WARM BOOT", value: "SESSION RESUMED", stamp: "OK" },
+        // The same five scan lines as cold — the live vitals report on
+        // every entry, so a reload never reads as "not updated".
+        ...scan,
+      ]
     : [
         { label: "CHECKING OBSERVER", value: "HUMAN AT TERMINAL 0", stamp: "OK" },
         {
@@ -402,46 +489,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         // byte-for-byte untouched above (operator: "enhance without changing
         // what's there"). Lines 9-13: auto-connect identity, sealed-token
         // vault, total mutations + failures, live hot-swap success, autonomy.
-        {
-          label: "GITHUB AUTH",
-          value:
-            v.authLogin === "" ? "NO PAT ON FILE — ENTER VIA [CONFIG]"
-            : v.authLogin === "??" ? "AUTO-CONNECT UNREADABLE"
-            : v.authLogin === "REFUSED" ? "TOKEN REJECTED — RE-ENTER VIA [CONFIG]"
-            : `AUTHENTICATED AS ${v.authLogin}`,
-          stamp: v.authLogin === "REFUSED" ? "!!" : v.authLogin !== "" && v.authLogin !== "??" ? "OK" : "??",
-          warn: v.authLogin === "" || v.authLogin === "??" || v.authLogin === "REFUSED",
-        },
-        {
-          label: "TOKEN VAULT",
-          value:
-            v.vaultSealed === "SEALED" ? "AES-256-GCM · SEALED AT REST"
-            : v.vaultSealed === "PLAINTEXT" ? "PLAINTEXT — KEY MISSING"
-            : "UNREADABLE",
-          stamp: v.vaultSealed === "SEALED" ? "OK" : "??",
-          warn: v.vaultSealed !== "SEALED",
-        },
-        {
-          label: "MUTATION TOTALS",
-          value: `${v.branchesTotal} SUCCEEDED · ${v.scars} FAILED`,
-          stamp: "OK",
-          warn: v.branchesTotal === "??" || v.scars === "??",
-        },
-        {
-          label: "HOT-SWAP LOG",
-          value: `${v.swapsLifetime} LIFETIME · ${v.swaps} THIS BOOT`,
-          stamp: "OK",
-          warn: v.swapsLifetime === "??" || v.swaps === "??",
-        },
-        {
-          label: "AUTONOMY",
-          value:
-            v.autonomy === "RUNNING" ? "LIVE — SELF-DRIVEN"
-            : v.autonomy === "??" ? "UNREADABLE"
-            : `ARMED — ${v.autonomy}`,
-          stamp: v.autonomy === "RUNNING" ? "LIVE" : "OK",
-          warn: v.autonomy === "ERROR" || v.autonomy === "??",
-        },
+        ...scan,
       ];
 
   const pad = (label: string, value: string) => {
@@ -566,7 +614,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         .bsp-crt--flash { animation: bsp-on 700ms cubic-bezier(.2,.7,.3,1) both; }
         .bsp-crt--exit  { animation: bsp-off 650ms ease-in both; }
         .bsp-text { text-shadow: 0 0 8px rgba(255,176,0,.35), 0 0 2px rgba(255,176,0,.8); }
-        .bsp-post { min-height: ${warm ? "22px" : "264px"}; white-space: pre-wrap; word-break: break-word; }
+        .bsp-post { min-height: ${warm ? "122px" : "264px"}; white-space: pre-wrap; word-break: break-word; }
         .bsp-dim { color: rgba(255,176,0,.55); }
         .bsp-ok { color: #ffd875; }
         .bsp-wait { color: #ff6a3d; }
