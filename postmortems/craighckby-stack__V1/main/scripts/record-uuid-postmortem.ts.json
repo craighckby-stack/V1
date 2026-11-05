@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "scripts/record-uuid-postmortem.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "ZERO_DIFF_SATURATION",
+  "symptom": "0-diff saturation: no semantic change produced",
+  "evidence": "Halt reason: ZERO_DIFF_SATURATION",
+  "constraints": "The last attempt produced no semantic change (0-diff saturation). Make a real, meaningful refactor this time.\nAdd type annotations, extract constants, modularize — but preserve all public symbols.",
+  "attempts": 1,
+  "parentHash": "d42a12e3802a91df3aa0f1197c073b4315163819bc2e571bfaccff87fea2ae39",
+  "hash": "a64f4fb25b99d6b1a9d6444205f50fcfb9cd5a0177436a597b4e4038659c423d",
+  "lastAttemptAt": "2026-11-05T07:28:35.440Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-05T07:28:35.441Z",
+  "updatedAt": "2026-11-05T07:28:35.441Z",
+  "schema": 2
+}
