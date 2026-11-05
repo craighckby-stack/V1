@@ -55,7 +55,7 @@ The cold-boot POST stamps 15 checks in order. The first 8 are the original machi
 | 12 | **TOKEN VAULT** | `AES-256-GCM · SEALED AT REST` (or `PLAINTEXT — KEY MISSING` if the vault key isn't seeded). |
 | 13 | **MUTATION TOTALS** | `N SUCCEEDED · N FAILED` — succeeded from the branch ledger, failed from the wipe-proof disk scar count. |
 | 14 | **HOT-SWAP LOG** | `N LIFETIME · M THIS BOOT` — the lifetime counter is **wipe-proof**: a disk journal in `.git/info/` is the source of truth, the DB is a mirror. A sandbox DB rollback can't erase it. |
-| 15 | **AUTONOMY** | `ARMED — <state>` or `LIVE — SELF-DRIVEN`. The loop runs by itself when the quota gate is open. |
+| 15 | **AUTONOMY** | the live loop's derived phase — `LIVE — SELF-DRIVEN` / `ARMED — THROTTLED — QUOTA READY IN MM:SS` / `ARMED — RECOVERING — RESUME IN MM:SS` / `ARMED — PAUSED — MANUAL [START] REQUIRED` / `DISARMED — PRESS [START]` (see the auto-run state machine below). |
 
 ### Warm boot shows the same vitals
 
@@ -149,8 +149,8 @@ The system can change **how** things look. It can **never** change **what you co
 As of this README:
 
 - **108 mutation branches** on GitHub (`loop-01` through `loop-108`), next will be `loop-109`.
-- **89 postmortems** in the chain, **0 broken links** (every postmortem traces to a real commit). **90 scar files** on disk — the wipe-proof failure record that survives sandbox DB rollbacks.
-- **178 files in mutation scope** — pipeline logic, UI components, API routes, and the Prisma schema (see below).
+- **90 postmortems** in the chain, **0 broken links** (every postmortem traces to a real commit). **91 scar files** on disk — the wipe-proof failure record that survives sandbox DB rollbacks.
+- **188 files in mutation scope** — pipeline logic, UI components, API routes, and the Prisma schema (see below).
 - The repo (`craighckby-stack/V1`) is **public** — commit links in the BRANCHES dialog resolve for anyone.
 - **Z.ai cortex auto-injects at server boot.** The Next.js instrumentation hook (`src/instrumentation.ts`) fires `warmZaiCortex()` before the first HTTP request: `ZAI.create()` (the SDK handshake, cached in a shared globalThis slot — the SAME instance every LLM call reuses) + a one-shot 4-token ping. The splash's Z.AI CORTEX line reads a connection that already exists, not one it has to wait for.
 - **The loop runs by itself when the quota allows.** When the shared 429 gate is active, the loop auto-pauses (stop is still honored within 1s) and the API QUOTA line counts down to the gate opening. When the gate clears, the loop auto-resumes — no operator input. The gate escalates 2min → 5min → 15min → 30min on consecutive 429s; one successful call de-escalates.
@@ -183,14 +183,68 @@ This is meta-learning with a real feedback signal: the system learns WHICH of it
 
 ---
 
-## The mutation scope — 178 files
+## The auto-run state machine
+
+"Runs by itself" is a state machine, not a boolean. The loop's live phase is a derived value — a pure function of the armed intent, the scheduler state, the LLM quota gate, and two safety walls — and the splash's AUTONOMY line reports it honestly on every boot:
+
+```
+DISARMED → [START] → ARMED-RUNNING
+ARMED-RUNNING → quota halt → ARMED-THROTTLED
+ARMED-THROTTLED → quota reset → ARMED-RECOVERING (30s settle)
+ARMED-RECOVERING → timer → ARMED-RUNNING / [PAUSE] → ARMED-PAUSED
+ARMED-PAUSED (sticky, only manual [START] releases it)
+```
+
+| Phase | Meaning | Operator action |
+|---|---|---|
+| `DISARMED` | Loop off. | Press [START] to arm. |
+| `ARMED-RUNNING` | A cycle is in flight, gate open. | None — watch it work. |
+| `ARMED-THROTTLED` | 429 gate active; the loop auto-pauses. STOP still works within 1s. | None — the AUTONOMY line counts down to resume. |
+| `ARMED-RECOVERING` | The gate just cleared; a 30s settle window runs before the next cycle (avoids the immediate re-429 of firing the instant the gate opens). | None — live countdown shown. |
+| `ARMED-PAUSED` | Stopped: operator [STOP], the crash-wall, or the dead-man's switch. | **Manual [START] required** — nothing auto-resumes from here. |
+
+### The stop-priority hierarchy (top wins)
+
+1. **Operator [STOP]** — sticky forever: written to the wipe-proof armed-state tier; no boot, probe, or quota event re-arms after a human stop.
+2. **Crash-wall** — 3 consecutive cycles throwing the SAME error class → the loop trips the wall, disarms, and persists `crashWall:true` to `.git/info/loop-crash-budget.json` so a segfault that kills the process can't silently reset the count and re-arm into the same crash loop. Different error classes reset the count (a network blip followed by a segfault is two problems, not a pattern). A clean cycle resets the budget.
+3. **Dead-man's switch** — if the operator hasn't touched the system in >24h ([START]/[STOP]/config PATCH all count as touches, recorded in `.git/info/loop-operator-touch.json`), auto-arm is denied and the loop reports ARMED-PAUSED. The operator must check in at least once a day for the autonomy to keep running — a runaway loop can't quietly burn quota for days while nobody watches.
+4. **Quota gate** — the only stop that AUTO-RECOVERS: throttle → 30s settle → resume, escalating 2/5/15/30min on consecutive 429s.
+
+**Quota ≠ budget.** The quota gate is the provider's permission — it auto-resumes. A budget (hard spend cap) would be the operator's money — that would require manual re-arm. Only the quota auto-recovers; everything else is sticky by design.
+
+---
+
+## Security posture
+
+Credentials never live in tracked files. The GitHub PAT is sealed at rest with AES-256-GCM (`enc:v1:` envelope); the vault key, the sealed token, the armed intent, the crash budget, and the operator-touch timestamp all live in `.git/info/` — inside the git directory itself, structurally invisible to `git add`, never tracked, never pushed. Before making this repo public, a full sweep was run:
+
+- **The real PAT**: searched every commit on every branch (local history + remote tree) — zero occurrences.
+- **Token-shaped literals**: all 596 tracked files pattern-scanned (GitHub PAT, Google/OpenAI/Anthropic/AWS/Slack keys, private key blocks, vault envelopes) — zero real credentials. The one historical `ghp_`-shaped string (an all-same-character dummy inside the red-team attack suite) was replaced with a runtime-constructed value so even secret scanners come back clean.
+- **`.env` history**: ever-committed `.env` files contain only a local SQLite `DATABASE_URL` (a file path, not a credential); `.env` was untracked long ago and is gitignored now.
+- **Mutating API routes**: optionally gated by `LOOP_API_KEY` (middleware, fail-open only while unset — see Quick start).
+
+---
+
+## Use it on z.ai
+
+LOOP was built and runs as a [z.ai](https://z.ai) Code project — the repo you're reading is its source of truth:
+
+- **Repo**: [github.com/craighckby-stack/V1](https://github.com/craighckby-stack/V1) — every `loop-NN` branch is one compiler-verified self-mutation, publicly auditable.
+- **Live instance**: the machine runs in a z.ai Code sandbox. Open the project in z.ai Code and the terminal is right there in the preview panel — boot splash, POST diagnostics, and the [ ▶ ENTER THE LOOP ] invite.
+- **Try it yourself**: clone the repo, `bun install && bun run db:push && bun run dev`, open the preview, type `start`. Configure a classic PAT with repo scope in [CONFIG] to watch it push its own mutations to your GitHub.
+
+The first [START] is the only manual step. After that it arms itself, runs whenever the quota allows, throttles and recovers on its own, and stops for a human when the walls trip.
+
+---
+
+## The mutation scope — 188 files
 
 | Scope | Files | Gate chain |
 |---|---|---|
-| Pipeline logic (`src/lib/pipeline/`) | 57 | ratchet pin → tsc + AST → debate → sandboxed test gate |
+| Pipeline logic (`src/lib/pipeline/`) | 65 | ratchet pin → tsc + AST → debate → sandboxed test gate |
 | Display layer (`src/app/display/`) | 1 | same |
-| UI components (`src/components/`) | 63 | same |
-| API routes (`src/app/api/`) | 56 | same |
+| UI components (`src/components/`) | 64 | same |
+| API routes (`src/app/api/`) | 57 | same |
 | Prisma schema (`prisma/schema.prisma`) | 1 | **additive-only gate** (see below) |
 
 Everything the system IS lives inside its own reach: the loop can enhance the components that render it, the routes that serve it, and (additively) the database that remembers for it. Churn is bounded by the saturation lockout — 3 no-growth cycles per file and it locks out until the operator unlocks it.
