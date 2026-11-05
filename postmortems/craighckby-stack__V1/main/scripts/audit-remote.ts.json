@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "scripts/audit-remote.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "ZERO_DIFF_SATURATION",
+  "symptom": "0-diff saturation: no semantic change produced",
+  "evidence": "Halt reason: ZERO_DIFF_SATURATION",
+  "constraints": "The last attempt produced no semantic change (0-diff saturation). Make a real, meaningful refactor this time.\nAdd type annotations, extract constants, modularize — but preserve all public symbols.",
+  "attempts": 1,
+  "parentHash": "d0a68cc4bcadd40fbb4e2be2dd399453b8fbd95de6cb5ab270e4b753f6690f8e",
+  "hash": "074a844a8a23459757d1f85986e05da7b0f62ec24d04147fd2f672d3b39e3ac5",
+  "lastAttemptAt": "2026-11-05T01:47:00.812Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-05T01:47:00.813Z",
+  "updatedAt": "2026-11-05T01:47:00.813Z",
+  "schema": 2
+}
