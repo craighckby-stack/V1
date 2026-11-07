@@ -682,7 +682,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         },
         { label: "LLM CORTEX", value: v.llm, stamp: v.llm === "READY" ? "OK" : "WAIT", warn: v.llm !== "READY" },
         { label: "HOT-SWAP BAY", value: `${v.swaps} SWAP(S) THIS BOOT`, stamp: "OK", warn: v.swaps === "??" },
-        { label: "UPLINK", value: v.repo, stamp: "LINK" },
+        { label: "UPLINK", value: v.repo, stamp: "LINK", link: v.repo && v.repo !== "unlinked" && v.repo !== "??" ? `https://github.com/${v.repo}` : undefined },
         { label: "CYCLE COUNTER", value: `${v.cycles} COMPLETED`, stamp: "OK", warn: v.cycles === "??" },
         // ── boot/scan additions — appended AFTER the original 8, which are
         // byte-for-byte untouched above (operator: "enhance without changing
@@ -744,7 +744,22 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
                   <span className="bsp-dim">LOOP SYSTEMS BIOS v4.2 — COLD BOOT</span>
                 ) : (
                   <>
-                    {pad(l.label, l.value)}{" "}
+                    {l.link ? (
+                      <>
+                        {l.label} {".".repeat(Math.max(3, 24 - l.label.length))}{" "}
+                        <a
+                          href={l.link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="bsp-link"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {l.value}
+                        </a>
+                      </>
+                    ) : (
+                      pad(l.label, l.value)
+                    )}{" "}
                     <span className={unknown || l.warn ? "bsp-wait" : "bsp-ok"}>
                       [{` ${unknown ? "??" : l.stamp} `}]
                     </span>
@@ -814,7 +829,12 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         .bsp-crt--flash { animation: bsp-on 700ms cubic-bezier(.2,.7,.3,1) both; }
         .bsp-crt--exit  { animation: bsp-off 650ms ease-in both; }
         .bsp-text { text-shadow: 0 0 8px rgba(255,176,0,.35), 0 0 2px rgba(255,176,0,.8); }
-        .bsp-post { min-height: ${warm ? "142px" : "288px"}; white-space: pre-wrap; word-break: break-word; }
+        .bsp-post { min-height: ${warm ? "142px" : "288px"}; white-space: pre; overflow-x: auto; }
+        .bsp-link { color: #ffd875; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+        .bsp-link:hover { color: #fff; text-shadow: 0 0 8px rgba(255,255,255,.4); }
+        .bsp-post::-webkit-scrollbar { height: 6px; }
+        .bsp-post::-webkit-scrollbar-thumb { background: rgba(255,176,0,.4); }
+        .bsp-post::-webkit-scrollbar-track { background: transparent; }
         .bsp-dim { color: rgba(255,176,0,.55); }
         .bsp-ok { color: #ffd875; }
         .bsp-wait { color: #ff6a3d; }
@@ -894,7 +914,10 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         }
 
         @media (max-width: 640px) {
-          .bsp-crt { padding: 16px 14px; font-size: 11px; }
+          .bsp-crt { padding: 10px 8px; font-size: 8px; }
+        }
+        @media (max-width: 360px) {
+          .bsp-crt { padding: 8px 6px; font-size: 7px; }
         }
         @media (prefers-reduced-motion: reduce) {
           .bsp-crt--flash, .bsp-crt--exit, .bsp-band, .bsp-flicker,
