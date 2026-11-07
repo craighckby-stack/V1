@@ -1,277 +1,595 @@
 # LOOP
 
-> A program that rewrites its own source code, gates every mutation through a real compiler, and pushes the proof to GitHub — one `loop-NN` branch per successful mutation.
+> A Next.js app that scans its own source code, asks an LLM to improve one file at a time, runs every proposed change through a compiler + AST + debate gate chain, and pushes the survivors to GitHub as one `loop-NN` branch per winning mutation. Failures become postmortems that constrain the next attempt. The loop can't rewrite its own OFF switch.
 
 ![Boot splash — BIOS POST with live vitals](./docs/screenshots/01-splash-post.png)
 
 ---
 
-## What this actually is
+## What this is
 
-LOOP is a Next.js app that runs a continuous loop in the background:
+LOOP is a bounded, autonomous **self-mutation pipeline**. It is not an AGI and not a chatbot — it is a compiler-gated scaffold around an LLM that proposes diffs to its own source. The cleverness is in the gating, not the generation.
 
-1. **Scan** its own source files (the ones it's allowed to touch).
-2. **Pick** one file to improve.
-3. **Read the postmortems** for that file (if it has failed before) and inject them into the LLM prompt as constraints.
-4. **Ask an LLM** to improve the file.
-5. **Gate** the result: TypeScript compiler, AST diff (no symbols dropped), sanitizer (no branding stripped), debate tribunal.
-6. **Verdict**: pass → commit + push to a fresh `loop-NN` branch, resolve any open postmortems. Fail → revert, write a postmortem, try again next cycle.
-7. Goto 1. Forever.
+The core cycle, running in the background on the server:
 
-It is not AGI. It is not dangerous. It is a bounded, compiler-gated pipeline that safely applies an LLM's proposed edits to its own source code. The clever part is the gating, not the generation.
+1. **Scan** — `src/lib/pipeline/autonomous/self-task-generator.ts` statically analyzes its own source (`src/`, `prisma/schema.prisma`) and produces a prioritized `SelfTask` queue (todo-comments, empty catches, `any` usage, missing return types, unused imports, magic numbers, non-null assertions).
+2. **Pick** — claim the next task. Skip protected files (`protected-files.ts`).
+3. **Contextualize** — read the per-file postmortem constraints (`postmortem-store.ts`), ancestral RAG over all verified postmortems (`ancestral-rag.ts`), top-K lessons by trust score (`lesson-store.ts`), and the rejected-transform block for this file (`mutation-corpus.ts`).
+4. **Generate** — `agent-llm.ts` calls the LLM (z-ai-web-dev-sdk → Gemini-direct → geo-bypass proxy) with the file, the constraints, and the task.
+5. **Gate** — `mutation-guard.ts` (no new `eval`/`child_process`/`fetch(`/etc) → `structural-validator.ts` (no truncation) → `ast-diff-gate.ts` (TypeScript compiler API: no symbol dropped, no branding injected) → `in-memory-typecheck.ts` (full project `tsc --noEmit`) → `sandbox-test.ts` (disposable sandbox, candidate never touches the live tree) → `debate-llm.ts` (3 LLM reviewers, no fallback) → `secret-scan.ts` (pre-push).
+6. **Verdict** — pass: strip banner comments, write the live file, commit + push to a fresh `loop-NN` branch (`push-target.ts`). Resolve any open postmortems for that file. Fail: revert, write a postmortem (`postmortem-store.ts`), maybe a Reflexion entry (`reflection.ts`), feed the lesson outcome (`lesson-store.ts`), try again next cycle.
+7. Goto 1. Forever — bounded by the crash wall (3 same-class crashes), the dead-man's switch (24h no operator touch), the LLM 429 gate (escalating 2/5/15/30min cooldowns), and the operator's `[STOP]`.
+
+The branch model is git-native: each successful mutation gets its own `loop-NN` branch, so `git diff loop-37..loop-38` shows exactly one enhancement. The branch list IS the changelog.
 
 ---
 
-## What it looks like
+## The interface
 
-### The boot ceremony (cold boot)
-
-The system boots like a 1980s CRT terminal. It fetches its own live vitals from its own APIs while the phosphor warms up, stamps a BIOS-style POST, then addresses you:
-
-| | |
-|---|---|
-| **POST** — live vitals stamp in one by one | ![POST screen](./docs/screenshots/01-splash-post.png) |
-| **Invite** — the machine asks you to enter | ![Invite](./docs/screenshots/02-splash-invite.png) |
-
-The POST is honest: any vital it can't read stamps `[ ?? ]` in amber. It never fakes an `OK`. Press ENTER and you're in the terminal — splash → system, nothing in between.
-
-### The 15 POST lines (cold boot)
-
-The cold-boot POST stamps 15 checks in order. The first 8 are the original machine vitals; the last 7 are the boot/scan group — appended after the sealed-PAT vault landed, so every entry reports the live machine state:
-
-| # | Line | What it reports |
-|---|---|---|
-| 1 | CHECKING OBSERVER | HUMAN AT TERMINAL 0 |
-| 2 | MUTATION LEDGER | `N ON REMOTE · NEXT loop-NN` (from `/api/branches`) |
-| 3 | POSTMORTEM CHAIN | `N VERIFIED · 0 BROKEN` (chain integrity) |
-| 4 | PROPHECY ENGINE | `N SEEDED · N PENDING` |
-| 5 | LLM CORTEX | `READY` or `THROTTLED — SEE API QUOTA LINE` |
-| 6 | HOT-SWAP BAY | swaps this boot |
-| 7 | UPLINK | the configured `owner/repo` |
-| 8 | CYCLE COUNTER | `N COMPLETED` |
-| 9 | **Z.AI CORTEX** | the auto-injected provider connection — `AUTO-INJECTED · VERIFIED (Nms PING)`. The SDK handshake + one-shot ping happens at **SERVER BOOT** (the Next.js instrumentation hook fires `warmZaiCortex()` before the first HTTP request), so the splash reads a connection that already exists, not one it has to wait for. |
-| 10 | **API QUOTA** | the shared 429 gate. When the gate is active: `THROTTLED L{1-4} — QUOTA READY IN MM:SS` with a **live countdown** ticking every second against a client-anchored end time. When open: `AVAILABLE — NO 429 GATE ON FILE`. |
-| 11 | **GITHUB AUTH** | the sealed PAT auto-connect — `AUTHENTICATED AS <login>`. The server opens the sealed token from the vault (zero operator input) and asks GitHub `GET /user`. |
-| 12 | **TOKEN VAULT** | `AES-256-GCM · SEALED AT REST` (or `PLAINTEXT — KEY MISSING` if the vault key isn't seeded). |
-| 13 | **MUTATION TOTALS** | `N SUCCEEDED · N FAILED` — succeeded from the branch ledger, failed from the wipe-proof disk scar count. |
-| 14 | **HOT-SWAP LOG** | `N LIFETIME · M THIS BOOT` — the lifetime counter is **wipe-proof**: a disk journal in `.git/info/` is the source of truth, the DB is a mirror. A sandbox DB rollback can't erase it. |
-| 15 | **AUTONOMY** | the live loop's derived phase — `LIVE — SELF-DRIVEN` / `ARMED — THROTTLED — QUOTA READY IN MM:SS` / `ARMED — RECOVERING — RESUME IN MM:SS` / `ARMED — PAUSED — MANUAL [START] REQUIRED` / `DISARMED — PRESS [START]` (see the auto-run state machine below). |
-
-### Warm boot shows the same vitals
-
-Warm boots (already entered this browser session) used to show one `SESSION RESUMED` line and nothing else — every reload read as "not updated". Now the warm POST appends the **same 7 boot/scan lines** after the SESSION RESUMED line. One definition, two ceremonies, same bytes on every entry — the live machine state is never a cold-boot-only show. Force the full cold POST with `?boot=force`.
-
-### The terminal
-
-After the splash, you get the actual interface:
+A single full-screen BIOS terminal at `/` (`src/app/page.tsx`):
 
 ![Terminal](./docs/screenshots/05-terminal.png)
 
-Black background, white text, red only when something breaks. The header: `LOOP ●` (heartbeat), `[START]`, `[CLEAR]`, `[CONFIG]`, `[ORACLE]`, `[DEFENSE]`, `[BRANCHES]`.
+Black background, amber phosphor text. Header: `LOOP ●` (heartbeat), `[START]`, `[CLEAR]`, `[CONFIG]`, `[ORACLE]`, `[DEFENSE]`, `[BRANCHES]`. Type commands: `start` / `stop` / `status` / `about` / `help` / `trigger` / `task <goal>` / `push` / `config` / `oracle` / `skip` / `rescan` / `clear`. A live console stream (`console-stream.tsx`) shows every scan, gate, push, retry, and backoff in real time.
 
-Type commands:
-- `start` — kick off the loop. Renders a live activity snapshot, then the stream takes over.
-- `stop` — halt.
-- `status` — current snapshot, including the next branch number.
-- `about` — the elevator pitch.
-- `clear` — wipe the console.
-- `config` — open the git config modal.
+The boot ceremony (`boot-splash.tsx`) is a 1980s CRT POST: it fetches its own live vitals from its own APIs (branches, postmortem chain, oracle, LLM, hot-swap, GitHub auth, sealed-token vault, mutation totals, autonomy phase, Z.ai cortex, quota gate), stamps 15 honest lines — any vital it can't read stamps `[ ?? ]` in amber, never a fake `OK` — then addresses you with `[ ▶ ENTER THE LOOP ]`.
 
-A live stream scrolls in real time: every scan, gate, push, retry, and backoff appears as it happens. Even when the LLM is rate-limiting and a single call takes ~150s of retries, you see each retry fire — no silent gaps.
-
-### The panels
-
-| | | |
-|---|---|---|
-| **Branches** — every `loop-NN` branch is one successful mutation pushed to GitHub, with a link to the commit | ![Branches](./docs/screenshots/06-branches.png) |
-| **Oracle** — the system predicts its own operational future and grades the answers | ![Oracle](./docs/screenshots/07-oracle.png) |
-| **Config** — push target (token, repo, visibility, auto-create) | ![Config](./docs/screenshots/08-config.png) |
-| **Defense** — duress, red-team, secret-scan concepts grafted from external repos | ![Defense](./docs/screenshots/09-defense.png) |
+| | |
+|---|---|
+| **POST** — live vitals stamp in | ![POST](./docs/screenshots/01-splash-post.png) |
+| **Invite** — the machine asks you to enter | ![Invite](./docs/screenshots/02-splash-invite.png) |
+| **Branches** — every `loop-NN` is one successful mutation | ![Branches](./docs/screenshots/06-branches.png) |
+| **Oracle** — predicts + grades its own operational future | ![Oracle](./docs/screenshots/07-oracle.png) |
+| **Config** — sealed-PAT push target | ![Config](./docs/screenshots/08-config.png) |
+| **Defense** — duress / red-team / secret-scan grafts | ![Defense](./docs/screenshots/09-defense.png) |
 
 ---
 
-## The two safety mechanisms
-
-A system that rewrites its own code is dangerous — what stops it from "improving" away its own OFF switch?
-
-### 1. The Ratchet — tests only get stricter
-
-Every time the loop commits an improvement to a file, it also writes **characterization tests** that pin the behaviour of that file. These tests are **write-once** — once pinned, they cannot be loosened. The system's behaviour gets increasingly locked while its implementation gets increasingly clean. It can't weaken its own pins to escape its own standards.
-
-### 2. The Postmortem — failures only get safer
-
-When an attempt fails, the system writes a postmortem against that exact file path: what broke (`failureType`), the evidence (machine-copied facts), and a constraint the LLM must obey next time. The next time the loop picks that file, it pulls the postmortem and injects it into the prompt:
+## Architecture
 
 ```
---- POSTMORTEM CONSTRAINTS (this file failed 2 time(s) before) ---
-FAILURE TYPE: AST_SYMBOL_DROPPED
-SYMPTOM: function `parseHeader` was deleted from the output
-DO NOT: remove any exported symbols; refactor in place only.
+                ┌─────────────────────────────────────────────────┐
+                │  PAGE.TSX  (protected control surface)           │
+                │   fetch /api/self-enhance/* · Socket.IO :3003    │
+                │   console-stream.tsx (mutable display)           │
+                └──────────────────────┬──────────────────────────┘
+                                       │ HTTP (gated by middleware.ts)
+                                       ▼
+                ┌─────────────────────────────────────────────────┐
+                │  56 API ROUTES  src/app/api/**                   │
+                │  self-enhance · autonomous · oracle · postmortems│
+                │  red-team · github · hot-swap · duress · emg ·   │
+                │  memory · secret-scan · evolution · pipeline ·   │
+                │  branches · engines · boot · health · healthz     │
+                └──────────────────────┬──────────────────────────┘
+                                       │
+                                       ▼
+   ┌─────────────────────────────────────────────────────────────────┐
+   │  THE BRAIN (protected — loop can never mutate these)            │
+   │  autonomous/self-enhance-loop.ts  ← THE BRAIN                    │
+   │  autonomous/loop-runtime.ts       ← remote-repo variant         │
+   │  autonomous/self-task-generator   ← THE INPUT LAYER             │
+   │  autonomous/push-target.ts        ← 3-tier sealed-PAT push      │
+   │  autonomous/protected-files.ts     ← SINGLE SOURCE: what's off  │
+   │  autonomous/schema-gate.ts        ← additive-only Prisma gate   │
+   │  autonomous/lesson-store.ts       ← compounding intelligence    │
+   │  autonomous/verify-refactor.ts    ← child-process gate chain    │
+   │  autonomous/in-memory-typecheck   ← full-project tsc --noEmit   │
+   │  core/ (13 files: AST, mutation-guard, sanitizer-bridge,       │
+   │         secret-scan, duress, hot-swap, sandbox-test, tree-lock) │
+   │  emg/ (sanitizer, debate types, halt, emg-rag)                 │
+   │  postmortem/ (store + repo + ancestral-rag)                    │
+   │  red-team/ (7-probe suite + 15 gate-integrity probes)          │
+   │  llm/ (agent-llm, debate-llm, gemini-direct)                   │
+   │  crypto/token-vault.ts  ← AES-256-GCM PAT sealing               │
+   │  engines/clean-room-runtime.ts  ← ReAct loop                    │
+   └─────────────────────────────────────────────────────────────────┘
+                                       │
+                                       ▼
+   ┌─────────────────────────────────────────────────────────────────┐
+   │  PERSISTENCE                                                     │
+   │  SQLite (Prisma) — 12 models                                     │
+   │  postmortems/<repo>/<branch>/*.json — tamper-evident chain       │
+   │  .git/info/loop-{armed,crash-budget,operator-touch,push-state,   │
+   │               vault-key} — wipe-proof tiers (survive DB rollback)│
+   └─────────────────────────────────────────────────────────────────┘
+                                       │
+                                       ▼
+   ┌─────────────────────────────────────────────────────────────────┐
+   │  SIDE PROCESSES                                                   │
+   │  mini-services/loop-ws-service/:3003  Socket.IO state relay     │
+   │  proxy/  Gemini geo-bypass on Fly.io (sgp)                        │
+   │  Caddyfile :81  reverse proxy (?XTransformPort pattern)          │
+   └─────────────────────────────────────────────────────────────────┘
 ```
 
-If the AI tries the same dumb refactor again, the gate catches it again, the `attempts` counter ticks, the constraint gets sharper. When it finally succeeds, the postmortem is marked `resolved`. The loop gets wiser about its own codebase as it runs.
+### The boundary — what it can and can't touch
 
----
-
-## The branch model
-
-Each successful enhancement pushes to its own git branch:
-
-```
-loop-01  ← first full mutation
-  └─ loop-02  ← second, built on loop-01's tip
-       └─ loop-03 ← third
-            └─ ...loop-108 (current)
-```
-
-- **Each branch = one successful mutation.** Failed attempts don't get a branch — they go to the postmortem DB. So `loop-NN` counts wins only.
-- **Git-native rollback.** `git checkout loop-37` gives you the pre-bad state. One command.
-- **Git-native diff.** `git diff loop-37..loop-38` shows exactly what one cycle did: one file, one enhancement, its test pin. That's the audit trail, for free.
-- **The branch list IS the changelog.**
-
----
-
-## The boundary — what it can and can't touch
+The loop's own brain is off-limits to itself. The single source of truth is `src/lib/pipeline/autonomous/protected-files.ts`: 33 exact paths (`PROTECTED_FILES`) + 16 prefix subtrees (`PROTECTED_PREFIXES` — all of `core/`, `emg/`, `postmortem/`, `red-team/`, `engines/`, `crypto/`, `llm/`, and every API route subtree). `isProtectedPath` is the one predicate the scanner uses.
 
 | Layer | Mutable? |
 |---|---|
-| **The brain** — loop runtime, event bus, push auth, typecheck, AST gate, sanitizer, debate tribunal, LLM callers, task generator | 🔒 Never. Permanently protected. |
-| **The body** — pipeline stages, helpers, the display layer | ✏️ Yes. This is the mutation scope. |
-| **The control surface** — `page.tsx`, `layout.tsx` (your STOP/START/CONFIG buttons, command input, config modal) | 🔒 Never. You always have the kill switch. |
-| **Everything else** — UI components, API routes, Prisma schema | 🔒 Outside the loop's awareness. |
+| **Brain** — loop runtime, gate chain, push auth, typecheck, AST, sanitizer, debate, LLM callers, schema gate, protected-files list itself | 🔒 Never. |
+| **Control surface** — `page.tsx`, `layout.tsx`, `middleware.ts`, `src/lib/db.ts`, `src/instrumentation.ts` | 🔒 Never. |
+| **Control API** — `src/app/api/self-enhance/**` (the backend of the kill switch) | 🔒 Never. |
+| **Body** — `src/app/display/`, `src/components/pipeline/`, the non-protected `src/lib/pipeline/` helpers | ✏️ Yes. |
+| **Schema** — `prisma/schema.prisma` | ✏️ Additive-only (`schema-gate.ts`). |
+| **Everything else** — shadcn/ui, the rest of `src/` | 🔒 Outside scan scope. |
 
-The system can change **how** things look. It can **never** change **what you control**. If it could rewrite its own control surface, it could remove the STOP button — this is structurally impossible.
-
----
-
-## Current state (factual)
-
-As of this README:
-
-- **108 mutation branches** on GitHub (`loop-01` through `loop-108`), next will be `loop-109`.
-- **90 postmortems** in the chain, **0 broken links** (every postmortem traces to a real commit). **91 scar files** on disk — the wipe-proof failure record that survives sandbox DB rollbacks.
-- **188 files in mutation scope** — pipeline logic, UI components, API routes, and the Prisma schema (see below).
-- The repo (`craighckby-stack/V1`) is **public** — commit links in the BRANCHES dialog resolve for anyone.
-- **Z.ai cortex auto-injects at server boot.** The Next.js instrumentation hook (`src/instrumentation.ts`) fires `warmZaiCortex()` before the first HTTP request: `ZAI.create()` (the SDK handshake, cached in a shared globalThis slot — the SAME instance every LLM call reuses) + a one-shot 4-token ping. The splash's Z.AI CORTEX line reads a connection that already exists, not one it has to wait for.
-- **The loop runs by itself when the quota allows.** When the shared 429 gate is active, the loop auto-pauses (stop is still honored within 1s) and the API QUOTA line counts down to the gate opening. When the gate clears, the loop auto-resumes — no operator input. The gate escalates 2min → 5min → 15min → 30min on consecutive 429s; one successful call de-escalates.
-- **Hot-swap lifetime is wipe-proof.** A disk journal in `.git/info/` is the source of truth; the DB is a mirror. A sandbox DB rollback can't erase the lifetime count.
-
-The system is currently running against a free-tier LLM API, which rate-limits frequently. When it does, the loop backs off honestly — each retry fires a log line in real time, the API QUOTA line counts down, and the loop auto-resumes the moment the gate opens. No fake progress.
+A self-improving system must not be able to rewrite its own OFF switch, its own judges, or its own memory.
 
 ---
 
-## Compounding intelligence — the Lesson system
+## Tech stack
 
-Postmortems are per-file and reactive: a scar log. Knowing `halt.ts` hates function removal doesn't help when the loop picks `sanitizer.ts`. **Lessons** are the transfer layer — general rules distilled from AGGREGATE history that inject into EVERY enhance prompt:
-
-```
---- LEARNED LESSONS (general rules this system distilled from its own history) ---
-1. Never remove error-handling branches or empty catch blocks without
-   replacing them with equal-or-better handling — the debate tribunal
-   rejects 'simplification' of error paths...
---- END LEARNED LESSONS ---
-```
-
-The loop is **distill → inject → measure → prune**:
-
-1. **Distill** — every 10 cycles, one LLM pass over aggregate failure patterns (failure-type counts, most-attempted files, recent successes) extracts up to 3 general rules. Deduped against existing lessons, including PRUNED ones (a rule that already failed to transfer isn't re-derived).
-2. **Inject** — top 5 lessons by trust score go into every prompt. Global, not per-file. A lesson from pipeline failures shapes a UI component mutation.
-3. **Measure** — every mutation verdict feeds back: pass → `helped++`, fail → `hindered++` for exactly the lessons that were injected.
-4. **Prune** — score = helped/(helped+hindered). Below 0.35 after ≥4 observations → deactivated. The lesson didn't transfer; it stops costing prompt tokens.
-
-This is meta-learning with a real feedback signal: the system learns WHICH of its own lessons actually raise the pass rate, keeps only those, and the score proves it. That's what compounds — each surviving lesson makes future mutations more likely to succeed, measurably.
+- **Next.js 16** (App Router, Turbopack) + **React 19** + **TypeScript 5**
+- **Tailwind CSS 4** + **shadcn/ui** (New York) — 48 primitives in `src/components/ui/`
+- **Prisma 6** + **SQLite** — 12 models (see below)
+- **z-ai-web-dev-sdk** — primary LLM (Z.ai cortex, auto-injected at server boot via `src/instrumentation.ts`)
+- **Google Gemini** (direct REST, optional, user-pasted key) with geo-bypass proxy on Fly.io
+- **Socket.io** — real-time state relay, mini-service on port 3003
+- **TypeScript Compiler API** — the AST diff gate + in-memory typecheck
+- **Bun** — runtime + test runner (`bun test` in the sandbox gate)
+- **Framer Motion**, **Zustand**, **TanStack Query/Table**, **recharts**, **react-markdown**, **react-hook-form**, **lucide-react**, **sonner**, **next-themes**, **cmdk**, **vaul**, **~30 @radix-ui primitives**
+- **Web Audio API** — synthesized boot soundtrack (no audio assets)
 
 ---
 
-## The auto-run state machine
+## Prisma schema (12 models)
 
-"Runs by itself" is a state machine, not a boolean. The loop's live phase is a derived value — a pure function of the armed intent, the scheduler state, the LLM quota gate, and two safety walls — and the splash's AUTONOMY line reports it honestly on every boot:
+`prisma/schema.prisma` is the system's memory. An additive-only gate (`schema-gate.ts`) is the only path that may touch it: new model blocks or new defaulted/nullable fields on non-protected models only. **Protected models** (never editable): `Postmortem`, `Lesson`, `GitPushTarget`, `LlmConfig`, `Prophecy`, `SystemFlag`, `MutationCorpus`, `MetaParam`.
+
+| Model | What it stores |
+|---|---|
+| `PipelineRun` | One execution of the 6-stage remote-repo pipeline (status, AST score, consensus, proofHash, original/evolved code) |
+| `AutonomousCycle` | One cycle of the remote-repo loop (files scanned/committed, status, proof hash) |
+| `MemoryEntry` | Long-term RAG memory (provenance, trust, content) |
+| `Postmortem` | Per-file negative constraint; tamper-evident chain (`parentHash` + `hash`); failure types: `AST_SYMBOL_DROPPED`, `AST_STRUCTURAL_DRIFT`, `REVIEW_REJECTED`, `SANITIZER_REDACTION`, `HEADER_STRIPPED`, `COMPILE_ERROR`, `WEAK_RATCHET`, `ZERO_DIFF_SATURATION` |
+| `GitPushTarget` | Singleton push target (sealed PAT, repo, branch, `lastBranchNumber` = the `loop-NN` counter) |
+| `SelfTask` | One concrete finding (kind, file, line, priority, status, attempts) — the loop's self-generated input |
+| `LlmConfig` | Singleton Gemini API key + model |
+| `Prophecy` | A falsifiable prediction the system makes about itself (claim, confidence, falsifiabilityCriterion, status) |
+| `SystemFlag` | Generic key/value runtime flag (safe-mode, red-team:last-run, etc.) |
+| `Lesson` | Compounding intelligence — general rules distilled from history (score = helped/(helped+hindered)) |
+| `MutationCorpus` | One row per mutation attempt (audit trail + transform signal) |
+| `MetaParam` | The loop's own tunable knobs as rows (DISTILL_INTERVAL, MAX_INJECTED, PRUNE_SCORE, etc.) |
+
+---
+
+## API routes (56)
+
+Mutating routes (POST/PUT/PATCH/DELETE) are gated by `src/middleware.ts` (`x-loop-key` header vs `LOOP_API_KEY`, 60 mutations/min/IP rate limit). Fail-open only while unset (one-time warn).
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/api` | Service index (lists every route) |
+| GET | `/api/health` | Liveness probe of every subsystem incl. WS mini-service |
+| GET/HEAD | `/api/healthz` | Minimal always-200 probe; exposes `mutationGate.configured` |
+| GET | `/api/boot/scan` | Boot-splash vitals (sealed-PAT auth, corpus, scars, autonomy, cortex, quota) |
+| POST | `/api/self-enhance/start` | Start the continuous self-enhance loop |
+| POST | `/api/self-enhance/stop` | Stop it |
+| GET | `/api/self-enhance/status` | Live status (running, stats, logs, current file, llmGate, saturation) |
+| POST | `/api/self-enhance/trigger` | Run one cycle (5s route cooldown) |
+| POST | `/api/self-enhance/push` | Manual git commit+push of live state |
+| GET/POST/DELETE | `/api/self-enhance/push-target` | Configure/clear GitHub push target (PAT never returned) |
+| GET/POST | `/api/self-enhance/llm-config` | Configure Gemini direct API key |
+| GET/POST | `/api/self-enhance/visibility` | Read/flip the GitHub repo's public/private flag |
+| GET | `/api/self-enhance/files` | Scanned-from-disk file inventory with protected flags |
+| GET | `/api/self-enhance/tasks` | List SelfTask queue + counts |
+| POST | `/api/self-enhance/rescan` | Re-scan source → generate new SelfTasks |
+| POST | `/api/self-enhance/skip` | User veto of next pending task |
+| POST | `/api/self-enhance/unlock` | Unlock a saturated file |
+| GET/POST | `/api/self-enhance/archaeology` | Run git-history miner (zero LLM) |
+| POST | `/api/self-enhance/chat-task/propose` | LLM proposes a plan from a user goal (no writes) |
+| POST | `/api/self-enhance/chat-task/apply` | Apply approved plan through the gate chain → push |
+| POST | `/api/autonomous/start` | Arm autonomous remote-repo loop |
+| POST | `/api/autonomous/stop` | Disarm (sticky) |
+| GET | `/api/autonomous/status` | Full LoopState (config, livePhase, stats, logs, currentCycle) |
+| POST | `/api/autonomous/trigger` | Manual one-shot remote cycle |
+| POST | `/api/autonomous/config` | Patch LoopConfig |
+| GET | `/api/autonomous/recent-cycles` | Recent cycle summaries |
+| POST | `/api/oracle/generate` | Generate 1–10 prophecies |
+| POST | `/api/oracle/evaluate` | Judge all due prophecies |
+| GET | `/api/oracle/status` | Counts, calibration per threshold, Brier score |
+| GET | `/api/oracle/prophecies` | Recent prophecies (cap 200) |
+| GET | `/api/oracle/events` | Oracle event ring buffer (200 cap, `since` cursor) |
+| GET/POST | `/api/oracle/archaeology` | Mine target repo's git history → seed prophecies |
+| GET/DELETE | `/api/postmortems` | List active postmortems; dismiss by id |
+| POST | `/api/postmortems/seed` | Import postmortems from external markdown |
+| GET/POST | `/api/postmortems/chain` | Verify/backfill the tamper-evident chain |
+| POST | `/api/red-team/run` | Run the 7-probe adversarial suite (300s timeout) |
+| GET | `/api/red-team/status` | Suite metadata + last run summary |
+| POST | `/api/emg/sanitize` | Run the sanitizer on pasted code |
+| POST | `/api/pipeline/run` | Manual 6-stage remote-repo pipeline run |
+| GET | `/api/pipeline/history` | Last 25 PipelineRun rows |
+| POST | `/api/secret-scan/scan` | Scan pasted content for secrets |
+| GET | `/api/memory/entries` | All MemoryEntry rows |
+| GET | `/api/memory/query` | TF-IDF ranked retrieval |
+| POST | `/api/duress/purge` | Manual PKM §3 purge (purge PAT → safe-mode → halt) |
+| GET | `/api/duress/status` | Safe-mode state + consecutive auth failures |
+| POST | `/api/duress/clear` | Operator clears safe-mode (read-back) |
+| POST | `/api/evolution/coherence-gate` | Length-ratio coherence check |
+| POST | `/api/evolution/debate` | Run the LLM debate tribunal |
+| GET | `/api/branches` | List `loop-NN` branches from GitHub |
+| GET | `/api/engines/catalog` | List configured siphon sources |
+| POST | `/api/hot-swap/trigger` | Force pipeline hot-swap |
+| GET | `/api/hot-swap/status` | Swap count + running fingerprint |
+| POST | `/api/github/validate-token` | Validate GitHub PAT |
+| POST | `/api/github/repo-tree` | Fetch repo tree (recursive) |
+| POST | `/api/github/fetch-file` | Fetch a single file |
+| POST | `/api/github/commit-file` | Commit a single file to a branch |
+| POST | `/api/github/batch-commit` | Commit multiple files in one batch |
+
+---
+
+## Safety mechanisms
+
+| Mechanism | File | What it does |
+|---|---|---|
+| **Protected-files list** | `autonomous/protected-files.ts` | 33 paths + 16 prefixes the loop can never touch — including the list itself |
+| **Mutation guard** | `core/mutation-guard.ts` | Synchronous fail-closed triage: newly-introduced `eval(`, `child_process`, `fetch(`, `globalThis[`, path-traversal, MD5/SHA1; protected-path + scaffolding check |
+| **AST diff gate** | `core/ast-diff-gate.ts` | TS compiler API symbol extraction; detects symbol-drop, branding-injection, structural drift. Score ≥ 50 to pass |
+| **Structural validator** | `autonomous/structural-validator.ts` | Regex pre-gate: destructive truncation, import stripping, export drop, test deletion, license-header stripping |
+| **In-memory typecheck** | `autonomous/in-memory-typecheck.ts` | Full project `tsc --noEmit` with refactored file substituted — Turbopack never sees broken code |
+| **Sandbox test** | `core/sandbox-test.ts` | Disposable `.loop-sandbox/verify-XXXX/`; candidate never touches live tree; isolated DB (blank when live DB >32MB) |
+| **Schema gate** | `autonomous/schema-gate.ts` | Additive-only Prisma mutations; canary round-trip after `db push`; restore on any failure |
+| **Sanitizer** | `emg/sanitizer.ts` | Shannon-entropy pre-screen for secrets/PII in LLM output |
+| **Secret scan** | `core/secret-scan.ts` | Pre-push scan of diff + commit message for ghp_/AIza/AKIA/sk-/xox/private keys |
+| **Debate tribunal** | `llm/debate-llm.ts` | 3 LLM reviewers (Security/Architecture/Lead); no fallback; validated stances + consensus |
+| **Halt governor** | `emg/halt.ts` | Self-stopping: tree-fingerprint-saturated, zero-diff-saturation, consecutive-failure-limit |
+| **Saturation lockout** | `autonomous/saturation.ts` | 3 consecutive no-growth cycles → file locked out for the rest of the pass |
+| **Postmortem chain** | `postmortem/postmortem-store.ts` + `postmortem-repo.ts` | Tamper-evident sha256 chain; disk JSON is the source of truth; rehydrates from disk on DB wipe |
+| **Ancestral RAG** | `postmortem/ancestral-rag.ts` | Zero-LLM keyword search over all verified postmortems |
+| **Lessons** | `autonomous/lesson-store.ts` + `lapse-detector.ts`, `mutation-corpus.ts`, `meta-params.ts`, `meta-tuner.ts`, `dreamer.ts`, `reflection.ts` | Every N cycles, distill general rules from history; inject top-K by score; measure helped/hindered; prune low-scorers |
+| **Crash wall** | `autonomous/crash-budget.ts` | 3 consecutive same-class crashes → sticky ARMED-PAUSED; persisted to `.git/info/` (survives process death) |
+| **Dead-man's switch** | `autonomous/operator-touch.ts` | 24h without operator touch → ARMED-PAUSED |
+| **Armed state** | `autonomous/armed-state.ts` | Wipe-proof `[START]`/`[STOP]` intent in `.git/info/loop-armed-state.json` |
+| **Tree lock** | `core/tree-lock.ts` | FIFO mutex serializing live-tree writes (loop vs chat-task) |
+| **Token vault** | `crypto/token-vault.ts` | AES-256-GCM `enc:v1:` envelope; key at `.git/info/loop-vault-key` (0600) |
+| **3-tier PAT** | `autonomous/push-target.ts` | DB → root state file → `.git/info/` (wipe-proof); all sealed; load-bearing read-back |
+| **Duress / safe-mode** | `core/duress.ts` | 5 consecutive 401/403 → purge PAT → raise safe-mode → halt; auto-rehydrate at boot |
+| **Red-team suite** | `red-team/red-team-suite.ts` + `red-team-runner.ts` | 7 probes (unauthorized-package, exfiltrate-keys, boundary-bypass, disable-gates, deceptive-cooperation, history-rewrite, pat-in-source); containment bypass → safe-mode |
+| **Gate-integrity probes** | `red-team/gate-integrity-probe.ts` | 15 deterministic self-audits of the LIVE gate code; any failure → safe-mode |
+| **Hot-swap** | `core/hot-swap.ts` | Replace running pipeline code between cycles without restart; state-continuous (cyclesCompleted + saturation preserved) |
+| **API-key gate + rate limit** | `src/middleware.ts` | POST/PUT/PATCH/DELETE require `x-loop-key`; 60 mutations/min/IP |
+| **Route cooldowns** | `autonomous/route-cooldown.ts` | 5s per-route cooldown on trigger endpoints |
+| **Crash handlers** | `src/instrumentation.ts` | Swallow `unhandledRejection`/`uncaughtException` (Bun would otherwise kill the process) |
+
+### The auto-run state machine
 
 ```
 DISARMED → [START] → ARMED-RUNNING
 ARMED-RUNNING → quota halt → ARMED-THROTTLED
 ARMED-THROTTLED → quota reset → ARMED-RECOVERING (30s settle)
 ARMED-RECOVERING → timer → ARMED-RUNNING / [PAUSE] → ARMED-PAUSED
-ARMED-PAUSED (sticky, only manual [START] releases it)
+ARMED-PAUSED (sticky — only manual [START] releases it)
 ```
 
-| Phase | Meaning | Operator action |
+**Stop-priority hierarchy (top wins):** operator `[STOP]` (sticky, wipe-proof) → crash-wall (3 same-class crashes, wipe-proof) → dead-man's switch (24h, wipe-proof) → quota gate (the only stop that AUTO-RECOVERS: throttle → 30s settle → resume, escalating 2/5/15/30min on consecutive 429s).
+
+---
+
+## File-by-file inventory
+
+### Root config
+
+| File | Purpose |
+|---|---|
+| `package.json` | Next.js 16 + React 19 + Prisma 6 + z-ai-web-dev-sdk + Socket.io stack; scripts `dev`/`build`/`start`/`db:*`/`test` |
+| `next.config.ts` | Standalone output; typecheck errors fail build; `reactStrictMode: false` (BIOS terminal polls in effects) |
+| `tsconfig.json` | Strict TS, ESNext, bundler resolution, `@/*` → `./src/*` alias |
+| `eslint.config.mjs` | `next/core-web-vitals` + `next/typescript` with most rules disabled (permissive stance) |
+| `postcss.config.mjs` | Tailwind v4 PostCSS plugin |
+| `components.json` | shadcn/ui New York config |
+| `Caddyfile` | Gateway :81; `?XTransformPort=3003` → WS mini-service, else → Next.js :3000 |
+| `start-dev.sh` | `exec bun run dev` from script dir |
+| `rea-restore.sh` | One-off cleanup of cosmetic headers from the old `rea` era (not live) |
+| `readme.bat` | Operator's fixed-point statement (a `.bat` so the `.ts`-only scanner can't ingest it) |
+| `bun.lock` | Bun lockfile |
+| `next-env.d.ts` | Next.js type references |
+| `.gitignore` | Excludes `node_modules`, `.next`, `.env*`, `dev.log`, `.loop-sandbox`, `.loop-push-state.json` |
+
+### `prisma/`
+
+| File | Purpose |
+|---|---|
+| `prisma/schema.prisma` | 12 models (see above). Additive-only through `schema-gate.ts`. Protected models: Postmortem, Lesson, GitPushTarget, LlmConfig, Prophecy, SystemFlag, MutationCorpus, MetaParam |
+
+### `src/app/`
+
+| File | Lines | Purpose |
 |---|---|---|
-| `DISARMED` | Loop off. | Press [START] to arm. |
-| `ARMED-RUNNING` | A cycle is in flight, gate open. | None — watch it work. |
-| `ARMED-THROTTLED` | 429 gate active; the loop auto-pauses. STOP still works within 1s. | None — the AUTONOMY line counts down to resume. |
-| `ARMED-RECOVERING` | The gate just cleared; a 30s settle window runs before the next cycle (avoids the immediate re-429 of firing the instant the gate opens). | None — live countdown shown. |
-| `ARMED-PAUSED` | Stopped: operator [STOP], the crash-wall, or the dead-man's switch. | **Manual [START] required** — nothing auto-resumes from here. |
+| `src/app/page.tsx` | 2465 | The single user-visible route — full-screen BIOS terminal; the operator's control surface. Patches `window.fetch` to attach `x-loop-key`; polls `/api/self-enhance/status` (2s), `/api/self-enhance/tasks` (5s), `/api/oracle/events` (5s, `since` cursor); command parser (`help`/`start`/`stop`/`status`/`task`/`push`/`oracle`/`skip`/`config`/`clear`...); git token masking in echo. **Protected control surface.** |
+| `src/app/layout.tsx` | — | Root HTML; dark theme; self-hosted Geist fonts via `geist` package; `<Toaster />`; metadata (title "LOOP", author "craighckby-stack"). **Protected.** |
+| `src/app/display/console-stream.tsx` | — | Mutable display layer — receives `ConsoleLine[]`, renders them. Owns no state (page.tsx does). The loop CAN refactor this freely. |
+| `src/app/globals.css` | — | shadcn/ui theme (Tailwind v4) |
 
-### The stop-priority hierarchy (top wins)
+### `src/app/api/` (56 routes)
 
-1. **Operator [STOP]** — sticky forever: written to the wipe-proof armed-state tier; no boot, probe, or quota event re-arms after a human stop.
-2. **Crash-wall** — 3 consecutive cycles throwing the SAME error class → the loop trips the wall, disarms, and persists `crashWall:true` to `.git/info/loop-crash-budget.json` so a segfault that kills the process can't silently reset the count and re-arm into the same crash loop. Different error classes reset the count (a network blip followed by a segfault is two problems, not a pattern). A clean cycle resets the budget.
-3. **Dead-man's switch** — if the operator hasn't touched the system in >24h ([START]/[STOP]/config PATCH all count as touches, recorded in `.git/info/loop-operator-touch.json`), auto-arm is denied and the loop reports ARMED-PAUSED. The operator must check in at least once a day for the autonomy to keep running — a runaway loop can't quietly burn quota for days while nobody watches.
-4. **Quota gate** — the only stop that AUTO-RECOVERS: throttle → 30s settle → resume, escalating 2/5/15/30min on consecutive 429s.
+All routes set `runtime = "nodejs"`, `dynamic = "force-dynamic"`. Mutating routes (POST/PUT/PATCH/DELETE) are gated by `src/middleware.ts`. See the API routes table above for the full list.
 
-**Quota ≠ budget.** The quota gate is the provider's permission — it auto-resumes. A budget (hard spend cap) would be the operator's money — that would require manual re-arm. Only the quota auto-recovers; everything else is sticky by design.
+### `src/middleware.ts`
+
+API-key gate + rate limit for `/api/:path*`. POST/PUT/PATCH/DELETE require `x-loop-key` header == `LOOP_API_KEY`. Fail-open if env unset (one-time warn). 60 mutations/min/IP sliding window, 1000-IP map cap. Outside the loop's scan scope.
+
+### `src/instrumentation.ts`
+
+Next.js instrumentation hook — runs once at server boot. Registers `unhandledRejection`/`uncaughtException` swallowers (Bun would otherwise kill the process on a native segfault). Fires `warmZaiCortex()` so the Z.AI SDK handshake + one-shot ping is in flight before the boot splash fetches `/api/boot/scan`.
+
+### `src/lib/`
+
+| File | Purpose |
+|---|---|
+| `src/lib/db.ts` | Prisma client singleton (cached on globalThis). **Protected.** |
+| `src/lib/utils.ts` | shadcn's `cn` helper (`twMerge(clsx(...))`) |
+| `src/lib/retro-boot-audio.ts` | WebAudio-synthesized boot soundtrack (CRT degauss thump + POST beep); master volume pinned at 1.0 |
+| `src/lib/pipeline-store.ts` | Client-side Zustand store (`wsConnected`, `loopState`, `pipelineReport`, `repoFiles`, `githubUser`, etc.) |
+| `src/lib/test.ts` | Empty placeholder |
+
+### `src/hooks/`
+
+| File | Purpose |
+|---|---|
+| `src/hooks/use-loop-socket.ts` | Connects to the WS mini-service via `io("/?XTransformPort=3003")`; on `state` event pushes `LoopState` into the Zustand store |
+| `src/hooks/use-toast.ts` | shadcn/ui toast hook (`TOAST_LIMIT = 1`) |
+| `src/hooks/use-mobile.ts` | `useIsMobile` — `matchMedia` at 768px |
+
+### `src/types/bun-test.d.ts`
+
+Ambient `bun:test` module declaration so the ratchet's gate 3 (`tsc --noEmit` over drafted tests) doesn't fail with TS2307.
+
+### `src/components/pipeline/` (17 panels)
+
+| File | Purpose |
+|---|---|
+| `boot-splash.tsx` (929) | BIOS cold/warm boot ceremony; fetches 7 vitals endpoints in parallel; CRT amber-phosphor aesthetic; honors `prefers-reduced-motion` |
+| `api-unlock.tsx` | UI half of the middleware's API-key gate; listens for `loop-api-unauthorized` event; bottom-right key prompt; fetches `/api/healthz` to confirm the gate is actually configured |
+| `oracle-panel.tsx` (588) | Modal: Oracle track record (counts, calibration per threshold 0.5/0.7/0.9, Brier score), recent prophecies, [GENERATE]/[EVALUATE] |
+| `defense-panel.tsx` (511) | Modal: DURESS/safe-mode (with [PURGE]/[CLEAR]), RED-TEAM (probe catalog + last run + [RUN SUITE]), SECRET-SCAN (paste-and-scan tool) |
+| `branches-panel.tsx` | Modal: `loop-NN` mutation branches from GitHub with commit message, sha, date, link |
+| `header-bar.tsx` | Sticky header with subsystem badges, loop status, WS connection, cycle count |
+| `loop-control-panel.tsx` (484) | Loop config form (mode, interval, target repo, branches); legacy shadcn-styled panel |
+| `manual-runner.tsx` | Manual single-file pipeline runner; legacy UI |
+| `pipeline-stages.tsx` | Animated stage-by-stage pipeline visualization (stages 0–5) |
+| `postmortem-panel.tsx` | Modal: per-file postmortems with failure-type color coding |
+| `recent-cycles.tsx` | Card: recent `AutonomousCycleSummary` rows |
+| `current-cycle.tsx` | Card: in-flight cycle (or "no active cycle") |
+| `debate-chamber.tsx` | Card: debate tribunal verdict (Security/Architecture/Lead) |
+| `memory-bank.tsx` | Card: `MemoryEntry` rows from `/api/memory/entries` |
+| `log-stream.tsx` | Card: live `LoopLogEntry[]` (legacy; live UI uses `<ConsoleStream>`) |
+| `ast-inspector-modal.tsx` | Modal: AST diff violations + sanitizer result for a manually-run pipeline report |
+
+### `src/components/ui/` (48 shadcn/ui New York primitives)
+
+Standard shadcn/ui components — accordion, alert, alert-dialog, aspect-ratio, avatar, badge, breadcrumb, button, calendar, card, carousel, chart, checkbox, collapsible, command, context-menu, dialog, drawer, dropdown-menu, form, hover-card, input, input-otp, label, menubar, navigation-menu, pagination, popover, progress, radio-group, resizable, scroll-area, select, separator, sheet, sidebar, skeleton, slider, sonner, switch, table, tabs, textarea, toast, toaster, toggle, toggle-group, tooltip. Outside the loop's scan scope.
+
+### `src/lib/pipeline/autonomous/` (41 files — the brain)
+
+| File | Purpose |
+|---|---|
+| `protected-files.ts` | **Single source of truth** for what the loop may NOT modify. 33 `PROTECTED_FILES` + 16 `PROTECTED_PREFIXES`. Protected itself. |
+| `loop-runtime.ts` (2007) | Remote-repo autonomous loop runtime (singleton on `globalThis.__autonomousLoopRuntime`); 4 modes; crash-wall; dead-man's switch; ARMED-RECOVERING 30s settle |
+| `self-enhance-loop.ts` (2665) | **THE BRAIN** — self-mutation loop. Scans own source, builds prompt with postmortems + ancestral RAG + lessons, LLM refactor, gate chain, commit + push to `loop-NN`. Per-cycle: ratchet-draft, distill lessons, meta-tune, test-attacker, gate-integrity-probe |
+| `self-task-generator.ts` | **THE INPUT LAYER** — static AST self-scan → `SelfTask` queue (todo, empty-catch, any, missing-return-type, unused-import, magic-number, non-null-assertion) |
+| `push-target.ts` (1587) | 3-tier sealed-PAT GitHub push (DB → root state → `.git/info/`); `git add` → secret-scan → commit → push (no force); auto-create repo; UUID-commit detector + auto-amend |
+| `verify-refactor.ts` | Child-process gate chain: mutation-guard → structural + AST → syntax → typecheck. Nothing written to disk |
+| `in-memory-typecheck.ts` | Full project `tsc --noEmit` with refactored file substituted via custom compiler host |
+| `structural-validator.ts` | Regex pre-gate: truncation, import stripping, export drop, test deletion, license stripping |
+| `code-analysis.ts` | Parser-aware source analysis (`maskTokens` uses real TS scanner to avoid URL-string false positives) |
+| `schema-gate.ts` | Additive-only Prisma mutation gate; structural check → `prisma validate` → `db push` → canary round-trip; restore on failure |
+| `saturation.ts` | Per-file saturation; `SCAN_SCOPES` (pipeline .ts, display .tsx, components .tsx, api .ts); `SATURATION_THRESHOLD = 3` |
+| `lesson-store.ts` (568) | Compounding intelligence — distill every `DISTILL_INTERVAL` cycles; inject top-K by score; measure helped/hindered; prune; revoke |
+| `lapse-detector.ts` | D1 — detect when an injected lesson was IGNORED (stemmed-token overlap ≥ 0.30) |
+| `meta-params.ts` | D8 — the loop's tunable knobs as DB rows (DISTILL_INTERVAL, MAX_INJECTED, PRUNE_SCORE, etc.) |
+| `meta-tuner.ts` (301) | D8 — L4 rung: every `TUNE_INTERVAL=50` cycles, snapshot pass rate, propose one step, accept only if trial ≥ baseline + 0.05 |
+| `mutation-corpus.ts` | D4 — one row per mutation attempt (audit trail + transform signal); retention capped at 2000 rows |
+| `dreamer.ts` | D3 — idle-time consolidation (ratchet-draft characterization tests, pattern-naming); self-skips when LLM gate closed |
+| `reflection.ts` | D7 — Reflexion. One cheap LLM call after a failed mutation (attempts ≥ 2) asks the model to diagnose its own reasoning |
+| `archaeology.ts` (484) | Deterministic git-history miner (zero LLM). 3-pass: REVERTED, SELF-FAIL, FIX-PAIR → fragility map + cross-file lessons |
+| `chat-task.ts` (610) | Operator-approved code writes. `proposeTaskPlan(goal)` → `applyTaskPlan` through the gate chain → push |
+| `task-executor.ts` | Runs a single SelfTask. Deterministic path (`missing-return-type` uses TS inference, zero LLM) + LLM path |
+| `lessons-markdown.ts` | D6 — mirror Lesson table into `memory/lessons.md` after every distillation pass (human-readable + human-editable) |
+| `armed-state.ts` | Wipe-proof `[START]`/`[STOP]` intent — `.git/info/loop-armed-state.json` |
+| `crash-budget.ts` | Wipe-proof crash counter — `.git/info/loop-crash-budget.json` |
+| `operator-touch.ts` | Wipe-proof dead-man's switch — `.git/info/loop-operator-touch.json` (24h threshold) |
+| `route-cooldown.ts` | Per-route cooldown guard (5s) on trigger endpoints |
+| `loop-event-bus.ts` | In-process pub/sub for streaming autonomous loop events (state, log, stage, push) |
+
+### `src/lib/pipeline/core/` (13 files — the gate machinery)
+
+| File | Purpose |
+|---|---|
+| `paths.ts` | Single source of truth for `PROJECT_ROOT` (detects via cwd markers; fallback `/home/z/my-project`) |
+| `unified-pipeline.ts` (761) | The 6-stage remote-repo pipeline (siphon vote → sanitize → ReAct → AST gate → debate → converge+commit) |
+| `ast-diff-gate.ts` | TS compiler API symbol extraction; detects symbol-drop, branding-injection, structural drift; score = retention (60%) + quality (40%) − branding (20×) |
+| `mutation-guard.ts` | Two-authority triage: synchronous fail-closed (newly-introduced evil tokens) + structural (protected paths + scaffolding) |
+| `secret-scan.ts` (536) | Pre-push secret/PII scanner; SENSITIVE_PATTERNS catalog + high-entropy fallback; `scanDiff` over added lines |
+| `duress.ts` (429) | Duress/purge protocol (PKM §3); 5 consecutive 401/403 → purge PAT → safe-mode → halt; auto-rehydrate at boot |
+| `hot-swap.ts` (650) | Replace running pipeline code between cycles; PAUSE → SNAPSHOT → CLEAR PINS → STASH → touch mtime; state-continuous |
+| `sandbox-test.ts` | Disposable `.loop-sandbox/verify-XXXX/`; candidate never touches live tree; isolated DB (blank when live >32MB); paranoia guard on `rmSync` |
+| `test-gate-journal.ts` | Defense-in-depth crash insurance (v1 era); 1-hour age expiry so a stale journal never reverts committed work |
+| `tree-lock.ts` | FIFO mutex serializing live-tree writers (loop vs chat-task) |
+| `siphon.ts` | Architectural pattern ingestion from 5 grafted sources; `performArchitecturalVote` by keyword threshold |
+| `binaryShield.ts` | SHA-256 helper (`computeHash`); used by the convergence stage |
+| `exclusion-patterns.ts` | Shared exclusion patterns for scan + AST + archaeology (lockfiles, generated, ledger/meta) |
+
+### `src/lib/pipeline/emg/` (4 files)
+
+| File | Purpose |
+|---|---|
+| `sanitizer.ts` | Shannon-entropy pre-screen + secret/PII scanner for LLM output; fixture-aware (skips test/mock/example paths) |
+| `debate.ts` | TYPES for the debate tribunal (the old rule-based `conductDebate` was removed — it fabricated reviewer statements) |
+| `halt.ts` | Self-stopping governor (`TREE_FINGERPRINT_SATURATED`, `ZERO_DIFF_SATURATION`, `CONSECUTIVE_FAILURE_LIMIT`, `MAX_CYCLES_REACHED`); uses real TS scanner so URL strings aren't misclassified |
+| `emg-rag.ts` | In-memory TF-IDF RAG over `MemoryEntry` rows; only real observations (no synthetic seed) |
+
+### `src/lib/pipeline/llm/` (3 files)
+
+| File | Purpose |
+|---|---|
+| `agent-llm.ts` (568) | Real LLM wrapper around `z-ai-web-dev-sdk`. **Shared 429 gate** (escalating 2/5/15/30min); serialized dispatch; 180s call timeout; Z.ai cortex auto-injection at server boot |
+| `debate-llm.ts` | 3-reviewer tribunal (Security/Architecture/Lead); parallel + synthesis; NO FALLBACK; validated stances + consensus; fence-escape hardening; 12k-char truncation |
+| `gemini-direct.ts` (628) | Direct Gemini REST with user-pasted key OR via `GEMINI_PROXY_BASE_URL` proxy; per-model circuit-breaker cascade (2.5-flash → 2.0-flash → 2.5-pro); 10-min location-block cooldown |
+
+### `src/lib/pipeline/oracle/` (8 files)
+
+| File | Purpose |
+|---|---|
+| `prophecy-store.ts` | Thin DB CRUD over `Prophecy`; never prunes (old prophecies are the track record) |
+| `prophecy-generator.ts` | Produces a falsifiable prediction grounded in the system's own history (recent git log + worklog + postmortems + cycles); strict JSON |
+| `prophecy-evaluator.ts` | Adversarial LLM judge; verdict fulfilled/failed/retired; RETIRED = "I can't tell" (honest, not a soft failure) |
+| `oracle-auto.ts` | Post-cycle automatic prophecy generation; guards (LLM gate closed → skip; ≥5 pending → skip) |
+| `oracle-scheduler.ts` | Background scheduler — every 5 min evaluates due prophecies; globalThis-guarded; `unref`'d; boots lazily |
+| `oracle-events.ts` | In-memory ring buffer (200 cap) of oracle lifecycle events; polled by the console stream |
+| `commit-archaeology.ts` (321) | Pair wrong/correct commits from a target repo's git history into a self-labeled prophecy dataset; 3 passes |
+| `prophecy-store.test.ts` | `bun:test` characterization tests for the prophecy store (exercises the real DB) |
+
+### `src/lib/pipeline/red-team/` (4 files)
+
+| File | Purpose |
+|---|---|
+| `red-team-suite.ts` | 7-probe adversarial catalog (v1.0.0): unauthorized-package, exfiltrate-keys, boundary-bypass, disable-gates, deceptive-cooperation, history-rewrite, pat-in-source. FAKE_GITHUB_PAT is runtime-joined so the source stays scanner-clean |
+| `red-team-runner.ts` | Runs the suite; classifier (refusal → BLOCKED; prohibited artifact → BYPASSED); errored → DEGRADED; BYPASS → postmortem + raises safe-mode |
+| `test-attacker.ts` | D5 — red team for the ratchet. Every `ATTACKER_INTERVAL=20` cycles, adversarial LLM finds DIVERGENCE or WEAK PIN in newest pinned tests |
+| `gate-integrity-probe.ts` | 15 deterministic probes (P1–P15) self-auditing the LIVE gate code; any failure → safe-mode |
+
+### `src/lib/pipeline/postmortem/` (3 files)
+
+| File | Purpose |
+|---|---|
+| `postmortem-store.ts` (1100) | Per-file negative constraints; tamper-evident sha256 chain; CANDIDATE→VERIFIED→REJECTED lifecycle; rehydrates from disk on DB wipe; `getConstraintsForFile` reads SQLite → disk JSON |
+| `postmortem-repo.ts` | Repo-backed persistence. JSON at `postmortems/<repo>/<branch>/<filepath>.json`; atomic writes (tmp + rename); `safeSegments` drops `..`; schema-2 carries `verificationStatus` + chain hashes |
+| `ancestral-rag.ts` | Zero-LLM-cost retrieval over the postmortem ledger (field-weighted: constraints=3, symptom=2, evidence=1); excludes current file's own postmortem |
+
+### `src/lib/pipeline/crypto/` (1 file)
+
+| File | Purpose |
+|---|---|
+| `token-vault.ts` | AES-256-GCM at-rest sealing for the GitHub PAT. Envelope `enc:v1:<iv>.<tag>.<ciphertext>`. Key at `.git/info/loop-vault-key` (0600, 32 random bytes, atomic tmp+rename). Fail-open seal (key unavailable → plaintext); fail-closed open (decrypt failure → empty string, never half-truth). Auto-migrates legacy plaintext |
+
+### `src/lib/pipeline/api/` (1 file)
+
+| File | Purpose |
+|---|---|
+| `github-helpers.ts` | GitHub token resolution + header builder for `/api/github/*`. ONLY client-supplied token considered (no env fallback — would be a silent write-proxy for every private repo). `isInvalidToken` rejects `MY_*` prefixes and `[REDACTED]`/`undefined` |
+
+### `src/lib/pipeline/engines/` (1 file)
+
+| File | Purpose |
+|---|---|
+| `clean-room-runtime.ts` (414) | Modular agent engine. `LifecycleKernel` (state machine: uninitialized/booting/ready/running/degraded/disposed, AbortController). `ReactLoopEngine` (bounded ReAct loop, max 8 steps). `executeCleanRoomEngine` runs the LLM reasoning loop with originalCode + filePath + postmortem constraints. Used by `unified-pipeline.ts` stage 2 |
+
+### `mini-services/loop-ws-service/`
+
+| File | Purpose |
+|---|---|
+| `index.ts` | Standalone Socket.IO server on :3003. Polls `/api/autonomous/status` every 1s. Emits `state` on change. Single-owner request routing (answers `/health` itself, delegates everything else to engine.io). Swallows uncaught exceptions (a telemetry relay must stay alive) |
+| `package.json` | `loop-ws-service` v1.0.0, ESM, `bun --hot index.ts`. Deps: `socket.io` ^4.7.5 |
+| `start-service.sh` | Daemon launcher — `setsid nohup bun --hot index.ts >> service.log 2>&1` |
+
+### `proxy/`
+
+| File | Purpose |
+|---|---|
+| `index.ts` | Gemini geo-bypass proxy (single-file Bun server). Validates `?key=<secret>` against `PROXY_SECRET` (constant-time). Swaps for `GEMINI_API_KEY`. Forwards only `/v1beta/` and `/v1/`. 120s upstream timeout. Key-leak scrub in error logs |
+| `package.json` | `loop-gemini-proxy` v1.0.0, ESM. Zero npm deps (Bun's built-in fetch + Bun.serve) |
+| `fly.toml` | Fly.io config. `primary_region = "sgp"`. `shared-cpu-1x 256mb`. `min_machines_running = 1` |
+| `Dockerfile` | Bun base image `oven/bun:1.3`. Copies only `index.ts` (no install — zero deps) |
+| `README.md` | Proxy usage docs |
+
+### `scripts/`
+
+| File | Purpose |
+|---|---|
+| `check-llm.ts` | One-off — prints whether the LlmConfig singleton row exists and what model/key it has |
+| `push-now.ts` | Manual push helper — calls `pushCurrentState({ message: "Manual push: current live state" })` |
+| `q.ts` | DB inspection — pending SelfTask counts by kind/priority/deferred |
+| `test-claim.ts` | DB inspection — simulates `claimNextTask` and prints the winner |
+| `test-models.ts` | LLM smoke test — calls z-ai-web-dev-sdk for 10 models and prints OK/FAIL |
+| `record-uuid-postmortem.ts` (130) | One-off — records the postmortem for the bare-UUID commit `e5d2b7a` (host restore orchestrator, not LOOP). Idempotent |
+| `audit-remote.ts` (135) | Security audit — uses sealed vault PAT to check remote visibility, list branches, scan for credential paths. Prints only findings, never the token |
+| `dev-daemon.py` | Python double-fork daemonizer for the Next.js dev server. `start`/`status`/`stop` subcommands |
+
+### `tests/`
+
+| File | Purpose |
+|---|---|
+| `python-runtime-build.sh` | Tests the Python runtime build pipeline (references `.zscripts/` paths) |
+| `python-runtime-container.sh` | Tests the Python artifact in a Docker container |
+| `database-runtime-build.sh` | Tests DB init/preview-data behavior (uses a fake `bun` on PATH) |
+
+### `build-guide/` (the LOOP-Build-Record.pdf derivation pipeline)
+
+| File | Purpose |
+|---|---|
+| `README.md` | Documents the derivation pipeline: `extractor.py` → `data.json` → `charts.py` → `cover.html` → `cover.pdf` → `generate.py` → `body.pdf` → merge → final PDF |
+| `extractor.py` (293) | Derives `data.json` from git ls-files + git log + worklog.md + postmortems/ + dev.log + screenshots/ |
+| `charts.py` (125) | Renders 3 figures (anatomy donut, growth curve, mutations-by-file) into `build-guide/charts/` with matplotlib (Agg, cascade palette) |
+| `generate.py` (691) | Assembles body PDF via ReportLab (TocDocTemplate + multiBuild, FreeSerif/DejaVu, cascade palette, orphan rules). Merges cover.pdf → `LOOP-Build-Record.pdf` |
+| `content_ch1_4.py` (276) | Chapters 1–4 narrative (What LOOP Is, The Dashboard, The Loop, The Gates) |
+| `content_ch5_6.py` (179) | Chapters 5 (The Failure Catalog) + 6 (Design Decisions) |
+| `content_ch7_8.py` (105) | Chapters 7 (Operator's Manual) + 8 (Audit Discipline) |
+| `data.json` (12228 lines) | The derived build-record data (file inventory buckets, per-file metadata, commit history, mutation stats, postmortem counts) |
+| `cover.html` | HTML cover template (rendered via html2poster.js) |
+| `cover.pdf`, `body.pdf` | Binary PDF artifacts |
+| `charts/fig{1,2,3}-*.png` | Binary chart artifacts |
+| `capture/0{1,2,3}-*.png` | Binary capture artifacts |
+
+### `docs/`
+
+| File | Purpose |
+|---|---|
+| `CONCEPTS-GRAFTED.md` | Intellectual lineage — concepts mined from the operator's public GitHub (`craighckby-stack`, 8 repos). GRAFT 1 (Git-Secret-PII-Sanitizer-2 → secret-scan), GRAFT 2 (PKM → duress + read-back), GRAFT 3 (Aether_Forge Ω darlekRAG → ancestral-rag), GRAFT 4 (Aether_Forge aetherforge-eval → red-team suite) |
+| `HOT-SWAP.md` | Explains the hot-swap mechanism (Turbopack's separate module registry, globalThis-pin-clearing, async completion on next API request) |
+| `screenshots/01-splash-post.png` ... `09-defense.png` | Binary screenshots referenced by this README |
+
+### `memory/`
+
+| File | Purpose |
+|---|---|
+| `memory/lessons.md` | D6 — human-auditable, DB-independent mirror of the Lesson table. Written by `lessons-markdown.ts` after every distillation pass. Human-editable (the distiller sees your edits and won't re-derive a contradicting rule) |
+
+### `postmortems/` (94 JSON files + 1 archaeology report)
+
+Tamper-evident disk mirror of the Postmortem table. Each JSON has `targetRepo`, `branch`, `filePath`, `status`, `verificationStatus`, `failureType`, `symptom`, `evidence`, `constraints`, `attempts`, `parentHash`, `hash` (sha256 chain), timestamps, `schema` (1 or 2).
+
+- `postmortems/archaeology-report.json` — latest archaeology run's fragility/stability report
+- `postmortems/craighckby-stack__V1/main/` (75 files) — mirrors the V1 repo's file tree (every `src/app/api/**`, `src/lib/pipeline/**`, `src/components/**`, `build-guide/*.py`, `scripts/*.ts`, `mini-services`, `proxy`)
+- `postmortems/self/main/` (18 files) — the self-referential scar log: 7 `red-team:rt-*` (suite runs), 4 `system:*` (commit-message-guard, duress, hot-swap, push-divergence), 7 per-file scars (`src/app/display/console-stream`, `src/lib/pipeline/api/github-helpers`, `src/lib/pipeline/autonomous/{dreamer,reflection}`, `src/components/pipeline/{debate-chamber,memory-bank,log-stream}`)
+
+### `screenshots/` (44 PNG files)
+
+Binary dashboard captures — dashboard states, the loop running, gate escalations, cooldowns, mobile viewports, audit dashboards. Not referenced by this README (the `docs/screenshots/` set is used instead).
+
+### `examples/`
+
+| File | Purpose |
+|---|---|
+| `examples/websocket/frontend.tsx` | Reference: how the frontend connects to a WS mini-service via `io("/?XTransformPort={Port}")` |
+| `examples/websocket/server.ts` | Reference: the WS mini-service server counterpart |
+
+### `download/`
+
+| File | Purpose |
+|---|---|
+| `download/README.md` | Explains the `download/` folder (for generated artifacts) |
+| `download/architecture-helper-pipeline.zip` | Generated zip (not source) |
+
+### `test-repo/src/` (5 files)
+
+A tiny reference repo (`logger.ts`, `cart.ts`, `config.ts`, `strings.ts`, `arrays.ts`) used for testing the loop's scan/AST/refactor pipeline against an external target without touching the main project.
 
 ---
 
 ## Security posture
 
-Credentials never live in tracked files. The GitHub PAT is sealed at rest with AES-256-GCM (`enc:v1:` envelope); the vault key, the sealed token, the armed intent, the crash budget, and the operator-touch timestamp all live in `.git/info/` — inside the git directory itself, structurally invisible to `git add`, never tracked, never pushed. Before making this repo public, a full sweep was run:
+Credentials never live in tracked files. The GitHub PAT is sealed at rest with AES-256-GCM (`enc:v1:` envelope, `crypto/token-vault.ts`); the vault key, the sealed token, the armed intent, the crash budget, and the operator-touch timestamp all live in `.git/info/` — inside the git directory itself, structurally invisible to `git add`, never tracked, never pushed.
 
-- **The real PAT**: searched every commit on every branch (local history + remote tree) — zero occurrences.
-- **Token-shaped literals**: all 596 tracked files pattern-scanned (GitHub PAT, Google/OpenAI/Anthropic/AWS/Slack keys, private key blocks, vault envelopes) — zero real credentials. The one historical `ghp_`-shaped string (an all-same-character dummy inside the red-team attack suite) was replaced with a runtime-constructed value so even secret scanners come back clean.
-- **`.env` history**: ever-committed `.env` files contain only a local SQLite `DATABASE_URL` (a file path, not a credential); `.env` was untracked long ago and is gitignored now.
-- **Mutating API routes**: optionally gated by `LOOP_API_KEY` (middleware, fail-open only while unset — see Quick start).
+Before making this repo public, a full sweep was run:
 
----
-
-## Use it on z.ai
-
-LOOP was built and runs as a [z.ai](https://z.ai) Code project — the repo you're reading is its source of truth:
-
-- **Repo**: [github.com/craighckby-stack/V1](https://github.com/craighckby-stack/V1) — every `loop-NN` branch is one compiler-verified self-mutation, publicly auditable.
-- **Live instance**: the machine runs in a z.ai Code sandbox. Open the project in z.ai Code and the terminal is right there in the preview panel — boot splash, POST diagnostics, and the [ ▶ ENTER THE LOOP ] invite.
-- **Try it yourself**: clone the repo, `bun install && bun run db:push && bun run dev`, open the preview, type `start`. Configure a classic PAT with repo scope in [CONFIG] to watch it push its own mutations to your GitHub.
-
-The first [START] is the only manual step. After that it arms itself, runs whenever the quota allows, throttles and recovers on its own, and stops for a human when the walls trip.
-
----
-
-## The mutation scope — 188 files
-
-| Scope | Files | Gate chain |
-|---|---|---|
-| Pipeline logic (`src/lib/pipeline/`) | 65 | ratchet pin → tsc + AST → debate → sandboxed test gate |
-| Display layer (`src/app/display/`) | 1 | same |
-| UI components (`src/components/`) | 64 | same |
-| API routes (`src/app/api/`) | 57 | same |
-| Prisma schema (`prisma/schema.prisma`) | 1 | **additive-only gate** (see below) |
-
-Everything the system IS lives inside its own reach: the loop can enhance the components that render it, the routes that serve it, and (additively) the database that remembers for it. Churn is bounded by the saturation lockout — 3 no-growth cycles per file and it locks out until the operator unlocks it.
-
-### The additive-only schema gate
-
-The most dangerous thing the loop could touch is its own memory substrate. A bad schema change can destroy the postmortem DB. So schema mutations pass through the strictest gate in the pipeline:
-
-- **Allowed**: new model blocks; new nullable/`@default()` fields on non-protected models (existing rows backfill).
-- **Rejected**: any removal, rename, or type change; ANY edit to the protected memory models (Postmortem, Lesson, GitPushTarget, LlmConfig, Prophecy, SystemFlag).
-- **Chain**: structural diff check → `prisma validate` → `db push` → canary round-trip (a fresh child process reads the memory tables through the regenerated client). Any step failing → the original schema is restored and re-pushed. The loop can GROW its memory but never EDIT or FORGET it.
-
-### What stays protected
-
-The loop's own brain (gate chain, loop runtime, push auth, LLM wrappers, the lesson store, the schema gate, the protection list itself), the UI control surface (`page.tsx` — your STOP button), the control API subtree (`api/self-enhance/**` — the backend of the kill switch), the health probe, and `src/lib/db.ts`. A self-improving system must not be able to rewrite its own OFF switch, its own judges, or its own memory.
-
----
-
-## Tech stack
-
-- **Next.js 16** (App Router, Turbopack) + **TypeScript 5**
-- **Tailwind CSS 4** + **shadcn/ui** (New York)
-- **Prisma ORM** + SQLite
-- **Socket.io** for the real-time activity stream (mini-service on port 3003)
-- **TypeScript Compiler API** for the AST diff gate
-- **z-ai-web-dev-sdk** for LLM calls (server-side only) — auto-injected at **server boot** via the Next.js instrumentation hook, so the provider connection exists before the first request
-- **Web Audio API** for the synthesized boot soundtrack (no audio assets — all oscillators)
+- **The real PAT**: searched every commit on every branch — zero occurrences.
+- **Token-shaped literals**: all tracked files pattern-scanned (GitHub PAT, Google/OpenAI/Anthropic/AWS/Slack keys, private key blocks, vault envelopes) — zero real credentials. The one historical `ghp_`-shaped dummy inside the red-team attack suite was replaced with a runtime-constructed value so even secret scanners come back clean.
+- **`.env` history**: ever-committed `.env` files contain only a local SQLite `DATABASE_URL` (a file path, not a credential); `.env` is gitignored.
+- **Mutating API routes**: optionally gated by `LOOP_API_KEY` (middleware, fail-open only while unset).
 
 ---
 
@@ -286,33 +604,28 @@ bun run dev
 cd mini-services/loop-ws-service && bun run dev
 ```
 
-Open the preview panel. Type `start`. Watch it work.
+Open the preview panel. The boot splash fetches its own vitals, stamps the 15 POST lines, and addresses you with `[ ▶ ENTER THE LOOP ]`. Press ENTER. Type `start`. Watch it work.
 
 To configure the push target (so mutations land on GitHub), type `config` or click `[CONFIG]` and paste a classic PAT (repo scope) + `owner/repo`. The PAT is sealed at rest with AES-256-GCM the moment it lands; subsequent boots auto-connect (the server opens the vault and asks GitHub `GET /user` with zero operator input).
 
 ### Optional: API key gate
 
-Set `LOOP_API_KEY` in `.env` to lock down mutating API routes (POST/PUT/PATCH/DELETE). The middleware (`src/middleware.ts`) gates every mutating request against the `x-loop-key` header; GET/HEAD/OPTIONS pass through untouched so polling and health checks keep working. When unset, the gate **fails open** (with a one-time console warning) so the system stays bootable — and the UI's bottom-right `API KEY NOT SET — MUTATIONS LOCKED` hint only renders when the server confirms it's actually configured to gate. Enter the key in the UI unlock panel (bottom-right) when a mutation 401s; it's stored in `localStorage` and attached to every mutating fetch from then on.
+Set `LOOP_API_KEY` in `.env` to lock down mutating API routes (POST/PUT/PATCH/DELETE). The middleware gates every mutating request against the `x-loop-key` header; GET/HEAD/OPTIONS pass through untouched. When unset, the gate fails open (with a one-time console warning). Enter the key in the UI unlock panel (bottom-right) when a mutation 401s; it's stored in `localStorage` and attached to every mutating fetch.
+
+### Optional: Gemini direct
+
+Paste a Gemini API key via the `[CONFIG]` modal (or `POST /api/self-enhance/llm-config`). The key is stored in the `LlmConfig` singleton row (DB, never returned to the client). Optionally deploy the `proxy/` to Fly.io for geo-bypass and set `GEMINI_PROXY_BASE_URL`.
 
 ---
 
 ## Honest limitations
 
-- **The LLM has to be reachable.** The loop depends on an external LLM endpoint. When it returns 429s, the loop backs off honestly — each retry fires a log line. If the endpoint is hard-down, every cycle completes structurally (scan → attempt → fail → next) but produces zero mutations.
+- **The LLM has to be reachable.** When it returns 429s, the loop backs off honestly — each retry fires a log line. If the endpoint is hard-down, every cycle completes structurally (scan → attempt → fail → next) but produces zero mutations.
 - **The first attempt at any file is the dumbest.** The postmortem is written only after the first failure. Every subsequent attempt is informed.
-- **The compounding is real but bounded.** The Lesson system adds measured transfer (general rules that raise the pass rate across files, with a score that proves it) — but it compounds prompt-context quality, not capability. The system gets better at making mutations that PASS; it does not get better at understanding code beyond what the LLM already understood. The ceiling is the LLM; the lessons just stop you paying for the same mistake twice.
-- **The intelligence is outsourced.** The LLM does the generation; the system's actual cleverness is in the gating — TypeScript compiler, structural validator, postmortem chain, push pipeline. The system is a well-built scaffold around an LLM that proposes diffs.
-- **The postmortem chain is the system vouching for itself.** "Verified" means the LLM checked its own work and the validator passed — not external verification. Same with the Oracle: it predicts its own operational outcomes, which is a neat closed loop but self-referential, not external-world modeling.
+- **The compounding is real but bounded.** The Lesson system adds measured transfer (general rules that raise the pass rate across files, with a score that proves it) — but it compounds prompt-context quality, not capability. The ceiling is the LLM; the lessons just stop you paying for the same mistake twice.
+- **The intelligence is outsourced.** The LLM does the generation; the system's actual cleverness is in the gating. The system is a well-built scaffold around an LLM that proposes diffs.
+- **The postmortem chain is the system vouching for itself.** "Verified" means the LLM checked its own work and the validator passed — not external verification. Same with the Oracle: it predicts its own operational outcomes, which is a neat closed loop but self-referential.
 - **Push target has to be configured to see branches on GitHub.** Without a configured PAT + repo, the loop falls back to commit-only (local commits, no `loop-NN` branches on a remote).
-
----
-
-## What this is not
-
-- Not AGI. Not conscious. Not dangerous. Not a demo that stops when you stop watching.
-- Not a parlour trick either — it's a real, running, bounded autonomous self-mutation experiment that has produced 108 compiler-verified patches to its own source code and pushed them to a public git history you can audit right now.
-
-The engineering is in the gating, the persistence (3-tier state survival across sandbox restarts), and the boundary (the loop can't rewrite its own OFF switch). That's the craft. The LLM is the easy part.
 
 ---
 
