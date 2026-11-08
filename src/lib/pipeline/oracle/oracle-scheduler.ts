@@ -91,9 +91,14 @@ export async function oracleSchedulerTick(): Promise<{
   let due: any[] = [];
   try {
     due = await listDueProphecies();
+    // Validate that we got an array back
+    if (!Array.isArray(due)) {
+      throw new Error(`listDueProphecies() returned non-array: ${typeof due}`);
+    }
   } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
     emitOracleEvent(
-      `Oracle scheduler tick error: ${(err as Error).message}`,
+      `Oracle scheduler tick error: ${error.message}`,
       "error",
       "scheduler",
     );
@@ -129,8 +134,9 @@ function bootOracleScheduler(): void {
   const timer = setInterval(() => {
     oracleSchedulerTick().catch((err) => {
       // A background bookkeeper must never crash the process.
+      const error = err instanceof Error ? err : new Error(String(err));
       emitOracleEvent(
-        `Oracle scheduler tick error: ${(err as Error).message}\n${(err as Error).stack}`,
+        `Oracle scheduler tick error: ${error.message}\n${error.stack}`,
         "error",
         "scheduler",
       );
