@@ -52,16 +52,6 @@ export function githubHeaders(token: string | null): Record<string, string> {
 
   const trimmedToken = token.trim();
 
-  if (typeof token !== 'string' || !trimmedToken) {
-    // Never echo the value into the message — even a malformed token
-    // shouldn't be splatted into error logs.
-    throw new Error(`Invalid token provided: must be a non-empty string.`);
-  }
-
-  if (isInvalidToken(token)) {
-    throw new Error(`Invalid token provided: contains invalid patterns (placeholder/REDACTED markers).`);
-  }
-
   if (trimmedToken.length < MIN_TOKEN_LENGTH) {
     throw new Error(`Invalid token provided: must be at least ${MIN_TOKEN_LENGTH} characters long. Received: ${trimmedToken.length} characters`);
   }
