@@ -50,22 +50,43 @@ export function ApiUnlock() {
   // when BOTH (a) no key is in localStorage AND (b) the server confirms
   // it has LOOP_API_KEY configured — see mutationGateConfigured above.
   useEffect(() => {
-    setHasKey(window.localStorage.getItem(STORAGE_KEY) !== null);
+    // Check localStorage only on client side
+    if (typeof window !== "undefined") {
+      setHasKey(window.localStorage.getItem(STORAGE_KEY) !== null);
+    }
+    
     let cancelled = false;
-    fetch("/api/healthz", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: unknown) => {
+    let abortController: AbortController | null = null;
+    
+    const checkHealthz = async () => {
+      abortController = new AbortController();
+      try {
+        const response = await fetch("/api/healthz", { 
+          cache: "no-store",
+          signal: abortController.signal 
+        });
+        if (!response.ok) return;
+        const data = await response.json();
         if (cancelled) return;
-        const cfg = (d as { mutationGate?: { configured?: unknown } } | null)?.mutationGate?.configured;
+        const cfg = (data as { mutationGate?: { configured?: unknown } } | null)?.mutationGate?.configured;
         setMutationGateConfigured(typeof cfg === "boolean" ? cfg : null);
-      })
-      .catch(() => {
-        if (!cancelled) setMutationGateConfigured(null);
-      });
+      } catch (error) {
+        if (!cancelled && error instanceof Error && error.name !== "AbortError") {
+          setMutationGateConfigured(null);
+        }
+      }
+    };
+
+    checkHealthz();
+
     const onUnauthorized = () => setLocked(true);
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    
     return () => {
       cancelled = true;
+      if (abortController) {
+        abortController.abort();
+      }
       window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     };
   }, []);
@@ -85,8 +106,12 @@ export function ApiUnlock() {
 
   const unlock = useCallback(() => {
     const key = value.trim();
-    if (!key) return;
-    window.localStorage.setItem(STORAGE_KEY, key);
+    if (!key) {
+      return;
+    }
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STORAGE_KEY, key);
+    }
     // Reload so the patched fetch attaches the key to every mutation.
     window.location.reload();
   }, [value]);
