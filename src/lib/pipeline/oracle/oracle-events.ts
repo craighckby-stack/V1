@@ -79,6 +79,13 @@ export function emitOracleEvent(
   type: OracleEvent["type"] = "info",
   source: OracleEvent["source"] = "scheduler",
 ): OracleEvent {
+  if (message == null) {
+    throw new Error("Oracle event message cannot be null or undefined");
+  }
+  if (source == null) {
+    throw new Error("Oracle event source cannot be null or undefined");
+  }
+  
   const s = state();
   const trimmed =
     message.length > 300 ? `${message.slice(0, 299)}…` : message;

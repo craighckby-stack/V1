@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/oracle/oracle-auto.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: [AST_STRUCTURAL_DRIFT] Structural drift exceeds safe threshold (74%)",
+  "evidence": "Original: 3177 bytes, Refactored: 3836 bytes. Errors: [AST_STRUCTURAL_DRIFT] Structural drift exceeds safe threshold (74%)",
+  "constraints": "The previous refactor of src/lib/pipeline/oracle/oracle-auto.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "d673a6842f5fec0125c73559e4c2d0ec2055e9ed101e9e94202d74f2c19a8b80",
+  "hash": "c57a438364c76923f59081f1f26d373fc3b412db268f813a5cceadb951f77cad",
+  "lastAttemptAt": "2026-11-08T10:38:44.966Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-08T10:38:44.967Z",
+  "updatedAt": "2026-11-08T10:38:44.967Z",
+  "schema": 2
+}
