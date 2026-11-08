@@ -42,17 +42,28 @@ export type LoopEvent =
 type LoopEventListener = (evt: LoopEvent) => void;
 
 class LoopEventBus {
-  private readonly emitter = new EventEmitter();
+  private readonly emitter: EventEmitter;
 
   constructor() {
-    this.emitter.setMaxListeners(50);
+    try {
+      this.emitter = new EventEmitter();
+      this.emitter.setMaxListeners(50);
+    } catch (error) {
+      throw new Error(`Failed to initialize LoopEventBus: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   public emit(evt: LoopEvent): boolean {
+    if (evt == null) {
+      throw new Error("LoopEventBus.emit() called with null/undefined event");
+    }
     return this.emitter.emit("event", evt);
   }
 
   public on(listener: LoopEventListener): () => void {
+    if (typeof listener !== "function") {
+      throw new Error("LoopEventBus.on() called with non-function listener");
+    }
     this.emitter.on("event", listener);
     return () => {
       this.emitter.off("event", listener);
