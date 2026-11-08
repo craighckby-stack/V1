@@ -69,6 +69,7 @@ interface PostLine {
   value: string;
   stamp: string;
   warn?: boolean;
+  link?: string;
 }
 
 interface Vitals {
