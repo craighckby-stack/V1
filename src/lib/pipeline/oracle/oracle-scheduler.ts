@@ -88,7 +88,18 @@ export async function oracleSchedulerTick(): Promise<{
   // beats kicking off the evaluator for nothing (the evaluator's own
   // DB read is cheap too, but this keeps the tick's happy path at
   // exactly one query and no LLM calls at all).
-  const due = await listDueProphecies();
+  let due: any[] = [];
+  try {
+    due = await listDueProphecies();
+  } catch (err) {
+    emitOracleEvent(
+      `Oracle scheduler tick error: ${(err as Error).message}`,
+      "error",
+      "scheduler",
+    );
+    return { ran: false, reason: "failed to list due prophecies" };
+  }
+
   if (due.length === 0) {
     s.lastTickAt = Date.now();
     s.ticks += 1;
@@ -119,7 +130,7 @@ function bootOracleScheduler(): void {
     oracleSchedulerTick().catch((err) => {
       // A background bookkeeper must never crash the process.
       emitOracleEvent(
-        `Oracle scheduler tick error: ${(err as Error).message}`,
+        `Oracle scheduler tick error: ${(err as Error).message}\n${(err as Error).stack}`,
         "error",
         "scheduler",
       );
