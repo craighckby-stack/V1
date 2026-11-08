@@ -65,7 +65,7 @@ export function markArmed(armed: boolean, by: string): void {
     mkdirSync(infoDir, { recursive: true });
     
     // Validate input
-    if (!by || by.trim() === "") {
+    if (!by || typeof by !== "string" || by.trim() === "") {
       throw new Error("markArmed: 'by' parameter must be a non-empty string");
     }
     
