@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/api/github-helpers.test.ts",
+  "status": "active",
+  "verificationStatus": "candidate",
+  "failureType": "WEAK_RATCHET",
+  "symptom": "Red-team attacker (weak-pin): The source code has a type inconsistency in the `isInvalidToken` function. The function is defined to accept a string pa",
+  "evidence": "Attacker suggested fix: Change the `isInvalidToken` function to handle non-string inputs by adding a type check at the beginning: `if (typeof token !== 'string') return true;`. This would make the function more robust and match the behavior in `githubHeaders` which explicitly checks for string types.",
+  "constraints": "The ratchet pin on this module has a reported weakness (weak-pin). It is a CANDIDATE finding — verify before acting. Do not weaken the pin to make it pass.",
+  "attempts": 1,
+  "parentHash": "70508d900228c927b941822e979c14c50297e83d651b53bdaa33199cfc6203f9",
+  "hash": "54f42d3c5859201f04ebfb94ff08bf2bf312353ebbe159e68e2a349fbd305872",
+  "lastAttemptAt": "2026-11-08T09:24:58.161Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-08T09:24:58.162Z",
+  "updatedAt": "2026-11-08T09:24:58.162Z",
+  "schema": 2
+}
