@@ -50,11 +50,6 @@ export function githubHeaders(token: string | null): Record<string, string> {
     };
   }
 
-  // Add input validation to ensure token is a string
-  if (typeof token !== 'string') {
-    throw new Error(`Invalid token provided: expected a string but received ${typeof token}`);
-  }
-
   const trimmedToken = token.trim();
 
   if (trimmedToken.length < MIN_TOKEN_LENGTH) {
