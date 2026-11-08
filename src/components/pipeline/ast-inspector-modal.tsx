@@ -23,9 +23,12 @@ export function AstInspectorModal() {
 
   if (!inspectorFile) return null;
   const { path, original, evolved, report } = inspectorFile;
-  const ast = report.astDiffResult;
-  const sanitizer = report.sanitizerResult;
+  
+  // Add null checks for nested properties
+  const ast = report?.astDiffResult;
+  const sanitizer = report?.sanitizerResult;
 
+  // Add input validation for violation severity
   const violationIcon: Record<string, typeof CheckCircle2> = {
     high: XCircle,
     medium: AlertTriangle,
@@ -60,23 +63,23 @@ export function AstInspectorModal() {
               </div>
               <div className="text-[11px] text-slate-400 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="inline-flex items-center gap-1">
-                  <GitCommit className="h-3 w-3" /> proof {report.proofCommitHash}
+                  <GitCommit className="h-3 w-3" /> proof {report?.proofCommitHash}
                 </span>
-                <span>AST {ast.astScore}/100</span>
+                <span>AST {ast?.astScore}/100</span>
                 <span className="inline-flex items-center gap-1">
                   status
                   <Badge
                     variant="outline"
                     className={cn(
                       "ml-1 text-[9px] uppercase tracking-widest",
-                      report.status === "COMPLETED"
+                      report?.status === "COMPLETED"
                         ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-                        : report.status === "REJECTED"
+                        : report?.status === "REJECTED"
                         ? "bg-rose-500/15 text-rose-300 border-rose-500/40"
                         : "bg-amber-500/15 text-amber-300 border-amber-500/40"
                     )}
                   >
-                    {report.status}
+                    {report?.status}
                   </Badge>
                 </span>
               </div>
@@ -86,8 +89,13 @@ export function AstInspectorModal() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  navigator.clipboard.writeText(evolved);
-                  toast({ title: "Copied evolved code", description: `${evolved.length} bytes to clipboard` });
+                  navigator.clipboard.writeText(evolved)
+                    .then(() => {
+                      toast({ title: "Copied evolved code", description: `${evolved.length} bytes to clipboard` });
+                    })
+                    .catch(() => {
+                      toast({ title: "Failed to copy code", description: "Please try copying manually" });
+                    });
                 }}
                 className="bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-200"
               >
@@ -132,38 +140,38 @@ export function AstInspectorModal() {
             <div className="space-y-1.5">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">AST Symbol Map</div>
               <div className="text-xs text-slate-300 font-mono">
-                <div>Original: <span className="text-amber-300">{ast.symbolMap.originalCount}</span></div>
-                <div>Proposed: <span className="text-cyan-300">{ast.symbolMap.proposedCount}</span></div>
-                <div>Retained: <span className="text-emerald-300">{ast.symbolMap.retainedCount}</span></div>
+                <div>Original: <span className="text-amber-300">{ast?.symbolMap?.originalCount}</span></div>
+                <div>Proposed: <span className="text-cyan-300">{ast?.symbolMap?.proposedCount}</span></div>
+                <div>Retained: <span className="text-emerald-300">{ast?.symbolMap?.retainedCount}</span></div>
               </div>
               <div className="text-[10px] text-slate-500">
-                Drift ratio: <span className="font-mono text-amber-300">{(ast.structuralDriftRatio * 100).toFixed(0)}%</span>
+                Drift ratio: <span className="font-mono text-amber-300">{(ast?.structuralDriftRatio ? (ast.structuralDriftRatio * 100).toFixed(0) : '0')}%</span>
               </div>
             </div>
             <div className="space-y-1.5">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Sanitizer</div>
               <div className="text-xs text-slate-300">
                 Clean:{" "}
-                <span className={sanitizer.clean ? "text-emerald-300" : "text-rose-300"}>
-                  {sanitizer.clean ? "YES" : "NO"}
+                <span className={sanitizer?.clean ? "text-emerald-300" : "text-rose-300"}>
+                  {sanitizer?.clean ? "YES" : "NO"}
                 </span>
               </div>
               <div className="text-xs text-slate-300">
-                Violations: <span className="font-mono text-amber-300">{sanitizer.violations.length}</span>
+                Violations: <span className="font-mono text-amber-300">{sanitizer?.violations?.length || 0}</span>
               </div>
               <div className="text-xs text-slate-300">
-                High-entropy: <span className="font-mono text-amber-300">{sanitizer.highEntropyTokensFound}</span>
+                High-entropy: <span className="font-mono text-amber-300">{sanitizer?.highEntropyTokensFound || 0}</span>
               </div>
             </div>
             <div className="space-y-1.5">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">AST Violations</div>
-              {ast.violations.length === 0 ? (
+              {ast?.violations?.length === 0 ? (
                 <div className="text-xs text-emerald-300 flex items-center gap-1.5">
                   <CheckCircle2 className="h-3 w-3" /> None — passed all gates
                 </div>
               ) : (
                 <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
-                  {ast.violations.map((v, i) => {
+                  {ast?.violations?.map((v, i) => {
                     const Icon = violationIcon[v.severity] ?? AlertTriangle;
                     return (
                       <div key={i} className="flex items-start gap-1.5 text-[11px]">
