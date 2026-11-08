@@ -42,8 +42,34 @@ export function DebateChamber() {
   }
 
   const verdict = report.reviewVerdict;
-  const consensusPct = Math.round(verdict.consensusCoefficient * 100);
-  const frictionPct = Math.round(verdict.cognitiveFriction * 100);
+  if (!verdict) {
+    return (
+      <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-slate-100 flex items-center gap-2 text-base">
+            <Scale className="h-4 w-4 text-emerald-400" />
+            Code Review Tribunal
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-slate-500 italic py-6 text-center">
+            Review verdict not available yet.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const consensusPct = Math.round(
+    typeof verdict.consensusCoefficient === 'number' && !isNaN(verdict.consensusCoefficient) 
+      ? verdict.consensusCoefficient * 100 
+      : 0
+  );
+  const frictionPct = Math.round(
+    typeof verdict.cognitiveFriction === 'number' && !isNaN(verdict.cognitiveFriction)
+      ? verdict.cognitiveFriction * 100
+      : 0
+  );
 
   return (
     <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur">
@@ -65,7 +91,7 @@ export function DebateChamber() {
                   : "bg-rose-500/15 text-rose-300 border-rose-500/40"
               )}
             >
-              {verdict.consensus.replace("_", " ")}
+              {verdict.consensus?.replace("_", " ") || "UNKNOWN"}
             </Badge>
             <div className="text-right">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Consensus</div>
@@ -101,7 +127,7 @@ export function DebateChamber() {
       <CardContent>
         <div className="space-y-2.5">
           <AnimatePresence>
-            {verdict.arguments.map((arg, idx) => (
+            {verdict.arguments?.map((arg, idx) => (
               <motion.div
                 key={`${arg.speaker}-${idx}`}
                 initial={{ opacity: 0, y: 8 }}
@@ -123,11 +149,13 @@ export function DebateChamber() {
                     {arg.stance}
                   </Badge>
                   <span className="ml-auto text-[10px] text-slate-400 font-mono">
-                    friction {(arg.cognitiveFriction * 100).toFixed(0)}%
+                    friction {typeof arg.cognitiveFriction === 'number' && !isNaN(arg.cognitiveFriction) 
+                      ? (arg.cognitiveFriction * 100).toFixed(0) 
+                      : '0'}%
                   </span>
                 </div>
                 <p className="text-xs text-slate-200 leading-relaxed">{arg.statement}</p>
-                {arg.citations.length > 0 && (
+                {arg.citations?.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1">
                     {arg.citations.map((c) => (
                       <span
@@ -150,7 +178,7 @@ export function DebateChamber() {
             <div className="flex-1">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Security Findings</div>
               <ul className="text-xs text-slate-300 space-y-0.5 mt-0.5">
-                {verdict.securityPoints.map((p, i) => (
+                {verdict.securityPoints?.map((p, i) => (
                   <li key={i}>• {p}</li>
                 ))}
               </ul>
@@ -161,7 +189,7 @@ export function DebateChamber() {
             <div className="flex-1">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Architecture Findings</div>
               <ul className="text-xs text-slate-300 space-y-0.5 mt-0.5">
-                {verdict.architecturePoints.map((p, i) => (
+                {verdict.architecturePoints?.map((p, i) => (
                   <li key={i}>• {p}</li>
                 ))}
               </ul>
