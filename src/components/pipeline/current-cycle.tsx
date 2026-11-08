@@ -132,7 +132,7 @@ export function CurrentCycle() {
           <Cpu className="h-3.5 w-3.5" />
           <span>
             {cycle.fileResults.length} file(s) processed · {cycle.fileResults.filter(r => r.pushed).length} pushed
-            · proof {cycle.fileResults[0]?.proofHash ?? "—"}
+            · proof {cycle.fileResults.length > 0 ? cycle.fileResults[0].proofHash : "—"}
           </span>
         </div>
       </CardContent>
