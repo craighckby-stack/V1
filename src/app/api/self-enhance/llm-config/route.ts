@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { geminiHealthSnapshot } from "@/lib/pipeline/llm/gemini-direct";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -9,12 +10,23 @@ const SINGLETON_ID = "singleton";
 /** GET — public view (key NEVER included). */
 export async function GET() {
   const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } }).catch(() => null);
-  if (!row) return NextResponse.json({ configured: false });
+  // In-memory Gemini health (geo-block cooldown, per-model breakers,
+  // proxy presence) — zero I/O, safe on every poll.
+  const health = geminiHealthSnapshot();
+  if (!row) {
+    return NextResponse.json({
+      configured: false,
+      providerOrder: "gemini → z.ai",
+      geminiHealth: health,
+    });
+  }
   return NextResponse.json({
     configured: true,
     model: row.geminiModel,
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
     lastError: row.lastError,
+    providerOrder: "gemini → z.ai",
+    geminiHealth: health,
   });
 }
 

@@ -61,6 +61,9 @@ export interface ArmedState {
 export function markArmed(armed: boolean, by: string): void {
   try {
     mkdirSync(join(PROJECT_ROOT, ".git/info"), { recursive: true });
+    if (!by || by.trim() === "") {
+      throw new Error("markArmed: 'by' parameter must be a non-empty string");
+    }
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
     writeFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2), "utf8");
   } catch {
@@ -78,11 +81,13 @@ export function readArmedState(): ArmedState | null {
   try {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
     const parsed = JSON.parse(raw) as Partial<ArmedState>;
-    if (parsed && typeof parsed.armed === "boolean") {
+    if (parsed && typeof parsed.armed === "boolean" && 
+        typeof parsed.at === "string" && 
+        typeof parsed.by === "string") {
       return {
         armed: parsed.armed,
-        at: typeof parsed.at === "string" ? parsed.at : "",
-        by: typeof parsed.by === "string" ? parsed.by : "",
+        at: parsed.at,
+        by: parsed.by,
       };
     }
     return null;

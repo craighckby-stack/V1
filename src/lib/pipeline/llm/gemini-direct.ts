@@ -91,6 +91,17 @@ const MAX_RETRIES = 2;
 const RETRY_DELAYS_MS = [500, 1500]; // 0.5s, then 1.5s (plus jitter)
 const JITTER_MS = 200; // ±0–200ms random jitter on each delay
 
+// ── Call deadline ──────────────────────────────────────────────────
+// Hard ceiling on a SINGLE Google fetch (mirrors agent-llm.ts's
+// LLM_CALL_TIMEOUT_MS for the Z.AI leg). Without it, a hung socket
+// (connection open, zero bytes flowing) stalls the process-wide
+// serialized llmComplete queue forever — every consumer (ratchet,
+// enhance, tribunal, red-team) waits on that one queue. Native fetch
+// accepts a signal directly, so the deadline is REAL here (unlike the
+// SDK leg, which needs the Promise.race workaround).
+const GEMINI_CALL_TIMEOUT_MS = 120_000; // 120s
+const GEMINI_PROBE_TIMEOUT_MS = 10_000; // 10s (tiny probe, tight ceiling)
+
 // ── Per-model circuit-breaker cascade (concept: Aether_Forge Ω repo) ──
 // When the requested model returns 429 / 503 / RESOURCE_EXHAUSTED, trip a
 // per-model circuit breaker for CIRCUIT_BREAKER_COOLDOWN_MS so subsequent
@@ -138,6 +149,22 @@ export function geminiModelBreakers(): Record<string, number> {
     if (until > Date.now()) out[model] = until;
   }
   return out;
+}
+
+/** One-shot health snapshot for the status API + UI: geo-block cooldown
+ *  state, per-model breakers, and whether the geo-bypass proxy is
+ *  configured. Pure in-memory read — cheap enough for every status poll,
+ *  no I/O, never throws. */
+export function geminiHealthSnapshot(): {
+  locationBlockedUntilMs: number;
+  breakers: Record<string, number>;
+  proxyConfigured: boolean;
+} {
+  return {
+    locationBlockedUntilMs: LOCATION_BLOCKED_UNTIL,
+    breakers: geminiModelBreakers(),
+    proxyConfigured: !!PROXY_BASE_URL,
+  };
 }
 
 interface GeminiConfig {
@@ -240,7 +267,7 @@ function classifyError(status: number | null, errText: string): GeminiCallResult
  */
 async function callGeminiOnce(
   cfg: GeminiConfig,
-  opts: { systemPrompt: string; userPrompt: string; temperature?: number },
+  opts: { systemPrompt: string; userPrompt: string; temperature?: number; maxTokens?: number },
   started: number,
   model: string,
 ): Promise<{ result: GeminiCallResult; transient: boolean; overload: boolean }> {
@@ -250,6 +277,10 @@ async function callGeminiOnce(
     contents: [{ role: "user", parts: [{ text: opts.userPrompt }] }],
     generationConfig: {
       temperature: opts.temperature ?? 0.1,
+      // Caller-requested output ceiling (OpenAI-style max_tokens maps to
+      // Google's maxOutputTokens). Omitted when unset — same as the Z.AI
+      // leg, which only forwards the field when the caller provided it.
+      ...(opts.maxTokens ? { maxOutputTokens: opts.maxTokens } : {}),
     },
   };
 
@@ -258,6 +289,10 @@ async function callGeminiOnce(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      // Hard 120s deadline (see GEMINI_CALL_TIMEOUT_MS): on abort the
+      // fetch rejects, the catch below classifies it as network/transient,
+      // and the cascade either retries or falls through to the Z.AI leg.
+      signal: AbortSignal.timeout(GEMINI_CALL_TIMEOUT_MS),
     });
 
     if (!res.ok) {
@@ -384,6 +419,7 @@ async function probeGemini(cfg: GeminiConfig, model: string): Promise<{ ok: bool
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(GEMINI_PROBE_TIMEOUT_MS),
     });
     if (res.ok) return { ok: true };
     const errText = await res.text().catch(() => "");
@@ -425,6 +461,10 @@ export async function geminiComplete(opts: {
   systemPrompt: string;
   userPrompt: string;
   temperature?: number;
+  /** Caller-requested output ceiling — forwarded to Google as
+   *  generationConfig.maxOutputTokens (mirrors the Z.AI leg's max_tokens
+   *  passthrough). Omitted when unset. */
+  maxTokens?: number;
 }): Promise<GeminiCallResult> {
   const started = performance.now();
   const cfg = await getGeminiConfig();

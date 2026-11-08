@@ -12,6 +12,7 @@
  */
 
 import ZAI from "z-ai-web-dev-sdk";
+import { geminiComplete } from "./gemini-direct";
 
 // The SDK's default export has a private constructor, so derive the instance
 // type from the async create() factory instead.
@@ -322,6 +323,11 @@ export interface LlmCallResult {
    *  honest provenance for the task engine's records; undefined only
    *  if the provider omits the field). */
   modelUsed?: string;
+  /** Present when the Z.AI leg served (or deferred) after a Gemini
+   *  attempt failed first: records WHICH Gemini errorKind triggered the
+   *  fallthrough — honest provenance for why a call landed on the
+   *  fallback provider. Format: `gemini:<errorKind>`. */
+  fallbackFrom?: string;
 }
 
 /**
@@ -352,21 +358,60 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
   const started = performance.now();
   let lastError: string | undefined;
 
+  // ── Provider chain: Gemini first, Z.AI fallback ─────────────────────
+  // When a Gemini key is configured (GEMINI panel / llm-config), every
+  // call tries Google FIRST — a SEPARATE free-tier quota — and only
+  // falls through to the Z.AI gateway leg on any Gemini failure. Two
+  // hard rules keep the providers from interfering:
+  //   1. Gemini failures NEVER set the Z.AI 429 gate below (separate
+  //      quotas — a Google outage must not freeze the Z.AI leg), and
+  //      the Z.AI gate never blocks Gemini attempts (a Z.AI cooldown
+  //      says nothing about Google's quota). The Gemini leg has its OWN
+  //      defenses: per-model circuit breakers, a location-block cooldown
+  //      with 60s recovery probes, and transient retries (gemini-direct.ts).
+  //   2. When Gemini is unconfigured, geminiComplete short-circuits with
+  //      errorKind "not-configured" and the behavior below is identical
+  //      to the historical single-provider path — zero overhead beyond
+  //      one tiny DB read per call.
+  // The attempt still runs on the process-wide serialization queue
+  // (llmComplete chains every performLlmComplete) — parallel callers
+  // can't hammer Google any more than they could Z.AI.
+  const gem = await geminiComplete(opts);
+  if (gem.ok) {
+    // Chain success — de-escalate the Z.AI gate counter exactly like a
+    // Z.AI success does (one good call resets strikes to 0).
+    gateState().strikes = 0;
+    return {
+      ok: true,
+      content: gem.content,
+      attempts: 1,
+      latencyMs: Math.round(performance.now() - started),
+      modelUsed: `gemini:${gem.model}`,
+    };
+  }
+  const fallbackNote = `gemini:${gem.errorKind ?? "error"}`;
+
   // Fix A: gate check. If a previous call (in this process, by any caller)
   // set the gate, return immediately — no in-call retries, no backoff sleep.
   // The caller sees rateLimited:true and defers. This is what stops the
   // ~150s-per-file 429 backoff spiral: instead of each call site doing its
   // own 5× retry, the FIRST 429 sets a 2min gate and all subsequent calls
   // (ratchet, enhance, debate, chat-task) return instantly.
+  // (Re-read AFTER the Gemini attempt: the gate may have expired during
+  // that call, in which case the Z.AI leg proceeds normally.)
   const cooldownMs = llmCooldownMs();
   if (cooldownMs > 0) {
     return {
       ok: false,
       content: "",
-      error: `429 cooldown active — ${Math.round(cooldownMs / 1000)}s remaining`,
+      error:
+        gem.errorKind === "not-configured"
+          ? `429 cooldown active — ${Math.round(cooldownMs / 1000)}s remaining`
+          : `gemini unavailable (${gem.errorKind}); 429 cooldown active — ${Math.round(cooldownMs / 1000)}s remaining`,
       rateLimited: true,
       attempts: 0,
       latencyMs: Math.round(performance.now() - started),
+      fallbackFrom: gem.errorKind === "not-configured" ? undefined : fallbackNote,
     };
   }
 
@@ -462,6 +507,7 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
         attempts: attempt,
         latencyMs: Math.round(performance.now() - started),
         modelUsed: (completion as { model?: string }).model,
+        fallbackFrom: fallbackNote,
       };
     } catch (err) {
       lastError = (err as Error).message;
@@ -527,6 +573,7 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
     rateLimited: sawRateLimit,
     attempts: maxAttempts,
     latencyMs: Math.round(performance.now() - started),
+    fallbackFrom: fallbackNote,
   };
 }
 
