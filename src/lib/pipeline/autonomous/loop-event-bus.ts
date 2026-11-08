@@ -80,7 +80,9 @@ class LoopEventBus {
     this.emitter.on("event", listener);
     this.listeners.add(listener);
     return () => {
-      this.emitter?.off("event", listener);
+      if (this.emitter) {
+        this.emitter.off("event", listener);
+      }
       this.listeners.delete(listener);
     };
   }
