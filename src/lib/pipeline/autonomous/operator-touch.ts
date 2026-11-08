@@ -64,6 +64,10 @@ export interface OperatorTouchState {
  *  a persistence failure must not fail a start/stop that already
  *  succeeded in memory. */
 export function markOperatorTouch(by: string, now: Date = new Date()): void {
+  if (!by || typeof by !== "string" || by.trim() === "") {
+    throw new Error("markOperatorTouch: 'by' parameter must be a non-empty string");
+  }
+  
   try {
     mkdirSync(join(PROJECT_ROOT, ".git/info"), { recursive: true });
     const entry: OperatorTouchState = { at: now.toISOString(), by };
@@ -80,11 +84,14 @@ export function readOperatorTouch(): OperatorTouchState | null {
   try {
     const raw = readFileSync(OPERATOR_TOUCH_FILE, "utf8");
     const parsed = JSON.parse(raw) as Partial<OperatorTouchState>;
-    if (parsed && typeof parsed.at === "string") {
-      return {
-        at: parsed.at,
-        by: typeof parsed.by === "string" ? parsed.by : "",
-      };
+    if (parsed && typeof parsed.at === "string" && typeof parsed.by === "string") {
+      // Validate timestamp format before returning
+      if (!isNaN(Date.parse(parsed.at))) {
+        return {
+          at: parsed.at,
+          by: parsed.by,
+        };
+      }
     }
     return null;
   } catch {
@@ -101,6 +108,10 @@ export function isDeadMansTripped(
   thresholdMs: number = DEFAULT_DEAD_MANS_THRESHOLD_MS,
   now: Date = new Date()
 ): boolean {
+  if (typeof thresholdMs !== "number" || thresholdMs < 0) {
+    throw new Error("isDeadMansTripped: 'thresholdMs' must be a non-negative number");
+  }
+  
   const state = readOperatorTouch();
   if (!state || !state.at) return true; // never touched → tripped
   const lastTouch = Date.parse(state.at);
