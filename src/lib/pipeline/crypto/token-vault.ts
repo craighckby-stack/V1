@@ -35,7 +35,7 @@ import {
   createDecipheriv,
   randomBytes,
 } from "crypto";
-import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
@@ -80,6 +80,15 @@ function ensureKey(): Buffer | null {
       renameSync(tmp, KEY_FILE);
       return key;
     } catch {
+      // Clean up temp file if it was created but rename failed
+      const tmp = `${KEY_FILE}.tmp`;
+      if (existsSync(tmp)) {
+        try {
+          unlinkSync(tmp);
+        } catch {
+          // Ignore cleanup failures
+        }
+      }
       // Read-only .git? Sealing is impossible — callers fall back to
       // storing plaintext (better a working push than a bricked loop).
       if (!warnedKeyMissing) {
