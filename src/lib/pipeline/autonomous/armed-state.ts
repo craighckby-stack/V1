@@ -76,8 +76,9 @@ export function markArmed(armed: boolean, by: string): void {
     
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
     writeFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2), "utf8");
-  } catch {
-    /* best-effort — same contract as the swap journal */
+  } catch (error) {
+    // Log the error for debugging but don't throw to maintain the contract
+    console.error("markArmed: Failed to persist armed state:", error);
   }
 }
 
@@ -120,7 +121,9 @@ export function readArmedState(): ArmedState | null {
       };
     }
     return null;
-  } catch {
+  } catch (error) {
+    // Log the error for debugging but return null to maintain the contract
+    console.error("readArmedState: Failed to read armed state:", error);
     return null;
   }
 }
