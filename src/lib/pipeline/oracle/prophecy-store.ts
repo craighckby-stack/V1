@@ -40,6 +40,17 @@ export async function createProphecy(input: {
   historySnapshot?: string | null;
   domain?: string | null;
 }): Promise<ProphecyRow | null> {
+  // Input validation - check required fields and confidence range
+  if (!input.claim?.trim() || !input.rationale?.trim() || !input.falsifiabilityCriterion?.trim()) {
+    return null;
+  }
+  if (typeof input.confidence !== 'number' || input.confidence < 0 || input.confidence > 1) {
+    return null;
+  }
+  if (!(input.evaluateBy instanceof Date) || isNaN(input.evaluateBy.getTime())) {
+    return null;
+  }
+
   try {
     return await db.prophecy.create({
       data: {
@@ -54,7 +65,7 @@ export async function createProphecy(input: {
         status: "pending",
       },
     });
-  } catch {
+  } catch (error) {
     return null;
   }
 }
@@ -98,6 +109,11 @@ export async function listDueProphecies(asOf: Date = new Date()): Promise<Prophe
  *  shows the system's latest predictions and their outcomes. Limited
  *  because the full history could grow large; the UI paginates further. */
 export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
+  // Validate limit parameter
+  if (typeof limit !== 'number' || limit < 0) {
+    return [];
+  }
+
   try {
     return await db.prophecy.findMany({
       orderBy: { createdAt: "desc" },
@@ -111,6 +127,11 @@ export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
 /** One prophecy by id, for the per-prophecy UI view and the evaluator's
  *  per-target path. */
 export async function getProphecy(id: string): Promise<ProphecyRow | null> {
+  // Validate id parameter
+  if (!id?.trim()) {
+    return null;
+  }
+
   try {
     return await db.prophecy.findUnique({ where: { id } });
   } catch {
@@ -126,6 +147,11 @@ export async function judgeProphecy(
   verdict: "fulfilled" | "failed" | "retired",
   evaluation: string,
 ): Promise<ProphecyRow | null> {
+  // Validate id parameter
+  if (!id?.trim()) {
+    return null;
+  }
+
   try {
     return await db.prophecy.update({
       where: { id },
@@ -165,7 +191,7 @@ export async function getProphecyCounts(): Promise<{
       db.prophecy.count({}),
     ]);
     return { pending, fulfilled, failed, retired, total };
-  } catch {
+  } catch (error) {
     return { pending: 0, fulfilled: 0, failed: 0, retired: 0, total: 0 };
   }
 }
@@ -184,7 +210,7 @@ export async function getJudgedPropheciesForCalibration(): Promise<
       where: { status: { in: ["fulfilled", "failed"] } },
       select: { confidence: true, status: true },
     });
-  } catch {
+  } catch (error) {
     return [];
   }
 }
