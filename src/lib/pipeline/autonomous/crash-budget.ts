@@ -88,6 +88,23 @@ export function readCrashBudget(): CrashBudgetState | null {
 /** Persist the crash budget. Never throws — a persistence failure must
  *  never fail a crash-count increment that already succeeded in memory. */
 export function writeCrashBudget(s: CrashBudgetState): void {
+  // Validate input to prevent writing invalid state
+  if (typeof s !== "object" || s === null) {
+    return;
+  }
+  if (typeof s.count !== "number" || s.count < 0) {
+    return;
+  }
+  if (typeof s.lastClass !== "string") {
+    return;
+  }
+  if (typeof s.at !== "string") {
+    return;
+  }
+  if (typeof s.crashWall !== "boolean") {
+    return;
+  }
+
   try {
     mkdirSync(join(PROJECT_ROOT, ".git/info"), { recursive: true });
     writeFileSync(CRASH_BUDGET_FILE, JSON.stringify(s, null, 2), "utf8");
