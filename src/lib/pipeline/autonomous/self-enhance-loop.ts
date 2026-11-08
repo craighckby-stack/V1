@@ -2662,3 +2662,27 @@ export const selfEnhanceLoop: SelfEnhanceLoop =
 if (!globalForSelfEnhance.__selfEnhanceLoop) {
   globalForSelfEnhance.__selfEnhanceLoop = selfEnhanceLoop;
 }
+
+/**
+ * Resolve the LIVE loop singleton at CALL time — never trust an
+ * import-time binding in route handlers.
+ *
+ * Why this exists (the hot-swap instance divergence, observed live
+ * 2026-11-08): hot-swap.ts's clearPins() clears `__selfEnhanceLoop`
+ * from globalThis, re-evaluates the module, and re-pins a FRESH
+ * instance; the loop then resumes on the new instance (HOT-SWAP
+ * RESTORE). A route bundle that evaluated BEFORE the swap still holds
+ * an import-time binding to the OLD instance — /status served a
+ * loop frozen at the pre-swap log tail (stats stopped, running:false,
+ * STOP unreachable) while the live loop committed mutations #115+
+ * on the new instance. Same class of bug as the agent-llm gate (Fix:
+ * "Turbopack multi-instance" — mutable shared state must be read
+ * through globalThis per call, never captured at import time).
+ *
+ * Route handlers must call this INSIDE the request handler, not at
+ * module top level, so every request sees the current pin.
+ */
+export function liveSelfEnhanceLoop(): SelfEnhanceLoop {
+  const g = globalThis as unknown as { __selfEnhanceLoop?: SelfEnhanceLoop };
+  return g.__selfEnhanceLoop ?? selfEnhanceLoop;
+}

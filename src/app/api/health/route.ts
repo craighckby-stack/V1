@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { autonomousLoopRuntime } from "@/lib/pipeline/autonomous/loop-runtime";
-import { selfEnhanceLoop } from "@/lib/pipeline/autonomous/self-enhance-loop";
+import { liveSelfEnhanceLoop } from "@/lib/pipeline/autonomous/self-enhance-loop";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,7 +34,7 @@ async function probeWebSocketService(): Promise<string> {
  */
 export async function GET() {
   const loopState = autonomousLoopRuntime.getState();
-  const selfStats = selfEnhanceLoop.getStats();
+  const selfStats = liveSelfEnhanceLoop().getStats();
   const websocketStatus = await probeWebSocketService();
 
   return NextResponse.json({
@@ -54,7 +54,7 @@ export async function GET() {
       governor: "ready",
       sanitizer: "fixture-aware",
       remoteLoop: loopState.status,
-      selfEnhanceLoop: selfEnhanceLoop.isRunning() ? "running" : "idle",
+      selfEnhanceLoop: liveSelfEnhanceLoop().isRunning() ? "running" : "idle",
       websocket: websocketStatus,
     },
     selfEnhanceStats: selfStats,

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { selfEnhanceLoop } from "@/lib/pipeline/autonomous/self-enhance-loop";
+import { liveSelfEnhanceLoop } from "@/lib/pipeline/autonomous/self-enhance-loop";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    const result = selfEnhanceLoop.unlockFile(body.filePath);
+    const result = liveSelfEnhanceLoop().unlockFile(body.filePath);
     return NextResponse.json({ ok: result.unlocked, ...result });
   } catch (err) {
     return NextResponse.json(

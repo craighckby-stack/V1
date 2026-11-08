@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { selfEnhanceLoop } from "@/lib/pipeline/autonomous/self-enhance-loop";
+import { liveSelfEnhanceLoop } from "@/lib/pipeline/autonomous/self-enhance-loop";
 import { assertRouteCooldown } from "@/lib/pipeline/autonomous/route-cooldown";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +26,6 @@ export async function POST() {
       { status: 429, headers: { "Retry-After": String(cd.retryAfterMs), "X-RateLimit-Protection": "enabled" } }
     );
   }
-  const result = await selfEnhanceLoop.runCycle();
+  const result = await liveSelfEnhanceLoop().runCycle();
   return NextResponse.json(result);
 }

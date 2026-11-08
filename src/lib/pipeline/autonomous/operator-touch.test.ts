@@ -1,4 +1,7 @@
 import { describe, test, expect } from "bun:test";
+import * as fs from "fs";
+import * as path from "path";
+import { PROJECT_ROOT } from "../core/paths";
 import { markOperatorTouch, readOperatorTouch, isDeadMansTripped, DEFAULT_DEAD_MANS_THRESHOLD_MS, type OperatorTouchState } from "./operator-touch";
 
 describe("operator-touch", () => {
@@ -50,9 +53,6 @@ describe("operator-touch", () => {
 
   test("isDeadMansTripped returns true for invalid timestamp", () => {
     // Write a file with invalid timestamp
-    const fs = require("fs");
-    const path = require("path");
-    const { PROJECT_ROOT } = require("../core/paths");
     const touchFile = path.join(PROJECT_ROOT, ".git/info/loop-operator-touch.json");
     
     fs.writeFileSync(touchFile, JSON.stringify({ at: "invalid-date", by: "test" }), "utf8");
