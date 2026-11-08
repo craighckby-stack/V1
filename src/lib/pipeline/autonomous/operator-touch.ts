@@ -74,7 +74,11 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
     writeFileSync(OPERATOR_TOUCH_FILE, JSON.stringify(entry, null, 2), "utf8");
   } catch (error) {
     /* best-effort - log the error for debugging if needed */
-    console.error("Failed to write operator touch file:", error);
+    if (error instanceof Error) {
+      console.error("Failed to write operator touch file:", error.message);
+    } else {
+      console.error("Failed to write operator touch file:", error);
+    }
   }
 }
 
@@ -87,7 +91,8 @@ export function readOperatorTouch(): OperatorTouchState | null {
     const parsed = JSON.parse(raw) as Partial<OperatorTouchState>;
     if (parsed && typeof parsed.at === "string" && typeof parsed.by === "string") {
       // Validate timestamp format before returning
-      if (!isNaN(Date.parse(parsed.at))) {
+      const timestamp = Date.parse(parsed.at);
+      if (!isNaN(timestamp)) {
         return {
           at: parsed.at,
           by: parsed.by,
