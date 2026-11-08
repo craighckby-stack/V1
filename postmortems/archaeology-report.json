@@ -1,40 +1,51 @@
 {
-  "ranAt": "2026-11-03T05:25:41.483Z",
-  "totalCommits": 458,
-  "wrongCommits": 16,
-  "fixPairs": 16,
-  "lessonsSeeded": 0,
-  "lessonsSkipped": "already seeded (re-run with force to refresh)",
+  "ranAt": "2026-11-08T09:24:44.205Z",
+  "totalCommits": 552,
+  "wrongCommits": 21,
+  "fixPairs": 21,
+  "lessonsSeeded": 6,
   "fragileFiles": [
     {
       "file": "src/app/page.tsx",
       "wrongCycles": 7,
-      "correctCommits": 34,
-      "lastTouched": "2026-11-03"
+      "correctCommits": 37,
+      "lastTouched": "2026-11-04"
+    },
+    {
+      "file": "src/lib/pipeline/autonomous/self-enhance-loop.ts",
+      "wrongCycles": 5,
+      "correctCommits": 40,
+      "lastTouched": "2026-11-04"
     },
     {
       "file": "src/lib/pipeline/autonomous/push-target.ts",
       "wrongCycles": 5,
-      "correctCommits": 35,
-      "lastTouched": "2026-11-02"
-    },
-    {
-      "file": "src/lib/pipeline/autonomous/self-enhance-loop.ts",
-      "wrongCycles": 4,
-      "correctCommits": 34,
-      "lastTouched": "2026-11-02"
+      "correctCommits": 40,
+      "lastTouched": "2026-11-04"
     },
     {
       "file": "src/lib/pipeline/autonomous/chat-task.ts",
       "wrongCycles": 3,
-      "correctCommits": 25,
-      "lastTouched": "2026-11-02"
+      "correctCommits": 28,
+      "lastTouched": "2026-11-04"
+    },
+    {
+      "file": "src/components/pipeline/boot-splash.tsx",
+      "wrongCycles": 3,
+      "correctCommits": 12,
+      "lastTouched": "2026-11-08"
     },
     {
       "file": "prisma/schema.prisma",
       "wrongCycles": 2,
       "correctCommits": 14,
       "lastTouched": "2026-11-02"
+    },
+    {
+      "file": "src/lib/pipeline/autonomous/loop-runtime.ts",
+      "wrongCycles": 2,
+      "correctCommits": 23,
+      "lastTouched": "2026-11-04"
     },
     {
       "file": "src/lib/pipeline/emg/emg-rag.ts",
@@ -49,66 +60,190 @@
       "lastTouched": "2026-10-26"
     },
     {
-      "file": "src/app/layout.tsx",
-      "wrongCycles": 1,
+      "file": "src/app/api/duress/clear/route.ts",
+      "wrongCycles": 2,
+      "correctCommits": 3,
+      "lastTouched": "2026-11-04"
+    },
+    {
+      "file": "src/app/api/duress/purge/route.ts",
+      "wrongCycles": 2,
+      "correctCommits": 3,
+      "lastTouched": "2026-11-04"
+    },
+    {
+      "file": "src/app/api/duress/status/route.ts",
+      "wrongCycles": 2,
+      "correctCommits": 3,
+      "lastTouched": "2026-11-04"
+    },
+    {
+      "file": "src/app/api/red-team/run/route.ts",
+      "wrongCycles": 2,
+      "correctCommits": 3,
+      "lastTouched": "2026-11-04"
+    },
+    {
+      "file": "src/app/api/red-team/status/route.ts",
+      "wrongCycles": 2,
+      "correctCommits": 3,
+      "lastTouched": "2026-11-04"
+    },
+    {
+      "file": "src/lib/pipeline/red-team/red-team-runner.ts",
+      "wrongCycles": 2,
+      "correctCommits": 5,
+      "lastTouched": "2026-11-04"
+    }
+  ],
+  "stableFiles": [
+    {
+      "file": "src/lib/pipeline/engines/clean-room-runtime.ts",
+      "correctCommits": 20,
+      "lastTouched": "2026-10-27"
+    },
+    {
+      "file": "src/lib/pipeline/core/ast-diff-gate.ts",
+      "correctCommits": 18,
+      "lastTouched": "2026-10-28"
+    },
+    {
+      "file": "src/lib/pipeline/emg/debate.ts",
+      "correctCommits": 14,
+      "lastTouched": "2026-10-27"
+    },
+    {
+      "file": "mini-services/loop-ws-service/index.ts",
+      "correctCommits": 5,
+      "lastTouched": "2026-10-28"
+    },
+    {
+      "file": "src/app/api/health/route.ts",
       "correctCommits": 5,
       "lastTouched": "2026-10-27"
     },
     {
-      "file": "src/lib/pipeline/autonomous/loop-runtime.ts",
-      "wrongCycles": 1,
-      "correctCommits": 18,
-      "lastTouched": "2026-11-02"
+      "file": "src/app/api/self-enhance/status/route.ts",
+      "correctCommits": 5,
+      "lastTouched": "2026-10-29"
     },
     {
-      "file": "next-env.d.ts",
-      "wrongCycles": 1,
-      "correctCommits": 12,
-      "lastTouched": "2026-11-02"
+      "file": "scripts/check-llm.ts",
+      "correctCommits": 5,
+      "lastTouched": "2026-10-29"
     },
     {
-      "file": "skills/ASR/scripts/asr.ts",
-      "wrongCycles": 1,
-      "correctCommits": 0,
-      "lastTouched": "2026-10-25"
+      "file": "src/app/api/evolution/debate/route.ts",
+      "correctCommits": 4,
+      "lastTouched": "2026-10-27"
     },
     {
-      "file": "skills/LLM/scripts/chat.ts",
-      "wrongCycles": 1,
-      "correctCommits": 0,
-      "lastTouched": "2026-10-25"
+      "file": "src/hooks/use-loop-socket.ts",
+      "correctCommits": 4,
+      "lastTouched": "2026-10-27"
     },
     {
-      "file": "skills/TTS/tts.ts",
-      "wrongCycles": 1,
-      "correctCommits": 0,
-      "lastTouched": "2026-10-25"
+      "file": "src/lib/pipeline-store.ts",
+      "correctCommits": 4,
+      "lastTouched": "2026-10-27"
     },
     {
-      "file": "skills/VLM/scripts/vlm.ts",
-      "wrongCycles": 1,
-      "correctCommits": 0,
-      "lastTouched": "2026-10-25"
+      "file": "src/app/api/postmortems/route.ts",
+      "correctCommits": 4,
+      "lastTouched": "2026-10-27"
     },
     {
-      "file": "skills/aminer-academic-search/scripts/aminer_client.py",
-      "wrongCycles": 1,
-      "correctCommits": 1,
-      "lastTouched": "2026-10-31"
+      "file": "src/test.ts",
+      "correctCommits": 4,
+      "lastTouched": "2026-10-29"
+    },
+    {
+      "file": "src/app/api/engines/catalog/route.ts",
+      "correctCommits": 3,
+      "lastTouched": "2026-10-27"
+    },
+    {
+      "file": "src/app/api/github/batch-commit/route.ts",
+      "correctCommits": 3,
+      "lastTouched": "2026-10-28"
+    },
+    {
+      "file": "src/app/api/github/commit-file/route.ts",
+      "correctCommits": 3,
+      "lastTouched": "2026-10-28"
     }
   ],
-  "stableFiles": [],
   "themes": [
     {
+      "theme": "loop",
+      "count": 7
+    },
+    {
+      "theme": "server",
+      "count": 5
+    },
+    {
+      "theme": "operator",
+      "count": 5
+    },
+    {
       "theme": "start",
+      "count": 4
+    },
+    {
+      "theme": "swap",
+      "count": 4
+    },
+    {
+      "theme": "modules",
       "count": 3
     },
     {
       "theme": "duress",
       "count": 3
+    },
+    {
+      "theme": "globalthis",
+      "count": 3
+    },
+    {
+      "theme": "boot",
+      "count": 3
+    },
+    {
+      "theme": "auto",
+      "count": 3
     }
   ],
   "wrongList": [
+    {
+      "short": "23f53023",
+      "date": "2026-11-04",
+      "subject": "Operator: auto-run state machine — DISARMED/ARMED-RUNNING/THROTTLED/RECOVERING/PAUSED + crash-wall + dead-man's switch",
+      "reason": "Introduced issue in src/components/pipeline/boot-splash.tsx, fixed by 619f2c22 (\"fix: add link? to PostLine interface so boot-splash typechec\")",
+      "fixedBy": "619f2c22"
+    },
+    {
+      "short": "576dd4b7",
+      "date": "2026-11-03",
+      "subject": "feat(boot): splash → system, no prank; sync README numbers (operator push)",
+      "reason": "Introduced issue in docs/CONCEPTS-GRAFTED.md, fixed by a30a114b (\"docs(consistency-sweep): fix drift in 3 active docs after au\")",
+      "fixedBy": "a30a114b"
+    },
+    {
+      "short": "68318776",
+      "date": "2026-11-03",
+      "subject": "feat(boot): splash → system, no prank; sync README numbers",
+      "reason": "Introduced issue in src/components/pipeline/boot-splash.tsx, fixed by 590d9086 (\"fix(audit-3): sanitizer hex-entropy 4.0 bar + dedupe; dead-c\")",
+      "fixedBy": "590d9086"
+    },
+    {
+      "short": "bff14da8",
+      "date": "2026-11-03",
+      "subject": "feat(corpus): per-file negative constraints — RAS graft",
+      "reason": "Introduced issue in src/lib/pipeline/autonomous/self-enhance-loop.ts, fixed by 60b90cd9 (\"fix: audit F1 full closure — sandboxed test gate (zero live-\")",
+      "fixedBy": "60b90cd9"
+    },
     {
       "short": "743eab35",
       "date": "2026-11-02",
@@ -122,6 +257,13 @@
       "subject": "feat(autonomous): auto-arm on boot + continuous mode + never-stop self-healing + push-target token fallback",
       "reason": "Introduced issue in src/lib/pipeline/autonomous/loop-runtime.ts, fixed by a76bbff0 (\"fix(autonomous): failed-file cooldown — don't get stuck retr\")",
       "fixedBy": "a76bbff0"
+    },
+    {
+      "short": "773dafea",
+      "date": "2026-11-02",
+      "subject": "feat(hot-swap): module-cache invalidator + singleton respawn (the core of 'fully autonomous')",
+      "reason": "Introduced issue in src/lib/pipeline/core/hot-swap.ts, fixed by 4aee28a8 (\"fix(hot-swap): mtime prod + globalThis state — two bugs\")",
+      "fixedBy": "4aee28a8"
     },
     {
       "short": "2c1de8cc",
