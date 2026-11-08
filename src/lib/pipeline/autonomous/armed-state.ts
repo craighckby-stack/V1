@@ -40,7 +40,7 @@
  * to load from anywhere (loop-runtime, API routes, instrumentation).
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
@@ -84,8 +84,12 @@ export function markArmed(armed: boolean, by: string): void {
  *  auto-arm only proceeds when the disk EXPLICITLY says armed:true. */
 export function readArmedState(): ArmedState | null {
   try {
+    if (!existsSync(ARMED_STATE_FILE)) {
+      return null;
+    }
+    
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
-    const parsed = JSON.parse(raw) as Partial<ArmedState>;
+    const parsed = JSON.parse(raw);
     
     // Validate that parsed is an object and has all required fields
     if (parsed && 
