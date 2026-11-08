@@ -612,27 +612,49 @@ export default function Home() {
     }
   }, [consoleLineCount]);
 
-  // Focus input on click anywhere — but NOT while the config modal is open
+  // Any modal panel open? When one is, the click-to-focus + Escape handlers
+  // below must NOT steal focus to the terminal or swallow keys — the panel's
+  // own inputs (e.g. the Gemini API key field) need to receive both clicks
+  // and keystrokes. Without this guard, clicking the Gemini key input
+  // bubbles to document and the global "focus terminal on any click"
+  // handler yanks focus back to the console prompt — so the operator's
+  // typed/pasted key lands in the terminal, not the key field. Same for
+  // Oracle / Defense / Branches / Config panels.
+  const anyPanelOpen =
+    configOpen || geminiOpen || oracleOpen || defenseOpen || branchesOpen;
+
+  // Focus input on click anywhere — but NOT while any modal panel is open
+  // (the panel's inputs need the click to land + keep focus).
   useEffect(() => {
     const handler = () => {
-      if (!configOpen) inputRef.current?.focus();
+      if (!anyPanelOpen) inputRef.current?.focus();
     };
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
-  }, [configOpen]);
+  }, [anyPanelOpen]);
 
-  // Escape closes the config modal
+  // Escape closes whichever modal panel is open (config first for back-compat,
+  // then Gemini / Oracle / Defense / Branches in z-order).
   useEffect(() => {
-    if (!configOpen) return;
+    if (!anyPanelOpen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        closeConfig();
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      if (configOpen) {
+        closeConfig(); // preserves token/state cleanup
+      } else if (geminiOpen) {
+        setGeminiOpen(false);
+      } else if (oracleOpen) {
+        setOracleOpen(false);
+      } else if (defenseOpen) {
+        setDefenseOpen(false);
+      } else if (branchesOpen) {
+        setBranchesOpen(false);
       }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [configOpen]);
+  }, [anyPanelOpen, configOpen, geminiOpen, oracleOpen, defenseOpen, branchesOpen]);
 
   /** Append output lines to the unified console stream. */
   function emitOutput(lines: string[]) {
