@@ -88,26 +88,6 @@ export function readCrashBudget(): CrashBudgetState | null {
 /** Persist the crash budget. Never throws — a persistence failure must
  *  never fail a crash-count increment that already succeeded in memory. */
 export function writeCrashBudget(s: CrashBudgetState): void {
-  // Validate input to prevent writing invalid state
-  if (s === null || s === undefined) {
-    throw new Error("writeCrashBudget: state cannot be null or undefined");
-  }
-  if (typeof s !== "object") {
-    throw new Error("writeCrashBudget: state must be an object");
-  }
-  if (typeof s.count !== "number" || s.count < 0) {
-    throw new Error("writeCrashBudget: count must be a non-negative number");
-  }
-  if (typeof s.lastClass !== "string") {
-    throw new Error("writeCrashBudget: lastClass must be a string");
-  }
-  if (typeof s.at !== "string") {
-    throw new Error("writeCrashBudget: at must be a string");
-  }
-  if (typeof s.crashWall !== "boolean") {
-    throw new Error("writeCrashBudget: crashWall must be a boolean");
-  }
-
   try {
     // Ensure directory exists before writing file
     const dir = join(PROJECT_ROOT, ".git/info");
