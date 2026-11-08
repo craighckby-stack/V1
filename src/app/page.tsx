@@ -7,6 +7,7 @@ import { DefensePanel } from "@/components/pipeline/defense-panel";
 import { BranchesPanel } from "@/components/pipeline/branches-panel";
 import { BootSplash } from "@/components/pipeline/boot-splash";
 import { ApiUnlock } from "@/components/pipeline/api-unlock";
+import { GeminiPanel } from "@/components/pipeline/gemini-panel";
 
 interface LogEntry {
   timestamp: string;
@@ -285,6 +286,10 @@ export default function Home() {
   // polled) so it doesn't burn GitHub API quota. Opened from the
   // [BRANCHES] header button.
   const [branchesOpen, setBranchesOpen] = useState(false);
+  // GeminiPanel — LLM provider chain (Gemini → Z.AI). The panel owns its
+  // own polling of /api/self-enhance/llm-config while open (key is
+  // never returned). Opened from the [GEMINI] header button.
+  const [geminiOpen, setGeminiOpen] = useState(false);
   // Live-enhancement banner: track the last file the loop was working on so
   // the banner stays visible between files (currentFile goes null briefly
   // between enhanceFile calls — without this, the banner would flash
@@ -1877,6 +1882,13 @@ export default function Home() {
             active={configOpen}
           />
           <HeaderBtn
+            label="GEMINI"
+            onClick={() => setGeminiOpen(true)}
+            title="LLM provider chain — paste a Gemini key for a second quota (gemini first, Z.AI fallback)"
+            dialog
+            active={geminiOpen}
+          />
+          <HeaderBtn
             label="ORACLE"
             onClick={() => setOracleOpen(true)}
             title="Oracle — the system predicts its own future"
@@ -2442,6 +2454,7 @@ export default function Home() {
       <OraclePanel open={oracleOpen} onClose={() => setOracleOpen(false)} />
       <DefensePanel open={defenseOpen} onClose={() => setDefenseOpen(false)} />
       <BranchesPanel open={branchesOpen} onClose={() => setBranchesOpen(false)} />
+      <GeminiPanel open={geminiOpen} onClose={() => setGeminiOpen(false)} />
 
       {/* Boot splash — the CRT cold/warm boot ceremony. Sits above
           everything (z-1000) until the observer presses ENTER THE LOOP.

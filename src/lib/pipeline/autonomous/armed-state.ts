@@ -60,10 +60,15 @@ export interface ArmedState {
  *  flag remains the live source; the disk file is the restart tier). */
 export function markArmed(armed: boolean, by: string): void {
   try {
-    mkdirSync(join(PROJECT_ROOT, ".git/info"), { recursive: true });
+    // Ensure directory exists first to avoid race condition
+    const infoDir = join(PROJECT_ROOT, ".git/info");
+    mkdirSync(infoDir, { recursive: true });
+    
+    // Validate input
     if (!by || by.trim() === "") {
       throw new Error("markArmed: 'by' parameter must be a non-empty string");
     }
+    
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
     writeFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2), "utf8");
   } catch {
@@ -81,8 +86,15 @@ export function readArmedState(): ArmedState | null {
   try {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
     const parsed = JSON.parse(raw) as Partial<ArmedState>;
-    if (parsed && typeof parsed.armed === "boolean" && 
+    
+    // Validate that parsed is an object and has all required fields
+    if (parsed && 
+        typeof parsed === "object" && 
+        parsed.armed !== undefined && 
+        typeof parsed.armed === "boolean" && 
+        parsed.at !== undefined && 
         typeof parsed.at === "string" && 
+        parsed.by !== undefined && 
         typeof parsed.by === "string") {
       return {
         armed: parsed.armed,
