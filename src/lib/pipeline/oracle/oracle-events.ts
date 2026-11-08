@@ -82,6 +82,9 @@ export function emitOracleEvent(
   if (message == null) {
     throw new Error("Oracle event message cannot be null or undefined");
   }
+  if (type == null) {
+    throw new Error("Oracle event type cannot be null or undefined");
+  }
   if (source == null) {
     throw new Error("Oracle event source cannot be null or undefined");
   }
