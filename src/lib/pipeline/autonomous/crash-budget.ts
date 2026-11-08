@@ -89,7 +89,10 @@ export function readCrashBudget(): CrashBudgetState | null {
  *  never fail a crash-count increment that already succeeded in memory. */
 export function writeCrashBudget(s: CrashBudgetState): void {
   // Validate input to prevent writing invalid state
-  if (typeof s !== "object" || s === null) {
+  if (s === null || s === undefined) {
+    return;
+  }
+  if (typeof s !== "object") {
     return;
   }
   if (typeof s.count !== "number" || s.count < 0) {
