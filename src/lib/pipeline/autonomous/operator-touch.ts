@@ -72,8 +72,9 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
     mkdirSync(join(PROJECT_ROOT, ".git/info"), { recursive: true });
     const entry: OperatorTouchState = { at: now.toISOString(), by };
     writeFileSync(OPERATOR_TOUCH_FILE, JSON.stringify(entry, null, 2), "utf8");
-  } catch {
-    /* best-effort */
+  } catch (error) {
+    /* best-effort - log the error for debugging if needed */
+    console.error("Failed to write operator touch file:", error);
   }
 }
 
