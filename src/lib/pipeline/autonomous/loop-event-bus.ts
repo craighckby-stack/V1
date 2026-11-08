@@ -55,11 +55,14 @@ class LoopEventBus {
   }
 
   public emit(evt: LoopEvent): boolean {
+    if (!this.emitter) {
+      throw new Error("LoopEventBus.emit() called on uninitialized EventEmitter");
+    }
     if (evt == null) {
       throw new Error("LoopEventBus.emit() called with null/undefined event");
     }
     if (typeof evt.timestamp !== "number" || evt.timestamp <= 0) {
-      throw new Error("LoopEventBus.emit() called with invalid timestamp");
+      throw new Error("LoopEventBus.emit() called with invalid timestamp (must be positive number)");
     }
     if (!evt.kind || typeof evt.kind !== "string") {
       throw new Error("LoopEventBus.emit() called with missing or invalid kind");
