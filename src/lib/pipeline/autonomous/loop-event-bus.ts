@@ -43,19 +43,26 @@ type LoopEventListener = (evt: LoopEvent) => void;
 
 class LoopEventBus {
   private readonly emitter: EventEmitter;
+  private readonly listeners = new Set<LoopEventListener>();
 
   constructor() {
     try {
       this.emitter = new EventEmitter();
       this.emitter.setMaxListeners(50);
     } catch (error) {
-      throw new Error(`Failed to initialize LoopEventBus: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to initialize LoopEventBus EventEmitter: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   public emit(evt: LoopEvent): boolean {
     if (evt == null) {
       throw new Error("LoopEventBus.emit() called with null/undefined event");
+    }
+    if (typeof evt.timestamp !== "number" || evt.timestamp <= 0) {
+      throw new Error("LoopEventBus.emit() called with invalid timestamp");
+    }
+    if (!evt.kind || typeof evt.kind !== "string") {
+      throw new Error("LoopEventBus.emit() called with missing or invalid kind");
     }
     return this.emitter.emit("event", evt);
   }
@@ -65,8 +72,10 @@ class LoopEventBus {
       throw new Error("LoopEventBus.on() called with non-function listener");
     }
     this.emitter.on("event", listener);
+    this.listeners.add(listener);
     return () => {
       this.emitter.off("event", listener);
+      this.listeners.delete(listener);
     };
   }
 }
