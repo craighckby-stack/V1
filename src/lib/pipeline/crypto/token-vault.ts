@@ -63,7 +63,7 @@ function ensureKey(): Buffer | null {
         if (!warnedKeyMissing) {
           warnedKeyMissing = true;
           console.error(
-            "[TOKEN-VAULT] key file is malformed — sealed tokens cannot be opened until it is fixed or removed"
+            "[TOKEN-VAULT] key file is malformed — it should contain exactly 64 hexadecimal characters. Please fix or remove the file at " + KEY_FILE
           );
         }
         return null;
@@ -106,7 +106,7 @@ export function isSealedEnvelope(value: string): boolean {
  *   - key unavailable → returned unchanged (PLAINTEXT beats a bricked push)
  */
 export function sealToken(plain: string): string {
-  if (!plain || isSealedEnvelope(plain)) return plain;
+  if (typeof plain !== "string" || !plain || isSealedEnvelope(plain)) return plain;
   if (plain.length < 20 || /\s/.test(plain)) return plain;
   const key = ensureKey();
   if (!key) return plain;
@@ -130,7 +130,7 @@ export function sealToken(plain: string): string {
  *     automatic migration rewrites it on the next write)
  */
 export function openToken(stored: string): string {
-  if (!stored || !isSealedEnvelope(stored)) return stored ?? "";
+  if (!stored || typeof stored !== "string" || !isSealedEnvelope(stored)) return stored ?? "";
   const key = ensureKey();
   if (!key) return "";
   try {
@@ -164,11 +164,26 @@ export function vaultStatus(): {
   keyPresent: boolean;
   keyFile: string;
 } {
-  const keyPresent = existsSync(KEY_FILE);
-  return {
-    keyPresent,
-    cipher: keyPresent ? "AES-256-GCM" : "PLAINTEXT",
-    sealed: keyPresent,
-    keyFile: ".git/info/loop-vault-key",
-  };
+  try {
+    const keyPresent = existsSync(KEY_FILE);
+    return {
+      keyPresent,
+      cipher: keyPresent ? "AES-256-GCM" : "PLAINTEXT",
+      sealed: keyPresent,
+      keyFile: ".git/info/loop-vault-key",
+    };
+  } catch (error) {
+    if (!warnedKeyMissing) {
+      warnedKeyMissing = true;
+      console.error(
+        "[TOKEN-VAULT] error checking vault status: " + (error instanceof Error ? error.message : String(error))
+      );
+    }
+    return {
+      keyPresent: false,
+      cipher: "PLAINTEXT",
+      sealed: false,
+      keyFile: ".git/info/loop-vault-key",
+    };
+  }
 }
