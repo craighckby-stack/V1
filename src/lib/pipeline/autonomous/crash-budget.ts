@@ -88,6 +88,21 @@ export function readCrashBudget(): CrashBudgetState | null {
 /** Persist the crash budget. Never throws — a persistence failure must
  *  never fail a crash-count increment that already succeeded in memory. */
 export function writeCrashBudget(s: CrashBudgetState): void {
+  // Validate input state before writing
+  if (
+    typeof s !== "object" ||
+    s === null ||
+    typeof s.count !== "number" ||
+    s.count < 0 ||
+    typeof s.lastClass !== "string" ||
+    typeof s.at !== "string" ||
+    typeof s.crashWall !== "boolean"
+  ) {
+    throw new Error(
+      `Invalid crash budget state: ${JSON.stringify(s)}. Expected object with count (number >= 0), lastClass (string), at (string), and crashWall (boolean)`
+    );
+  }
+
   try {
     // Ensure directory exists before writing file
     const dir = join(PROJECT_ROOT, ".git/info");
