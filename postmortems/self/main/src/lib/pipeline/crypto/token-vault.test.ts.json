@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/crypto/token-vault.test.ts",
+  "status": "active",
+  "verificationStatus": "candidate",
+  "failureType": "WEAK_RATCHET",
+  "symptom": "Red-team attacker (weak-pin): The sealToken function has a condition that returns the plain token unchanged if it contains whitespace. This is a secur",
+  "evidence": "Attacker suggested fix: Remove the whitespace check in sealToken function to ensure all tokens are properly sealed regardless of content. Change the condition from 'if (plain.length < 20 || /\\s/.test(plain)) return plain;' to just 'if (plain.length < 20) return plain;'",
+  "constraints": "The ratchet pin on this module has a reported weakness (weak-pin). It is a CANDIDATE finding — verify before acting. Do not weaken the pin to make it pass.",
+  "attempts": 2,
+  "parentHash": "64fbc3befaa5b9f7fbef8d50639749b954959fcb097467209fdd380733188986",
+  "hash": "d578b9aea5c837ee508e562d7c60835e2ffc0d6c45a367dc8d24355a974ca27e",
+  "lastAttemptAt": "2026-11-08T11:36:54.685Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-08T11:35:15.158Z",
+  "updatedAt": "2026-11-08T11:36:54.685Z",
+  "schema": 2
+}

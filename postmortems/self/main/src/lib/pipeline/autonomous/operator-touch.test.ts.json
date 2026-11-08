@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/autonomous/operator-touch.test.ts",
+  "status": "active",
+  "verificationStatus": "candidate",
+  "failureType": "WEAK_RATCHET",
+  "symptom": "Red-team attacker (weak-pin): The source file has a validation check for the 'by' parameter in markOperatorTouch() that throws an error when it's empt",
+  "evidence": "Attacker suggested fix: Remove the validation check for the 'by' parameter in markOperatorTouch() function. Change the function to simply write the state without validating the 'by' parameter. This would make the function more permissive while still passing all existing tests.",
+  "constraints": "The ratchet pin on this module has a reported weakness (weak-pin). It is a CANDIDATE finding — verify before acting. Do not weaken the pin to make it pass.",
+  "attempts": 2,
+  "parentHash": "1d23f682dbe9f9bb164a31296c519579ebe72dfd3c6665d3a75a46dce947c246",
+  "hash": "e6e084700651c8560af0902689add679e06352d0c9ad758b11c0419a8b12162f",
+  "lastAttemptAt": "2026-11-08T11:36:50.558Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-08T11:34:54.479Z",
+  "updatedAt": "2026-11-08T11:36:50.558Z",
+  "schema": 2
+}
