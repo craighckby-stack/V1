@@ -76,6 +76,17 @@ import { runGateIntegrityProbes, PROBE_INTERVAL } from "../red-team/gate-integri
 // the exact condition the flag was raised for. Static import is safe:
 // core/duress imports push-target, never this module.
 import { isSafeMode } from "../core/duress";
+// Operator armed-intent tier for THIS loop (.git/info/loop-self-enhance-
+// armed.json). Pure leaf (fs + path), no circulars — safe to load from
+// the constructor. See self-enhance-armed-state.ts for why the boot
+// auto-start reads from disk: the in-memory `continuous` flag resets on
+// every process recycle, so an operator who armed the loop would find it
+// dead after a dev-server reload without this persistence tier.
+import {
+  readSelfEnhanceArmedState,
+  markSelfEnhanceArmed,
+  type SelfEnhanceArmedState,
+} from "./self-enhance-armed-state";
 // Audit 3 (F10): serialize live-tree writes against chat-task's
 // applyTaskPlan — two independent writers previously raced (its rollback
 // could silently revert a gated, already-pushed enhancement).
@@ -620,6 +631,72 @@ class SelfEnhanceLoop {
       }
     } catch {
       /* git unavailable or no commits yet (fresh repo) — non-fatal, no warn */
+    }
+
+    // ── BOOT AUTO-START (armed-intent tier) ─────────────────────────────
+    // The operator's "this loop should be running" intent lives in
+    // .git/info/loop-self-enhance-armed.json so it survives process
+    // restarts (dev-server reload, crash, sandbox reboot). On boot, if
+    // the disk says armed:true, the fresh process re-arms the loop — the
+    // operator pressed [START] or [SAVE · VERIFY · REBOOT] once, and the
+    // loop keeps running on its own after every subsequent recycle.
+    // [STOP] clears the intent (sticky — nothing auto-starts again).
+    //
+    // Same multi-instance guard pattern as the autonomous loop's auto-arm
+    // (loop-runtime.ts AUTO_ARM_FLAG): a globalThis flag ensures only ONE
+    // auto-start fires per process boot, no matter how many transient
+    // Turbopack instances are created during a hot-swap. The pin-check
+    // (g.__selfEnhanceLoop === this) inside the timer ensures only the
+    // instance that actually won the singleton pin starts the loop.
+    try {
+      const AUTO_START_FLAG = "__selfEnhanceAutoStartFired";
+      const g = globalThis as unknown as {
+        [AUTO_START_FLAG]?: boolean;
+        __selfEnhanceLoop?: SelfEnhanceLoop;
+      };
+      if (!g[AUTO_START_FLAG]) {
+        g[AUTO_START_FLAG] = true;
+        let disk: SelfEnhanceArmedState | null = null;
+        try {
+          disk = readSelfEnhanceArmedState();
+        } catch {
+          disk = null; // fail-closed: unreadable ≠ armed
+        }
+        if (disk && disk.armed) {
+          // Respect safe-mode: if it's raised at boot (duress / red-team
+          // bypass / gate-integrity failure), do NOT auto-start. The
+          // runCycle's own safe-mode check would refuse the first cycle
+          // anyway, but skipping the start keeps the log honest ("SAFE-
+          // MODE active — not auto-starting") instead of a silent refusal.
+          if (isSafeMode()) {
+            this.log(
+              `SAFE-MODE active at boot — self-enhance loop NOT auto-started despite armed state (armed at ${disk.at} by ${disk.by}). Clear safe-mode then press [START].`,
+              "error"
+            );
+          } else {
+            // 2s delay mirrors the autonomous loop's auto-arm timer: lets
+            // the module graph settle and the Z.AI cortex warm up before
+            // the first cycle's ratchet fires its first llmComplete.
+            setTimeout(() => {
+              const g2 = globalThis as unknown as { __selfEnhanceLoop?: SelfEnhanceLoop };
+              if (g2.__selfEnhanceLoop !== this) return; // a different instance won the pin
+              if (this.continuous) return; // already running (e.g. hot-swap resume fired first)
+              this.log(
+                `PERSISTED ARMED STATE (armed at ${disk!.at} by ${disk!.by}) — auto-starting on boot. It runs whenever the quota gate is open; [STOP] clears the intent.`,
+                "success"
+              );
+              void this.runContinuous().catch((err) => {
+                this.log(
+                  `Boot auto-start crashed: ${(err as Error).message}`,
+                  "error"
+                );
+              });
+            }, 2000);
+          }
+        }
+      }
+    } catch {
+      /* armed-state read failure must never block the constructor */
     }
   }
 

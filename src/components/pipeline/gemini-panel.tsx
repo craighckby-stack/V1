@@ -263,8 +263,8 @@ export function GeminiPanel({ open, onClose }: Props) {
           quota — falling back to Z.AI on any failure. Gemini failures never trip the
           Z.AI 429 gate, and vice versa. Prompts (source code being enhanced) will be
           sent to Google while this is active. <span style={{ color: WARN_COLOR }}>Saving a verified
-          key reboots the self-enhancement loop immediately</span> so it begins using the new
-          provider — no manual [START] needed.
+          key reboots the self-enhancement loop immediately AND arms it to auto-start on
+          every system boot</span> — no manual [START] needed, now or after a restart.
         </div>
 
         {/* Gemini status */}

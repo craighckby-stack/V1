@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { liveSelfEnhanceLoop } from "@/lib/pipeline/autonomous/self-enhance-loop";
+import { markSelfEnhanceArmed } from "@/lib/pipeline/autonomous/self-enhance-armed-state";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -17,7 +18,13 @@ export const runtime = "nodejs";
  *   1. stop() — bumps the run token (any in-flight cycle bails at its next
  *      checkpoint) and sets continuous=false. Harmless when the loop is
  *      already stopped (just bumps a token no one holds + one warn log).
- *   2. runContinuous() — sets continuous=true, captures the new run token,
+ *   2. markSelfEnhanceArmed(true, "reboot-on-config") — persists the armed
+ *      intent to the wipe-proof tier (.git/info/loop-self-enhance-armed.json)
+ *      so the loop ALSO auto-starts on every subsequent process boot. The
+ *      operator's reboot-on-config gesture is treated as a re-arm: if the
+ *      dev server later recycles, the loop comes back on its own — that's
+ *      the "automate this with system start" contract.
+ *   3. runContinuous() — sets continuous=true, captures the new run token,
  *      and starts a fresh while-loop. The runCycle re-entry guard
  *      (`if (this.running) return`) means the new loop's first cycle no-ops
  *      if a stale cycle is still mid-flight, then takes over cleanly once
@@ -33,7 +40,7 @@ export const runtime = "nodejs";
  * disarm. Reboot here is scoped to the work-producing self-enhance loop.
  *
  * Idempotent: safe to call when already running (stop-then-start = a clean
- * fresh cycle) or when stopped (just a start).
+ * fresh cycle) or when stopped (just a start + re-arm).
  */
 export async function POST() {
   try {
@@ -46,7 +53,12 @@ export async function POST() {
       loop.stop();
     }
 
-    // 2. Start fresh. Fire-and-forget the async while-loop — the HTTP
+    // 2. Persist armed:true so the loop also auto-starts on every
+    //    subsequent process boot (the "automate with system start" tier).
+    //    Best-effort, never throws.
+    markSelfEnhanceArmed(true, "reboot-on-config");
+
+    // 3. Start fresh. Fire-and-forget the async while-loop — the HTTP
     //    response returns immediately with the running state.
     loop.runContinuous().catch((err) => {
       console.error("[REBOOT] self-enhance loop crashed on restart:", err);
@@ -56,9 +68,10 @@ export async function POST() {
       rebooted: true,
       running: true,
       wasRunning,
+      armed: true,
       message: wasRunning
-        ? "Self-enhancement loop rebooted — in-flight cycle aborted, fresh loop started with the new provider chain."
-        : "Self-enhancement loop started — running with the new provider chain.",
+        ? "Self-enhancement loop rebooted — in-flight cycle aborted, fresh loop started with the new provider chain. Armed state persisted — it auto-starts on the next system boot too."
+        : "Self-enhancement loop started — running with the new provider chain. Armed state persisted — it auto-starts on the next system boot too.",
     });
   } catch (err) {
     return NextResponse.json(
