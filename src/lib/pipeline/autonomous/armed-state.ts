@@ -60,6 +60,11 @@ export interface ArmedState {
  *  flag remains the live source; the disk file is the restart tier). */
 export function markArmed(armed: boolean, by: string): void {
   try {
+    // Validate PROJECT_ROOT exists
+    if (!PROJECT_ROOT) {
+      throw new Error("markArmed: PROJECT_ROOT is not defined");
+    }
+    
     // Ensure directory exists first to avoid race condition
     const infoDir = join(PROJECT_ROOT, ".git/info");
     mkdirSync(infoDir, { recursive: true });
@@ -84,6 +89,11 @@ export function markArmed(armed: boolean, by: string): void {
  *  auto-arm only proceeds when the disk EXPLICITLY says armed:true. */
 export function readArmedState(): ArmedState | null {
   try {
+    // Validate PROJECT_ROOT exists
+    if (!PROJECT_ROOT) {
+      return null;
+    }
+    
     if (!existsSync(ARMED_STATE_FILE)) {
       return null;
     }
@@ -99,7 +109,10 @@ export function readArmedState(): ArmedState | null {
         parsed.at !== undefined && 
         typeof parsed.at === "string" && 
         parsed.by !== undefined && 
-        typeof parsed.by === "string") {
+        typeof parsed.by === "string" &&
+        parsed.by.trim() !== "" &&
+        // Validate ISO timestamp format (basic check)
+        !isNaN(Date.parse(parsed.at))) {
       return {
         armed: parsed.armed,
         at: parsed.at,
