@@ -69,6 +69,9 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
     if (!by || typeof by !== "string" || by.trim() === "") {
       throw new Error("markSelfEnhanceArmed: 'by' must be a non-empty string");
     }
+    if (typeof armed !== "boolean") {
+      throw new Error("markSelfEnhanceArmed: 'armed' must be a boolean");
+    }
     const entry: SelfEnhanceArmedState = {
       armed,
       at: new Date().toISOString(),
