@@ -123,11 +123,13 @@ export function readOracleEvents(afterSeq?: number): {
     if (afterSeq >= s.seq) {
       return { events: [], seq: s.seq };
     }
-    // The caller has seen `afterSeq` events already. The buffer holds
-    // the most recent MAX_EVENTS; if afterSeq is older than what the
-    // buffer holds, we return the whole buffer (best effort — the
-    // gap events were dropped by the ring).
-    return { events: [...s.buffer], seq: s.seq };
+    
+    // Find the index of the first event that hasn't been seen
+    const startIndex = Math.max(0, s.buffer.length - (s.seq - afterSeq));
+    return { 
+      events: s.buffer.slice(startIndex), 
+      seq: s.seq 
+    };
   }
   
   // No afterSeq provided or invalid, return all events
