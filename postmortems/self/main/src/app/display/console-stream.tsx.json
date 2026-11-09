@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/display/console-stream.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/autonomous/push-target.ts(537,14): error TS2339: Property 'gitPushTarget' does not exist on type 'false'.; src/lib/pipeline/autonomous/push-target.ts(538,26): error TS2339: Property 'gitPushTarget' does not exist on type 'false'.; src/lib/pipeline/oracle/commit-archaeology.ts(249,36): error TS2367: This comparison appears to be unintentional because the types '\"WRONG\"' and '\"CORRECT\"' have no overlap.",
@@ -12,8 +12,8 @@
   "parentHash": null,
   "hash": "e0f65f6ddde10ab98aae385888ffd2b74bbd104337d6ea08fc6dd6428e8e2e39",
   "lastAttemptAt": "2026-11-02T05:02:41.150Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-09T16:18:56.245Z",
   "createdAt": "2026-11-02T04:36:59.089Z",
-  "updatedAt": "2026-11-02T05:02:41.150Z",
+  "updatedAt": "2026-11-09T16:18:56.245Z",
   "schema": 2
 }
