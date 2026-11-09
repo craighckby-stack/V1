@@ -77,8 +77,9 @@ export function autoProphecyAfterCycle(): void {
     } catch (error) {
       // Never let the oracle take down the loop. A background
       // introspection must not become a foreground failure.
+      const errorMessage = error instanceof Error ? error.message : String(error);
       emitOracleEvent(
-        `Oracle auto-prophecy error (cycle hook) — skipped this cycle: ${error instanceof Error ? error.message : String(error)}`,
+        `Oracle auto-prophecy error (cycle hook) — skipped this cycle due to unexpected exception: ${errorMessage}`,
         "error",
         "scheduler",
       );
