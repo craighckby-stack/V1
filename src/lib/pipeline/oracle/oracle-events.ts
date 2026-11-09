@@ -79,13 +79,13 @@ export function emitOracleEvent(
   type: OracleEvent["type"] = "info",
   source: OracleEvent["source"] = "scheduler",
 ): OracleEvent {
-  if (message === null || message === undefined) {
+  if (message == null) {
     throw new Error("Oracle event message cannot be null or undefined");
   }
-  if (type === null || type === undefined) {
+  if (type == null) {
     throw new Error("Oracle event type cannot be null or undefined");
   }
-  if (source === null || source === undefined) {
+  if (source == null) {
     throw new Error("Oracle event source cannot be null or undefined");
   }
   
@@ -117,18 +117,19 @@ export function readOracleEvents(afterSeq?: number): {
   s.lastReadAt = Date.now();
   
   if (typeof afterSeq === "number") {
-    if (afterSeq < 0) {
-      throw new Error("afterSeq must be a non-negative number");
+    if (!Number.isInteger(afterSeq) || afterSeq < 0) {
+      throw new Error("afterSeq must be a non-negative integer");
     }
-    if (afterSeq >= s.seq) {
-      return { events: [], seq: s.seq };
+    const currentSeq = s.seq;
+    if (afterSeq >= currentSeq) {
+      return { events: [], seq: currentSeq };
     }
     
     // Find the index of the first event that hasn't been seen
-    const startIndex = Math.max(0, s.buffer.length - (s.seq - afterSeq));
+    const startIndex = Math.max(0, s.buffer.length - (currentSeq - afterSeq));
     return { 
       events: s.buffer.slice(startIndex), 
-      seq: s.seq 
+      seq: currentSeq 
     };
   }
   
