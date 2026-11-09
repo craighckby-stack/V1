@@ -90,11 +90,12 @@ export async function oracleSchedulerTick(): Promise<{
   // exactly one query and no LLM calls at all).
   let due: any[] = [];
   try {
-    due = await listDueProphecies();
+    const result = await listDueProphecies();
     // Validate that we got an array back
-    if (!Array.isArray(due)) {
-      throw new Error(`listDueProphecies() returned non-array: ${typeof due}`);
+    if (!Array.isArray(result)) {
+      throw new Error(`listDueProphecies() returned non-array: ${typeof result}`);
     }
+    due = result;
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     emitOracleEvent(
