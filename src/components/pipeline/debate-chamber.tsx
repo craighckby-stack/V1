@@ -155,7 +155,7 @@ export function DebateChamber() {
                   </span>
                 </div>
                 <p className="text-xs text-slate-200 leading-relaxed">{arg.statement}</p>
-                {arg.citations?.length > 0 && (
+                {arg.citations && arg.citations.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1">
                     {arg.citations.map((c) => (
                       <span
@@ -199,7 +199,7 @@ export function DebateChamber() {
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300 mt-0.5 shrink-0" />
             <div className="flex-1">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Lead Verdict</div>
-              <p className="text-xs text-slate-200 mt-0.5">{verdict.leadSummary}</p>
+              <p className="text-xs text-slate-200 mt-0.5">{verdict.leadSummary || "No summary available"}</p>
             </div>
           </div>
         </div>
