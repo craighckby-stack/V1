@@ -516,10 +516,7 @@ class SelfEnhanceLoop {
         // continuous:false snapshot used to linger on globalThis until
         // the next swap overwrote it.
         if (clearSnap) clearSnap();
-        this.stats = { ...this.stats, ...snap.stats };
-        this.saturation = new Map(snap.saturation as Array<[string, FileSaturation]>);
-        this.consecutiveCooldownCycles = snap.consecutiveCooldownCycles;
-        this.quotaExhaustedLogged = snap.quotaExhaustedLogged;
+        this.restoreFromSnapshot(snap);
         // AUDIT 3 (B3): orphaned meta-tuner trials. If the OLD instance
         // was mid-A/B-trial when the swap fired, the DB row is still
         // provenance="trial" with the trial VALUE live — and nothing on
@@ -2637,6 +2634,20 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
     return this.continuous;
   }
 
+  /** Restore compounding state from a hot-swap snapshot. Called by the
+   *  constructor's snapshot block AND by the liveSelfEnhanceLoop() reaper
+   *  (the safety net for when the constructor never runs because Turbopack
+   *  didn't re-evaluate the module). Centralizes the private-field writes
+   *  so the reaper doesn't need direct access. */
+  restoreFromSnapshot(snap: import("../core/hot-swap").SelfEnhanceSnapshot): void {
+    this.stats = { ...this.stats, ...snap.stats };
+    this.saturation = new Map(
+      snap.saturation as Array<[string, FileSaturation]>
+    );
+    this.consecutiveCooldownCycles = snap.consecutiveCooldownCycles;
+    this.quotaExhaustedLogged = snap.quotaExhaustedLogged;
+  }
+
   getStats() {
     return { ...this.stats };
   }
@@ -2761,5 +2772,62 @@ if (!globalForSelfEnhance.__selfEnhanceLoop) {
  */
 export function liveSelfEnhanceLoop(): SelfEnhanceLoop {
   const g = globalThis as unknown as { __selfEnhanceLoop?: SelfEnhanceLoop };
-  return g.__selfEnhanceLoop ?? selfEnhanceLoop;
+  const loop = g.__selfEnhanceLoop ?? selfEnhanceLoop;
+  // ── HOT-SWAP SNAPSHOT REAPER (safety net) ──────────────────────────
+  // The hot-swap stashes a snapshot on globalThis (SELF_SNAPSHOT_SLOT) and
+  // touches the module mtime, expecting Turbopack to re-evaluate the module
+  // → run the constructor → consume the snapshot → resume the loop. But
+  // Turbopack uses content hashing, not mtime — touching mtime without
+  // changing content doesn't trigger re-evaluation. So the snapshot sits
+  // unconsumed, the constructor never runs, and the loop stays dead after
+  // every hot-swap that doesn't change self-enhance-loop.ts itself.
+  //
+  // This reaper runs on every liveSelfEnhanceLoop() call (every API request
+  // — the page polls /status every few seconds). If there's a stashed
+  // snapshot that the constructor never consumed, the reaper consumes it,
+  // restores the compounding state, and resumes the loop if it was
+  // continuous before the swap. Same logic as the constructor's snapshot
+  // block — just triggered by the next API call instead of a constructor
+  // run. Idempotent: consumeSelfEnhanceSnapshot returns null once the slot
+  // is cleared, so a constructor that DID run + clear is a no-op here.
+  try {
+    const hotSwapMod = require("../core/hot-swap") as Partial<{
+      consumeSelfEnhanceSnapshot: () => import("../core/hot-swap").SelfEnhanceSnapshot | null;
+      clearSelfEnhanceSnapshot: () => void;
+    }>;
+    const consumeSnap =
+      typeof hotSwapMod.consumeSelfEnhanceSnapshot === "function"
+        ? hotSwapMod.consumeSelfEnhanceSnapshot
+        : null;
+    const clearSnap =
+      typeof hotSwapMod.clearSelfEnhanceSnapshot === "function"
+        ? hotSwapMod.clearSelfEnhanceSnapshot
+        : null;
+    const snap = consumeSnap ? consumeSnap() : null;
+    if (snap) {
+      if (clearSnap) clearSnap();
+      // Restore compounding state on the LIVE singleton via the public
+      // method (private fields aren't accessible from this scope).
+      loop.restoreFromSnapshot(snap);
+      loop.log(
+        `State restored from hot-swap snapshot (reaper) (${snap.stats.cyclesCompleted} cycles, ${snap.saturation.length} saturation entr(ies)) — constructor didn't run, reaper caught it`,
+        "info"
+      );
+      // Resume if the loop was continuous before the swap and isn't already
+      // running (the 1500ms constructor resume timer is the primary path;
+      // this is the fallback when that timer never fires).
+      if (snap.continuous && !loop.isContinuous()) {
+        loop.log(
+          "Resuming continuous self-enhancement after hot-swap (reaper)",
+          "success"
+        );
+        void loop.runContinuous().catch((err) => {
+          loop.log(`Reaper resume crashed: ${(err as Error).message}`, "error");
+        });
+      }
+    }
+  } catch {
+    /* hot-swap module not loaded — no-op */
+  }
+  return loop;
 }
