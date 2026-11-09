@@ -80,7 +80,7 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
     writeFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2), "utf8");
   } catch (error) {
     console.error(
-      "markSelfEnhanceArmed: Failed to persist armed state. Check file system permissions or PROJECT_ROOT validity. Error:",
+      "markSelfEnhanceArmed: Failed to persist armed state. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by':",
       error instanceof Error ? error.message : String(error)
     );
   }
