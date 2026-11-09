@@ -1,43 +1,226 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { geminiHealthSnapshot } from "@/lib/pipeline/llm/gemini-direct";
+import { nvidiaHealthSnapshot, verifyNvidiaKey } from "@/lib/pipeline/llm/nvidia-direct";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const SINGLETON_ID = "singleton";
 
-/** GET — public view (key NEVER included). */
+/** GET — public view (key NEVER included). Reports both NVIDIA and Gemini
+ *  leg status. The providerOrder field surfaces the live chain order so
+ *  the UI can render "nvidia → gemini → z.ai" or the collapsed forms. */
 export async function GET() {
   const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } }).catch(() => null);
-  // In-memory Gemini health (geo-block cooldown, per-model breakers,
-  // proxy presence) — zero I/O, safe on every poll.
-  const health = geminiHealthSnapshot();
+  // In-memory health snapshots — zero I/O, safe on every poll.
+  const geminiHealth = geminiHealthSnapshot();
+  const nvidiaHealth = nvidiaHealthSnapshot();
+
+  const nvidiaConfigured = !!(row && row.nvidiaApiKey);
+  const geminiConfigured = !!(row && row.geminiApiKey);
+
+  // Live provider chain order. The actual call path in agent-llm.ts
+  // always tries NVIDIA first when configured, then Gemini, then Z.AI.
+  // The string below is what the UI shows — "not configured" legs are
+  // omitted from the rendered chain (not from the actual code path).
+  const legs: string[] = [];
+  if (nvidiaConfigured) legs.push("nvidia");
+  if (geminiConfigured) legs.push("gemini");
+  legs.push("z.ai");
+  const providerOrder = legs.join(" → ");
+
   if (!row) {
     return NextResponse.json({
       configured: false,
-      providerOrder: "gemini → z.ai",
-      geminiHealth: health,
+      providerOrder,
+      nvidia: { configured: false, health: nvidiaHealth },
+      gemini: { configured: false, health: geminiHealth },
     });
   }
+
   return NextResponse.json({
-    configured: true,
+    configured: geminiConfigured, // legacy field kept for the existing UI panel
     model: row.geminiModel,
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
     lastError: row.lastError,
-    providerOrder: "gemini → z.ai",
-    geminiHealth: health,
+    providerOrder,
+    // NVIDIA leg — surfaced separately so the panel can render its
+    // own status block (model id, last-used, last-error, breakers).
+    nvidia: {
+      configured: nvidiaConfigured,
+      model: row.nvidiaModel || "nvidia/nemotron-3.5-bolt-e4b",
+      lastUsedAt: row.nvidiaLastUsedAt?.toISOString() ?? null,
+      lastError: row.nvidiaLastError,
+      health: nvidiaHealth,
+    },
+    gemini: {
+      configured: geminiConfigured,
+      model: row.geminiModel,
+      lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+      lastError: row.lastError,
+      health: geminiHealth,
+    },
   });
 }
 
-/** POST — verify + persist the Gemini API key. */
+/** POST — verify + persist either a Gemini or an NVIDIA key.
+ *
+ *  The body selects which leg to update via the `kind` field:
+ *    { kind: "gemini", geminiApiKey, model, forceSave? }
+ *    { kind: "nvidia", nvidiaApiKey, model, forceSave? }
+ *  Omitting `kind` defaults to "gemini" for backwards compatibility
+ *  with the existing panel's POST body.
+ */
 export async function POST(req: Request) {
-  let body: { geminiApiKey?: string; model?: string; forceSave?: boolean };
+  let body: {
+    kind?: "gemini" | "nvidia";
+    geminiApiKey?: string;
+    nvidiaApiKey?: string;
+    model?: string;
+    forceSave?: boolean;
+  };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
+
+  const kind = body.kind ?? "gemini";
+
+  // ── NVIDIA leg ──────────────────────────────────────────────────────
+  if (kind === "nvidia") {
+    return handleNvidiaPost(body);
+  }
+
+  // ── Gemini leg (historical path) ────────────────────────────────────
+  return handleGeminiPost(body);
+}
+
+async function handleNvidiaPost(body: {
+  nvidiaApiKey?: string;
+  model?: string;
+  forceSave?: boolean;
+}) {
+  const key = (body.nvidiaApiKey ?? "").trim();
+  const model = (body.model ?? "nvidia/nemotron-3.5-bolt-e4b").trim();
+  const forceSave = !!body.forceSave;
+
+  if (!key) {
+    return NextResponse.json({ ok: false, error: "Missing nvidiaApiKey" }, { status: 400 });
+  }
+  // NVIDIA keys start with "nvapi-" and are ~70 chars. Be lenient on
+  // length but reject obviously malformed input (no whitespace, 20+).
+  if (key.length < 20 || /\s/.test(key)) {
+    return NextResponse.json({ ok: false, error: "Key looks malformed (expected 20+ chars, no whitespace)" }, { status: 400 });
+  }
+
+  // Verify the key with a tiny "say OK" probe. NIM accepts OpenAI-
+  // compatible chat-completions bodies, so a 3-token reply proves the
+  // key works AND the model id is current (a 410 here means the model
+  // is gone — the operator needs to pick a current id from the catalog).
+  const verify = await verifyNvidiaKey(key, model);
+
+  // Key works RIGHT NOW — fall through to save below.
+  if (verify.ok) {
+    await db.llmConfig.upsert({
+      where: { id: SINGLETON_ID },
+      update: { nvidiaApiKey: key, nvidiaModel: model, nvidiaLastError: null },
+      // geminiApiKey: "" — the schema's @default("") only applies on
+      // fresh databases; an existing db (pre-NVIDIA) has geminiApiKey
+      // as a NOT NULL column with no default. The first NVIDIA-only
+      // save (no Gemini key yet) needs to supply it explicitly so the
+      // create path doesn't fail on the missing required field.
+      create: {
+        id: SINGLETON_ID,
+        geminiApiKey: "",
+        nvidiaApiKey: key,
+        nvidiaModel: model,
+      },
+    });
+    return NextResponse.json({ ok: true, kind: "nvidia", model, verified: true });
+  }
+
+  // 429 (quota) — key is valid, save anyway so the loop uses it when
+  // quota resets.
+  if (verify.status === 429) {
+    await db.llmConfig.upsert({
+      where: { id: SINGLETON_ID },
+      update: { nvidiaApiKey: key, nvidiaModel: model, nvidiaLastError: `429 quota cooling (key valid)` },
+      create: { id: SINGLETON_ID, geminiApiKey: "", nvidiaApiKey: key, nvidiaModel: model, nvidiaLastError: `429 quota cooling (key valid)` },
+    });
+    return NextResponse.json({
+      ok: true,
+      kind: "nvidia",
+      model,
+      verified: false,
+      warning: `Key accepted by NVIDIA but the catalog is rate-cooling (429). Key saved — the loop will use it when the rate limit clears.`,
+    });
+  }
+
+  // 410 / 404 — the MODEL ID is dead/gone, but the KEY might be fine.
+  // The operator needs to swap the model id. forceSave lets them store
+  // the key with the dead model id so they can update the model later
+  // (though usually they'd just paste both at once).
+  if (verify.status === 410 || verify.status === 404) {
+    const msg = `Model '${model}' is ${verify.status === 410 ? "end-of-life" : "not found"} on the NVIDIA catalog. The key may still be valid — pick a current model id from build.nvidia.com and try again.`;
+    if (forceSave) {
+      await db.llmConfig.upsert({
+        where: { id: SINGLETON_ID },
+        update: { nvidiaApiKey: key, nvidiaModel: model, nvidiaLastError: msg },
+        create: { id: SINGLETON_ID, geminiApiKey: "", nvidiaApiKey: key, nvidiaModel: model, nvidiaLastError: msg },
+      });
+      return NextResponse.json({ ok: true, kind: "nvidia", model, verified: false, forceSaved: true, warning: msg });
+    }
+    return NextResponse.json({ ok: false, error: msg }, { status: 400 });
+  }
+
+  // 401 / 403 — the KEY is bad. Saving it would just make every loop
+  // call fail at the NVIDIA leg before falling through to Gemini.
+  // forceSave lets the operator store it anyway (the chain will
+  // route around it), but without forceSave we reject.
+  if (verify.status === 401 || verify.status === 403) {
+    const msg = `NVIDIA rejected the key (${verify.status}): ${verify.error ?? "unauthorized"}. Check the key at build.nvidia.com (profile → API keys → generate).`;
+    if (forceSave) {
+      await db.llmConfig.upsert({
+        where: { id: SINGLETON_ID },
+        update: { nvidiaApiKey: key, nvidiaModel: model, nvidiaLastError: msg },
+        create: { id: SINGLETON_ID, geminiApiKey: "", nvidiaApiKey: key, nvidiaModel: model, nvidiaLastError: msg },
+      });
+      return NextResponse.json({ ok: true, kind: "nvidia", model, verified: false, forceSaved: true, warning: msg });
+    }
+    return NextResponse.json({ ok: false, error: msg }, { status: 400 });
+  }
+
+  // Network error / unknown HTTP status. With forceSave, store the key
+  // anyway — the catalog may be temporarily unreachable from this
+  // network (though HK egress should be fine, unlike Google).
+  if (forceSave) {
+    await db.llmConfig.upsert({
+      where: { id: SINGLETON_ID },
+      update: { nvidiaApiKey: key, nvidiaModel: model, nvidiaLastError: `Verify failed (${verify.status ?? "network"}): ${verify.error ?? ""}`.slice(0, 200) },
+      create: { id: SINGLETON_ID, geminiApiKey: "", nvidiaApiKey: key, nvidiaModel: model, nvidiaLastError: `Verify failed (${verify.status ?? "network"}): ${verify.error ?? ""}`.slice(0, 200) },
+    });
+    return NextResponse.json({
+      ok: true,
+      kind: "nvidia",
+      model,
+      verified: false,
+      forceSaved: true,
+      warning: `Verification failed (${verify.status ?? "network"}): ${verify.error ?? "unknown error"}. Key saved anyway (forceSave) — the loop will try it on the next call and fall through to Gemini on any failure.`,
+    });
+  }
+  return NextResponse.json({
+    ok: false,
+    error: `Verification failed (${verify.status ?? "network"}): ${verify.error ?? "unknown error"}`,
+  }, { status: 500 });
+}
+
+async function handleGeminiPost(body: {
+  geminiApiKey?: string;
+  model?: string;
+  forceSave?: boolean;
+}) {
   const key = (body.geminiApiKey ?? "").trim();
   const model = (body.model ?? "gemini-2.5-flash").trim();
   // forceSave lets the operator store a key that CANNOT be verified from this
@@ -182,6 +365,7 @@ export async function POST(req: Request) {
   if (locationBlocked) {
     return NextResponse.json({
       ok: true,
+      kind: "gemini",
       model,
       verified: false,
       locationBlocked: true,
@@ -195,6 +379,7 @@ export async function POST(req: Request) {
   if (verifyError) {
     return NextResponse.json({
       ok: true,
+      kind: "gemini",
       model,
       verified: false,
       forceSaved: true,
@@ -202,11 +387,50 @@ export async function POST(req: Request) {
     });
   }
 
-  return NextResponse.json({ ok: true, model, verified: true });
+  return NextResponse.json({ ok: true, kind: "gemini", model, verified: true });
 }
 
-/** DELETE — clear the Gemini config. */
-export async function DELETE() {
-  await db.llmConfig.deleteMany({ where: { id: SINGLETON_ID } }).catch(() => {});
-  return NextResponse.json({ ok: true });
+/** DELETE — clear the Gemini config, the NVIDIA config, or both.
+ *  Body: { kind: "gemini" | "nvidia" } (default: "gemini" for backwards
+ *  compat with the existing panel's DELETE call).
+ */
+export async function DELETE(req: Request) {
+  let body: { kind?: "gemini" | "nvidia" } = {};
+  try {
+    body = await req.json().catch(() => ({})) as { kind?: "gemini" | "nvidia" };
+  } catch {
+    // Some callers send no body — default to clearing Gemini (the
+    // historical behavior).
+  }
+  const kind = body.kind ?? "gemini";
+
+  if (kind === "nvidia") {
+    // Clear the NVIDIA fields but leave the Gemini key untouched.
+    await db.llmConfig
+      .update({
+        where: { id: SINGLETON_ID },
+        data: {
+          nvidiaApiKey: "",
+          nvidiaModel: "nvidia/nemotron-3.5-bolt-e4b",
+          nvidiaLastUsedAt: null,
+          nvidiaLastError: null,
+        },
+      })
+      .catch(() => {});
+    return NextResponse.json({ ok: true, kind: "nvidia" });
+  }
+
+  // Clear the Gemini fields but leave the NVIDIA key untouched.
+  await db.llmConfig
+    .update({
+      where: { id: SINGLETON_ID },
+      data: {
+        geminiApiKey: "",
+        geminiModel: "gemini-2.5-flash",
+        lastUsedAt: null,
+        lastError: null,
+      },
+    })
+    .catch(() => {});
+  return NextResponse.json({ ok: true, kind: "gemini" });
 }

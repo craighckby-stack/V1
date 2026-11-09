@@ -187,12 +187,28 @@ model SelfTask {
 /// it, the entire Gemini-direct path is broken at the storage layer,
 /// and retry/recovery logic in gemini-direct.ts has nothing to read
 /// from. Singleton pattern, same as GitPushTarget.
+///
+/// NVIDIA NIM fields (nvidiaApiKey, nvidiaModel, nvidiaLastUsedAt,
+/// nvidiaLastError) added 2026-11 — NVIDIA's free hosted catalog is
+/// tier 1 in the chain (fastest, no geo-block from HK). When configured,
+/// the loop calls Bolt FIRST and falls through to Gemini → Z.AI on any
+/// NVIDIA failure. Models rotate without notice on the free endpoint,
+/// so nvidiaLastError surfaces 410 Gone as a clear "swap the model id"
+/// message.
 model LlmConfig {
   id           String    @id @default("singleton")
-  geminiApiKey  String    // real Google AI Studio key, OR the proxy shared secret when GEMINI_PROXY_BASE_URL is set
+  geminiApiKey  String    @default("") // real Google AI Studio key, OR the proxy shared secret when GEMINI_PROXY_BASE_URL is set. Empty = not configured (default, so an NVIDIA-only setup can create a row without a Gemini key).
   geminiModel   String    @default("gemini-2.5-flash") // e.g. gemini-2.5-pro | gemini-2.5-flash | gemini-2.0-flash
-  lastUsedAt   DateTime?  // last successful generateContent call
-  lastError    String?    // last error message (token-free, scrubbed)
+  lastUsedAt   DateTime?  // last successful generateContent call (Gemini leg)
+  lastError    String?    // last Gemini error message (token-free, scrubbed)
+  // ── NVIDIA NIM (tier 1) ──────────────────────────────────────────────
+  // The NVIDIA key is optional (empty string when unset). When non-empty,
+  // nvidia-direct.ts is tried FIRST in the chain. Default model is the
+  // tested-fastest free-catalog model (Bolt — 1.7s tribunal, 14s refactor).
+  nvidiaApiKey String    @default("") // nvapi-... key from build.nvidia.com
+  nvidiaModel  String    @default("nvidia/nemotron-3.5-bolt-e4b") // OpenAI-compatible model id
+  nvidiaLastUsedAt DateTime? // last successful NVIDIA chat-completions call
+  nvidiaLastError String?    // last NVIDIA error (scrubbed; surfaces 410 Gone clearly)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 }

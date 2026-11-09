@@ -8,6 +8,7 @@ import { BranchesPanel } from "@/components/pipeline/branches-panel";
 import { BootSplash } from "@/components/pipeline/boot-splash";
 import { ApiUnlock } from "@/components/pipeline/api-unlock";
 import { GeminiPanel } from "@/components/pipeline/gemini-panel";
+import { NvidiaPanel } from "@/components/pipeline/nvidia-panel";
 
 interface LogEntry {
   timestamp: string;
@@ -290,6 +291,11 @@ export default function Home() {
   // own polling of /api/self-enhance/llm-config while open (key is
   // never returned). Opened from the [GEMINI] header button.
   const [geminiOpen, setGeminiOpen] = useState(false);
+  // NvidiaPanel — tier-1 LLM provider. Same polling cadence, opened
+  // from the [NVIDIA] header button. The panel and GeminiPanel share
+  // the same singleton LlmConfig row (different columns); a save in
+  // either reboots the loop once.
+  const [nvidiaOpen, setNvidiaOpen] = useState(false);
   // Live-enhancement banner: track the last file the loop was working on so
   // the banner stays visible between files (currentFile goes null briefly
   // between enhanceFile calls — without this, the banner would flash
@@ -621,7 +627,7 @@ export default function Home() {
   // typed/pasted key lands in the terminal, not the key field. Same for
   // Oracle / Defense / Branches / Config panels.
   const anyPanelOpen =
-    configOpen || geminiOpen || oracleOpen || defenseOpen || branchesOpen;
+    configOpen || geminiOpen || nvidiaOpen || oracleOpen || defenseOpen || branchesOpen;
 
   // Focus input on click anywhere — but NOT while any modal panel is open
   // (the panel's inputs need the click to land + keep focus).
@@ -642,6 +648,8 @@ export default function Home() {
       e.preventDefault();
       if (configOpen) {
         closeConfig(); // preserves token/state cleanup
+      } else if (nvidiaOpen) {
+        setNvidiaOpen(false);
       } else if (geminiOpen) {
         setGeminiOpen(false);
       } else if (oracleOpen) {
@@ -654,7 +662,7 @@ export default function Home() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [anyPanelOpen, configOpen, geminiOpen, oracleOpen, defenseOpen, branchesOpen]);
+  }, [anyPanelOpen, configOpen, nvidiaOpen, geminiOpen, oracleOpen, defenseOpen, branchesOpen]);
 
   /** Append output lines to the unified console stream. */
   function emitOutput(lines: string[]) {
@@ -1904,6 +1912,13 @@ export default function Home() {
             active={configOpen}
           />
           <HeaderBtn
+            label="NVIDIA"
+            onClick={() => setNvidiaOpen(true)}
+            title="Tier-1 LLM provider — paste an NVIDIA key for free-catalog NIM models (nvidia first → gemini → Z.AI)"
+            dialog
+            active={nvidiaOpen}
+          />
+          <HeaderBtn
             label="GEMINI"
             onClick={() => setGeminiOpen(true)}
             title="LLM provider chain — paste a Gemini key for a second quota (gemini first, Z.AI fallback)"
@@ -2477,6 +2492,7 @@ export default function Home() {
       <DefensePanel open={defenseOpen} onClose={() => setDefenseOpen(false)} />
       <BranchesPanel open={branchesOpen} onClose={() => setBranchesOpen(false)} />
       <GeminiPanel open={geminiOpen} onClose={() => setGeminiOpen(false)} />
+      <NvidiaPanel open={nvidiaOpen} onClose={() => setNvidiaOpen(false)} />
 
       {/* Boot splash — the CRT cold/warm boot ceremony. Sits above
           everything (z-1000) until the observer presses ENTER THE LOOP.
