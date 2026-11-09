@@ -90,8 +90,8 @@ export function readCrashBudget(): CrashBudgetState | null {
 export function writeCrashBudget(s: CrashBudgetState): void {
   // Validate input state before writing
   if (
+    !s ||
     typeof s !== "object" ||
-    s === null ||
     typeof s.count !== "number" ||
     s.count < 0 ||
     typeof s.lastClass !== "string" ||
@@ -108,8 +108,9 @@ export function writeCrashBudget(s: CrashBudgetState): void {
     const dir = join(PROJECT_ROOT, ".git/info");
     mkdirSync(dir, { recursive: true });
     writeFileSync(CRASH_BUDGET_FILE, JSON.stringify(s, null, 2), "utf8");
-  } catch {
+  } catch (error) {
     /* best-effort — same contract as the armed-state file */
+    console.error(`Failed to write crash budget to ${CRASH_BUDGET_FILE}:`, error);
   }
 }
 

@@ -2648,6 +2648,12 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
     this.quotaExhaustedLogged = snap.quotaExhaustedLogged;
   }
 
+  /** Public log passthrough for the reaper (which lives outside the class
+   *  and can't call the private `log` directly). */
+  logMsg(message: string, type: "info" | "success" | "warn" | "error" = "info"): void {
+    this.log(message, type);
+  }
+
   getStats() {
     return { ...this.stats };
   }
@@ -2791,6 +2797,7 @@ export function liveSelfEnhanceLoop(): SelfEnhanceLoop {
   // run. Idempotent: consumeSelfEnhanceSnapshot returns null once the slot
   // is cleared, so a constructor that DID run + clear is a no-op here.
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const hotSwapMod = require("../core/hot-swap") as Partial<{
       consumeSelfEnhanceSnapshot: () => import("../core/hot-swap").SelfEnhanceSnapshot | null;
       clearSelfEnhanceSnapshot: () => void;
@@ -2809,7 +2816,7 @@ export function liveSelfEnhanceLoop(): SelfEnhanceLoop {
       // Restore compounding state on the LIVE singleton via the public
       // method (private fields aren't accessible from this scope).
       loop.restoreFromSnapshot(snap);
-      loop.log(
+      loop.logMsg(
         `State restored from hot-swap snapshot (reaper) (${snap.stats.cyclesCompleted} cycles, ${snap.saturation.length} saturation entr(ies)) — constructor didn't run, reaper caught it`,
         "info"
       );
@@ -2817,12 +2824,12 @@ export function liveSelfEnhanceLoop(): SelfEnhanceLoop {
       // running (the 1500ms constructor resume timer is the primary path;
       // this is the fallback when that timer never fires).
       if (snap.continuous && !loop.isContinuous()) {
-        loop.log(
+        loop.logMsg(
           "Resuming continuous self-enhancement after hot-swap (reaper)",
           "success"
         );
         void loop.runContinuous().catch((err) => {
-          loop.log(`Reaper resume crashed: ${(err as Error).message}`, "error");
+          loop.logMsg(`Reaper resume crashed: ${(err as Error).message}`, "error");
         });
       }
     }
