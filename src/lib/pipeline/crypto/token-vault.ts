@@ -73,15 +73,14 @@ function ensureKey(): Buffer | null {
     // First use: generate. Atomic write (tmp + rename), 0600, and mkdir
     // .git/info (it normally exists; don't assume).
     const key = randomBytes(KEY_BYTES);
+    let tmp = `${KEY_FILE}.tmp`;
     try {
       mkdirSync(dirname(KEY_FILE), { recursive: true });
-      const tmp = `${KEY_FILE}.tmp`;
       writeFileSync(tmp, key.toString("hex") + "\n", { encoding: "utf-8", mode: 0o600 });
       renameSync(tmp, KEY_FILE);
       return key;
     } catch {
       // Clean up temp file if it was created but rename failed
-      let tmp = `${KEY_FILE}.tmp`;
       try {
         if (existsSync(tmp)) {
           try {
