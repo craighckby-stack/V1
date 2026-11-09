@@ -59,13 +59,14 @@ export async function createProphecy(input: {
         rationale: input.rationale,
         falsifiabilityCriterion: input.falsifiabilityCriterion,
         evaluateBy: input.evaluateBy,
-        contextSha: input.contextSha ?? null,
-        historySnapshot: input.historySnapshot ?? null,
-        domain: input.domain ?? null,
+        contextSha: input.contextSha || null,
+        historySnapshot: input.historySnapshot || null,
+        domain: input.domain || null,
         status: "pending",
       },
     });
   } catch (error) {
+    console.error("Failed to create prophecy:", error);
     return null;
   }
 }
@@ -82,7 +83,8 @@ export async function listPendingProphecies(): Promise<ProphecyRow[]> {
       where: { status: "pending" },
       orderBy: { createdAt: "asc" },
     });
-  } catch {
+  } catch (error) {
+    console.error("Failed to list pending prophecies:", error);
     return [];
   }
 }
@@ -100,7 +102,8 @@ export async function listDueProphecies(asOf: Date = new Date()): Promise<Prophe
       },
       orderBy: { evaluateBy: "asc" },
     });
-  } catch {
+  } catch (error) {
+    console.error("Failed to list due prophecies:", error);
     return [];
   }
 }
@@ -119,7 +122,8 @@ export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
       orderBy: { createdAt: "desc" },
       take: limit,
     });
-  } catch {
+  } catch (error) {
+    console.error("Failed to list recent prophecies:", error);
     return [];
   }
 }
@@ -134,7 +138,8 @@ export async function getProphecy(id: string): Promise<ProphecyRow | null> {
 
   try {
     return await db.prophecy.findUnique({ where: { id } });
-  } catch {
+  } catch (error) {
+    console.error("Failed to get prophecy:", error);
     return null;
   }
 }
@@ -151,6 +156,11 @@ export async function judgeProphecy(
   if (!id?.trim()) {
     return null;
   }
+  
+  // Validate verdict parameter
+  if (!["fulfilled", "failed", "retired"].includes(verdict)) {
+    return null;
+  }
 
   try {
     return await db.prophecy.update({
@@ -161,7 +171,8 @@ export async function judgeProphecy(
         evaluatedAt: new Date(),
       },
     });
-  } catch {
+  } catch (error) {
+    console.error("Failed to judge prophecy:", error);
     return null;
   }
 }
@@ -179,19 +190,34 @@ export async function getProphecyCounts(): Promise<{
   total: number;
 }> {
   try {
-    // SQLite doesn't support groupBy + count efficiently through Prisma's
-    // older API on all versions; do four findMany+count calls. The
-    // prophecy table will stay small (a few rows per day) so this is
-    // cheaper than it looks and avoids version-specific groupBy quirks.
-    const [pending, fulfilled, failed, retired, total] = await Promise.all([
-      db.prophecy.count({ where: { status: "pending" } }),
-      db.prophecy.count({ where: { status: "fulfilled" } }),
-      db.prophecy.count({ where: { status: "failed" } }),
-      db.prophecy.count({ where: { status: "retired" } }),
-      db.prophecy.count({}),
-    ]);
-    return { pending, fulfilled, failed, retired, total };
+    // Use a single query with groupBy for better performance
+    const result = await db.prophecy.groupBy({
+      by: ['status'],
+      _count: {
+        status: true,
+      },
+    });
+    
+    // Initialize all counts to 0
+    const counts = {
+      pending: 0,
+      fulfilled: 0,
+      failed: 0,
+      retired: 0,
+      total: 0,
+    };
+    
+    // Process the groupBy results
+    result.forEach(item => {
+      if (item.status in counts) {
+        counts[item.status as keyof typeof counts] = item._count.status;
+        counts.total += item._count.status;
+      }
+    });
+    
+    return counts;
   } catch (error) {
+    console.error("Failed to get prophecy counts:", error);
     return { pending: 0, fulfilled: 0, failed: 0, retired: 0, total: 0 };
   }
 }
@@ -211,6 +237,7 @@ export async function getJudgedPropheciesForCalibration(): Promise<
       select: { confidence: true, status: true },
     });
   } catch (error) {
+    console.error("Failed to get judged prophecies for calibration:", error);
     return [];
   }
 }
