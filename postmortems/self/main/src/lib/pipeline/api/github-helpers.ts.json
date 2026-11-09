@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/api/github-helpers.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/autonomous/self-enhance-loop.ts(2799,12): error TS2341: Property 'stats' is private and only accessible within class 'SelfEnhanceLoop'.; src/lib/pipeline/autonomous/self-enhance-loop.ts(2799,30): error TS2341: Property 'stats' is private and only accessible within class 'SelfEnhanceLoop'.; src/lib/pipeline/autonomous/self-enhance-loop.ts(2800,12): error TS2341: Property 'saturation' is private and only accessible within class 'SelfEnhanceLoop'.",
@@ -12,8 +12,8 @@
   "parentHash": "a9cd9cfd678af2e92dae6c9df880f00a0a9d8961f716a652fa8b791a8ab1cf42",
   "hash": "67f8694a24b20adde539d7bc103d51b5b0b9ecef9aeb996b7e929d8f0bdb5d86",
   "lastAttemptAt": "2026-11-09T01:35:53.811Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-09T01:38:46.641Z",
   "createdAt": "2026-11-09T01:17:02.863Z",
-  "updatedAt": "2026-11-09T01:35:53.811Z",
+  "updatedAt": "2026-11-09T01:38:46.641Z",
   "schema": 2
 }
