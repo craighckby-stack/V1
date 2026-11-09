@@ -97,28 +97,39 @@ export async function oracleSchedulerTick(): Promise<{
     }
     due = result;
   } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
+    const error = err instanceof Error ? err : new Error(`Unknown error during prophecy listing: ${String(err)}`);
     emitOracleEvent(
-      `Oracle scheduler tick error: ${error.message}`,
+      `Failed to list due prophecies during scheduler tick. Error: ${error.message}`,
       "error",
       "scheduler",
     );
     return { ran: false, reason: "failed to list due prophecies" };
   }
 
+  s.lastTickAt = Date.now(); // Record tick time even if no prophecies are due
+  s.ticks += 1;
+
   if (due.length === 0) {
-    s.lastTickAt = Date.now();
-    s.ticks += 1;
     return { ran: true, judged: 0, skipped: 0 };
   }
 
   s.running = true;
   try {
     const { judged, skipped } = await evaluateDueProphecies();
-    s.lastTickAt = Date.now();
-    s.lastJudgedCount = judged?.length || 0;
-    s.ticks += 1;
-    return { ran: true, judged: judged?.length || 0, skipped: skipped?.length || 0 };
+    
+    const judgedCount = (judged && Array.isArray(judged)) ? judged.length : 0;
+    const skippedCount = (skipped && Array.isArray(skipped)) ? skipped.length : 0;
+
+    s.lastJudgedCount = judgedCount;
+    return { ran: true, judged: judgedCount, skipped: skippedCount };
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(`Unknown error during prophecy evaluation: ${String(err)}`);
+    emitOracleEvent(
+      `Error during prophecy evaluation tick. Error: ${error.message}`,
+      "error",
+      "scheduler",
+    );
+    return { ran: true, judged: 0, skipped: 0, reason: "evaluation failed" };
   } finally {
     s.running = false;
   }
@@ -135,9 +146,9 @@ function bootOracleScheduler(): void {
   const timer = setInterval(() => {
     oracleSchedulerTick().catch((err) => {
       // A background bookkeeper must never crash the process.
-      const error = err instanceof Error ? err : new Error(String(err));
+      const error = err instanceof Error ? err : new Error(`Unknown error in scheduler tick catch block: ${String(err)}`);
       emitOracleEvent(
-        `Oracle scheduler tick error: ${error.message}\n${error.stack}`,
+        `Critical scheduler tick error: ${error.message}\n${error.stack}`,
         "error",
         "scheduler",
       );
