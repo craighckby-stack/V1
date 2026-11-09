@@ -52,7 +52,12 @@ export function ApiUnlock() {
   useEffect(() => {
     // Check localStorage only on client side
     if (typeof window !== "undefined") {
-      setHasKey(window.localStorage.getItem(STORAGE_KEY) !== null);
+      try {
+        setHasKey(window.localStorage.getItem(STORAGE_KEY) !== null);
+      } catch (error) {
+        // Handle potential localStorage access errors (e.g., private browsing mode)
+        setHasKey(false);
+      }
     }
     
     let cancelled = false;
@@ -77,7 +82,12 @@ export function ApiUnlock() {
       }
     };
 
-    checkHealthz();
+    checkHealthz().catch(error => {
+      // Ensure we handle any uncaught promise rejections
+      if (!cancelled) {
+        setMutationGateConfigured(null);
+      }
+    });
 
     const onUnauthorized = () => setLocked(true);
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
@@ -110,7 +120,13 @@ export function ApiUnlock() {
       return;
     }
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(STORAGE_KEY, key);
+      try {
+        window.localStorage.setItem(STORAGE_KEY, key);
+      } catch (error) {
+        // Handle potential localStorage errors (e.g., quota exceeded)
+        console.error("Failed to store API key:", error);
+        return;
+      }
     }
     // Reload so the patched fetch attaches the key to every mutation.
     window.location.reload();
