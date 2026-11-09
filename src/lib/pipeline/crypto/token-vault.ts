@@ -81,9 +81,8 @@ function ensureKey(): Buffer | null {
       return key;
     } catch {
       // Clean up temp file if it was created but rename failed
-      let tmp: string;
+      let tmp = `${KEY_FILE}.tmp`;
       try {
-        tmp = `${KEY_FILE}.tmp`;
         if (existsSync(tmp)) {
           try {
             unlinkSync(tmp);
