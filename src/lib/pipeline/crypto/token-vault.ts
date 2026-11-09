@@ -20,7 +20,7 @@
  * backups, file snapshots, crash artifacts. It does NOT protect against an
  * attacker with code execution on this machine (they can call openToken
  * like anyone else); nothing short of an HSM does. The server must be able
- * to decrypt unattended — "auto-connect with no input anywhere" is the
+ * decrypt unattended — "auto-connect with no input anywhere" is the
  * requirement — so the key is local, not password-derived.
  *
  * Migration is automatic: readers transparently open legacy plaintext
@@ -79,9 +79,9 @@ function ensureKey(): Buffer | null {
       writeFileSync(tmp, key.toString("hex") + "\n", { encoding: "utf-8", mode: 0o600 });
       renameSync(tmp, KEY_FILE);
       return key;
-    } catch {
+    } catch (e) {
       // Clean up temp file if it was created but rename failed
-      let tmp = `${KEY_FILE}.tmp`;
+      const tmp = `${KEY_FILE}.tmp`;
       try {
         if (existsSync(tmp)) {
           try {
@@ -90,7 +90,7 @@ function ensureKey(): Buffer | null {
             // Ignore cleanup failures
           }
         }
-      } catch {
+      } catch (cleanupError) {
         // Ignore errors when trying to clean up
       }
       // Read-only .git? Sealing is impossible — callers fall back to
@@ -101,7 +101,7 @@ function ensureKey(): Buffer | null {
       }
       return null;
     }
-  } catch {
+  } catch (e) {
     return null;
   }
 }
@@ -143,7 +143,7 @@ export function sealToken(plain: string): string {
  *     automatic migration rewrites it on the next write)
  */
 export function openToken(stored: string): string {
-  if (!stored || typeof stored !== "string" || !isSealedEnvelope(stored)) return stored ?? "";
+  if (typeof stored !== "string" || !isSealedEnvelope(stored)) return stored ?? "";
   const key = ensureKey();
   if (!key) return "";
   try {
@@ -159,7 +159,7 @@ export function openToken(stored: string): string {
     const opened = pt.toString("utf-8");
     if (!opened || opened.length < 20 || /\s/.test(opened)) return "";
     return opened;
-  } catch {
+  } catch (e) {
     if (!warnedKeyMissing) {
       warnedKeyMissing = true;
       console.error(
