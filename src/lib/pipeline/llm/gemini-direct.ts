@@ -159,11 +159,13 @@ export function geminiHealthSnapshot(): {
   locationBlockedUntilMs: number;
   breakers: Record<string, number>;
   proxyConfigured: boolean;
+  disabled: boolean;
 } {
   return {
     locationBlockedUntilMs: LOCATION_BLOCKED_UNTIL,
     breakers: geminiModelBreakers(),
     proxyConfigured: !!PROXY_BASE_URL,
+    disabled: process.env.GEMINI_DISABLED === "true",
   };
 }
 
@@ -467,6 +469,28 @@ export async function geminiComplete(opts: {
   maxTokens?: number;
 }): Promise<GeminiCallResult> {
   const started = performance.now();
+  // ── GEMINI_DISABLED: zero-overhead Z.AI-only mode ──────────────────
+  // When GEMINI_DISABLED=true is in the env, skip the Gemini leg ENTIRELY
+  // — no DB read, no probe, no failed call. This is the "I don't want to
+  // deploy a proxy and Z.AI's quota is enough" option: the two-leg chain
+  // collapses to Z.AI-only instantly on every call, saving the ~10ms DB
+  // read + the location-block probe overhead. The operator can still
+  // re-enable by clearing the env var (no key re-entry needed — the key
+  // stays in the DB, just dormant).
+  //
+  // Use case: the sandbox is geo-blocked (HK egress), the operator can't
+  // or won't deploy the free Cloudflare Worker proxy, and Z.AI's quota
+  // alone is sufficient. Set GEMINI_DISABLED=true in .env, restart, done.
+  if (process.env.GEMINI_DISABLED === "true") {
+    return {
+      ok: false,
+      content: "",
+      error: "Gemini disabled (GEMINI_DISABLED=true) — running Z.AI-only",
+      latencyMs: 0,
+      model: "",
+      errorKind: "not-configured",
+    };
+  }
   const cfg = await getGeminiConfig();
   if (!cfg) {
     return {

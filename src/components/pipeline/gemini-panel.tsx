@@ -58,6 +58,7 @@ interface GeminiHealth {
   locationBlockedUntilMs: number;
   breakers: Record<string, number>;
   proxyConfigured: boolean;
+  disabled?: boolean;
 }
 
 interface LlmConfigView {
@@ -308,9 +309,14 @@ export function GeminiPanel({ open, onClose }: Props) {
           )}
           <div style={{ color: DIM_COLOR, marginTop: "4px", fontSize: "12px" }}>
             {health?.proxyConfigured
-              ? "proxy: GEMINI_PROXY_BASE_URL configured — calls route through the geo-bypass proxy (/proxy/)."
-              : "proxy: not configured — direct calls from this network's region may be geo-blocked by Google. Deploy /proxy/ (Fly.io) to bypass."}
+              ? "proxy: GEMINI_PROXY_BASE_URL configured — calls route through the geo-bypass proxy."
+              : "proxy: not configured — direct calls from this network's region may be geo-blocked by Google. Deploy the FREE Cloudflare Worker in /proxy/ (wrangler deploy) to bypass."}
           </div>
+          {health?.disabled && (
+            <div style={{ color: WARN_COLOR, marginTop: "4px" }}>
+              ⏸ GEMINI_DISABLED=true — Gemini leg skipped entirely, running Z.AI-only with zero overhead. Clear the env var to re-enable.
+            </div>
+          )}
         </div>
 
         {/* Key input */}

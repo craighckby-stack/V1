@@ -1,0 +1,45 @@
+# Cloudflare Workers config for the Gemini geo-bypass proxy (FREE tier).
+#
+# Free tier: 100,000 requests/day. LOOP uses ~50–200/day. ~500× headroom.
+# No credit card needed for the Workers free plan.
+#
+# ── Smart Placement (the geo-block bypass) ───────────────────────────
+# [placement] mode = "smart" tells Cloudflare to OBSERVE this worker's
+# outbound fetch calls, see they go to generativelanguage.googleapis.com
+# (Google's US endpoints), and RELOCATE the worker to a colo near that
+# backend. The outbound fetch then egresses from a US data center →
+# Google sees a supported region → the HK geo-block is bypassed.
+#
+# Smart Placement is FREE on all plans. It takes a few requests to warm
+# up (it needs traffic to learn the pattern); during warm-up the worker
+# runs at the edge (near the caller), so the first handful of requests
+# may still geo-block. The gemini-direct.ts client's 60s recovery-probe
+# loop catches the transition within a minute. After warm-up, every
+# call egresses from US.
+#
+# ── Deploy ───────────────────────────────────────────────────────────
+#   npm install -g wrangler   # or: npx wrangler
+#   wrangler login              # free Cloudflare account
+#   cd proxy
+#   wrangler secret put PROXY_SECRET    # paste: openssl rand -hex 32
+#   wrangler secret put GEMINI_API_KEY  # paste: your AIza... key
+#   wrangler deploy
+#   # → https://loop-gemini-proxy.<you>.workers.dev
+#
+# Then in LOOP's .env:
+#   GEMINI_PROXY_BASE_URL=https://loop-gemini-proxy.<you>.workers.dev
+
+name = "loop-gemini-proxy"
+main = "cloudflare-worker.ts"
+compatibility_date = "2024-12-01"
+
+# Smart Placement — relocate the worker near the backend (Google's US
+# endpoints) so the outbound fetch egresses from a supported region.
+# This is what bypasses the HK geo-block. Free on all plans.
+[placement]
+mode = "smart"
+
+# The worker has no static assets, no KV, no D1 — it's a pure fetch
+# forwarder. The only state is the two secrets (PROXY_SECRET,
+# GEMINI_API_KEY), set via `wrangler secret put` (encrypted, not in
+# this file, never committed).

@@ -1,5 +1,11 @@
 # Gemini Geo-Bypass Proxy
 
+Two free ways to run it:
+
+1. **Cloudflare Workers (RECOMMENDED — free, no credit card)** — `cloudflare-worker.ts` + `wrangler.toml`. 100,000 requests/day free tier; LOOP uses ~200. Smart Placement (free) relocates the worker near Google → US egress → bypasses the HK geo-block. One-command deploy: `wrangler deploy`.
+
+2. **Fly.io** — `index.ts` + `fly.toml` + `Dockerfile`. Pinned to Singapore. ~$2/mo (needs a card). See the "Deploy to Fly.io" section below.
+
 A ~150-line Bun server that lets LOOP call Google's Gemini API from a
 region Google refuses to serve directly.
 
@@ -41,7 +47,82 @@ LOOP (HK sandbox) ──?key=SHARED_SECRET──► proxy (Singapore) ──?key
 - Allowlist models (LOOP picks the model; the proxy is dumb).
 - Touch the request body (other than streaming it through verbatim).
 
-## Deploy to Fly.io (5 minutes)
+## Deploy to Cloudflare Workers (FREE — recommended, ~3 min)
+
+100,000 requests/day free tier (LOOP uses ~200). No credit card. Smart
+Placement (free) relocates the worker near Google → US egress → bypasses
+the HK geo-block automatically.
+
+### 1. Install wrangler + log in
+
+```bash
+npm install -g wrangler   # or: npx wrangler (no global install)
+wrangler login             # opens browser — free Cloudflare account, no card
+```
+
+### 2. Set the two secrets
+
+From the `proxy/` directory:
+
+```bash
+# Generate a shared secret (LOOP will use this as the "key" instead of your AIza key)
+openssl rand -hex 32
+# Copy the output, then:
+wrangler secret put PROXY_SECRET    # paste the hex string when prompted
+
+# Set your real Gemini key
+wrangler secret put GEMINI_API_KEY  # paste your AIza... key when prompted
+```
+
+### 3. Deploy
+
+```bash
+wrangler deploy
+# → outputs: https://loop-gemini-proxy.<your-account>.workers.dev
+```
+
+That's it. The worker is live. Smart Placement takes a few requests to
+warm up (it observes the worker's outbound calls to Google, then relocates
+near the backend); during warm-up the first ~5 calls may still geo-block,
+but LOOP's 60s recovery-probe catches the transition within a minute.
+
+### 4. Verify
+
+```bash
+curl https://loop-gemini-proxy.<you>.workers.dev/health
+# → {"ok":true,"ts":...}
+```
+
+### 5. Wire LOOP to it
+
+Add one line to `/home/z/my-project/.env`:
+
+```bash
+GEMINI_PROXY_BASE_URL=https://loop-gemini-proxy.<you>.workers.dev
+```
+
+Restart the LOOP dev server. In the GEMINI panel, clear the old key, then
+paste the **PROXY_SECRET** value (the hex string, not the AIza key) and
+click `[ SAVE · VERIFY · REBOOT ]`. The verify call now routes through
+the worker → Google sees US egress → your key works.
+
+### Zero-deploy alternative: GEMINI_DISABLED
+
+If you don't want any external deploy and Z.AI's quota alone is enough,
+add to LOOP's `.env`:
+
+```bash
+GEMINI_DISABLED=true
+```
+
+This skips the Gemini leg entirely (zero overhead, no probes, no failed
+calls). The loop runs on Z.AI-only. Clear the env var to re-enable
+Gemini — your key stays saved, just dormant. The GEMINI panel shows
+`⏸ GEMINI_DISABLED=true` when active.
+
+---
+
+## Deploy to Fly.io (5 minutes, ~$2/mo, needs a card)
 
 ### 1. Install the Fly CLI
 
