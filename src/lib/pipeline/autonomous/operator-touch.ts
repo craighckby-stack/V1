@@ -64,7 +64,7 @@ export interface OperatorTouchState {
  *  a persistence failure must not fail a start/stop that already
  *  succeeded in memory. */
 export function markOperatorTouch(by: string, now: Date = new Date()): void {
-  if (!by || typeof by !== "string" || by.trim() === "") {
+  if (typeof by !== "string" || by.trim() === "") {
     // Input validation failure, but must not throw per contract. Log and exit gracefully.
     console.error("markOperatorTouch: 'by' parameter must be a non-empty string. Persistence skipped.");
     return;
@@ -77,9 +77,9 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
   } catch (error) {
     /* best-effort - log the error for debugging if needed, but never throw */
     if (error instanceof Error) {
-      console.error("Failed to write operator touch file:", error.message);
+      console.error(`Failed to write operator touch file to ${OPERATOR_TOUCH_FILE}: ${error.message}`);
     } else {
-      console.error("Failed to write operator touch file:", error);
+      console.error(`Failed to write operator touch file to ${OPERATOR_TOUCH_FILE}: Unknown error`);
     }
   }
 }
@@ -107,7 +107,8 @@ export function readOperatorTouch(): OperatorTouchState | null {
       at: parsed.at,
       by: parsed.by,
     };
-  } catch {
+  } catch (error) {
+    // Catches file not found, read errors, JSON parsing errors
     return null;
   }
 }
@@ -123,6 +124,11 @@ export function isDeadMansTripped(
 ): boolean {
   if (typeof thresholdMs !== "number" || thresholdMs < 0) {
     throw new Error("isDeadMansTripped: 'thresholdMs' must be a non-negative number");
+  }
+  
+  if (!(now instanceof Date) || isNaN(now.getTime())) {
+    // Handle invalid 'now' input gracefully, treating it as if time cannot be determined (tripped)
+    return true;
   }
   
   const state = readOperatorTouch();
