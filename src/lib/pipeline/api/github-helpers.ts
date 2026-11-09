@@ -29,7 +29,7 @@ function isInvalidToken(token: string): boolean {
  * identical — the latent hole is closed.
  */
 export function getUsableToken(clientToken?: string): string | null {
-  if (typeof clientToken !== 'string') {
+  if (typeof clientToken !== 'string' || !clientToken) {
     return null;
   }
   
