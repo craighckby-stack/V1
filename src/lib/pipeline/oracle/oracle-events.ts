@@ -80,13 +80,13 @@ export function emitOracleEvent(
   source: OracleEvent["source"] = "scheduler",
 ): OracleEvent {
   if (message === null || message === undefined) {
-    throw new Error("Oracle event message cannot be null or undefined");
+    throw new TypeError("Oracle event message cannot be null or undefined");
   }
   if (type === null || type === undefined) {
-    throw new Error("Oracle event type cannot be null or undefined");
+    throw new TypeError("Oracle event type cannot be null or undefined");
   }
   if (source === null || source === undefined) {
-    throw new Error("Oracle event source cannot be null or undefined");
+    throw new TypeError("Oracle event source cannot be null or undefined");
   }
   
   const s = state();
@@ -124,10 +124,19 @@ export function readOracleEvents(afterSeq?: number): {
       return { events: [], seq: s.seq };
     }
     
-    // Find the index of the first event that hasn't been seen
-    const startIndex = Math.max(0, s.buffer.length - (s.seq - afterSeq));
+    // Calculate the starting index based on sequence difference.
+    // The number of events to return is s.seq - afterSeq.
+    // Since the buffer might be truncated (length < s.seq), we must ensure
+    // we don't try to slice beyond the actual buffer length.
+    const eventsToReturn = s.seq - afterSeq;
+    const startIndex = Math.max(0, s.buffer.length - eventsToReturn);
+    
+    // Ensure startIndex is not negative (though Math.max(0, ...) handles this)
+    // and that we don't try to slice more than available.
+    const actualStartIndex = Math.max(0, startIndex);
+    
     return { 
-      events: s.buffer.slice(startIndex), 
+      events: s.buffer.slice(actualStartIndex), 
       seq: s.seq 
     };
   }

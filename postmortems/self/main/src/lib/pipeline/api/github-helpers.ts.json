@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/api/github-helpers.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "Test gate failed: test failed (sandboxed): src/lib/pipeline/api/github-helpers.test.ts — \nsrc/lib/pipeline/api/github-helpers.test.ts:\n(pass) github-helpers > getUsableToken > returns null for undefined input [0.11ms]\n(pass) github-helpers > getUsableToken > returns null for empty string ",
@@ -12,8 +12,8 @@
   "parentHash": "a9cd9cfd678af2e92dae6c9df880f00a0a9d8961f716a652fa8b791a8ab1cf42",
   "hash": "69bbdb873dc9309a021d4e0d841536cba7e22d8a5856ace7d6aa48284a1d0eea",
   "lastAttemptAt": "2026-11-09T16:10:00.482Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-09T16:12:32.537Z",
   "createdAt": "2026-11-09T14:41:41.344Z",
-  "updatedAt": "2026-11-09T16:10:00.482Z",
+  "updatedAt": "2026-11-09T16:12:32.537Z",
   "schema": 2
 }
