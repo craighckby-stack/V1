@@ -69,6 +69,11 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
   }
   
   try {
+    // Validate PROJECT_ROOT to prevent path traversal
+    if (PROJECT_ROOT.includes("..") || PROJECT_ROOT.includes("~")) {
+      throw new Error("Invalid PROJECT_ROOT path");
+    }
+    
     mkdirSync(join(PROJECT_ROOT, ".git/info"), { recursive: true });
     const entry: OperatorTouchState = { at: now.toISOString(), by };
     writeFileSync(OPERATOR_TOUCH_FILE, JSON.stringify(entry, null, 2), "utf8");
