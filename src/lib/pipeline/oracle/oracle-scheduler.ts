@@ -114,11 +114,13 @@ export async function oracleSchedulerTick(): Promise<{
 
   s.running = true;
   try {
-    const { judged, skipped } = await evaluateDueProphecies();
+    const result = await evaluateDueProphecies();
+    const judged = result?.judged || [];
+    const skipped = result?.skipped || [];
     s.lastTickAt = Date.now();
-    s.lastJudgedCount = judged?.length || 0;
+    s.lastJudgedCount = judged.length;
     s.ticks += 1;
-    return { ran: true, judged: judged?.length || 0, skipped: skipped?.length || 0 };
+    return { ran: true, judged: judged.length, skipped: skipped.length };
   } finally {
     s.running = false;
   }
