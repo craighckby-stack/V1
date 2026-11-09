@@ -24,9 +24,9 @@
  * THE CONTRACT
  *   markOperatorTouch()   → writes now() to disk. Called from the
  *                           runtime's start() / stop() / updateConfig()
- *                           methods (and ONLY from there). Best-effort,
- *                           never throws — the in-memory state is the
- *                           live source.
+                           methods (and ONLY from there). Best-effort,
+                           never throws — the in-memory state is the
+                           live source.
  *   readOperatorTouch()   → null when absent, unreadable, or torn.
  *                           Treated by isDeadMansTripped() as "tripped"
  *                           (an unreadable file must never fabricate
@@ -70,7 +70,9 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
   
   try {
     // Validate PROJECT_ROOT to prevent path traversal
-    if (PROJECT_ROOT.includes("..") || PROJECT_ROOT.includes("~") || PROJECT_ROOT.includes("/../")) {
+    if (PROJECT_ROOT.includes("..") || PROJECT_ROOT.includes("~") || 
+        PROJECT_ROOT.includes("/../") || PROJECT_ROOT.includes("./") ||
+        PROJECT_ROOT.includes("../")) {
       throw new Error("Invalid PROJECT_ROOT path - potential directory traversal detected");
     }
     
@@ -94,17 +96,22 @@ export function readOperatorTouch(): OperatorTouchState | null {
   try {
     const raw = readFileSync(OPERATOR_TOUCH_FILE, "utf8");
     const parsed = JSON.parse(raw) as Partial<OperatorTouchState>;
-    if (parsed && typeof parsed.at === "string" && typeof parsed.by === "string") {
-      // Validate timestamp format before returning
-      const timestamp = Date.parse(parsed.at);
-      if (!isNaN(timestamp)) {
-        return {
-          at: parsed.at,
-          by: parsed.by,
-        };
-      }
+    
+    // Validate the parsed object has the required properties
+    if (!parsed || typeof parsed.at !== "string" || typeof parsed.by !== "string") {
+      return null;
     }
-    return null;
+    
+    // Validate timestamp format before returning
+    const timestamp = Date.parse(parsed.at);
+    if (isNaN(timestamp)) {
+      return null;
+    }
+    
+    return {
+      at: parsed.at,
+      by: parsed.by,
+    };
   } catch {
     return null;
   }
