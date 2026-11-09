@@ -124,10 +124,18 @@ export function resetCrashBudget(): void {
     return;
   }
   
-  writeCrashBudget({
+  const resetState: CrashBudgetState = {
     count: 0,
     lastClass: "",
     at: now.toISOString(),
     crashWall: false,
-  });
+  };
+  
+  try {
+    writeCrashBudget(resetState);
+  } catch (error) {
+    // If writeCrashBudget throws (which it shouldn't per its contract),
+    // we still want to ensure the reset state is logged
+    console.error("Failed to reset crash budget:", error);
+  }
 }
