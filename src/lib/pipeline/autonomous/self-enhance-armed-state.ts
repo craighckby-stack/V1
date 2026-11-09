@@ -78,7 +78,7 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   } catch (error) {
     console.error(
       "markSelfEnhanceArmed: Failed to persist armed state:",
-      error
+      error instanceof Error ? error.message : error
     );
   }
 }
@@ -90,7 +90,10 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
  *  a bad read. */
 export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
   try {
-    if (!PROJECT_ROOT) return null;
+    if (!PROJECT_ROOT) {
+      console.error("readSelfEnhanceArmedState: PROJECT_ROOT is not defined");
+      return null;
+    }
     if (!existsSync(ARMED_STATE_FILE)) return null;
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
     const parsed = JSON.parse(raw);
@@ -116,7 +119,7 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
   } catch (error) {
     console.error(
       "readSelfEnhanceArmedState: Failed to read armed state:",
-      error
+      error instanceof Error ? error.message : error
     );
     return null;
   }
