@@ -78,7 +78,7 @@ export function markArmed(armed: boolean, by: string): void {
     writeFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2), "utf8");
   } catch (error) {
     // Log the error for debugging but don't throw to maintain the contract
-    console.error("markArmed: Failed to persist armed state:", error);
+    console.error("markArmed: Failed to persist armed state:", error instanceof Error ? error.message : error);
   }
 }
 
@@ -92,6 +92,7 @@ export function readArmedState(): ArmedState | null {
   try {
     // Validate PROJECT_ROOT exists
     if (!PROJECT_ROOT) {
+      console.error("readArmedState: PROJECT_ROOT is not defined");
       return null;
     }
     
@@ -123,7 +124,7 @@ export function readArmedState(): ArmedState | null {
     return null;
   } catch (error) {
     // Log the error for debugging but return null to maintain the contract
-    console.error("readArmedState: Failed to read armed state:", error);
+    console.error("readArmedState: Failed to read armed state:", error instanceof Error ? error.message : error);
     return null;
   }
 }
