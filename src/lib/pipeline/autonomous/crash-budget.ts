@@ -117,10 +117,17 @@ export function writeCrashBudget(s: CrashBudgetState): void {
 /** Reset the budget to a clean state. Called on a successful cycle AND
  *  on an explicit [START] (the operator's re-arm gesture). */
 export function resetCrashBudget(): void {
+  const now = new Date();
+  if (isNaN(now.getTime())) {
+    // Fallback if Date creation fails (shouldn't happen in normal circumstances)
+    console.error("Failed to create valid date for crash budget reset");
+    return;
+  }
+  
   writeCrashBudget({
     count: 0,
     lastClass: "",
-    at: new Date().toISOString(),
+    at: now.toISOString(),
     crashWall: false,
   });
 }
