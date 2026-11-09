@@ -51,7 +51,10 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-useless-escape": "off",
   },
 }, {
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills"]
+  // "build/**" is generic; the Firebase function's compiled output lives in
+  // proxy/firebase/functions/lib (CommonJS require() calls are normal in
+  // build artifacts) — excluded for the same reason as build/**.
+  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "proxy/firebase/functions/lib/**", "proxy/firebase/functions/node_modules/**"]
 }];
 
 export default eslintConfig;

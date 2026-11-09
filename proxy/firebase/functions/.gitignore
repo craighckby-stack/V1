@@ -1,0 +1,10 @@
+# Build output (recompiled by `bun run build` / predeploy hook)
+lib/
+# Dependencies (installed by bun/npm during deploy)
+node_modules/
+# Emulator config mirror — contains the secrets; never commit
+.runtimeconfig.json
+# Firebase debug logs
+firebase-debug.log
+firebase-debug.*.log
+.firebaserc

@@ -1,0 +1,22 @@
+{
+  "name": "loop-gemini-proxy-functions",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gemini geo-bypass relay — Firebase Cloud Functions Gen 1 edition (free Spark plan).",
+  "engines": {
+    "node": "20"
+  },
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "serve": "firebase emulators:start --only functions,hosting",
+    "deploy": "firebase deploy --only functions,hosting",
+    "logs": "firebase functions:log"
+  },
+  "dependencies": {
+    "firebase-functions": "^6.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

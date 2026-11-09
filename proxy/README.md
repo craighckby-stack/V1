@@ -1,10 +1,12 @@
 # Gemini Geo-Bypass Proxy
 
-Two free ways to run it:
+Three free ways to run it:
 
 1. **Cloudflare Workers (RECOMMENDED — free, no credit card)** — `cloudflare-worker.ts` + `wrangler.toml`. 100,000 requests/day free tier; LOOP uses ~200. Smart Placement (free) relocates the worker near Google → US egress → bypasses the HK geo-block. One-command deploy: `wrangler deploy`.
 
-2. **Fly.io** — `index.ts` + `fly.toml` + `Dockerfile`. Pinned to Singapore. ~$2/mo (needs a card). See the "Deploy to Fly.io" section below.
+2. **Firebase Cloud Functions (FREE, no card — Gen 1/Spark)** — `firebase/`. Runs inside Google Cloud in `us-central1` → egresses from a US Google IP → Google never geo-blocks its own network. **Deterministic from the first request** (no warm-up). Trade-off: ~2–5s cold starts after idle (invisible to LOOP — 120s call timeout + 60s recovery probes). See `firebase/README.md`.
+
+3. **Fly.io** — `index.ts` + `fly.toml` + `Dockerfile`. Pinned to Singapore. ~$2/mo (needs a card). See the "Deploy to Fly.io" section below.
 
 A ~150-line Bun server that lets LOOP call Google's Gemini API from a
 region Google refuses to serve directly.
