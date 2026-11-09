@@ -28,15 +28,19 @@ export function CurrentCycle() {
     );
   }
 
+  // Validate cycle status to handle unexpected values
+  const status = cycle.status === "running" || cycle.status === "completed" || 
+                 cycle.status === "halted" ? cycle.status : "unknown";
+
   return (
     <Card
       className={cn(
         "backdrop-blur border transition-colors",
-        cycle.status === "running"
+        status === "running"
           ? "bg-cyan-950/40 border-cyan-700/50"
-          : cycle.status === "completed"
+          : status === "completed"
           ? "bg-emerald-950/30 border-emerald-800/50"
-          : cycle.status === "halted"
+          : status === "halted"
           ? "bg-amber-950/30 border-amber-800/50"
           : "bg-rose-950/30 border-rose-800/50"
       )}
@@ -47,7 +51,7 @@ export function CurrentCycle() {
             <Activity
               className={cn(
                 "h-4 w-4",
-                cycle.status === "running" ? "text-cyan-400 animate-pulse" : "text-slate-400"
+                status === "running" ? "text-cyan-400 animate-pulse" : "text-slate-400"
               )}
             />
             Cycle #{cycle.cycleNumber}{" "}
@@ -59,16 +63,16 @@ export function CurrentCycle() {
             variant="outline"
             className={cn(
               "uppercase text-[10px] tracking-widest",
-              cycle.status === "running"
+              status === "running"
                 ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/40"
-                : cycle.status === "completed"
+                : status === "completed"
                 ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-                : cycle.status === "halted"
+                : status === "halted"
                 ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
                 : "bg-rose-500/15 text-rose-300 border-rose-500/40"
             )}
           >
-            {cycle.status}
+            {status}
           </Badge>
         </div>
         <div className="text-xs text-slate-500 font-mono mt-2 flex flex-wrap gap-x-4 gap-y-1">
@@ -82,7 +86,7 @@ export function CurrentCycle() {
         </div>
       </CardHeader>
       <CardContent>
-        {cycle.fileResults.length === 0 ? (
+        {(!cycle.fileResults || cycle.fileResults.length === 0) ? (
           <p className="text-xs text-slate-500 italic">No file results yet…</p>
         ) : (
           <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
@@ -131,8 +135,8 @@ export function CurrentCycle() {
         <div className="flex items-center gap-3 pt-3 mt-3 border-t border-slate-800/60 text-[10px] text-slate-500">
           <Cpu className="h-3.5 w-3.5" />
           <span>
-            {cycle.fileResults.length} file(s) processed · {cycle.fileResults.filter(r => r.pushed).length} pushed
-            · proof {cycle.fileResults.length > 0 ? cycle.fileResults[0].proofHash : "—"}
+            {cycle.fileResults?.length || 0} file(s) processed · {cycle.fileResults?.filter(r => r.pushed).length || 0} pushed
+            · proof {cycle.fileResults && cycle.fileResults.length > 0 ? cycle.fileResults[0].proofHash : "—"}
           </span>
         </div>
       </CardContent>
