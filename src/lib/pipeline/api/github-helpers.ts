@@ -64,6 +64,10 @@ export function githubHeaders(token: string | null): Record<string, string> {
     throw new Error(`Invalid token provided: must be at least ${MIN_TOKEN_LENGTH} characters long. Received: ${trimmedToken.length} characters`);
   }
 
+  if (isInvalidToken(trimmedToken)) {
+    throw new Error(`Invalid token provided: token contains invalid prefixes or values`);
+  }
+
   const headers: Record<string, string> = {
     "User-Agent": USER_AGENT,
     Accept: API_ACCEPT_HEADER,
