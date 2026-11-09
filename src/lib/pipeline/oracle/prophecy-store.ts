@@ -44,13 +44,24 @@ export async function createProphecy(input: {
   if (!input.claim || !input.rationale || !input.falsifiabilityCriterion) {
     return null;
   }
-  if (!input.claim.trim() || !input.rationale.trim() || !input.falsifiabilityCriterion.trim()) {
+  if (input.claim.trim() === '' || input.rationale.trim() === '' || input.falsifiabilityCriterion.trim() === '') {
     return null;
   }
   if (typeof input.confidence !== 'number' || input.confidence < 0 || input.confidence > 1) {
     return null;
   }
   if (!(input.evaluateBy instanceof Date) || isNaN(input.evaluateBy.getTime())) {
+    return null;
+  }
+  
+  // Validate optional string fields
+  if (input.contextSha !== undefined && typeof input.contextSha !== 'string' && input.contextSha !== null) {
+    return null;
+  }
+  if (input.historySnapshot !== undefined && typeof input.historySnapshot !== 'string' && input.historySnapshot !== null) {
+    return null;
+  }
+  if (input.domain !== undefined && typeof input.domain !== 'string' && input.domain !== null) {
     return null;
   }
 
@@ -69,7 +80,7 @@ export async function createProphecy(input: {
       },
     });
   } catch (error) {
-    console.error("Failed to create prophecy:", error);
+    console.error(`Failed to create prophecy with claim "${input.claim.substring(0, 50)}...":`, error);
     return null;
   }
 }
@@ -135,14 +146,14 @@ export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
  *  per-target path. */
 export async function getProphecy(id: string): Promise<ProphecyRow | null> {
   // Validate id parameter
-  if (!id?.trim()) {
+  if (!id || id.trim() === '') {
     return null;
   }
 
   try {
     return await db.prophecy.findUnique({ where: { id } });
   } catch (error) {
-    console.error("Failed to get prophecy:", error);
+    console.error(`Failed to get prophecy with ID "${id}":`, error);
     return null;
   }
 }
@@ -156,7 +167,7 @@ export async function judgeProphecy(
   evaluation: string,
 ): Promise<ProphecyRow | null> {
   // Validate id parameter
-  if (!id?.trim()) {
+  if (!id || id.trim() === '') {
     return null;
   }
   
@@ -166,7 +177,7 @@ export async function judgeProphecy(
   }
   
   // Validate evaluation parameter
-  if (!evaluation?.trim()) {
+  if (!evaluation || evaluation.trim() === '') {
     return null;
   }
 
@@ -180,7 +191,7 @@ export async function judgeProphecy(
       },
     });
   } catch (error) {
-    console.error("Failed to judge prophecy:", error);
+    console.error(`Failed to judge prophecy with ID "${id}" with verdict "${verdict}":`, error);
     return null;
   }
 }
