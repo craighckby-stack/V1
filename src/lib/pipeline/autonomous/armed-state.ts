@@ -67,7 +67,9 @@ export function markArmed(armed: boolean, by: string): void {
     
     // Ensure directory exists first to avoid race condition
     const infoDir = join(PROJECT_ROOT, ".git/info");
-    mkdirSync(infoDir, { recursive: true });
+    if (!existsSync(infoDir)) {
+      mkdirSync(infoDir, { recursive: true });
+    }
     
     // Validate input
     if (!by || typeof by !== "string" || by.trim() === "") {
