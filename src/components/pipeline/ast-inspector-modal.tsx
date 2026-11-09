@@ -172,7 +172,8 @@ export function AstInspectorModal() {
               ) : (
                 <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
                   {ast?.violations?.map((v, i) => {
-                    const Icon = violationIcon[v.severity] ?? AlertTriangle;
+                    // Add fallback for unknown severity values
+                    const Icon = violationIcon[v.severity] || AlertTriangle;
                     return (
                       <div key={i} className="flex items-start gap-1.5 text-[11px]">
                         <Icon
