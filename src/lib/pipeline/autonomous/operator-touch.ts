@@ -70,8 +70,8 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
   
   try {
     // Validate PROJECT_ROOT to prevent path traversal
-    if (PROJECT_ROOT.includes("..") || PROJECT_ROOT.includes("~")) {
-      throw new Error("Invalid PROJECT_ROOT path");
+    if (PROJECT_ROOT.includes("..") || PROJECT_ROOT.includes("~") || PROJECT_ROOT.includes("/../")) {
+      throw new Error("Invalid PROJECT_ROOT path - potential directory traversal detected");
     }
     
     mkdirSync(join(PROJECT_ROOT, ".git/info"), { recursive: true });
