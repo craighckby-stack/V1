@@ -62,7 +62,7 @@ class LoopEventBus {
       throw new Error("LoopEventBus.emit() called with null/undefined event");
     }
     if (typeof evt.timestamp !== "number" || evt.timestamp <= 0) {
-      throw new Error("LoopEventBus.emit() called with invalid timestamp (must be a positive number)");
+      throw new Error(`LoopEventBus.emit() called with invalid timestamp (must be a positive number, got: ${evt.timestamp})`);
     }
     if (!evt.kind || typeof evt.kind !== "string") {
       throw new Error("LoopEventBus.emit() called with missing or invalid kind");
