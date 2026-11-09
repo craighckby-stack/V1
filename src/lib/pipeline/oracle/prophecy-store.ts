@@ -135,7 +135,7 @@ export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
  *  per-target path. */
 export async function getProphecy(id: string): Promise<ProphecyRow | null> {
   // Validate id parameter
-  if (!id?.trim()) {
+  if (!id || typeof id !== 'string' || !id.trim()) {
     return null;
   }
 
@@ -156,7 +156,7 @@ export async function judgeProphecy(
   evaluation: string,
 ): Promise<ProphecyRow | null> {
   // Validate id parameter
-  if (!id?.trim()) {
+  if (!id || typeof id !== 'string' || !id.trim()) {
     return null;
   }
   
@@ -166,7 +166,7 @@ export async function judgeProphecy(
   }
   
   // Validate evaluation parameter
-  if (!evaluation?.trim()) {
+  if (!evaluation || typeof evaluation !== 'string' || !evaluation.trim()) {
     return null;
   }
 

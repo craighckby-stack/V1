@@ -8,12 +8,12 @@
   "symptom": "Push to loop-175 rejected: remote has commits local doesn't (divergence)",
   "evidence": "git push stderr: To https://github.com/craighckby-stack/V1.git\n ! [rejected]        HEAD -> loop-175 (non-fast-forward)\nerror: failed to push some refs to 'https://github.com/craighckby-stack/V1.git'\nhint: Updates were rejected because a pushed branch tip is behind its remote\nhint: counterpart. If you want to integr",
   "constraints": "The remote branch diverged from local history. Never auto-discard remote content: inspect origin/loop-175 and reconcile deliberately (rebase or merge) before pushing again.",
-  "attempts": 4,
+  "attempts": 5,
   "parentHash": "979becc1bd5b8aac0078cf439059fe712913c5fbd88d52397b34405770c1afee",
-  "hash": "b8c8d0e2e17cf037eea196b5241acf45cbda12c9a462c5f191a59dd8c76148d6",
-  "lastAttemptAt": "2026-11-09T23:50:13.835Z",
+  "hash": "9786737b4b2b0cf50ca1b4e11b7785a8d0250baf6df31aba71bfee555695426f",
+  "lastAttemptAt": "2026-11-09T23:51:03.062Z",
   "resolvedAt": null,
   "createdAt": "2026-11-09T23:43:50.490Z",
-  "updatedAt": "2026-11-09T23:50:13.835Z",
+  "updatedAt": "2026-11-09T23:51:03.062Z",
   "schema": 2
 }
