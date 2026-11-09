@@ -79,13 +79,13 @@ export function emitOracleEvent(
   type: OracleEvent["type"] = "info",
   source: OracleEvent["source"] = "scheduler",
 ): OracleEvent {
-  if (message == null) {
+  if (message === null || message === undefined) {
     throw new Error("Oracle event message cannot be null or undefined");
   }
-  if (type == null) {
+  if (type === null || type === undefined) {
     throw new Error("Oracle event type cannot be null or undefined");
   }
-  if (source == null) {
+  if (source === null || source === undefined) {
     throw new Error("Oracle event source cannot be null or undefined");
   }
   
@@ -133,7 +133,7 @@ export function readOracleEvents(afterSeq?: number): {
   }
   
   // No afterSeq provided or invalid, return all events
-  return { events: [...s.buffer], seq: s.seq };
+  return { events: s.buffer, seq: s.seq };
 }
 
 /** Current sequence — lets a first-time caller snapshot "now" and only
