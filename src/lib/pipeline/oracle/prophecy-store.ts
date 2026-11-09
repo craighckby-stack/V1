@@ -41,7 +41,10 @@ export async function createProphecy(input: {
   domain?: string | null;
 }): Promise<ProphecyRow | null> {
   // Input validation - check required fields and confidence range
-  if (!input.claim?.trim() || !input.rationale?.trim() || !input.falsifiabilityCriterion?.trim()) {
+  if (!input.claim || !input.rationale || !input.falsifiabilityCriterion) {
+    return null;
+  }
+  if (!input.claim.trim() || !input.rationale.trim() || !input.falsifiabilityCriterion.trim()) {
     return null;
   }
   if (typeof input.confidence !== 'number' || input.confidence < 0 || input.confidence > 1) {
@@ -161,6 +164,11 @@ export async function judgeProphecy(
   if (!["fulfilled", "failed", "retired"].includes(verdict)) {
     return null;
   }
+  
+  // Validate evaluation parameter
+  if (!evaluation?.trim()) {
+    return null;
+  }
 
   try {
     return await db.prophecy.update({
@@ -209,7 +217,7 @@ export async function getProphecyCounts(): Promise<{
     
     // Process the groupBy results
     result.forEach(item => {
-      if (item.status in counts) {
+      if (item.status && item.status in counts) {
         counts[item.status as keyof typeof counts] = item._count.status;
         counts.total += item._count.status;
       }
