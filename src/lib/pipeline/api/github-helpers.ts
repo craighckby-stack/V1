@@ -36,7 +36,6 @@ export function getUsableToken(clientToken?: string): string | null {
   const candidate = clientToken.trim();
   
   if (
-    !candidate ||
     candidate.length < MIN_TOKEN_LENGTH ||
     isInvalidToken(candidate)
   ) {
