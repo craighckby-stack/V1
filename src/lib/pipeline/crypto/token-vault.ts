@@ -81,13 +81,18 @@ function ensureKey(): Buffer | null {
       return key;
     } catch {
       // Clean up temp file if it was created but rename failed
-      const tmp = `${KEY_FILE}.tmp`;
-      if (existsSync(tmp)) {
-        try {
-          unlinkSync(tmp);
-        } catch {
-          // Ignore cleanup failures
+      let tmp: string;
+      try {
+        tmp = `${KEY_FILE}.tmp`;
+        if (existsSync(tmp)) {
+          try {
+            unlinkSync(tmp);
+          } catch {
+            // Ignore cleanup failures
+          }
         }
+      } catch {
+        // Ignore errors when trying to clean up
       }
       // Read-only .git? Sealing is impossible — callers fall back to
       // storing plaintext (better a working push than a bricked loop).
