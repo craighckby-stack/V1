@@ -89,8 +89,11 @@ export function readCrashBudget(): CrashBudgetState | null {
  *  never fail a crash-count increment that already succeeded in memory. */
 export function writeCrashBudget(s: CrashBudgetState): void {
   // Validate input state before writing
+  if (!s) {
+    throw new Error("Crash budget state cannot be null or undefined");
+  }
+  
   if (
-    !s ||
     typeof s !== "object" ||
     typeof s.count !== "number" ||
     s.count < 0 ||
@@ -120,7 +123,23 @@ export function resetCrashBudget(): void {
   const now = new Date();
   if (isNaN(now.getTime())) {
     // Fallback if Date creation fails (shouldn't happen in normal circumstances)
-    console.error("Failed to create valid date for crash budget reset");
+    const fallbackTime = new Date().toISOString();
+    console.error("Failed to create valid date for crash budget reset, using fallback");
+    
+    const resetState: CrashBudgetState = {
+      count: 0,
+      lastClass: "",
+      at: fallbackTime,
+      crashWall: false,
+    };
+    
+    try {
+      writeCrashBudget(resetState);
+    } catch (error) {
+      // If writeCrashBudget throws (which it shouldn't per its contract),
+      // we still want to ensure the reset state is logged
+      console.error("Failed to reset crash budget:", error);
+    }
     return;
   }
   
