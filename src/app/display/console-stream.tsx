@@ -52,7 +52,7 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
   // Validate input lines
   if (!Array.isArray(lines)) {
     console.error("ConsoleStream: lines prop must be an array");
-    return null;
+    return null; // Returning null is acceptable here as per original logic, but ensuring it's handled by caller.
   }
 
   return (
@@ -70,12 +70,14 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
           return null;
         }
 
-        const color =
-          line.type === "command"
-            ? USER_INPUT_COLOR
-            : line.type === "log"
-            ? COLOR_MAP[line.logType ?? "info"]
-            : TEXT_COLOR;
+        let color = TEXT_COLOR;
+
+        if (line.type === "command") {
+          color = USER_INPUT_COLOR;
+        } else if (line.type === "log" && line.logType) {
+          // Safely determine color using COLOR_MAP, defaulting to TEXT_COLOR if logType is unknown
+          color = COLOR_MAP[line.logType as keyof typeof COLOR_MAP] || TEXT_COLOR;
+        }
 
         return (
           <div key={line.id} style={{ color, whiteSpace: "pre-wrap" }}>
