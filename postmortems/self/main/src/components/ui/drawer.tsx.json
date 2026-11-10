@@ -8,12 +8,12 @@
   "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
   "evidence": "Original: 4265 bytes, Refactored: 4458 bytes. Errors: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
   "constraints": "The previous refactor of src/components/ui/drawer.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
-  "attempts": 1,
+  "attempts": 2,
   "parentHash": "531651075c3ff268fa9c6a585a305e65f5849ad227f40e16628ba0bf8044ab61",
-  "hash": "30053dd338661e954478193193cc61ecc6ca3dee205ffa41d686eedc21aabfa2",
-  "lastAttemptAt": "2026-11-10T22:34:28.158Z",
+  "hash": "9aa3d347d8b963bb78f6631e82ed16dc30b1145c251c4e67032bd8d3ea15443c",
+  "lastAttemptAt": "2026-11-10T23:13:24.933Z",
   "resolvedAt": null,
   "createdAt": "2026-11-10T22:34:28.159Z",
-  "updatedAt": "2026-11-10T22:34:28.159Z",
+  "updatedAt": "2026-11-10T23:13:24.933Z",
   "schema": 2
 }
