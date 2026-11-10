@@ -121,6 +121,10 @@ export async function oracleSchedulerTick(): Promise<{
     }
     const judged = result.judged || [];
     const skipped = result.skipped || [];
+    // Validate that judged and skipped are arrays
+    if (!Array.isArray(judged) || !Array.isArray(skipped)) {
+      throw new Error('evaluateDueProphecies() returned non-array for judged or skipped');
+    }
     s.lastTickAt = Date.now();
     s.lastJudgedCount = judged.length;
     s.ticks += 1;
