@@ -57,6 +57,19 @@ export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/meta-tuner.ts", // D8: the loop can never rewrite its own tuner
   "src/lib/pipeline/autonomous/mutation-corpus.ts", // D4: the audit trail of every attempt
   "src/lib/pipeline/autonomous/lessons-markdown.ts", // D6: writes a file that gets committed and pushed
+  // audit 5 — protect the retention + merge-back + task-execution path.
+  // retention.ts: the bounded-growth helpers; a corrupted version could
+  // silently stop pruning and re-introduce the grow-only regression.
+  // merge-back.ts: the reviewed catch-up path; a corrupted version could
+  // bypass the typecheck gate or delete main's newer files.
+  // task-executor.ts: the SelfTask consumption path (wired in audit 5 to
+  // break the ZERO_DIFF_SATURATION plateau). The worklog (729-731) shows
+  // the loop once DELETED a prior task-executor as "cosmetic churn" —
+  // the current version has deterministic kinds that can't zero-diff, so
+  // the rationale no longer applies. Protecting it prevents a re-delete.
+  "src/lib/pipeline/autonomous/retention.ts",
+  "src/lib/pipeline/autonomous/merge-back.ts",
+  "src/lib/pipeline/autonomous/task-executor.ts",
   // ── Audit 3: gate + control modules in the shared autonomous/ dir.
   // The core/, emg/, postmortem/, red-team/ subtrees are covered by
   // PROTECTED_PREFIXES below; these live in autonomous/ next to mutable

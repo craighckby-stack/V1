@@ -321,6 +321,38 @@ Three read-only audits (retention, oracle calibration, pass-rate trend) ran in p
 
 ---
 
+## Audit 5 — breaking the ZERO_DIFF_SATURATION wall + retention P1-P3
+
+### The deep investigation (read-only)
+
+Audit 4 identified `ZERO_DIFF_SATURATION` as 72% of fails (the pass-rate plateau at ~60%). Audit 5 investigated it deeply:
+
+- **Detection:** `normalizeCode()` in `emg/halt.ts:36-41` — comments stripped (real TS scanner), whitespace collapsed, punctuation spacing stripped, then string-equal. Not byte-identical, not AST-identical. A change that adds a comment or re-indents is zero-diff; a change that renames a local or extracts a helper is NOT.
+- **The prompt:** the autonomous loop's refactor goal is near-vacuous — ` (Template: Pattern Optimization Helper)` with no specific instruction. The self-enhance loop's prompt ends with "if nothing needs fixing, return the file unchanged" — the **direct textual enabler** of zero-diff.
+- **The top zero-diff files** (`scripts/q.ts` 14 attempts, `scripts/check-llm.ts`, `next-env.d.ts`, `build-guide/*.py`) are **GENUINELY FINISHED** — 8-16 lines, correct, no bugs, no missing error handling. The LLM correctly returns them unchanged. The loop was just feeding it trivial files.
+- **The SelfTask pipeline** (`self-task-generator.ts` + `task-executor.ts`) is fully built — 7 finding kinds, deterministic fixers for `missing-return-type` and `unused-import`, LLM fixers for the rest — but **`claimNextTask` and `executeTask` were never called from anywhere**. The worklog (729-731) shows the loop once deleted a prior version as "cosmetic churn," but the deterministic kinds are new since that deletion.
+
+### Changes implemented (audit 5)
+
+**1. Narrowed the autonomous loop's file scope** (`loop-runtime.ts`): the `ignored` regex now excludes `scripts/`, `build-guide/`, `proxy/`, `mini-services/`, and a new `ignoredFiles` regex excludes top-level config stubs (`next-env.d.ts`, `next.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `tailwind.config.ts`, `tsconfig.json`, `package.json`, `bun.lock`). The loop stops wasting its `maxFilesPerCycle` budget on files that are structurally finished. This directly targets the 72% zero-diff wall.
+
+**2. Wired SelfTask consumption into `runCycle`** (`self-enhance-loop.ts`): a pre-pass at the top of every cycle drains up to 3 SelfTasks BEFORE the whole-file scan. Deterministic kinds first (no LLM call, structurally zero-diff-immune — the text changes by construction, verified by in-memory typecheck). LLM kinds only if the deterministic queue is empty AND the LLM gate is open. Each applied task is written live + pushed via the same `gitPush()` path (so commit-archaeology, secret-scan, and branch-retention all apply), then hot-swapped so the running process benefits. Protected `task-executor.ts` and `self-task-generator.ts` in `PROTECTED_FILES` so the loop can't delete its own task path again. Extended the SelfTask scan scope from 2 dirs to 4 (now matches the loop's `SCAN_SCOPES`: pipeline, display, components, api).
+
+**3. P1-P3 retention fixes** (`retention.ts` + wire-ins):
+- `pruneResolvedPostmortems(maxAgeDays=30)` — archives resolved postmortems (DB row + disk JSON) older than 30 days with no new failure. Wired into cycle-end every 25th cycle.
+- `pruneHighAttemptPostmortems(maxAttempts=50)` — auto-resolves postmortems churning on the same unfixable file (caps the runaway `attempts` counter; the audit found red-team postmortems at 33 attempts). Wired alongside the above.
+- `pruneTerminalSelfTasks(keep=1000)` — sweeps `done`/`failed`/`skipped` rows (the pending cap only covered pending+in_progress). Wired into cycle-end every 25th cycle.
+- `pruneMemoryEntries(keep=1000)` — bounds the `MemoryEntry` table (was only deleted on duress purge). Wired into `emg-rag.ts:addEntry` every 25th add.
+- `pruneOldLessons(keepActive=100, keepPruned=100, prunePrunedAfterDays=90)` — soft-caps the `Lesson` table (keeps all revoked — rare + high-value; keeps newest 100 active + 100 deactivated; deletes deactivated >90 days outside the window). Wired into the distill path every 10th distill.
+
+All five are best-effort, fire-and-forget (a prune failure never fails the cycle that triggered it), matching the contract of the audit-4 helpers.
+
+### The merge-back safety re-check
+
+Audit 4 built the merge-back mechanism to catch main up to loop-NN branches. Audit 5 re-verified its safety and found: **main is NOT behind loop-198 anymore.** The loop kept running after the audit-4 push, so main now has the loop's LATEST mutations. A merge-back analysis on loop-198 showed 31 src/ files would be staged, but **26 of them would REGRESS** main (18 diverged independently, 8 where main has loop-198's version as ancestor and is therefore newer). Only 5 test files (genuinely new on loop-198) are safe to bring forward. **Conclusion: the merge-back mechanism is correctly built and available for future use (when main genuinely falls behind), but executing it now would be harmful.** The user's original concern ("main not updated") was naturally addressed by the loop's own continued activity on top of the audit-4 push.
+
+---
+
 ## File-by-file inventory
 
 ### Root config

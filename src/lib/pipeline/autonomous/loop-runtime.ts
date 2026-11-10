@@ -1260,7 +1260,22 @@ class AutonomousLoopRuntime {
       //    Only include languages where the LLM can extract constants,
       //    add type annotations, modularize, etc.
       const codeExtRegex = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|swift|rb|php|c|cpp|cc|cs)$/i;
-      const ignored = /^(node_modules|\.git|\.next|dist|build|coverage|public\/assets|vendor|third_party|\.agents|docs?|examples?)\//i;
+      // audit 5 — ZERO_DIFF_SATURATION wall: the prior `ignored` regex
+      // admitted scripts/, build-guide/, proxy/, mini-services/, and
+      // top-level config stubs (next.config.ts, next-env.d.ts, postcss/
+      // eslint configs). The deep investigation (audit 5) found 100% of
+      // zero-diff postmortems are in this autonomous-loop path, and the
+      // top zero-diff files (scripts/q.ts: 14 attempts, scripts/check-
+      // llm.ts, next-env.d.ts, build-guide/*.py) are GENUINELY FINISHED —
+      // 8-16 lines, correct, no bugs, no missing error handling. The
+      // LLM correctly returns them unchanged; the loop was just feeding
+      // it trivial files. Excluding these paths means the loop spends
+      // its maxFilesPerCycle budget on substantive code where a real
+      // refactor is possible. Config stubs (next.config, postcss, eslint,
+      // tailwind, tsconfig) are also excluded — they're declarative
+      // configs with no business logic to refactor.
+      const ignored = /^(node_modules|\.git|\.next|dist|build|coverage|public\/assets|vendor|third_party|\.agents|docs?|examples?|scripts\/|build-guide\/|proxy\/|mini-services\/)\//i;
+      const ignoredFiles = /^(next-env\.d\.ts|next\.config\.(ts|js|mjs)|postcss\.config\.(mjs|js|ts)|eslint\.config\.(mjs|js|ts)|tailwind\.config\.(ts|js|mjs)|tsconfig\.json|prettier\.config\.(js|mjs|ts)|\.env\.example|package\.json|bun\.lock|bun\.lockb)$/i;
       // Hard cap on files per cycle — prevents runaway LLM API costs.
       const effectiveMaxFiles = Math.min(this.config.maxFilesPerCycle, 500);
       // Skip files already committed in prior cycles so each cycle makes
@@ -1300,6 +1315,7 @@ class AutonomousLoopRuntime {
             item.type === "blob" &&
             codeExtRegex.test(item.path) &&
             !ignored.test(item.path) &&
+            !ignoredFiles.test(item.path) &&
             !alreadyCommitted.has(item.path) &&
             cooledDown(item.path)
         )

@@ -34,6 +34,14 @@ import { db } from "@/lib/db";
 import { PROJECT_ROOT } from "../core/paths";
 const PIPELINE_SRC_DIR = join(PROJECT_ROOT, "src/lib/pipeline");
 const DISPLAY_SRC_DIR = join(PROJECT_ROOT, "src/app/display");
+// audit 5 — extend SelfTask scan scope to match the self-enhance-loop's
+// SCAN_SCOPES (saturation.ts:55). The prior 2-scope list (pipeline +
+// display) meant SelfTasks never fired for src/components (the UI
+// panels) or src/app/api (the API routes), so those files got no
+// deterministic zero-diff-immune fixes. The 4-scope list matches what
+// the loop actually mutates.
+const COMPONENTS_SRC_DIR = join(PROJECT_ROOT, "src/components");
+const API_SRC_DIR = join(PROJECT_ROOT, "src/app/api");
 
 /**
  * Files the system must NOT modify (would break its own loop).
@@ -96,6 +104,8 @@ function listOwnSourceFiles(): string[] {
   };
   scan(PIPELINE_SRC_DIR, false); // .ts only
   scan(DISPLAY_SRC_DIR, true); // .tsx
+  scan(COMPONENTS_SRC_DIR, true); // .tsx (audit 5 — was missing)
+  scan(API_SRC_DIR, false); // .ts (audit 5 — was missing)
   return files;
 }
 
@@ -305,6 +315,8 @@ export async function generateTasks(): Promise<ScanResult> {
   };
   scanAll(PIPELINE_SRC_DIR, false);
   scanAll(DISPLAY_SRC_DIR, true);
+  scanAll(COMPONENTS_SRC_DIR, true); // audit 5
+  scanAll(API_SRC_DIR, false); // audit 5
 
   for (const file of files) {
     try {

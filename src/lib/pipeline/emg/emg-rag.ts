@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { pruneMemoryEntries } from "../autonomous/retention";
 
 export interface VectorEntry {
   readonly id: string;
@@ -27,6 +28,25 @@ const HIGH_SIMILARITY_THRESHOLD = 0.05;
 const ELEVATED_FRICTION_THRESHOLD = 0.6;
 const LOW_SIMILARITY_THRESHOLD = 0.02;
 const MAX_RESULTS_PER_CATEGORY = 3;
+
+/**
+ * Audit 4 (P2b) — MemoryEntry prune throttle counter.
+ *
+ * `addEntry` is called ~2× per manual pipeline run. Each call triggers
+ * a DB write; without retention the `MemoryEntry` table grows forever
+ * (the only existing deletion is the duress-purge bulk `deleteMany({})`
+ * — emergency only). The prune does a `findMany + deleteMany` (cheap
+ * but not free), so we don't want to run it per add.
+ *
+ * Module-level counter, fire-and-forget on every 25th add (matching the
+ * MutationCorpus "every 25th cycle" pattern in mutation-corpus.ts:130 —
+ * amortize the cost across calls). Resets to 0 on process restart,
+ * which is fine: missing one prune on restart just delays the next by
+ * 25 adds.
+ */
+let addEntryCount = 0;
+const MEMORY_PRUNE_INTERVAL = 25;
+const MEMORY_PRUNE_KEEP = 1000;
 
 /**
  * Memory entries are ONLY real observations recorded by actual pipeline
@@ -246,6 +266,20 @@ class EmgRagMemory {
         .catch((error) => {
           console.error("Failed to save memory entry to database:", error);
         });
+    }
+
+    // Audit 4 (P2b) — fire-and-forget MemoryEntry prune every Nth add.
+    // The prune helper (retention.ts:pruneMemoryEntries) is best-effort:
+    // it never throws, logs on failure, and returns null on a top-level
+    // error. We swallow its result here — the prune is housekeeping, the
+    // add already succeeded. See MEMORY_PRUNE_INTERVAL above for the
+    // cadence rationale (every 25th add amortizes the findMany+deleteMany
+    // cost across calls — too expensive per-add).
+    addEntryCount++;
+    if (addEntryCount % MEMORY_PRUNE_INTERVAL === 0) {
+      void pruneMemoryEntries(MEMORY_PRUNE_KEEP).catch(() => {
+        /* retention is best-effort — see retention.ts */
+      });
     }
     
     return newEntry;

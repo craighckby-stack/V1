@@ -29,6 +29,14 @@ import type { PostmortemRecord, PostmortemFailureType } from "./postmortem-store
 
 import { PROJECT_ROOT } from "../core/paths";
 const POSTMORTEM_DIR = join(PROJECT_ROOT, "postmortems");
+/** Subtree under POSTMORTEM_DIR where resolved-then-expired postmortems
+ *  are MOVED (not deleted) by the retention helper pruneResolvedPostmortems
+ *  (audit 4 — P1). The on-disk JSON is the source of truth, so a DB-only
+ *  delete would let ensureRehydrated resurrect the record on the next boot.
+ *  Archiving keeps the audit trail in git history under postmortems/
+ *  while removing it from the live read path (listFromDisk only walks
+ *  <repo>/<branch>/, skipping the `archived/` subtree). */
+const POSTMORTEM_ARCHIVED_DIR = join(POSTMORTEM_DIR, "archived");
 
 /** Sanitize a repo slug like "craighckby-stack/V1" into a single path
  *  component (the "/" would otherwise nest a real directory). */
@@ -314,6 +322,30 @@ export function resolvePostmortemOnDisk(
   writePostmortemToDisk(existing);
 }
 
+/** AUTO-RESOLVE on disk — audit 4 P1 (pruneHighAttemptPostmortems). Like
+ *  `resolvePostmortemOnDisk` but does NOT flip CANDIDATE→REJECTED, because
+ *  the file did NOT succeed — it just churned past the attempt cap. The
+ *  candidate→rejected semantics ("external claim contradicted by the file
+ *  succeeding") would be a forensic lie here; the file didn't succeed, the
+ *  system just decided to stop spending cycles on it. The verification
+ *  status is left untouched so the audit trail says what actually
+ *  happened: "recorded as candidate/verified, then auto-resolved at N
+ *  attempts because the file kept failing." */
+export function autoResolvePostmortemOnDisk(
+  repo: string,
+  branch: string,
+  filePath: string
+): void {
+  const existing = readPostmortemFromDisk(repo, branch, filePath);
+  if (!existing) return; // nothing to resolve
+  if (existing.status === "resolved") return;
+  existing.status = "resolved";
+  // Intentionally NOT flipping verificationStatus — see method doc.
+  existing.resolvedAt = nowIso();
+  existing.updatedAt = nowIso();
+  writePostmortemToDisk(existing);
+}
+
 /** Remove a postmortem's on-disk file(s) — the UI "dismiss" path
  *  (postmortem-store.delete).
  *
@@ -343,15 +375,101 @@ export function deletePostmortemFromDisk(
   return removed;
 }
 
+/** Compute the archive-side destination path for a (repo, branch,
+ *  filePath) record: `postmortems/archived/<repo>/<branch>/<file>.json`.
+ *  Mirrors `relativePathToPostmortemFile` (current-form, F14 — the
+ *  archive doesn't need to preserve the legacy extension-less twin
+ *  since the archived record is read-only and never re-walked). */
+function archivedPathToPostmortemFile(repo: string, branch: string, filePath: string): string {
+  const segments = safeSegments(filePath);
+  const dirs = segments.slice(0, -1);
+  const name = `${segments.length > 0 ? segments[segments.length - 1] : "postmortem"}.json`;
+  return join(POSTMORTEM_ARCHIVED_DIR, sanitizeRepo(repo), sanitizeBranch(branch), ...dirs, name);
+}
+
+/** Move a postmortem's on-disk JSON from the live tree to the `archived/`
+ *  subtree — the audit 4 P1 "resolve-then-expire" archive step. The DB
+ *  row is deleted separately by the caller (retention.ts) ONLY when this
+ *  returns true, so a failed move never loses the record (data-loss
+ *  guard).
+ *
+ *  When both the current (F14) and legacy (pre-F14) forms exist on disk
+ *  for the same record (audit 3, F14 — a stale twin), the AUTHORITATIVE
+ *  current form is moved to `archived/` and the legacy twin is REMOVED
+ *  (not archived). The twin is stale data by construction; archiving it
+ *  to a separate filename would resurrect the record twice in any
+ *  future walker that doesn't skip archived/, and serves no forensic
+ *  purpose (the current form already carries the truth).
+ *
+ *  Atomic per file (renameSync on the same filesystem). Best-effort and
+ *  never throws — returns true when the authoritative source file was
+ *  moved, false when no source existed or the move failed. The caller
+ *  treats false as "skip the DB delete this round, retry next cycle." */
+export function archivePostmortemToDisk(
+  repo: string,
+  branch: string,
+  filePath: string
+): boolean {
+  const candidates = postmortemFileCandidates(repo, branch, filePath);
+  // Find the source that actually exists — prefer the current (F14)
+  // form; fall back to the legacy form when only that exists.
+  let srcPath: string | null = null;
+  for (const c of candidates) {
+    if (existsSync(c)) {
+      srcPath = c;
+      break;
+    }
+  }
+  if (srcPath === null) return false; // no on-disk record to archive
+
+  try {
+    const destPath = archivedPathToPostmortemFile(repo, branch, filePath);
+    const destDir = dirname(destPath);
+    mkdirSync(destDir, { recursive: true });
+    // renameSync is atomic on the same filesystem. postmortems/ and
+    // postmortems/archived/ share a filesystem, so this is the right
+    // primitive — write-then-unlink would leave a half-moved record
+    // if the process crashed between the two.
+    renameSync(srcPath, destPath);
+  } catch {
+    return false; // move failed — caller keeps the DB row, retries next cycle
+  }
+
+  // The legacy twin (if any) is stale data — remove it so it can't
+  // resurrect the record in a future rehydrate of the live tree.
+  for (const c of candidates) {
+    if (c === srcPath) continue;
+    try {
+      if (existsSync(c)) rmSync(c, { force: true });
+    } catch {
+      /* best-effort — the authoritative form is already archived */
+    }
+  }
+  return true;
+}
+
 /** Walk the postmortems/ tree and return every record (active + resolved).
- *  Used by listActive and by the SQLite-rehydration path. */
+ *  Used by listActive and by the SQLite-rehydration path.
+ *
+ *  NOTE (audit 4 — P1): this walker only descends into IMMEDIATE
+ *  repo/branch subdirectories of POSTMORTEM_DIR. The `archived/`
+ *  subtree (where pruneResolvedPostmortems moves expired records) is
+ *  an immediate subdirectory too but is NOT a repo slug, so it is
+ *  naturally skipped here — archived records stay out of the live
+ *  read path AND the rehydrate-on-wipe path, exactly as intended. */
 export function listAllPostmortemsFromDisk(): PostmortemRecord[] {
   return listFromDisk(undefined, undefined);
 }
 
 /** List postmortems from disk, optionally filtered by repo/branch.
  *  Used when the DB is wiped and we need to rehydrate, or by listActive
- *  when the DB miss should fall through to the repo. */
+ *  when the DB miss should fall through to the repo.
+ *
+ *  AUDIT 4 (P1): the `archived/` subtree (where pruneResolvedPostmortems
+ *  moves expired records) is SKIPPED — archived records stay out of the
+ *  live read path AND the rehydrate-on-wipe path. Without this skip,
+ *  an archived record would be re-imported as `active` on the next DB
+ *  wipe, resurrecting a "this file failed" memory we explicitly expired. */
 export function listFromDisk(repo?: string, branch?: string): PostmortemRecord[] {
   const out: PostmortemRecord[] = [];
   if (!existsSync(POSTMORTEM_DIR)) return out;
@@ -359,7 +477,9 @@ export function listFromDisk(repo?: string, branch?: string): PostmortemRecord[]
   // postmortems/<repo>/<branch>/<...dirs...>/<file>.json
   const repoFilter = repo ? sanitizeRepo(repo) : null;
   const repoDirs = readdirSync(POSTMORTEM_DIR, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && (!repoFilter || e.name === repoFilter));
+    .filter((e) => e.isDirectory() && (!repoFilter || e.name === repoFilter))
+    // Skip the archived/ subtree — see method doc.
+    .filter((e) => e.name !== "archived");
 
   for (const repoDir of repoDirs) {
     const repoPath = join(POSTMORTEM_DIR, repoDir.name);

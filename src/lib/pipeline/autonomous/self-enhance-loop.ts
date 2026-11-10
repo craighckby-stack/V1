@@ -22,7 +22,8 @@ import { postmortemStore } from "../postmortem/postmortem-store";
 import { queryRelevantPostmortems, formatAncestralPromptBlock } from "../postmortem/ancestral-rag";
 import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopBranch, validateCommitMessage, amendUuidHeadCommit, pruneOldLoopBranches } from "./push-target";
 import { db } from "@/lib/db";
-import { generateTasks } from "./self-task-generator";
+import { generateTasks, claimNextTask } from "./self-task-generator";
+import { executeTask, type TaskExecutionResult } from "./task-executor";
 import { detectTruncation, stripComments, stripLiteralsAndComments } from "./code-analysis";
 import { autoProphecyAfterCycle } from "../oracle/oracle-auto";
 import {
@@ -45,12 +46,23 @@ import {
   recordLessonOutcome,
   maybeDistill,
   seedLessons,
+  DISTILL_INTERVAL,
   type LessonRow,
 } from "./lesson-store";
 import { applySchemaMutation } from "./schema-gate";
 import { PROJECT_ROOT } from "../core/paths";
 import { recoverCrashedTestGate } from "../core/test-gate-journal";
 import { runTestsInSandbox, typecheckInSandbox } from "../core/sandbox-test";
+// Audit 4 (P1/P2a/P3): shared, best-effort retention helpers for the
+// loop's grow-only DB tables. Fire-and-forget at the cycle end; a prune
+// failure never fails the cycle (the row was already written; pruning
+// is housekeeping). See retention.ts for the per-helper contracts.
+import {
+  pruneResolvedPostmortems,
+  pruneHighAttemptPostmortems,
+  pruneTerminalSelfTasks,
+  pruneOldLessons,
+} from "./retention";
 // ── Compounding-intelligence v2 (D1-D8). The integrity-chain modules
 // (lapse-detector, meta-params, meta-tuner, mutation-corpus,
 // lessons-markdown, red-team/*) are PROTECTED — see protected-files.ts.
@@ -402,6 +414,23 @@ export interface SelfEnhanceResult {
    *  rejection, etc.). */
   testFilesRun?: number;
 }
+
+// ── Audit 4 retention throttle counters ──────────────────────────────
+// Module-level (process-wide) counters for the fire-and-forget prunes
+// wired into the cycle end. P1 + P2a use the cycle-number modulo (a
+// state-free throttle matching mutation-corpus.ts:130); P3 (lessons)
+// uses a distill-attempt counter because the prune cadence is "every
+// 10th distill", and a distill fires every DISTILL_INTERVAL cycles — so
+// every 10th distill ≈ every 100 cycles, but the counter makes the
+// cadence robust to a meta-tuned DISTILL_INTERVAL (D8).
+//
+// The counter is incremented ONLY when a distill actually runs (when
+// cycleNow > 0 && cycleNow % DISTILL_INTERVAL === 0), so a stop-then-
+// restart that re-enters the distill cycle doesn't double-count. It
+// resets to 0 on process restart (acceptable — the lesson prune is
+// housekeeping; missing one prune on restart just delays the next one
+// by 10 distills).
+let distillAttemptCount = 0;
 
 class SelfEnhanceLoop {
   private running = false;
@@ -2209,6 +2238,139 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
     }
 
     try {
+      // ── SelfTask drain (audit 5 — ZERO_DIFF_SATURATION mitigation) ──
+      // The whole-file refactor path hits zero-diff on files that are
+      // "finished" (no bugs, no missing error handling — the LLM correctly
+      // returns them unchanged). The SelfTask pipeline (self-task-
+      // generator.ts + task-executor.ts) queues CONCRETE findings (todo
+      // comments, empty catches, any-usage, missing return types, unused
+      // imports, magic numbers, non-null assertions) that cannot zero-
+      // diff by construction: the deterministic kinds (missing-return-type,
+      // unused-import) produce a guaranteed non-trivial text change
+      // verified by in-memory typecheck. The LLM kinds have a much
+      // narrower prompt (one file, one issue, one instruction) than the
+      // whole-file "find anything to fix" prompt.
+      //
+      // This pre-pass drains up to SELF_TASKS_PER_CYCLE tasks BEFORE the
+      // whole-file scan. Each applied task is written live + pushed via
+      // the same gitPush() path as a successful enhanceFile, so the
+      // existing commit-archaeology, secret-scan, and branch-retention
+      // machinery all apply. Best-effort by design — a SelfTask failure
+      // never fails the cycle (the whole-file scan still runs after).
+      //
+      // WHY DETERMINISTIC-FIRST: claimNextTask(true) restricts to the
+      // checker-inferred kinds (no LLM call) so the drain makes forward
+      // progress even when the LLM gate is cooling down. The perf concern
+      // (task-executor builds a fresh ts.Program per task, ~10s) is
+      // amortized by the small cap — 3 tasks per cycle adds ~30s, well
+      // under the cycle's existing LLM latency.
+      const SELF_TASKS_PER_CYCLE = 3;
+      const selfTaskResults: SelfEnhanceResult[] = [];
+      try {
+        for (let i = 0; i < SELF_TASKS_PER_CYCLE; i++) {
+          if (myRun !== this.runId) break;
+          if (isSafeMode()) break;
+          // Prefer deterministic tasks (no LLM, zero-diff-immune). Fall
+          // back to LLM tasks only if the deterministic queue is empty
+          // AND the LLM gate is open.
+          let task = await claimNextTask(true).catch(() => null);
+          if (!task && llmCooldownMs() === 0) {
+            task = await claimNextTask(false).catch(() => null);
+          }
+          if (!task) break; // queue empty — proceed to whole-file scan
+
+          const filePath: string = task.filePath;
+          const kind: string = task.kind;
+          this.currentFile = filePath;
+          this.log(`SelfTask[${kind}] claimed: ${filePath}:${task.line}`, "info");
+
+          const exec: TaskExecutionResult = await executeTask({
+            id: task.id,
+            kind: task.kind,
+            filePath: task.filePath,
+            line: task.line,
+            evidence: task.evidence ?? "",
+            attempts: task.attempts ?? 0,
+          }).catch((e): TaskExecutionResult => ({
+            status: "failed",
+            method: "llm",
+            summary: `executor threw: ${(e as Error).message}`,
+          }));
+
+          if (exec.status === "applied" && exec.newCode) {
+            // Write live (same as enhanceFile's success path).
+            const abs = join(PROJECT_ROOT, filePath);
+            const relPath = relative(PROJECT_ROOT, abs);
+            try {
+              writeFileSync(abs, exec.newCode, "utf-8");
+            } catch (wErr) {
+              await this.updateTask(task.id, { status: "failed", lastError: `write failed: ${(wErr as Error).message}` });
+              this.log(`SelfTask[${kind}] write failed: ${(wErr as Error).message}`, "warn");
+              continue;
+            }
+            // Push — same path as enhanceFile's success.
+            const pushMsg = `self-task[${kind}]: ${relPath}:${task.line} — ${exec.summary.slice(0, 120)}`;
+            const push = await this.gitPush(pushMsg);
+            if (push.pushed) {
+              this.stats.totalEnhanced++;
+              this.stats.totalPushed++;
+              await this.updateTask(task.id, {
+                status: "done",
+                fixSummary: exec.summary.slice(0, 500),
+                commitSha: push.commitSha,
+              });
+              selfTaskResults.push({
+                filePath: relPath,
+                enhanced: true,
+                reason: `SelfTask[${kind}]: ${exec.summary.slice(0, 100)}`,
+                oldBytes: 0,
+                newBytes: exec.newCode.length,
+                diffBytes: exec.newCode.length,
+                llmUsed: exec.method === "llm",
+                llmLatencyMs: 0,
+                compiled: true,
+                pushed: true,
+                commitSha: push.commitSha,
+              });
+              this.log(`SelfTask[${kind}] applied + pushed: ${relPath} — ${exec.summary.slice(0, 80)}`, "success");
+              // Hot-swap so the running process picks up the deterministic fix.
+              try {
+                const { hotSwapPipeline } = await import("../core/hot-swap");
+                void hotSwapPipeline({ reason: `post-selftask swap: ${relPath}` }).catch(() => {});
+              } catch { /* best-effort */ }
+            } else {
+              // Commit didn't land (push failed). Revert the live write
+              // so the working tree doesn't drift from the committed state.
+              try { execSync(`git checkout -- ${relPath}`); } catch { /* best-effort */ }
+              await this.updateTask(task.id, { status: "pending", lastError: `push failed: ${exec.summary.slice(0, 100)}` });
+              this.log(`SelfTask[${kind}] push failed for ${relPath} — reverted, task re-queued`, "warn");
+            }
+          } else if (exec.status === "no-op") {
+            await this.updateTask(task.id, { status: "skipped", lastError: exec.summary });
+            this.log(`SelfTask[${kind}] no-op: ${exec.summary.slice(0, 80)}`, "info");
+          } else if (exec.status === "deferred") {
+            await this.updateTask(task.id, { status: "pending", deferred: 1 });
+            this.log(`SelfTask[${kind}] deferred: ${exec.summary.slice(0, 80)}`, "info");
+          } else {
+            // failed
+            await this.updateTask(task.id, { status: "failed", lastError: exec.error ?? exec.summary });
+            this.log(`SelfTask[${kind}] failed: ${(exec.error ?? exec.summary).slice(0, 80)}`, "warn");
+          }
+        }
+      } catch (drainErr) {
+        // The SelfTask drain is best-effort — a failure here must NOT
+        // prevent the whole-file scan from running.
+        this.log(`SelfTask drain error (non-fatal): ${(drainErr as Error).message.slice(0, 120)}`, "warn");
+      }
+      // Merge SelfTask results into the cycle's result list so the UI
+      // and stats reflect them.
+      if (selfTaskResults.length > 0) {
+        // (the cycle return is built at the end of runCycle; we stash
+        //  these on the instance via a field so the return path can pick
+        //  them up. See the return statement near the end of runCycle.)
+        (this as unknown as { _selfTaskResults?: SelfEnhanceResult[] })._selfTaskResults = selfTaskResults;
+      }
+
       // ── Pause-before-scan (rate-limit gate) ──────────────────────────
       // If the shared LLM gate is active at cycle start, pause the WHOLE
       // cycle until it clears — do NOT scan and iterate files. Previously
@@ -2492,6 +2654,96 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
           /* distillation is best-effort */
         });
 
+      // ── AUDIT 4 (P1 + P2a + P3) RETENTION PRUNES ─────────────────
+      // Three best-effort, fire-and-forget prunes for the loop's grow-
+      // only DB tables. A prune failure is swallowed inside the helper
+      // (retention.ts) — the .then/.catch here is purely for the
+      // visible-in-log outcome, never a cycle failure.
+      //
+      // P1 + P2a: every 25th cycle (matching mutation-corpus.ts:130's
+      //   `cycleNumber % 25 === 0` pattern). Amortizes the cost across
+      //   cycles — the prunes do findMany + deleteMany, too expensive
+      //   to run per-cycle.
+      //   - pruneHighAttemptPostmortems(50): auto-resolves churny
+      //     postmortems (>= 50 attempts), feeding them into the
+      //     resolve-then-expire path below.
+      //   - pruneResolvedPostmortems(30): archives + deletes resolved
+      //     postmortems older than 30 days. Archive-then-delete is the
+      //     data-loss guard (see retention.ts).
+      //   - pruneTerminalSelfTasks(1000): keeps the newest 1000
+      //     terminal-state SelfTask rows (done|failed|skipped); the
+      //     pending cap (MAX_PENDING_TOTAL = 200) only covers
+      //     pending+in_progress.
+      //
+      // P3: every 10th distill (using a module-level counter — see the
+      //   distillAttemptCount declaration above). pruneOldLessons soft-
+      //   caps the Lesson table: keeps ALL revoked (rare, high-value),
+      //   the newest 100 active, the newest 100 deactivated; deletes
+      //   deactivated rows older than 90 days outside the keep window.
+      //   The distiller needs the recent deactivated tail for dedup
+      //   ("don't re-derive a rule that already failed to transfer"),
+      //   but the old deactivated tail has no live consumer.
+      if (cycleNow > 0 && cycleNow % 25 === 0) {
+        void pruneHighAttemptPostmortems(50)
+          .then((p) => {
+            if (p && p.autoResolved > 0) {
+              this.log(
+                `🧹 Auto-resolved ${p.autoResolved} churny postmortem(s) (>= 50 attempts) — eligible for expire on the next P1 pass${p.kept > 0 ? `, ${p.kept} kept (DB/disk failure)` : ""}`,
+                "info"
+              );
+            }
+          })
+          .catch(() => {
+            /* retention is best-effort */
+          });
+        void pruneResolvedPostmortems(30)
+          .then((p) => {
+            if (p && (p.pruned > 0 || p.archived > 0)) {
+              this.log(
+                `🧹 Pruned ${p.pruned} resolved postmortem(s) (archived ${p.archived} to postmortems/archived/)${
+                  p.kept > 0 ? `, ${p.kept} kept (archive move failed — data-loss guard)` : ""
+                }`,
+                "info"
+              );
+            }
+          })
+          .catch(() => {
+            /* retention is best-effort */
+          });
+        void pruneTerminalSelfTasks(1000)
+          .then((p) => {
+            if (p && p.pruned > 0) {
+              this.log(
+                `🧹 Pruned ${p.pruned} terminal SelfTask(s) (kept newest ${p.kept})`,
+                "info"
+              );
+            }
+          })
+          .catch(() => {
+            /* retention is best-effort */
+          });
+      }
+      // P3: every 10th distill. The counter increments ONLY on a distill
+      // cycle (cycleNow % DISTILL_INTERVAL === 0), so this fires roughly
+      // every 10 * DISTILL_INTERVAL = 100 cycles at the default interval.
+      if (cycleNow > 0 && cycleNow % DISTILL_INTERVAL === 0) {
+        distillAttemptCount++;
+        if (distillAttemptCount % 10 === 0) {
+          void pruneOldLessons(100, 100, 90)
+            .then((p) => {
+              if (p && p.pruned > 0) {
+                this.log(
+                  `🧹 Lesson soft-cap: pruned ${p.pruned} deactivated lesson(s) older than 90d (kept ${p.keptActive} active, ${p.keptPruned} deactivated, ${p.keptRevoked} revoked)`,
+                  "info"
+                );
+              }
+            })
+            .catch(() => {
+              /* retention is best-effort */
+            });
+        }
+      }
+
       // ── D8 META-TUNER (the L4 rung) ──────────────────────────────
       // Judge any in-flight trial (accept / roll back / early-abort)
       // or, on a proposal cycle, start one. Never steals LLM quota (a
@@ -2570,6 +2822,18 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       // oracle-auto.ts; this call never blocks or throws. Surfaces in
       // the console stream via the oracle event ring.
       autoProphecyAfterCycle();
+
+      // ── Merge SelfTask drain results into the cycle return ──────────
+      // The drain pre-pass (top of runCycle) stashes its results on the
+      // instance. Merge them into the cycle's result list + bump the
+      // enhanced count so the UI + stats reflect the deterministic fixes
+      // alongside the whole-file refactors.
+      const stashed = (this as unknown as { _selfTaskResults?: SelfEnhanceResult[] })._selfTaskResults;
+      if (stashed && stashed.length > 0) {
+        results.unshift(...stashed);
+        enhanced += stashed.filter((r) => r.enhanced).length;
+        (this as unknown as { _selfTaskResults?: SelfEnhanceResult[] })._selfTaskResults = undefined;
+      }
 
       return { filesScanned: files.length, filesEnhanced: enhanced, results };
     } finally {
