@@ -62,7 +62,7 @@ export interface SelfEnhanceArmedState {
 export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   try {
     if (!PROJECT_ROOT) {
-      throw new Error("markSelfEnhanceArmed: PROJECT_ROOT is not defined");
+      throw new Error(`markSelfEnhanceArmed: PROJECT_ROOT is not defined, cannot write to ${ARMED_STATE_FILE}`);
     }
     if (typeof armed !== "boolean") {
       throw new Error("markSelfEnhanceArmed: 'armed' must be a boolean");

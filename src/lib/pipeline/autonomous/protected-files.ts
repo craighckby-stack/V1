@@ -149,11 +149,21 @@ export const PROTECTED_PREFIXES = [
   "src/app/api/pipeline/", // the remote-repo pipeline entry
   "src/app/api/github/", // PAT-using GitHub proxy (commit/fetch)
   "src/app/api/oracle/", // archaeology uses the stored PAT
-  "src/app/api/memory/", // RAG memory read API
   "src/app/api/secret-scan/", // the scanner's own API
   "src/app/api/evolution/", // the debate/coherence gate API
   "src/app/api/emg/", // the sanitizer's own API
-  "src/app/api/engines/", // engine catalog API
+  // ── Audit 6: api/memory/ and api/engines/ UNPROTECTED ────────────
+  // The user flagged "still not touching the api files" — 60 of 61 API
+  // routes were protected. These two subtrees are pure data/utility:
+  //   - api/memory/ — RAG memory read/query (no auth, no PAT, no gate)
+  //   - api/engines/ — engine catalog (read-only listing)
+  // The loop can now add JSDoc, input validation, and error handling to
+  // these routes. The existing gates (mutation-guard, structural-
+  // validator, secret-scan, typecheck) enforce symbol preservation and
+  // block evil tokens — the same safety net as any other mutable file.
+  // The control-surface (self-enhance/autonomous/hot-swap/duress) and
+  // security-gate (red-team/postmortems/secret-scan/emg/evolution) and
+  // PAT-using (github/oracle/branches/pipeline) APIs STAY PROTECTED.
   "src/app/api/branches", // stored-PAT branch listing
   "src/app/api/route.ts", // the API index (recon/docs surface)
   // ── Audit 3 (F7): the proposal ENGINE itself ──────────────────────
