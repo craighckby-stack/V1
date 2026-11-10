@@ -72,10 +72,13 @@ export function LogStream() {
             ) : (
               <AnimatePresence initial={false}>
                 {logs.map((entry, idx) => {
-                  const Icon = TYPE_ICON[entry.type];
-                  const color = TYPE_COLOR[entry.type];
-                  // Use length-based key to allow duplicate messages while keeping stable order
-                  const key = `${logs.length - idx}-${entry.timestamp}-${idx}`;
+                  const Icon = TYPE_ICON[entry.type as keyof typeof TYPE_ICON] || Info;
+                  const color = TYPE_COLOR[entry.type as keyof typeof TYPE_COLOR] || "text-slate-400";
+                  const sourceColor = SOURCE_COLOR[entry.source as keyof typeof SOURCE_COLOR] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
+                  
+                  // Use index as key for stable ordering in AnimatePresence, assuming order reflects chronological flow.
+                  const key = idx; 
+                  
                   return (
                     <motion.div
                       key={key}
@@ -89,7 +92,7 @@ export function LogStream() {
                       <span
                         className={cn(
                           "shrink-0 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border",
-                          SOURCE_COLOR[entry.source]
+                          sourceColor
                         )}
                       >
                         {entry.source}
