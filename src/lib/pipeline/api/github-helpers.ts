@@ -46,16 +46,15 @@ export function getUsableToken(clientToken?: string): string | null {
 }
 
 export function githubHeaders(token: string | null): Record<string, string> {
-  // Validate input type
-  if (token !== null && typeof token !== 'string') {
-    throw new Error(`Invalid token provided: expected string or null, but received ${typeof token}`);
-  }
-
   if (token === null) {
     return {
       "User-Agent": USER_AGENT,
       Accept: API_ACCEPT_HEADER,
     };
+  }
+
+  if (typeof token !== 'string') {
+    throw new Error(`Invalid token provided: expected string or null, but received ${typeof token}`);
   }
 
   const trimmedToken = token.trim();
