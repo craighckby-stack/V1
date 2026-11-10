@@ -514,3 +514,54 @@ model MetaParam {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+/// ── COGNITIVE CORE (audit 7): the loop's measured self-knowledge ─────
+/// Two tables make the loop's "self-awareness" real instead of narrative:
+///
+/// SelfModelFile — per-file performance memory. What the loop knows about
+/// its own success on every file it has ever mutated: attempts, passes,
+/// fails, zero-diffs, exhaustion score, per-mode stats. Bootstrapped from
+/// MutationCorpus history (instant self-knowledge from 400+ past
+/// attempts) + archaeology stability maps, updated after every verdict.
+/// Powers UCB bandit target selection — the loop CHOOSES what to work on
+/// based on what it knows about itself, instead of tree-order scanning.
+///
+/// SelfPrediction — the loop's predictions about its OWN success, made
+/// before each mutation attempt and resolved immediately after the gate
+/// verdict. The calibration curve over resolved rows is self-awareness
+/// you can MEASURE: "when I say 70% confident, am I right 70% of the
+/// time?" Brier score over all resolved predictions is the loop's single
+/// number for "how well do I know myself".
+model SelfModelFile {
+  id          String   @id @default(cuid())
+  filePath    String   @unique
+  attempts    Int      @default(0)
+  passes      Int      @default(0)
+  fails       Int      @default(0)
+  zeroDiffs   Int      @default(0)
+  visualPolishAttempts Int @default(0)
+  visualPolishPasses    Int @default(0)
+  lastTouchedAt DateTime?
+  lastOutcome String?  // pass | fail | zero-diff
+  /// Empirical exhaustion 0..1 — consecutive zero-diffs push toward 1,
+  /// a pass pulls back down. Feeds the bandit's exploration penalty.
+  finishedScore Float  @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SelfPrediction {
+  id          String   @id @default(cuid())
+  filePath    String
+  mode        String   // refactor | visual-polish
+  /// The predicted probability (0..1) that this attempt passes ALL gates
+  /// (typecheck + structural + mutation-guard + debate + test).
+  confidence  Float
+  outcome     String?  // pass | fail | zero-diff | excluded
+  cycleNumber Int
+  /// Self-explanation: WHY this confidence (empirical rate, recency,
+  /// exhaustion). The loop's reasoning, in its own record.
+  reason      String?
+  createdAt   DateTime @default(now())
+  resolvedAt  DateTime?
+}

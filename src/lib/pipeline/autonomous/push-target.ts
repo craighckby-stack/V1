@@ -1366,6 +1366,42 @@ export async function pushCurrentState(opts?: {
         }
         await notePushFailure(divReason);
         await record({ lastPushError: `git push failed (diverged): ${stderr.slice(0, 300)}` });
+        // ── STALE-COUNTER SELF-HEAL on the failure path (audit 7) ─────
+        // If the diverged branch is a loop-NN mutation branch, the most
+        // likely cause is a stale local counter targeting an EXISTING
+        // remote branch (observed live: loop-187 while remote held
+        // loop-198). Heal immediately: adopt the remote max so the NEXT
+        // mutation pushes to a fresh branch instead of burning more
+        // cycles against the same diverged ref (which escalates the
+        // push-failure circuit breaker into safe-mode).
+        if (/^loop-\d+$/.test(pushBranch)) {
+          try {
+            const remoteMax = await reconcileBranchNumberFromGitHub();
+            let localCount = 0;
+            try {
+              const rowNow = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
+              localCount = rowNow?.lastBranchNumber ?? 0;
+            } catch { /* best-effort */ }
+            if (remoteMax > localCount) {
+              try {
+                await db.gitPushTarget
+                  .update({ where: { id: SINGLETON_ID }, data: { lastBranchNumber: remoteMax } })
+                  .catch(() => { /* best-effort tier-1 */ });
+                const st = readStateFile() ?? readPersistentStateFile();
+                if (st) {
+                  writeStateFile({
+                    ...st,
+                    lastBranchNumber: remoteMax,
+                    savedAt: new Date().toISOString(),
+                  });
+                }
+                console.warn(
+                  `[PUSH-TARGET] stale branch counter healed on divergence: was loop-${localCount}, remote max loop-${remoteMax} — next mutation targets loop-${remoteMax + 1}`
+                );
+              } catch { /* best-effort */ }
+            }
+          } catch { /* best-effort — the warn above is diagnostic */ }
+        }
         return {
           pushed: false,
           commitSha,
@@ -1491,7 +1527,21 @@ export async function reconcileBranchNumberFromGitHub(): Promise<number> {
  * fall back to querying GitHub for the highest existing `loop-NN`
  * branch. This prevents the loop from reusing a completed mutation's
  * branch. See `reconcileBranchNumberFromGitHub`.
+ *
+ * STALE-COUNTER SELF-HEAL (audit 7): the old code had a hole — if the
+ * DB held a STALE NON-ZERO value (a sandbox rollback restored an old
+ * counter, e.g. 186, while the remote already holds loop-198), it
+ * returned the stale value unconditionally. Every push then targeted
+ * an EXISTING, diverged loop-187 branch → non-fast-forward rejection →
+ * push-failure circuit breaker → safe-mode. Observed live: the loop
+ * burned a full day of mutations against loop-187. Now the DB value is
+ * verified against the remote ONCE per process (rate-limit friendly)
+ * and the max is written through to all tiers. The push-failure path
+ * (see the divergence handler in pushCurrentState) also re-verifies,
+ * healing the counter at the exact moment of failure.
  */
+let remoteBranchNumberVerified = false;
+
 export async function getLastBranchNumber(): Promise<number> {
   let row: Awaited<ReturnType<typeof db.gitPushTarget.findUnique>> = null;
   try {
@@ -1499,7 +1549,40 @@ export async function getLastBranchNumber(): Promise<number> {
   } catch {
     /* DB unavailable — fall through */
   }
-  if (row && (row.lastBranchNumber ?? 0) > 0) return row.lastBranchNumber ?? 0;
+  if (row && (row.lastBranchNumber ?? 0) > 0) {
+    const localCount = row.lastBranchNumber ?? 0;
+    // ── STALE-COUNTER SELF-HEAL (audit 7) ────────────────────────────
+    // One remote verification per process. If the remote holds a HIGHER
+    // loop-NN than the DB (rollback restored an old counter), adopt the
+    // remote max and write it through to every tier so the next mutation
+    // targets a fresh branch instead of a diverged one.
+    if (!remoteBranchNumberVerified) {
+      remoteBranchNumberVerified = true;
+      const remoteMax = await reconcileBranchNumberFromGitHub();
+      if (remoteMax > localCount) {
+        try {
+          await db.gitPushTarget
+            .update({ where: { id: SINGLETON_ID }, data: { lastBranchNumber: remoteMax } })
+            .catch(() => { /* best-effort tier-1 */ });
+          const state = readStateFile() ?? readPersistentStateFile();
+          if (state) {
+            writeStateFile({
+              ...state,
+              lastBranchNumber: remoteMax,
+              savedAt: new Date().toISOString(),
+            });
+          }
+          console.warn(
+            `[PUSH-TARGET] stale branch counter healed: DB said loop-${localCount}, remote max is loop-${remoteMax} — next mutation will target loop-${remoteMax + 1}`
+          );
+          return remoteMax;
+        } catch {
+          /* best-effort — return the DB value as before */
+        }
+      }
+    }
+    return localCount;
+  }
   // DB wiped or zero — the durable state files carry the counter. Tier-2
   // first, then tier-3: after a sandbox restart tier-2 is wiped and
   // .git/info/ is the ONLY surviving copy — reading tier-2 alone returned 0,
