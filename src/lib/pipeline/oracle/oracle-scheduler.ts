@@ -115,8 +115,12 @@ export async function oracleSchedulerTick(): Promise<{
   s.running = true;
   try {
     const result = await evaluateDueProphecies();
-    const judged = result?.judged || [];
-    const skipped = result?.skipped || [];
+    // Validate the result structure
+    if (!result || typeof result !== 'object' || !('judged' in result) || !('skipped' in result)) {
+      throw new Error('evaluateDueProphecies() returned invalid result structure');
+    }
+    const judged = result.judged || [];
+    const skipped = result.skipped || [];
     s.lastTickAt = Date.now();
     s.lastJudgedCount = judged.length;
     s.ticks += 1;
