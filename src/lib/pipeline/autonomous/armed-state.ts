@@ -76,7 +76,9 @@ export function markArmed(armed: boolean, by: string): void {
     
     // Ensure directory exists first to avoid race condition
     const infoDir = join(PROJECT_ROOT, ".git/info");
-    mkdirSync(infoDir, { recursive: true });
+    if (!existsSync(infoDir)) {
+      mkdirSync(infoDir, { recursive: true });
+    }
     
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
     writeFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2), "utf8");
@@ -131,7 +133,7 @@ export function readArmedState(): ArmedState | null {
       };
     }
     
-    console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed`);
+    console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data`);
     return null;
   } catch (error) {
     // Log the error for debugging but return null to maintain the contract
