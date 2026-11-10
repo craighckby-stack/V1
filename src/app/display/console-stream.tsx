@@ -50,9 +50,9 @@ const DIM_COLOR = "#777777";
 
 export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
   // Validate input lines
-  if (!Array.isArray(lines)) {
+  if (!lines || !Array.isArray(lines)) {
     console.error("ConsoleStream: lines prop must be an array");
-    return null; // Returning null is acceptable here as per original logic, but ensuring it's handled by caller.
+    return null;
   }
 
   return (
@@ -67,6 +67,11 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
       {lines.map((line) => {
         // Skip invalid line entries
         if (!line || typeof line !== "object" || !line.id || !line.type) {
+          return null;
+        }
+
+        // Validate line type is one of the expected values
+        if (!["system", "command", "output", "log"].includes(line.type)) {
           return null;
         }
 
