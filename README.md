@@ -353,6 +353,23 @@ Audit 4 built the merge-back mechanism to catch main up to loop-NN branches. Aud
 
 ---
 
+## Audit 6 — visual-polish mode + API route unprotection
+
+The user flagged two things the loop still wasn't doing: **"still not enhancing its own UI look"** and **"still not touching the API files."** Investigation confirmed both:
+
+- **UI look:** the loop touched UI `.tsx` files but only made null-safety fixes (e.g. `arg.citations?.length > 0` → `arg.citations && arg.citations.length > 0`). The self-enhance loop's prompt explicitly forbids "cosmetic changes (type annotations, magic numbers, syntax modernization). Those are pointless." and only asks for bugs/error-handling/security/dead-code. So even when a UI file was selected, the LLM rationally returned a functional fix, never a visual one.
+- **API files:** 60 of 61 API route files were in `PROTECTED_PREFIXES`. Only 1 (`boot/scan/route.ts`) was unprotected. The loop literally could not touch any other API file.
+
+### Changes implemented (audit 6)
+
+**1. Visual-polish mutation mode** (`self-enhance-loop.ts`): a new `mode: "refactor" | "visual-polish"` parameter on `enhanceFile`. When `mode === "visual-polish"`, the LLM gets a prompt that asks for styling consistency, accessibility (aria-labels, focus states, contrast), responsive design (mobile breakpoints, ≥44px touch targets), micro-interactions (hover/focus transitions ≤200ms), and visual hierarchy — NOT bug fixes. Same gate chain applies (typecheck catches broken JSX, structural-validator catches dropped exports, mutation-guard catches evil tokens, debate evaluates reasonableness). Every 5th cycle, the loop picks one `.tsx` component from `src/components/pipeline/` (rotating through the list by cycle number) and runs visual-polish mode BEFORE the whole-file bug-hunt scan.
+
+**2. API route unprotection** (`protected-files.ts`): removed `api/memory/` and `api/engines/` from `PROTECTED_PREFIXES`. These are pure data/utility endpoints (RAG memory read/query, engine catalog listing) — no auth, no PAT, no security gate. The loop can now add JSDoc, input validation, and error handling to these routes. The control-surface APIs (`self-enhance/`, `autonomous/`, `hot-swap/`, `duress/`), security-gate APIs (`red-team/`, `postmortems/`, `secret-scan/`, `emg/`, `evolution/`), and PAT-using APIs (`github/`, `oracle/`, `branches`, `pipeline/`) STAY PROTECTED. Result: 57 protected / 4 unprotected (was 60 / 1).
+
+**3. Fixed `/api/self-enhance/files` endpoint** (`files/route.ts`): the endpoint was hardcoded to scan only 2 of the 4 `SCAN_SCOPES` directories (`src/lib/pipeline` + `src/app/display`) and used `PROTECTED_FILES.has()` (exact match only) instead of `isProtectedPath()` (exact + prefix). The UI's `files` command never showed `src/components` or `src/app/api` files even though the loop's `scanFiles()` scans them. Now uses the same `SCAN_SCOPES` + `isProtectedPath()` the loop uses — 197 files in scope (was 69), 89 enhanceable (was 42).
+
+---
+
 ## File-by-file inventory
 
 ### Root config
