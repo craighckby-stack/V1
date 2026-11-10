@@ -14,6 +14,7 @@ import {
   type ZaiCortexInfo,
 } from "@/lib/pipeline/llm/agent-llm";
 import { autonomousLoopRuntime } from "@/lib/pipeline/autonomous/loop-runtime";
+import { getPassRateTrend } from "@/lib/pipeline/autonomous/mutation-corpus";
 import { db } from "@/lib/db";
 import { PROJECT_ROOT } from "@/lib/pipeline/core/paths";
 
@@ -138,6 +139,30 @@ export async function GET() {
     corpus = null;
   }
 
+  // 2b. Pass-rate trend (DB) — the "is compounding compounding?" vital.
+  // Same corpus, derived view: headline = last ≤20 resolvable attempts;
+  // trend = improving/declining/flat/insufficient (halves ±10pp). Null
+  // when the corpus is unreadable — the splash stamps ?? honestly.
+  let passRate: {
+    lastWindowPct: number | null;
+    overallPct: number | null;
+    lastWindowAttempts: number;
+    trend: string;
+  } | null = null;
+  try {
+    const t = await getPassRateTrend();
+    if (t) {
+      passRate = {
+        lastWindowPct: t.lastWindow.passRate === null ? null : Math.round(t.lastWindow.passRate * 100),
+        overallPct: t.overallPassRate === null ? null : Math.round(t.overallPassRate * 100),
+        lastWindowAttempts: t.lastWindow.attempts,
+        trend: t.trend,
+      };
+    }
+  } catch {
+    passRate = null;
+  }
+
   // 3. Disk scars — wipe-proof failure record.
   let scars: number | null = null;
   try {
@@ -198,6 +223,7 @@ export async function GET() {
     vault: vaultStatus(),
     auth,
     corpus,
+    passRate,
     scars,
     hotSwap,
     autonomy,

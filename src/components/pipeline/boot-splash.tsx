@@ -55,12 +55,12 @@ const ASCII_LOOP = [
 
 const TAGLINE = "A MACHINE THAT REWRITES ITS OWN CODE.";
 
-/** POST line counts. Cold = 8 original + 7 boot/scan lines. Warm = the
- *  SESSION RESUMED line + the same 7 boot/scan lines. (Warm boots used
+/** POST line counts. Cold = 8 original + 8 boot/scan lines. Warm = the
+ *  SESSION RESUMED line + the same 8 boot/scan lines. (Warm boots used
  *  to show ONE line only — after the first entry, every reload looked
  *  like the splash "never updated". The scan lines now append on both
  *  paths: one definition, two ceremonies, same bytes.) */
-const SCAN_LINE_COUNT = 7;
+const SCAN_LINE_COUNT = 8;
 const COLD_POST_MS = (8 + SCAN_LINE_COUNT) * 130 + 260;
 const WARM_POST_MS = (1 + SCAN_LINE_COUNT) * 130 + 260;
 
@@ -135,6 +135,17 @@ interface Vitals {
   quotaEndsAtMs: number;
   /** Escalation level of the ACTIVE cooldown (1=2min..4=30min; 0 open). */
   quotaLevel: number;
+  // ── pass-rate trend (the "is compounding compounding?" vital) ──
+  /** Last-≤20-resolvable-attempts pass rate, percent ("??" unreadable,
+   *  "—" when no resolvable attempts exist yet). */
+  passRatePct: string;
+  /** How many resolvable attempts the headline rate covers. */
+  passRateAttempts: string;
+  /** IMPROVING | DECLINING | FLAT | INSUFFICIENT | ?? — second half vs
+   *  first half over the resolvable attempts, ±10pp significance bar. */
+  passRateTrend: string;
+  /** Lifetime pass rate over the whole lookback window, percent. */
+  passRateOverall: string;
 }
 
 const UNKNOWN_VITALS: Vitals = {
@@ -162,6 +173,10 @@ const UNKNOWN_VITALS: Vitals = {
   quotaState: "??",
   quotaEndsAtMs: 0,
   quotaLevel: 0,
+  passRatePct: "??",
+  passRateAttempts: "??",
+  passRateTrend: "??",
+  passRateOverall: "??",
 };
 
 const asObj = (v: unknown): Json | null => (v && typeof v === "object" ? (v as Json) : null);
@@ -242,6 +257,28 @@ async function fetchVitals(): Promise<Vitals> {
         return v.sealed === true ? "SEALED" : "PLAINTEXT";
       })(),
       scars: txt(pick(asObj(scan), "scars")),
+      // ── pass-rate trend mapping (from boot/scan's passRate vital) ──
+      passRatePct: (() => {
+        const pr = asObj(pick(asObj(scan), "passRate"));
+        if (!pr) return "??"; // endpoint or corpus unreadable
+        if (pr.lastWindowPct === null) return "—"; // no resolvable attempts yet
+        return txt(pr.lastWindowPct);
+      })(),
+      passRateAttempts: (() => {
+        const pr = asObj(pick(asObj(scan), "passRate"));
+        return pr ? txt(pick(pr, "lastWindowAttempts")) : "??";
+      })(),
+      passRateTrend: (() => {
+        const pr = asObj(pick(asObj(scan), "passRate"));
+        const t = pick(pr, "trend");
+        return typeof t === "string" ? t.toUpperCase() : "??";
+      })(),
+      passRateOverall: (() => {
+        const pr = asObj(pick(asObj(scan), "passRate"));
+        if (!pr) return "??";
+        if (pr.overallPct === null) return "—";
+        return txt(pr.overallPct);
+      })(),
       swapsLifetime: txt(pick(asObj(pick(asObj(scan), "hotSwap")), "lifetime")),
       // Raw scheduler status (kept for back-compat / debug). The
       // AUTONOMY POST line renders `livePhase` instead — this raw word
@@ -405,6 +442,25 @@ function scanPostLines(v: Vitals, nowMs: number): PostLine[] {
       value: `${v.branchesTotal} SUCCEEDED · ${v.scars} FAILED`,
       stamp: "OK",
       warn: v.branchesTotal === "??" || v.scars === "??",
+    },
+    {
+      // The "is compounding compounding?" line. Headline = last ≤20
+      // resolvable attempts (enhanced vs gate-rejections only — deferred /
+      // no-change / llm-unavailable rows are non-attempts and excluded,
+      // so a quota drought can't read as a quality decline). Trend =
+      // second half vs first half, ±10pp bar; INSUFFICIENT is honest
+      // (too few attempts to call). DECLINING stamps !! — that's the
+      // line's whole reason to exist.
+      label: "PASS RATE",
+      value:
+        v.passRatePct === "??" ? "UNREADABLE"
+        : v.passRatePct === "—" ? "NO RESOLVABLE ATTEMPTS RECORDED YET"
+        : `${v.passRatePct}% OF LAST ${v.passRateAttempts} · ${v.passRateTrend}`,
+      stamp:
+        v.passRatePct === "??" ? "??"
+        : v.passRateTrend === "DECLINING" ? "!!"
+        : "OK",
+      warn: v.passRatePct === "??" || v.passRateTrend === "DECLINING",
     },
     {
       label: "HOT-SWAP LOG",

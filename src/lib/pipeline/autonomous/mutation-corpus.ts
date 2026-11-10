@@ -279,3 +279,136 @@ export async function getCorpusDigest(): Promise<string> {
     return "";
   }
 }
+
+// ── Pass-rate trend — the "is compounding compounding?" view ─────────
+//
+// The meta-tuner computes pass-rate windows internally to accept/reject
+// parameter trials, and boot/scan reports lifetime TOTALS — but nothing
+// answers the operator's most basic question: IS THE SYSTEM GETTING
+// BETTER OVER TIME? This view derives the answer from the corpus.
+//
+// Denominator honesty: only RESOLABLE attempts count — "enhanced"
+// (passed every gate) vs the five gate-rejection outcomes (the same
+// FAILURE_OUTCOMES set the rest of this module uses for "genuine content
+// rejections"). Deferred/no-change/cosmetic/llm-unavailable rows are
+// NON-attempts (the LLM never got to propose, or proposed nothing) and
+// are excluded from the rate rather than counted as failures — a quota
+// drought must not read as a quality decline.
+//
+// Trend: the resolvable attempts are split into chronological halves;
+// the second half's rate minus the first half's is the delta. ±10pp is
+// the significance bar (below that reads as flat — mutation outcomes
+// are noisy at these sample sizes). "insufficient" is honest: fewer
+// than 5 attempts in either half means the trend is noise, not signal.
+
+const TREND_LOOKBACK_ROWS = 200;
+const TREND_BUCKET_SIZE = 10;
+const TREND_WINDOW = 20;
+const TREND_SIGNIFICANCE = 0.1;
+const TREND_MIN_HALF = 5;
+
+export interface PassRateBucket {
+  /** 1-based, chronological (1 = oldest bucket in the lookback window). */
+  bucket: number;
+  /** Resolvable attempts in this bucket (passed + gate-failed). */
+  attempts: number;
+  passed: number;
+  failed: number;
+  /** passed/attempts, or null when the bucket is empty. */
+  passRate: number | null;
+}
+
+export interface PassRateTrend {
+  /** Resolvable attempts in the lookback window (denominator basis). */
+  resolvableAttempts: number;
+  /** Rows excluded as non-attempts (deferred, no-change, cosmetic, …). */
+  excludedNonAttempts: number;
+  overallPassRate: number | null;
+  /** The headline number: the last TREND_WINDOW resolvable attempts. */
+  lastWindow: { attempts: number; passed: number; passRate: number | null };
+  trend: "improving" | "declining" | "flat" | "insufficient";
+  buckets: PassRateBucket[];
+}
+
+/** Compute the pass-rate trend over the newest TREND_LOOKBACK_ROWS corpus
+ *  rows. Fail-soft: returns null when the corpus is unreadable (the
+ *  callers render "??"/"UNREADABLE" rather than guessing). */
+export async function getPassRateTrend(): Promise<PassRateTrend | null> {
+  const c = corpus();
+  if (!c) return null;
+  try {
+    const rows = await c.findMany({
+      orderBy: { createdAt: "desc" },
+      take: TREND_LOOKBACK_ROWS,
+      select: { gateOutcome: true },
+    });
+    // Chronological order (oldest first) — buckets and halves read forward.
+    const outcomes = rows.map((r) => r.gateOutcome).reverse();
+
+    let resolvableAttempts = 0;
+    let excludedNonAttempts = 0;
+    let passed = 0;
+    for (const o of outcomes) {
+      if (o === "enhanced") {
+        resolvableAttempts++;
+        passed++;
+      } else if (FAILURE_OUTCOMES.has(o)) {
+        resolvableAttempts++;
+      } else {
+        excludedNonAttempts++;
+      }
+    }
+
+    const overallPassRate = resolvableAttempts > 0 ? passed / resolvableAttempts : null;
+
+    // Last-window (headline) rate over the final TREND_WINDOW resolvable
+    // attempts — window size clamps to what actually exists.
+    const windowN = Math.min(TREND_WINDOW, resolvableAttempts);
+    const windowSlice = outcomes.filter((o) => o === "enhanced" || FAILURE_OUTCOMES.has(o)).slice(-windowN);
+    const windowPassed = windowSlice.filter((o) => o === "enhanced").length;
+    const lastWindow = {
+      attempts: windowSlice.length,
+      passed: windowPassed,
+      passRate: windowSlice.length > 0 ? windowPassed / windowSlice.length : null,
+    };
+
+    // Chronological buckets of TREND_BUCKET_SIZE resolvable attempts.
+    const resolvable = outcomes.filter((o) => o === "enhanced" || FAILURE_OUTCOMES.has(o));
+    const buckets: PassRateBucket[] = [];
+    for (let i = 0; i < resolvable.length; i += TREND_BUCKET_SIZE) {
+      const slice = resolvable.slice(i, i + TREND_BUCKET_SIZE);
+      const p = slice.filter((o) => o === "enhanced").length;
+      buckets.push({
+        bucket: buckets.length + 1,
+        attempts: slice.length,
+        passed: p,
+        failed: slice.length - p,
+        passRate: slice.length > 0 ? p / slice.length : null,
+      });
+    }
+
+    // Trend: second-half rate minus first-half rate over the resolvable
+    // set. Small halves → "insufficient" (honesty over a confident guess).
+    let trend: PassRateTrend["trend"] = "insufficient";
+    if (resolvableAttempts >= TREND_MIN_HALF * 2) {
+      const mid = Math.floor(resolvable.length / 2);
+      const firstHalf = resolvable.slice(0, mid);
+      const secondHalf = resolvable.slice(mid);
+      const firstRate = firstHalf.filter((o) => o === "enhanced").length / firstHalf.length;
+      const secondRate = secondHalf.filter((o) => o === "enhanced").length / secondHalf.length;
+      const delta = secondRate - firstRate;
+      trend = delta >= TREND_SIGNIFICANCE ? "improving" : delta <= -TREND_SIGNIFICANCE ? "declining" : "flat";
+    }
+
+    return {
+      resolvableAttempts,
+      excludedNonAttempts,
+      overallPassRate,
+      lastWindow,
+      trend,
+      buckets,
+    };
+  } catch {
+    return null;
+  }
+}

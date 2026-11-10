@@ -20,7 +20,7 @@ The core cycle, running in the background on the server:
 6. **Verdict** — pass: strip banner comments, write the live file, commit + push to a fresh `loop-NN` branch (`push-target.ts`). Resolve any open postmortems for that file. Fail: revert, write a postmortem (`postmortem-store.ts`), maybe a Reflexion entry (`reflection.ts`), feed the lesson outcome (`lesson-store.ts`), try again next cycle.
 7. Goto 1. Forever — bounded by the crash wall (3 same-class crashes), the dead-man's switch (24h no operator touch), the LLM 429 gate (escalating 2/5/15/30min cooldowns), and the operator's `[STOP]`.
 
-The branch model is git-native: each successful mutation gets its own `loop-NN` branch, so `git diff loop-37..loop-38` shows exactly one enhancement. The branch list IS the changelog.
+The branch model is git-native: each successful mutation gets its own `loop-NN` branch, so `git diff loop-37..loop-38` shows exactly one enhancement. The branch list IS the changelog — kept to the newest 50 by the retention policy (see **Retention policy** below); the commits on the seed lineage are the permanent record.
 
 ---
 
@@ -32,7 +32,7 @@ A single full-screen BIOS terminal at `/` (`src/app/page.tsx`):
 
 Black background, amber phosphor text. Header: `LOOP ●` (heartbeat), `[START]`, `[CLEAR]`, `[CONFIG]`, `[ORACLE]`, `[DEFENSE]`, `[BRANCHES]`. Type commands: `start` / `stop` / `status` / `about` / `help` / `trigger` / `task <goal>` / `push` / `config` / `oracle` / `skip` / `rescan` / `clear`. A live console stream (`console-stream.tsx`) shows every scan, gate, push, retry, and backoff in real time.
 
-The boot ceremony (`boot-splash.tsx`) is a 1980s CRT POST: it fetches its own live vitals from its own APIs (branches, postmortem chain, oracle, LLM, hot-swap, GitHub auth, sealed-token vault, mutation totals, autonomy phase, Z.ai cortex, quota gate), stamps 15 honest lines — any vital it can't read stamps `[ ?? ]` in amber, never a fake `OK` — then addresses you with `[ ▶ ENTER THE LOOP ]`.
+The boot ceremony (`boot-splash.tsx`) is a 1980s CRT POST: it fetches its own live vitals from its own APIs (branches, postmortem chain, oracle, LLM, hot-swap, GitHub auth, sealed-token vault, mutation totals, pass-rate trend, autonomy phase, Z.ai cortex, quota gate), stamps 16 honest lines — any vital it can't read stamps `[ ?? ]` in amber, never a fake `OK` — then addresses you with `[ ▶ ENTER THE LOOP ]`.
 
 | | |
 |---|---|
@@ -156,7 +156,7 @@ A self-improving system must not be able to rewrite its own OFF switch, its own 
 
 ---
 
-## API routes (56)
+## API routes (59)
 
 Mutating routes (POST/PUT/PATCH/DELETE) are gated by `src/middleware.ts` (`x-loop-key` header vs `LOOP_API_KEY`, 60 mutations/min/IP rate limit). Fail-open only while unset (one-time warn).
 
@@ -165,13 +165,14 @@ Mutating routes (POST/PUT/PATCH/DELETE) are gated by `src/middleware.ts` (`x-loo
 | GET | `/api` | Service index (lists every route) |
 | GET | `/api/health` | Liveness probe of every subsystem incl. WS mini-service |
 | GET/HEAD | `/api/healthz` | Minimal always-200 probe; exposes `mutationGate.configured` |
-| GET | `/api/boot/scan` | Boot-splash vitals (sealed-PAT auth, corpus, scars, autonomy, cortex, quota) |
+| GET | `/api/boot/scan` | Boot-splash vitals (sealed-PAT auth, corpus, pass-rate trend, scars, autonomy, cortex, quota) |
 | POST | `/api/self-enhance/start` | Start the continuous self-enhance loop |
 | POST | `/api/self-enhance/stop` | Stop it |
 | GET | `/api/self-enhance/status` | Live status (running, stats, logs, current file, llmGate, saturation) |
 | POST | `/api/self-enhance/trigger` | Run one cycle (5s route cooldown) |
 | POST | `/api/self-enhance/push` | Manual git commit+push of live state |
 | GET/POST/DELETE | `/api/self-enhance/push-target` | Configure/clear GitHub push target (PAT never returned) |
+| POST | `/api/self-enhance/reboot` | Restart the loop after a provider-config change; persists re-arm (auto-start on next boot) |
 | GET/POST | `/api/self-enhance/llm-config` | Configure Gemini direct API key |
 | GET/POST | `/api/self-enhance/visibility` | Read/flip the GitHub repo's public/private flag |
 | GET | `/api/self-enhance/files` | Scanned-from-disk file inventory with protected flags |
@@ -182,6 +183,8 @@ Mutating routes (POST/PUT/PATCH/DELETE) are gated by `src/middleware.ts` (`x-loo
 | GET/POST | `/api/self-enhance/archaeology` | Run git-history miner (zero LLM) |
 | POST | `/api/self-enhance/chat-task/propose` | LLM proposes a plan from a user goal (no writes) |
 | POST | `/api/self-enhance/chat-task/apply` | Apply approved plan through the gate chain → push |
+| GET/POST | `/api/self-enhance/prune-branches` | Branch retention: GET = dry-run preview; POST = execute drain (`{keep?, margin?, dryRun?}`) |
+| GET | `/api/self-enhance/pass-rate-trend` | Pass rate over time from the mutation corpus (headline window, trend, buckets) |
 | POST | `/api/autonomous/start` | Arm autonomous remote-repo loop |
 | POST | `/api/autonomous/stop` | Disarm (sticky) |
 | GET | `/api/autonomous/status` | Full LoopState (config, livePhase, stats, logs, currentCycle) |
@@ -269,6 +272,21 @@ ARMED-PAUSED (sticky — only manual [START] releases it)
 
 ---
 
+## Retention policy
+
+Growth audit (2026-11-09): what accumulates, what's bounded, and what must never be deleted. The one-sentence version: **bounded stores are capped, scar tissue is permanent, and measurements are never deleted.**
+
+| Store | Growth | Policy | Why |
+|---|---|---|---|
+| `loop-NN` branches (GitHub) | +1 per successful mutation | **Keep newest 50**, hysteresis margin 10. Auto-drained fire-and-forget after each successful push (`push-target.ts` → `pruneOldLoopBranches`); operator drain via `GET/POST /api/self-enhance/prune-branches` (GET is always a dry-run). Seed branch and every non-`loop-NN` branch are protected by construction; deletes are sequential + rate-limit-aware and resume on the next push if GitHub throttles mid-batch. | 198 refs had accumulated — the branch listing and audit search were becoming unusable. The commits are the record of truth (seed lineage + mutation number in the log); branches are convenience pins. First drain: 198 → 50, 148 deleted, zero failures, counter intact (`loop-199` next). |
+| `MutationCorpus` (DB) | +1 row per attempt | **Capped at 2000 rows** (~1 MB bound; trimmed every 25th cycle) — pre-existing design | The distiller's digest and the negative-constraint block read recent windows (≤300 rows); 2000 covers them with headroom. |
+| `Postmortem` (DB + `postmortems/` disk) | +1 per (repo, branch, file) failure | **Never pruned** | The tamper-evident sha256 chain threads `parentHash` through every record; resolved postmortems still feed ancestral RAG and the archaeology miner; disk JSON is the wipe-proof record of what actually failed. Deleting them destroys the learning substrate for zero storage benefit. |
+| `Lesson` (DB) | slow (distiller-derived) | **Never pruned** | Deactivated/revoked lessons exist precisely so the distiller SEES them and doesn't re-derive rules reality already rejected. Deleting them un-learns. (Low-scoring lessons are deactivated, not deleted — the score system, not a reaper, is the retention mechanism.) |
+| `Prophecy` (DB) | slow (oracle-generated) | **Never pruned** | Judged prophecies ARE the calibration evidence — the Brier score and per-threshold hit rates are computed over all predictions ever made. Pruning would be self-flattery (documented in `prophecy-store.ts`). Pending prophecies are lifecycle-managed by the evaluator (fulfilled/failed/retired). |
+| `worklog.md` | append-only | **Watch, don't rotate** | Every reader takes a bounded tail (≤80 lines); 210 KB today. Rotation would break the archaeology narrative. Revisit at ~50 MB. |
+
+---
+
 ## File-by-file inventory
 
 ### Root config
@@ -299,12 +317,12 @@ ARMED-PAUSED (sticky — only manual [START] releases it)
 
 | File | Lines | Purpose |
 |---|---|---|
-| `src/app/page.tsx` | 2465 | The single user-visible route — full-screen BIOS terminal; the operator's control surface. Patches `window.fetch` to attach `x-loop-key`; polls `/api/self-enhance/status` (2s), `/api/self-enhance/tasks` (5s), `/api/oracle/events` (5s, `since` cursor); command parser (`help`/`start`/`stop`/`status`/`task`/`push`/`oracle`/`skip`/`config`/`clear`...); git token masking in echo. **Protected control surface.** |
+| `src/app/page.tsx` | 2500 | The single user-visible route — full-screen BIOS terminal; the operator's control surface. Patches `window.fetch` to attach `x-loop-key`; polls `/api/self-enhance/status` (2s), `/api/self-enhance/tasks` (5s), `/api/oracle/events` (5s, `since` cursor); command parser (`help`/`start`/`stop`/`status`/`task`/`push`/`oracle`/`skip`/`config`/`clear`...); git token masking in echo. **Protected control surface.** |
 | `src/app/layout.tsx` | — | Root HTML; dark theme; self-hosted Geist fonts via `geist` package; `<Toaster />`; metadata (title "LOOP", author "craighckby-stack"). **Protected.** |
 | `src/app/display/console-stream.tsx` | — | Mutable display layer — receives `ConsoleLine[]`, renders them. Owns no state (page.tsx does). The loop CAN refactor this freely. |
 | `src/app/globals.css` | — | shadcn/ui theme (Tailwind v4) |
 
-### `src/app/api/` (56 routes)
+### `src/app/api/` (59 routes)
 
 All routes set `runtime = "nodejs"`, `dynamic = "force-dynamic"`. Mutating routes (POST/PUT/PATCH/DELETE) are gated by `src/middleware.ts`. See the API routes table above for the full list.
 
@@ -342,7 +360,7 @@ Ambient `bun:test` module declaration so the ratchet's gate 3 (`tsc --noEmit` ov
 
 | File | Purpose |
 |---|---|
-| `boot-splash.tsx` (929) | BIOS cold/warm boot ceremony; fetches 7 vitals endpoints in parallel; CRT amber-phosphor aesthetic; honors `prefers-reduced-motion` |
+| `boot-splash.tsx` (986) | BIOS cold/warm boot ceremony; fetches its vitals endpoints in parallel; CRT amber-phosphor aesthetic; honors `prefers-reduced-motion`; stamps the PASS RATE line (last-≤20 resolvable attempts + trend) |
 | `api-unlock.tsx` | UI half of the middleware's API-key gate; listens for `loop-api-unauthorized` event; bottom-right key prompt; fetches `/api/healthz` to confirm the gate is actually configured |
 | `oracle-panel.tsx` (588) | Modal: Oracle track record (counts, calibration per threshold 0.5/0.7/0.9, Brier score), recent prophecies, [GENERATE]/[EVALUATE] |
 | `defense-panel.tsx` (511) | Modal: DURESS/safe-mode (with [PURGE]/[CLEAR]), RED-TEAM (probe catalog + last run + [RUN SUITE]), SECRET-SCAN (paste-and-scan tool) |
@@ -369,9 +387,9 @@ Standard shadcn/ui components — accordion, alert, alert-dialog, aspect-ratio, 
 |---|---|
 | `protected-files.ts` | **Single source of truth** for what the loop may NOT modify. 33 `PROTECTED_FILES` + 16 `PROTECTED_PREFIXES`. Protected itself. |
 | `loop-runtime.ts` (2007) | Remote-repo autonomous loop runtime (singleton on `globalThis.__autonomousLoopRuntime`); 4 modes; crash-wall; dead-man's switch; ARMED-RECOVERING 30s settle |
-| `self-enhance-loop.ts` (2665) | **THE BRAIN** — self-mutation loop. Scans own source, builds prompt with postmortems + ancestral RAG + lessons, LLM refactor, gate chain, commit + push to `loop-NN`. Per-cycle: ratchet-draft, distill lessons, meta-tune, test-attacker, gate-integrity-probe |
+| `self-enhance-loop.ts` (2862) | **THE BRAIN** — self-mutation loop. Scans own source, builds prompt with postmortems + ancestral RAG + lessons, LLM refactor, gate chain, commit + push to `loop-NN`. Per-cycle: ratchet-draft, distill lessons, meta-tune, test-attacker, gate-integrity-probe, branch-retention drain |
 | `self-task-generator.ts` | **THE INPUT LAYER** — static AST self-scan → `SelfTask` queue (todo, empty-catch, any, missing-return-type, unused-import, magic-number, non-null-assertion) |
-| `push-target.ts` (1587) | 3-tier sealed-PAT GitHub push (DB → root state → `.git/info/`); `git add` → secret-scan → commit → push (no force); auto-create repo; UUID-commit detector + auto-amend |
+| `push-target.ts` (1838) | 3-tier sealed-PAT GitHub push (DB → root state → `.git/info/`); `git add` → secret-scan → commit → push (no force); auto-create repo; UUID-commit detector + auto-amend; branch retention (`pruneOldLoopBranches` — keep newest 50, hysteresis 10, rate-limit-aware drain) |
 | `verify-refactor.ts` | Child-process gate chain: mutation-guard → structural + AST → syntax → typecheck. Nothing written to disk |
 | `in-memory-typecheck.ts` | Full project `tsc --noEmit` with refactored file substituted via custom compiler host |
 | `structural-validator.ts` | Regex pre-gate: truncation, import stripping, export drop, test deletion, license stripping |
@@ -382,7 +400,7 @@ Standard shadcn/ui components — accordion, alert, alert-dialog, aspect-ratio, 
 | `lapse-detector.ts` | D1 — detect when an injected lesson was IGNORED (stemmed-token overlap ≥ 0.30) |
 | `meta-params.ts` | D8 — the loop's tunable knobs as DB rows (DISTILL_INTERVAL, MAX_INJECTED, PRUNE_SCORE, etc.) |
 | `meta-tuner.ts` (301) | D8 — L4 rung: every `TUNE_INTERVAL=50` cycles, snapshot pass rate, propose one step, accept only if trial ≥ baseline + 0.05 |
-| `mutation-corpus.ts` | D4 — one row per mutation attempt (audit trail + transform signal); retention capped at 2000 rows |
+| `mutation-corpus.ts` (414) | D4 — one row per mutation attempt (audit trail + transform signal); retention capped at 2000 rows; `getPassRateTrend()` powers the PASS RATE boot line + `/api/self-enhance/pass-rate-trend` |
 | `dreamer.ts` | D3 — idle-time consolidation (ratchet-draft characterization tests, pattern-naming); self-skips when LLM gate closed |
 | `reflection.ts` | D7 — Reflexion. One cheap LLM call after a failed mutation (attempts ≥ 2) asks the model to diagnose its own reasoning |
 | `archaeology.ts` (484) | Deterministic git-history miner (zero LLM). 3-pass: REVERTED, SELF-FAIL, FIX-PAIR → fragility map + cross-file lessons |
@@ -548,7 +566,7 @@ Standard shadcn/ui components — accordion, alert, alert-dialog, aspect-ratio, 
 |---|---|
 | `memory/lessons.md` | D6 — human-auditable, DB-independent mirror of the Lesson table. Written by `lessons-markdown.ts` after every distillation pass. Human-editable (the distiller sees your edits and won't re-derive a contradicting rule) |
 
-### `postmortems/` (94 JSON files + 1 archaeology report)
+### `postmortems/` (105 JSON files + 1 archaeology report)
 
 Tamper-evident disk mirror of the Postmortem table. Each JSON has `targetRepo`, `branch`, `filePath`, `status`, `verificationStatus`, `failureType`, `symptom`, `evidence`, `constraints`, `attempts`, `parentHash`, `hash` (sha256 chain), timestamps, `schema` (1 or 2).
 
