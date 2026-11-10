@@ -36,7 +36,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
 import { PROJECT_ROOT } from "./paths";
 
 const JOURNAL_DIR = join(PROJECT_ROOT, ".git", "info");
