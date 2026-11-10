@@ -19,7 +19,7 @@ import { conductLlmDebate } from "../llm/debate-llm";
 import { SelfStoppingGovernor, HaltEvaluationState } from "../emg/halt";
 import { emgRagInstance } from "../emg/emg-rag";
 import { binaryShieldInstance } from "./binaryShield";
-import { postmortemStore, generatePostmortemFromReport } from "../postmortem/postmortem-store";
+import { postmortemStore } from "../postmortem/postmortem-store";
 import { gateMutation } from "./mutation-guard";
 
 export type PipelineStageId =
