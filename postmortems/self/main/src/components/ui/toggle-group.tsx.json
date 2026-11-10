@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/ui/toggle-group.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "evidence": "Original: 1925 bytes, Refactored: 1905 bytes. Errors: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "constraints": "The previous refactor of src/components/ui/toggle-group.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "969dc57578eebe6908b079503e3661463ddb58a25c0c81fc3522cda48ff9f12b",
+  "hash": "2dc6bcee6f9e2f2dfce8077054e2448a77ffaf8d7d1b25e373dd1fb499d6ee3d",
+  "lastAttemptAt": "2026-11-10T22:52:46.952Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T22:52:46.953Z",
+  "updatedAt": "2026-11-10T22:52:46.953Z",
+  "schema": 2
+}
