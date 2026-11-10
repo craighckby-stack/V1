@@ -25,10 +25,18 @@ export function RecentCycles() {
     setLoading(true);
     try {
       const res = await fetch("/api/autonomous/recent-cycles");
+      if (!res.ok) {
+        throw new Error(`Failed to fetch recent cycles: HTTP status ${res.status}`);
+      }
       const data = await res.json();
-      setFetched(Array.isArray(data?.cycles) ? data.cycles : []);
-    } catch {
-      /* ignore */
+      if (typeof data !== 'object' || data === null || !Array.isArray(data.cycles)) {
+        console.error("API response structure invalid: expected { cycles: [...] }", data);
+        setFetched([]);
+        return;
+      }
+      setFetched(data.cycles);
+    } catch (error) {
+      console.error("Error refreshing recent cycles:", error instanceof Error ? error.message : "Unknown error");
     } finally {
       setLoading(false);
     }
