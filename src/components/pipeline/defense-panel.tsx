@@ -209,7 +209,7 @@ export function DefensePanel({ open, onClose }: Props) {
     }
   }
 
-  async function doClear() {
+  async function doClear() : Promise<void> {
     setBusy(true);
     setMsg(null);
     try {
