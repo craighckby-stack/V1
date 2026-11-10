@@ -65,15 +65,15 @@ export function markArmed(armed: boolean, by: string): void {
   }
   
   try {
+    // Validate input
+    if (!by || typeof by !== "string" || by.trim() === "") {
+      throw new Error("markArmed: 'by' parameter must be a non-empty string");
+    }
+    
     // Ensure directory exists first to avoid race condition
     const infoDir = join(PROJECT_ROOT, ".git/info");
     if (!existsSync(infoDir)) {
       mkdirSync(infoDir, { recursive: true });
-    }
-    
-    // Validate input
-    if (!by || typeof by !== "string" || by.trim() === "") {
-      throw new Error("markArmed: 'by' parameter must be a non-empty string");
     }
     
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
@@ -106,14 +106,9 @@ export function readArmedState(): ArmedState | null {
     const parsed = JSON.parse(raw);
     
     // Validate that parsed is a non-null object and has all required fields
-    if (parsed && 
-        typeof parsed === "object" && 
-        parsed !== null && // Explicitly check for null if JSON.parse somehow yields it
-        parsed.armed !== undefined && 
+    if (typeof parsed === "object" && parsed !== null && 
         typeof parsed.armed === "boolean" && 
-        parsed.at !== undefined && 
         typeof parsed.at === "string" && 
-        parsed.by !== undefined && 
         typeof parsed.by === "string" &&
         parsed.by.trim() !== "" &&
         // Validate ISO timestamp format (basic check)

@@ -25,8 +25,8 @@
  *   markOperatorTouch()   → writes now() to disk. Called from the
  *                           runtime's start() / stop() / updateConfig()
                            methods (and ONLY from there). Best-effort,
-                           never throws — the in-memory state is the
-                           live source.
+ *                           never throws — the in-memory state is the
+ *                           live source.
  *   readOperatorTouch()   → null when absent, unreadable, or torn.
  *                           Treated by isDeadMansTripped() as "tripped"
  *                           (an unreadable file must never fabricate
@@ -64,27 +64,22 @@ export interface OperatorTouchState {
  *  a persistence failure must not fail a start/stop that already
  *  succeeded in memory. */
 export function markOperatorTouch(by: string, now: Date = new Date()): void {
-  if (!by || typeof by !== "string" || by.trim() === "") {
-    throw new Error("markOperatorTouch: 'by' parameter must be a non-empty string");
+  if (typeof by !== "string" || by.trim() === "") {
+    // Input validation failure, but must not throw per contract. Log and exit gracefully.
+    console.error("markOperatorTouch: 'by' parameter must be a non-empty string. Persistence skipped.");
+    return;
   }
   
   try {
-    // Validate PROJECT_ROOT to prevent path traversal
-    if (PROJECT_ROOT.includes("..") || PROJECT_ROOT.includes("~") || 
-        PROJECT_ROOT.includes("/../") || PROJECT_ROOT.includes("./") ||
-        PROJECT_ROOT.includes("../")) {
-      throw new Error("Invalid PROJECT_ROOT path - potential directory traversal detected");
-    }
-    
     mkdirSync(join(PROJECT_ROOT, ".git/info"), { recursive: true });
     const entry: OperatorTouchState = { at: now.toISOString(), by };
     writeFileSync(OPERATOR_TOUCH_FILE, JSON.stringify(entry, null, 2), "utf8");
   } catch (error) {
-    /* best-effort - log the error for debugging if needed */
+    /* best-effort - log the error for debugging if needed, but never throw */
     if (error instanceof Error) {
-      console.error("Failed to write operator touch file:", error.message);
+      console.error(`Failed to write operator touch file to ${OPERATOR_TOUCH_FILE}: ${error.message}`);
     } else {
-      console.error("Failed to write operator touch file:", error);
+      console.error(`Failed to write operator touch file to ${OPERATOR_TOUCH_FILE}: Unknown error`);
     }
   }
 }
@@ -95,10 +90,10 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
 export function readOperatorTouch(): OperatorTouchState | null {
   try {
     const raw = readFileSync(OPERATOR_TOUCH_FILE, "utf8");
-    const parsed = JSON.parse(raw) as Partial<OperatorTouchState>;
+    const parsed: { at: string; by: string } = JSON.parse(raw);
     
-    // Validate the parsed object has the required properties
-    if (!parsed || typeof parsed.at !== "string" || typeof parsed.by !== "string") {
+    // Validate the parsed object strictly against the required structure
+    if (typeof parsed.at !== "string" || typeof parsed.by !== "string") {
       return null;
     }
     
@@ -112,7 +107,8 @@ export function readOperatorTouch(): OperatorTouchState | null {
       at: parsed.at,
       by: parsed.by,
     };
-  } catch {
+  } catch (error) {
+    // Catches file not found, read errors, JSON parsing errors
     return null;
   }
 }
@@ -130,9 +126,16 @@ export function isDeadMansTripped(
     throw new Error("isDeadMansTripped: 'thresholdMs' must be a non-negative number");
   }
   
+  if (!(now instanceof Date) || isNaN(now.getTime())) {
+    // Handle invalid 'now' input gracefully, treating it as if time cannot be determined (tripped)
+    return true;
+  }
+  
   const state = readOperatorTouch();
-  if (!state || !state.at) return true; // never touched → tripped
+  if (!state) return true; // never touched, unreadable, or malformed → tripped
+  
   const lastTouch = Date.parse(state.at);
   if (!Number.isFinite(lastTouch)) return true; // bad timestamp → tripped
+  
   return now.getTime() - lastTouch > thresholdMs;
 }

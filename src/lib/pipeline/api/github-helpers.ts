@@ -36,7 +36,6 @@ export function getUsableToken(clientToken?: string): string | null {
   const candidate = clientToken.trim();
   
   if (
-    !candidate ||
     candidate.length < MIN_TOKEN_LENGTH ||
     isInvalidToken(candidate)
   ) {
@@ -55,7 +54,8 @@ export function githubHeaders(token: string | null): Record<string, string> {
   }
 
   if (typeof token !== 'string') {
-    throw new Error(`Invalid token provided: expected string but received ${typeof token}`);
+    // This case should ideally not happen if called correctly, but we validate defensively.
+    throw new Error(`Invalid token provided: expected string or null, but received ${typeof token}`);
   }
 
   const trimmedToken = token.trim();

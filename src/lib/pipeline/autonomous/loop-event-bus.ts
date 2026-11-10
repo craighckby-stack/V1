@@ -50,16 +50,18 @@ class LoopEventBus {
       this.emitter = new EventEmitter();
       this.emitter.setMaxListeners(50);
     } catch (error) {
+      // Ensure constructor throws if initialization fails, preventing partial state.
       throw new Error(`Failed to initialize LoopEventBus EventEmitter: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   public emit(evt: LoopEvent): boolean {
     if (!this.emitter) {
+      // This should ideally never happen if constructor succeeded, but kept for robustness.
       throw new Error("LoopEventBus.emit() called on uninitialized EventEmitter");
     }
-    if (evt == null) {
-      throw new Error("LoopEventBus.emit() called with null/undefined event");
+    if (typeof evt !== 'object' || evt === null) {
+      throw new Error("LoopEventBus.emit() called with null or non-object event");
     }
     if (typeof evt.timestamp !== "number" || evt.timestamp <= 0) {
       throw new Error(`LoopEventBus.emit() called with invalid timestamp (must be a positive number, got: ${evt.timestamp})`);
@@ -67,6 +69,12 @@ class LoopEventBus {
     if (!evt.kind || typeof evt.kind !== "string") {
       throw new Error("LoopEventBus.emit() called with missing or invalid kind");
     }
+
+    // Input validation for kinds requiring cycleId and filePath
+    if ((evt.kind === "stage" || evt.kind === "push") && (!evt.cycleId || typeof evt.cycleId !== "string" || !evt.filePath || typeof evt.filePath !== "string")) {
+      throw new Error(`LoopEventBus.emit() for kind '${evt.kind}' requires non-empty string cycleId and filePath.`);
+    }
+
     return this.emitter.emit("event", evt);
   }
 
