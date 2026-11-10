@@ -32,6 +32,24 @@ export function CurrentCycle() {
   const status = cycle.status === "running" || cycle.status === "completed" || 
                  cycle.status === "halted" ? cycle.status : "unknown";
 
+  // Validate consensus values to handle unexpected results
+  const getConsensusDisplay = (consensus: string) => {
+    if (consensus === "APPROVED") return "APR";
+    if (consensus === "CONDITIONAL_APPROVAL") return "COND";
+    if (consensus === "REQUIRES_REWRITE") return "REJ";
+    return consensus;
+  };
+
+  const getConsensusClass = (consensus: string) => {
+    if (consensus === "APPROVED")
+      return "bg-emerald-500/15 text-emerald-300 border-emerald-500/40";
+    if (consensus === "CONDITIONAL_APPROVAL")
+      return "bg-amber-500/15 text-amber-300 border-amber-500/40";
+    if (consensus === "REQUIRES_REWRITE")
+      return "bg-rose-500/15 text-rose-300 border-rose-500/40";
+    return "bg-rose-500/15 text-rose-300 border-rose-500/40";
+  };
+
   return (
     <Card
       className={cn(
@@ -106,20 +124,10 @@ export function CurrentCycle() {
                   <span
                     className={cn(
                       "text-[10px] px-1.5 py-0.5 rounded border uppercase tracking-wider",
-                      r.consensus === "APPROVED"
-                        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-                        : r.consensus === "CONDITIONAL_APPROVAL"
-                        ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
-                        : "bg-rose-500/15 text-rose-300 border-rose-500/40"
+                      getConsensusClass(r.consensus)
                     )}
                   >
-                    {r.consensus === "APPROVED"
-                      ? "APR"
-                      : r.consensus === "CONDITIONAL_APPROVAL"
-                      ? "COND"
-                      : r.consensus === "REQUIRES_REWRITE"
-                      ? "REJ"
-                      : r.consensus}
+                    {getConsensusDisplay(r.consensus)}
                   </span>
                   <span className="text-[10px] font-mono text-slate-500">{r.proofHash}</span>
                   {r.pushed ? (
