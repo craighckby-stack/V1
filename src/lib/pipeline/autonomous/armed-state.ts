@@ -76,9 +76,7 @@ export function markArmed(armed: boolean, by: string): void {
     
     // Ensure directory exists first to avoid race condition
     const infoDir = join(PROJECT_ROOT, ".git/info");
-    if (!existsSync(infoDir)) {
-      mkdirSync(infoDir, { recursive: true });
-    }
+    mkdirSync(infoDir, { recursive: true });
     
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
     writeFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2), "utf8");
