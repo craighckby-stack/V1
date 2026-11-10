@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/pipeline/api-unlock.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "evidence": "Original: 8015 bytes, Refactored: 8264 bytes. Errors: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "constraints": "The previous refactor of src/components/pipeline/api-unlock.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "ec1411a1521d41a26a2f7c83fdcac74204def61ffcf7c0fb297d5c131f437db5",
+  "hash": "5d868bbecbe104419ec50d9571efa705b5130f6138d8e58dc76dbc2dbabfe004",
+  "lastAttemptAt": "2026-11-10T22:06:02.762Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T22:06:02.763Z",
+  "updatedAt": "2026-11-10T22:06:02.763Z",
+  "schema": 2
+}

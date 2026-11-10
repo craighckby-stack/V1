@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/pipeline/log-stream.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "evidence": "Original: 4580 bytes, Refactored: 4914 bytes. Errors: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "constraints": "The previous refactor of src/components/pipeline/log-stream.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 2,
+  "parentHash": "4b9cd89b06863776031279d0dc6f18c6f986f99e5852892954b56d9e8770807e",
+  "hash": "543c31a61a5acc77778e1da46f1cfcbc80e2f501dc1753f73be65a2aef6f8c93",
+  "lastAttemptAt": "2026-11-10T22:19:59.744Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T22:05:24.167Z",
+  "updatedAt": "2026-11-10T22:19:59.744Z",
+  "schema": 2
+}

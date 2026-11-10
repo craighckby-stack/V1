@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/oracle/oracle-events.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "evidence": "Original: 5872 bytes, Refactored: 5831 bytes. Errors: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "constraints": "The previous refactor of src/lib/pipeline/oracle/oracle-events.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "eabc760108a87599b5f7b447b4c942df13d3ace6e48e8e45d546689f02b505bb",
+  "hash": "b8ec0b339ecdb0ed63142644cd1c919cec6899b390b8f8652cc196455d60523f",
+  "lastAttemptAt": "2026-11-10T22:13:28.019Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T22:13:28.020Z",
+  "updatedAt": "2026-11-10T22:13:28.020Z",
+  "schema": 2
+}

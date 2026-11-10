@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/pipeline/memory-bank.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "evidence": "Original: 4623 bytes, Refactored: 4686 bytes. Errors: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "constraints": "The previous refactor of src/components/pipeline/memory-bank.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 2,
+  "parentHash": "c3b21e8efc3a03960a9a33141f83de3d2d1f893e774aa93ca4ee378208c30a9f",
+  "hash": "8f45b3f21728cd7eef936d060c3c916b847eec5c1e5c67b95291363038c66248",
+  "lastAttemptAt": "2026-11-10T22:20:53.552Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T22:05:24.170Z",
+  "updatedAt": "2026-11-10T22:20:53.552Z",
+  "schema": 2
+}

@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/ui/chart.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "evidence": "Original: 9788 bytes, Refactored: 9789 bytes. Errors: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "constraints": "The previous refactor of src/components/ui/chart.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "2087c1ffcf7650ff3716b14b0c8bb65059094978b7c1e7aef331c559903e420d",
+  "hash": "37fca1189665683612de408bdb0a2e596de72825da5409b3383f0550df7901eb",
+  "lastAttemptAt": "2026-11-10T22:29:04.959Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T22:29:04.960Z",
+  "updatedAt": "2026-11-10T22:29:04.960Z",
+  "schema": 2
+}

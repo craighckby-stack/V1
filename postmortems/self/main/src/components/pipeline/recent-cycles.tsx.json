@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/pipeline/recent-cycles.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "evidence": "Original: 5283 bytes, Refactored: 5897 bytes. Errors: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "constraints": "The previous refactor of src/components/pipeline/recent-cycles.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "edde62ec0b65cadcea4960d677f57d93883922a9af7a7e2f5ef532595f710c85",
+  "hash": "2087c1ffcf7650ff3716b14b0c8bb65059094978b7c1e7aef331c559903e420d",
+  "lastAttemptAt": "2026-11-10T22:23:40.578Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T22:23:40.579Z",
+  "updatedAt": "2026-11-10T22:23:40.579Z",
+  "schema": 2
+}
