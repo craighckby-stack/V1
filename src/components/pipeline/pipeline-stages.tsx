@@ -77,12 +77,25 @@ const STATUS_COLOR: Record<string, string> = {
   skipped: "text-slate-500",
 };
 
+type StageDetails = {
+  llmUsed?: boolean;
+  parserUsed?: string;
+  usedLlm?: boolean;
+};
+
 function StageCard({ stage }: { stage: PipelineStageState }) {
+  if (!stage.id) {
+    // Guard clause for malformed state from the store
+    console.error("PipelineStageState received without an ID:", stage);
+    return null;
+  }
+
   const meta = STAGE_META[stage.id] ?? STAGE_META.stage0_ingestion;
   const Icon = meta.icon;
   const StatusIcon = STATUS_ICON[stage.status] ?? Circle;
   const color = STATUS_COLOR[stage.status] ?? "text-slate-500";
   const isRunning = stage.status === "running";
+  const details = stage.details as StageDetails | undefined;
 
   return (
     <motion.div
@@ -127,39 +140,39 @@ function StageCard({ stage }: { stage: PipelineStageState }) {
               <div className="text-[10px] text-slate-500 font-mono">{stage.durationMs}ms</div>
             )}
             {stage.id === "stage2_reasoning" &&
-              (stage.details as { llmUsed?: boolean } | undefined)?.llmUsed && (
+              details?.llmUsed && (
                 <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-emerald-500/15 text-emerald-300 border-emerald-500/40">
                   LLM
                 </span>
               )}
             {stage.id === "stage3_ast_gate" &&
-              (stage.details as { parserUsed?: string } | undefined)?.parserUsed && (
+              details?.parserUsed && (
                 <span
                   className={cn(
                     "text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border",
-                    (stage.details as { parserUsed?: string }).parserUsed === "typescript"
+                    details.parserUsed === "typescript"
                       ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/40"
                       : "bg-slate-500/15 text-slate-300 border-slate-500/40"
                   )}
                 >
-                  {(stage.details as { parserUsed?: string }).parserUsed === "typescript"
+                  {details.parserUsed === "typescript"
                     ? "TS Compiler API"
                     : "Regex fallback"}
                 </span>
               )}
             {stage.id === "stage4_review" &&
-              (stage.details as { usedLlm?: boolean } | undefined)?.usedLlm && (
+              details?.usedLlm && (
                 <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-emerald-500/15 text-emerald-300 border-emerald-500/40">
                   LLM Tribunal
                 </span>
               )}
             {stage.id === "stage4_review" &&
-              (stage.details as { usedLlm?: boolean } | undefined)?.usedLlm === false && (
+              details?.usedLlm === false && (
                 <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-amber-500/15 text-amber-300 border-amber-500/40">
                   Rule-based
                 </span>
               )}
-          </div>
+          </div >
         </div>
       </div>
     </motion.div>
