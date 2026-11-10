@@ -24,12 +24,16 @@ export function MemoryBank() {
     (async () => {
       try {
         const res = await fetch("/api/memory/entries");
+        if (!res.ok) {
+          throw new Error(`Failed to fetch memory entries: HTTP status ${res.status}`);
+        }
         const data = await res.json();
-        if (!cancelled && Array.isArray(data?.entries)) {
+        if (!cancelled && data && Array.isArray(data.entries)) {
           setEntries(data.entries);
         }
-      } catch {
-        /* ignore */
+      } catch (error) {
+        // Log the error with context instead of silently ignoring it
+        console.error("Error loading memory entries from API:", error);
       }
     })();
     return () => {
