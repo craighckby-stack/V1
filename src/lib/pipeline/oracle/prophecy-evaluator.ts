@@ -239,6 +239,48 @@ export async function evaluateDueProphecies(): Promise<{
   const skipped: Array<{ id: string; claim: string; reason: string; error: string }> = [];
 
   for (const prophecy of due) {
+    // ── AUDIT 7: self-predictions are owned by the DETERMINISTIC
+    // auto-adjudicator (oracle-auto.ts), never the LLM. One reaching
+    // this function past its deadline is an ORPHAN — its file never
+    // got re-attempted within the horizon, so no verdict ever landed
+    // to trigger the adjudicator. The honest verdict is FAILED: the
+    // predicted event (the next attempt passing) did not occur by the
+    // deadline. Judged directly, NO LLM call, NO quota — this was
+    // documented in oracle-auto.ts but not implemented until this
+    // fix; without it the 5-min scheduler would LLM-judge every
+    // self-prediction (quota waste + verdicts conflicting with the
+    // deterministic judge).
+    if (prophecy.domain === "self-prediction") {
+      const evaluation =
+        `Deterministic deadline verdict (no LLM): this self-prediction claimed the ` +
+        `next attempt on its file would pass all gates. No such attempt occurred ` +
+        `before the evaluateBy deadline, so the predicted event did not happen. ` +
+        `(Confidence when made: ${prophecy.confidence.toFixed(2)}. ` +
+        `Made at ${prophecy.createdAt.toISOString()}, deadline ${prophecy.evaluateBy.toISOString()}.)`;
+      const updated = await judgeProphecy(prophecy.id, "failed", evaluation);
+      if (updated) {
+        emitOracleEvent(
+          `Oracle self-prophecy FAILED (deadline passed, no re-attempt): "${prophecy.claim.slice(0, 80)}"`,
+          "warn",
+          "auto-adjudicator",
+        );
+        judged.push({ id: prophecy.id, claim: prophecy.claim, verdict: "failed" });
+      } else {
+        emitOracleEvent(
+          `Oracle: DB update failed while deadline-judging self-prophecy "${prophecy.claim.slice(0, 60)}" — stays pending`,
+          "error",
+          "auto-adjudicator",
+        );
+        skipped.push({
+          id: prophecy.id,
+          claim: prophecy.claim,
+          reason: "store-failed",
+          error: "DB update failed",
+        });
+      }
+      continue;
+    }
+
     const evidence = await gatherEvidenceFor(prophecy);
 
     const userPrompt = `Prophecy (made on ${prophecy.createdAt.toISOString()}, deadline ${prophecy.evaluateBy.toISOString()}):
@@ -344,6 +386,32 @@ export async function evaluateProphecyById(id: string): Promise<{
   if (!prophecy) return { ok: false, error: "Prophecy not found" };
   if (prophecy.status !== "pending") {
     return { ok: false, error: `Prophecy is already ${prophecy.status}` };
+  }
+
+  // AUDIT 7: self-predictions are never LLM-judged (the deterministic
+  // auto-adjudicator owns them). A manual trigger on one judges it
+  // directly: FAILED if its horizon passed without the predicted
+  // re-attempt, otherwise left pending (the adjudicator will settle it
+  // on the file's next verdict).
+  if (prophecy.domain === "self-prediction") {
+    if (prophecy.evaluateBy.getTime() > Date.now()) {
+      return {
+        ok: false,
+        error: "Self-prediction not yet due — the deterministic adjudicator settles it on the file's next verdict",
+      };
+    }
+    const evaluation =
+      `Deterministic deadline verdict (manual trigger, no LLM): no re-attempt on the ` +
+      `file occurred before the evaluateBy deadline, so the predicted event did not ` +
+      `happen. (Confidence when made: ${prophecy.confidence.toFixed(2)}.)`;
+    const updated = await judgeProphecy(prophecy.id, "failed", evaluation);
+    if (!updated) return { ok: false, error: "DB update failed" };
+    emitOracleEvent(
+      `Oracle self-prophecy FAILED (manual deadline trigger): "${prophecy.claim.slice(0, 80)}"`,
+      "warn",
+      "auto-adjudicator",
+    );
+    return { ok: true, verdict: "failed" };
   }
 
   const evidence = await gatherEvidenceFor(prophecy);
