@@ -20,7 +20,7 @@ import { llmComplete, extractSummaryAndCode, llmCooldownMs } from "../llm/agent-
 import { conductLlmDebate } from "../llm/debate-llm";
 import { postmortemStore } from "../postmortem/postmortem-store";
 import { queryRelevantPostmortems, formatAncestralPromptBlock } from "../postmortem/ancestral-rag";
-import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopBranch, validateCommitMessage, amendUuidHeadCommit } from "./push-target";
+import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopBranch, validateCommitMessage, amendUuidHeadCommit, pruneOldLoopBranches } from "./push-target";
 import { db } from "@/lib/db";
 import { generateTasks } from "./self-task-generator";
 import { detectTruncation, stripComments, stripLiteralsAndComments } from "./code-analysis";
@@ -1775,6 +1775,28 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         // the counter untouched, so the next attempt reuses the same number.
         await setLastBranchNumber(thisN);
         this.log(`Mutation #${thisN} pinned to branch ${this.currentCycleBranch}`, "success");
+
+        // ── BRANCH RETENTION (audit: branch accumulation) ───────────────
+        // Each successful push pins a new loop-NN branch on the remote and
+        // nothing deletes the old ones — the repo accumulates 100+ refs and
+        // climbs. Fire-and-forget the retention drain here: it keeps the
+        // most recent 50 mutation branches and prunes the rest, hysteresis-
+        // gated so it's a no-op until the count crosses keep+margin. A prune
+        // failure must NOT fail this enhancement (the commit + push already
+        // succeeded; retention is housekeeping), mirroring the hot-swap below.
+        void pruneOldLoopBranches({ keep: 50, margin: 10 })
+          .then((pr) => {
+            if (!pr.ran) return;
+            const note = pr.rateLimited
+              ? `Pruned ${pr.deleted.length} old branches, rate-limited with ${pr.failed.length} pending (floor loop-${pr.keepFloor})`
+              : pr.failed.length
+                ? `Pruned ${pr.deleted.length} old branches, ${pr.failed.length} failed (floor loop-${pr.keepFloor})`
+                : `Pruned ${pr.deleted.length} old branches (kept ${pr.keep}, floor loop-${pr.keepFloor})`;
+            this.log(note, pr.rateLimited || pr.failed.length ? "warn" : "info");
+          })
+          .catch((e) => {
+            this.log(`Branch retention skipped: ${(e as Error).message.slice(0, 160)}`, "warn");
+          });
 
         // ── HOT-SWAP (the point of "fully autonomous") ───────────────
         // The improved file is now on disk + GitHub. But the running

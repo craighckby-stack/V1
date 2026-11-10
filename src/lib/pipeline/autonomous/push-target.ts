@@ -1584,3 +1584,255 @@ export async function setLastBranchNumber(next: number): Promise<void> {
 export function formatLoopBranch(cycleNumber: number): string {
   return `loop-${String(cycleNumber).padStart(2, "0")}`;
 }
+
+// ── BRANCH RETENTION POLICY (audit: branch accumulation) ───────────────
+// The loop creates one remote `loop-NN` branch per successful mutation and
+// NEVER deletes any. At ~1 branch per cycle and a continuous cadence the
+// repo accumulates hundreds→thousands of refs: `git branch` listings (and
+// the /api/branches UI) slow down, the audit trail becomes unsearchable,
+// and clones/fetches pull an ever-growing ref namespace. The commits are
+// the real record of truth (they live on the seed branch lineage and carry
+// the mutation number in their log); the loop-NN branches are convenience
+// pins, so pruning them loses no history.
+//
+// Policy: keep the most recent `keep` mutation branches (by cycle number),
+// delete the rest. Hysteresis (`margin`) avoids deleting on every single
+// push: prune only fires once the count exceeds keep + margin, then drains
+// back down to `keep` in one batch. The seed branch (target.branch, e.g.
+// `main`) and every non-`loop-NN` branch are protected by construction —
+// only `^loop-\d+$` branches below the retention floor are candidates.
+//
+// Best-effort + rate-limit-aware: deletes run sequentially with a small
+// inter-call delay (GitHub's secondary rate limit trips on write bursts),
+// and the batch aborts on the first 403/429, returning partial results so
+// the operator (or the next successful push) can finish the drain.
+
+export interface PruneBranchesOptions {
+  /** Number of most-recent mutation branches to retain. Default 50. */
+  keep?: number;
+  /** Hysteresis: only prune when count > keep + margin. Default 10. */
+  margin?: number;
+  /** Delay between DELETE calls (ms), to respect GitHub's burst limit. Default 150. */
+  deleteDelayMs?: number;
+  /** Dry-run: compute candidates and return them WITHOUT deleting. Default false. */
+  dryRun?: boolean;
+}
+
+export interface PruneBranchesResult {
+  ran: boolean;
+  reason?: string;
+  repo: string;
+  totalLoopBranches: number;
+  maxNumber: number;
+  keep: number;
+  margin: number;
+  keepFloor: number; // branches with number < keepFloor were candidates
+  candidates: string[];
+  deleted: string[];
+  alreadyGone: string[]; // 404/422-missing — idempotent, treated as resolved
+  failed: Array<{ branch: string; status: number; error: string }>;
+  rateLimited: boolean;
+  dryRun: boolean;
+  protectedSeedBranch: string;
+}
+
+/**
+ * Delete old `loop-NN` mutation branches from the configured GitHub remote
+ * according to the retention policy above. Safe to call repeatedly — it's a
+ * no-op while the branch count is within the hysteresis band, and deletes are
+ * idempotent (a missing ref counts as resolved, not failed).
+ *
+ * Returns a full audit summary whether or not it ran. Never throws — the
+ * caller (the self-enhance loop) treats this as fire-and-forget housekeeping.
+ * Pass dryRun: true to preview the candidate set without deleting.
+ */
+export async function pruneOldLoopBranches(
+  opts?: PruneBranchesOptions
+): Promise<PruneBranchesResult> {
+  const keep = Math.max(1, opts?.keep ?? 50);
+  const margin = Math.max(0, opts?.margin ?? 10);
+  const deleteDelayMs = Math.max(0, opts?.deleteDelayMs ?? 150);
+  const dryRun = Boolean(opts?.dryRun);
+
+  const empty = (repo = "", reason = ""): PruneBranchesResult => ({
+    ran: false,
+    reason,
+    repo,
+    totalLoopBranches: 0,
+    maxNumber: 0,
+    keep,
+    margin,
+    keepFloor: 0,
+    candidates: [],
+    deleted: [],
+    alreadyGone: [],
+    failed: [],
+    rateLimited: false,
+    dryRun: false,
+    protectedSeedBranch: "",
+  });
+
+  const target = await getStoredTarget();
+  if (!target || !target.token) {
+    return empty("", "No push target configured — nothing to prune.");
+  }
+
+  // 1. Walk every page of the branch list (same paginated walk as
+  //    reconcileBranchNumberFromGitHub — the repo already holds 100+ loop
+  //    branches, so a single page would silently undercount the max and
+  //    the retention floor would be wrong).
+  const loopBranches: Array<{ name: string; number: number }> = [];
+  let maxNumber = 0;
+  let truncated = false;
+  try {
+    for (let page = 1; page <= 30; page++) {
+      const res = await fetch(
+        `https://api.github.com/repos/${target.repo}/branches?per_page=100&page=${page}`,
+        {
+          headers: {
+            Authorization: `Bearer ${target.token}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Architecture-Helper-Pipeline",
+          },
+        }
+      );
+      if (!res.ok) {
+        return empty(
+          target.repo,
+          `GitHub branch list returned ${res.status} — prune aborted.`
+        );
+      }
+      const pageData = (await res.json()) as Array<{ name: string }>;
+      for (const b of pageData) {
+        const m = /^loop-(\d+)$/.exec(b.name);
+        if (!m) continue; // protect main / any non-loop branch
+        const n = parseInt(m[1], 10);
+        if (n > maxNumber) maxNumber = n;
+        loopBranches.push({ name: b.name, number: n });
+      }
+      if (pageData.length < 100) break;
+      if (page === 30) truncated = true;
+    }
+  } catch (err) {
+    return empty(target.repo, `Branch list fetch failed: ${(err as Error).message.slice(0, 200)}`);
+  }
+
+  // 2. Hysteresis: only prune once the count exceeds keep + margin. Within
+  //    the band, return a no-op so the post-push call stays cheap (one
+  //    paginated list, zero deletes) on the vast majority of cycles.
+  if (maxNumber <= keep + margin) {
+    return {
+      ran: false,
+      reason: truncated
+        ? `Within retention band (max loop-${maxNumber} ≤ keep+margin=${keep + margin}); hit 30-page cap, true max may be higher.`
+        : `Within retention band (max loop-${maxNumber} ≤ keep+margin=${keep + margin}); nothing to prune.`,
+      repo: target.repo,
+      totalLoopBranches: loopBranches.length,
+      maxNumber,
+      keep,
+      margin,
+      keepFloor: 0,
+      candidates: [],
+      deleted: [],
+      alreadyGone: [],
+      failed: [],
+      rateLimited: false,
+      dryRun: false,
+      protectedSeedBranch: target.branch,
+    };
+  }
+
+  // 3. Compute the retention floor. Keep branches numbered keepFloor..max
+  //    (the top `keep`); everything below is a deletion candidate.
+  const keepFloor = maxNumber - keep + 1;
+  const candidates = loopBranches
+    .filter((b) => b.number < keepFloor && b.number >= 1)
+    .sort((a, b) => a.number - b.number)
+    .map((b) => b.name);
+
+  // Belt-and-braces: never let the seed branch into the candidate set even
+  // if someone configured branch="loop-01" (they shouldn't, but a hostile
+  // config must not enable self-deletion of the home branch).
+  const safeCandidates = candidates.filter((c) => c !== target.branch);
+
+  const result: PruneBranchesResult = {
+    ran: true,
+    repo: target.repo,
+    totalLoopBranches: loopBranches.length,
+    maxNumber,
+    keep,
+    margin,
+    keepFloor,
+    candidates: safeCandidates,
+    deleted: [],
+    alreadyGone: [],
+    failed: [],
+    rateLimited: false,
+    dryRun,
+    protectedSeedBranch: target.branch,
+  };
+
+  // Dry-run: surface the candidate set WITHOUT issuing any DELETEs, so an
+  // operator can preview exactly which branches the retention policy would
+  // remove before committing. `ran` stays true so the caller can tell a
+  // genuine dry-run apart from the hysteresis no-op above.
+  if (dryRun) {
+    result.reason = `Dry run: ${safeCandidates.length} branch(es) would be deleted (floor loop-${keepFloor}).`;
+    return result;
+  }
+
+  if (safeCandidates.length === 0) {
+    result.reason = `No candidates below floor loop-${keepFloor} (all retained branches are within the keep window).`;
+    return result;
+  }
+
+  // 4. Sequential deletes with a small delay. Sequential (not parallel) is
+  //    deliberate: GitHub's secondary rate limit triggers on write bursts,
+  //    and a parallel fan-out of N deletes trips it long before the primary
+  //    5000/hour budget. We abort on the first 403/429 and return partial
+  //    results so the drain can resume on the next push.
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  for (const branch of safeCandidates) {
+    const url = `https://api.github.com/repos/${target.repo}/git/refs/heads/${encodeURIComponent(branch)}`;
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${target.token}`,
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "Architecture-Helper-Pipeline",
+        },
+      });
+    } catch (err) {
+      result.failed.push({ branch, status: 0, error: (err as Error).message.slice(0, 200) });
+      continue;
+    }
+    // 204 = deleted. 422 "Reference does not exist" (or 404) = already gone
+    // — idempotent, counts as resolved not failed.
+    if (res.status === 204) {
+      result.deleted.push(branch);
+    } else if (res.status === 404 || res.status === 422) {
+      result.alreadyGone.push(branch);
+    } else if (res.status === 403 || res.status === 429) {
+      // Rate limited — stop the batch, surface partial progress, let the
+      // next successful push (or operator re-trigger) resume the drain.
+      result.rateLimited = true;
+      let body = "";
+      try { body = await res.text(); } catch { /* best-effort */ }
+      result.failed.push({
+        branch,
+        status: res.status,
+        error: `rate-limited (aborted batch): ${body.slice(0, 160)}`,
+      });
+      break;
+    } else {
+      let body = "";
+      try { body = await res.text(); } catch { /* best-effort */ }
+      result.failed.push({ branch, status: res.status, error: body.slice(0, 200) });
+    }
+    if (deleteDelayMs > 0) await sleep(deleteDelayMs);
+  }
+
+  return result;
+}
