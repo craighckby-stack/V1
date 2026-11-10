@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/ui/alert.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "OTHER",
+  "symptom": "Test gate failed: test failed (sandboxed): src/components/ui/alert.test.tsx — \nsrc/components/ui/alert.test.tsx:\n23 |   className,\n24 |   variant,\n25 |   ...props\n26 | }: React.ComponentProps<\"div\"> & VariantProps<typeof alertVariants>) {\n27 |   if (!['default', 'destructive'].",
+  "evidence": "1 test file(s) checked. The refactor broke existing behavior.",
+  "constraints": "The previous refactor of src/components/ui/alert.tsx broke existing tests. Do not change observable behavior.",
+  "attempts": 1,
+  "parentHash": "d43c04c60b33413d797d8851c603791a38c4fac202e71889b41f45f1e05ca331",
+  "hash": "1e39030ea5cd9631d80e7fc15489bb5b27c3b7f4c8cdc06a53802fcbf61b52e6",
+  "lastAttemptAt": "2026-11-10T07:14:43.920Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T07:14:43.921Z",
+  "updatedAt": "2026-11-10T07:14:43.921Z",
+  "schema": 2
+}
