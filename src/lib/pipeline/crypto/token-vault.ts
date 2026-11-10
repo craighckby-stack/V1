@@ -58,8 +58,8 @@ let warnedKeyMissing = false;
 function ensureKey(): Buffer | null {
   try {
     if (existsSync(KEY_FILE)) {
-      const hex = readFileSync(KEY_FILE, "utf-8").trim();
-      if (!/^[0-9a-f]{64}$/i.test(hex)) {
+      const hex = readFileSync(KEY_FILE, "utf-8")?.trim();
+      if (!hex || !/^[0-9a-f]{64}$/i.test(hex)) {
         if (!warnedKeyMissing) {
           warnedKeyMissing = true;
           console.error(
@@ -165,6 +165,10 @@ export function openToken(stored: string): string {
     const iv = Buffer.from(parts[0], "base64url");
     const tag = Buffer.from(parts[1], "base64url");
     const ct = Buffer.from(parts[2], "base64url");
+    
+    // Validate IV and tag lengths
+    if (iv.length !== 12 || tag.length !== 16) return "";
+    
     const decipher = createDecipheriv("aes-256-gcm", key, iv);
     decipher.setAuthTag(tag);
     const pt = Buffer.concat([decipher.update(ct), decipher.final()]);
