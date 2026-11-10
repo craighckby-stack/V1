@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/ui/input.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: [AST_STRUCTURAL_DRIFT] Structural drift exceeds safe threshold (78%)",
+  "evidence": "Original: 967 bytes, Refactored: 2725 bytes. Errors: [AST_STRUCTURAL_DRIFT] Structural drift exceeds safe threshold (78%)",
+  "constraints": "The previous refactor of src/components/ui/input.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "76236ba0c26889fc1a07d1804fe57a523817bd9a694ab5e2b44994221a18dfc2",
+  "hash": "ade16b707450b67fd3116e8e89a4083601e63fd34ea2ee82962307ba750736fe",
+  "lastAttemptAt": "2026-11-10T07:52:15.835Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T07:52:15.843Z",
+  "updatedAt": "2026-11-10T07:52:15.843Z",
+  "schema": 2
+}
