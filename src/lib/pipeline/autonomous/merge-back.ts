@@ -124,33 +124,44 @@ export function analyzeMergeBack(branchName: string): MergeBackPlan | null {
       const path = pathParts.join("\t");
       if (!path) continue;
       // statusRaw may be "M", "A", "D", "R100" (rename), "C100" (copy).
+      // IMPORTANT: "deleted" (D) means the file exists on MAIN but NOT on
+      // the loop branch — it's a NEWER main addition. The execute path
+      // (--diff-filter=AM) does NOT bring these over (it would delete
+      // main's newer files). So D-status src files are PRESERVED on main,
+      // not "changed". We surface them in mainOnlyFiles so the plan
+      // matches what execute actually does.
       const status = statusRaw.startsWith("A") ? "added"
         : statusRaw.startsWith("D") ? "deleted"
+        : statusRaw.startsWith("R") ? "modified" /* rename: treat as modified */
         : "modified";
       if (path.startsWith("src/")) {
-        sourceFilesToChange.push({ path, status });
+        if (status === "deleted") {
+          // Main's newer src/ addition — preserved, NOT changed.
+          mainOnlyFiles.push(path);
+        } else {
+          sourceFilesToChange.push({ path, status });
+        }
       } else {
         loopMetadataFiles.push(path);
       }
       // Any file modified on BOTH sides would conflict in a git merge.
-      // We detect this by checking if the file was modified on main since
-      // the merge-base too.
       if (status === "modified") {
         conflictsIfMerged.push(path);
       }
     }
   }
 
-  // Files that exist on main but not on the loop branch (main-only).
-  // These would be preserved by `theirs-for-source` (we only check out src/
-  // files from the loop branch, never delete main's files).
+  // Files that exist on main but not on the loop branch (main-only, across
+  // ALL paths — augments the D-status src files captured above). These are
+  // preserved by `theirs-for-source` (execute only checks out A/M src/ files
+  // from the loop branch, never deletes main's files).
   const mainOnlyOutput = execSync(
     `git diff --name-only --diff-filter=A ${ref} main`,
     { cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 10000, stdio: "pipe" },
   ).trim();
   if (mainOnlyOutput.length > 0) {
     for (const p of mainOnlyOutput.split("\n")) {
-      if (p.trim()) mainOnlyFiles.push(p.trim());
+      if (p.trim() && !mainOnlyFiles.includes(p.trim())) mainOnlyFiles.push(p.trim());
     }
   }
 
@@ -212,13 +223,35 @@ export function executeMergeBack(
       };
     }
 
-    // 2. Compute the src/ files to bring over.
-    const diffOutput = execSync(`git diff --name-only main ${ref} -- src/`, {
-      cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 10000, stdio: "pipe",
-    }).trim();
-    const srcFiles = diffOutput.length > 0
-      ? diffOutput.split("\n").map((s) => s.trim()).filter(Boolean)
-      : [];
+    // 2. Compute the src/ files to bring over. CRITICAL: use --diff-filter=AM
+    //    (Added + Modified only), NOT the default (which includes Deleted).
+    //    A "deleted" entry means the file exists on MAIN but NOT on the loop
+    //    branch — i.e. it's a NEWER main addition (added after the lineages
+    //    diverged). A `git checkout <ref> -- <that file>` would DELETE it
+    //    from main, which is the OPPOSITE of "catch main up". The loop-198
+    //    plan, for example, shows merge-back/route.ts and merge-back-
+    //    panel.tsx as "deleted" because they were added to main AFTER
+    //    loop-198 was pushed — merging loop-198 forward must NOT delete
+    //    them. So we only bring files that are Added (new on loop) or
+    //    Modified (both sides have it, loop's version is the mutation).
+    //
+    //    We capture per-file status (A vs M) so the abort path can restore
+    //    correctly: M files get `git checkout main -- <f>`; A files (new on
+    //    loop, don't exist on main) get `git reset HEAD -- <f>` + `rm <f>`.
+    const diffStatusOutput = execSync(
+      `git diff --name-status --diff-filter=AM main ${ref} -- src/`,
+      { cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 10000, stdio: "pipe" },
+    ).trim();
+    const fileStatus = new Map<string, "A" | "M">();
+    if (diffStatusOutput.length > 0) {
+      for (const line of diffStatusOutput.split("\n")) {
+        const [statusRaw, ...pathParts] = line.split("\t");
+        const path = pathParts.join("\t").trim();
+        if (!path) continue;
+        fileStatus.set(path, statusRaw.startsWith("A") ? "A" : "M");
+      }
+    }
+    const srcFiles = Array.from(fileStatus.keys());
 
     if (srcFiles.length === 0) {
       return { ...base, ok: true, error: "no src/ files differ — main is already caught up to this branch" };
@@ -226,26 +259,28 @@ export function executeMergeBack(
     base.filesChanged = srcFiles.length;
 
     if (strategy === "dry-run") {
+      const added = Array.from(fileStatus.entries()).filter(([, s]) => s === "A").map(([p]) => p).length;
+      const modified = srcFiles.length - added;
       return {
         ...base, ok: true,
-        error: `dry-run: would bring ${srcFiles.length} src/ file(s) from ${branch} into main (typecheck not run in dry-run)`,
+        error: `dry-run: would bring ${srcFiles.length} src/ file(s) from ${branch} into main (${modified} modified, ${added} added; typecheck not run in dry-run)`,
       };
     }
 
     // 3. Stage the loop branch's versions of the src/ files.
     //    `git checkout <ref> -- <paths>` updates both the index AND the
-    //    working tree to the ref's versions. This handles added, modified,
-    //    and deleted files correctly (a deleted file on the ref stays
-    //    deleted). We pass paths as argv (no shell) — paths are safe (they
-    //    come from `git diff --name-only`, not user input) but arg-vector
-    //    is the defensive default.
+    //    working tree to the ref's versions. We pass paths as argv (no
+    //    shell) — paths come from `git diff --name-status`, not user input,
+    //    but arg-vector is the defensive default.
     execFileSync("git", ["checkout", ref, "--", ...srcFiles], {
       cwd: PROJECT_ROOT, timeout: 30000, stdio: "pipe",
     });
 
-    // 4. Typecheck gate — BEFORE committing. If tsc fails, abort: unstage
-    //    + restore the working tree to main's versions. The commit never
-    //    lands, main stays clean.
+    // 4. Typecheck gate — BEFORE committing. If tsc fails, abort cleanly:
+    //    unstage all, restore modified files to main's versions, remove
+    //    added files (they don't exist on main). The commit never lands,
+    //    main stays clean. Non-src/ working-tree changes (e.g. postmortem
+    //    JSONs the loop writes in the background) are NEVER touched.
     let tscErrors = "";
     try {
       execFileSync("bunx", ["tsc", "--noEmit"], {
@@ -254,24 +289,22 @@ export function executeMergeBack(
       base.typecheckPassed = true;
     } catch (err) {
       tscErrors = String((err as { stderr?: string }).stderr ?? (err as Error).message ?? "").slice(0, 2000);
-      // Abort: restore the working tree to main's versions of the src files.
-      // `git checkout main -- <paths>` restores both index + working tree.
-      // For files that don't exist on main (added on the loop branch), use
-      // `git reset HEAD -- <path>` then `rm` if needed.
-      try {
-        execFileSync("git", ["checkout", "main", "--", ...srcFiles], {
-          cwd: PROJECT_ROOT, timeout: 30000, stdio: "pipe",
-        });
-      } catch {
-        // Some files may be new on the loop branch (don't exist on main).
-        // Unstage them; the working-tree versions remain but are unstaged,
-        // so they won't be committed. The operator can `git checkout -- .`
-        // to clean them.
-        try { execFileSync("git", ["reset", "HEAD", "--", ...srcFiles], { cwd: PROJECT_ROOT, timeout: 10000, stdio: "pipe" }); } catch { /* best-effort */ }
+      // Abort: unstage everything we staged first.
+      try { execFileSync("git", ["reset", "HEAD", "--", ...srcFiles], { cwd: PROJECT_ROOT, timeout: 10000, stdio: "pipe" }); } catch { /* best-effort */ }
+      // Restore modified files to main's version (index + working tree).
+      const modifiedFiles = Array.from(fileStatus.entries()).filter(([, s]) => s === "M").map(([p]) => p);
+      if (modifiedFiles.length > 0) {
+        try { execFileSync("git", ["checkout", "main", "--", ...modifiedFiles], { cwd: PROJECT_ROOT, timeout: 30000, stdio: "pipe" }); } catch { /* best-effort */ }
+      }
+      // Remove added files (new on loop, don't exist on main) from the
+      // working tree — they're stray. Use `git clean -f` scoped to each.
+      const addedFiles = Array.from(fileStatus.entries()).filter(([, s]) => s === "A").map(([p]) => p);
+      for (const f of addedFiles) {
+        try { execFileSync("git", ["rm", "-f", "--", f], { cwd: PROJECT_ROOT, timeout: 10000, stdio: "pipe" }); } catch { /* best-effort — may already be unstaged */ }
       }
       return {
         ...base, ok: false,
-        error: `typecheck failed after staging ${srcFiles.length} file(s) from ${branch} — aborted, working tree restored. tsc errors:\n${tscErrors}`,
+        error: `typecheck failed after staging ${srcFiles.length} file(s) from ${branch} — aborted, working tree restored (modified files reverted, added files removed). tsc errors:\n${tscErrors}`,
       };
     }
 

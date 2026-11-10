@@ -85,7 +85,7 @@ export function markArmed(armed: boolean, by: string): void {
   } catch (error) {
     // Log the error for debugging but don't throw to maintain the contract
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("markArmed: Failed to persist armed state:", errorMessage);
+    console.error(`markArmed: Failed to persist armed state to ${ARMED_STATE_FILE}:`, errorMessage);
   }
 }
 
@@ -112,7 +112,7 @@ export function readArmedState(): ArmedState | null {
     try {
       parsed = JSON.parse(raw);
     } catch (jsonError) {
-      console.error("readArmedState: Failed to parse armed state JSON:", jsonError instanceof Error ? jsonError.message : String(jsonError));
+      console.error(`readArmedState: Failed to parse armed state JSON from ${ARMED_STATE_FILE}:`, jsonError instanceof Error ? jsonError.message : String(jsonError));
       return null;
     }
     
@@ -132,11 +132,13 @@ export function readArmedState(): ArmedState | null {
         by: parsed.by,
       };
     }
+    
+    console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed`);
     return null;
   } catch (error) {
     // Log the error for debugging but return null to maintain the contract
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("readArmedState: Failed to read armed state:", errorMessage);
+    console.error(`readArmedState: Failed to read armed state from ${ARMED_STATE_FILE}:`, errorMessage);
     return null;
   }
 }
