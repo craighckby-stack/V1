@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/ui/badge.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: src/components/ui/badge.tsx(39,68): error TS2345: Argument of type 'string | number | symbol' is not assignable to parameter of type 'string'.\n  Type 'number' is not assignable to type 'string'.; src/components/ui/badge.tsx(39,106): error TS2339: Property 'variants' does not exist on type '(props?: (ConfigVariants<{ variant: { default: string; secondary: string; destructive: string; outline: string; }; }> & ClassProp) | undefined) => string'.",
+  "evidence": "Original: 1631 bytes, Refactored: 1932 bytes. Errors: src/components/ui/badge.tsx(39,68): error TS2345: Argument of type 'string | number | symbol' is not assignable to parameter of type 'string'.\n  Type 'number' is not assignable to type 'string'.\nsrc/components/ui/badge.tsx(39,106): error TS2339: Property 'variants' does not exist on type '(props?: (ConfigVariants<{ variant: { default: string; secondary: string; destructive: string; outline: string; }; }> & ClassProp) | undefined) => string'.",
+  "constraints": "The previous refactor of src/components/ui/badge.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "1e39030ea5cd9631d80e7fc15489bb5b27c3b7f4c8cdc06a53802fcbf61b52e6",
+  "hash": "398eb85bd3adf40b28ced0c1c5c346188901721151aac4af26d82b5a8e8b3405",
+  "lastAttemptAt": "2026-11-10T07:16:30.686Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T07:16:30.688Z",
+  "updatedAt": "2026-11-10T07:16:30.688Z",
+  "schema": 2
+}
