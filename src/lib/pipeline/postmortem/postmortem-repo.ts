@@ -23,7 +23,7 @@
  * is the filesystem.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, readdirSync, statSync, rmSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, readdirSync, rmSync } from "fs";
 import { join, dirname, relative, sep } from "path";
 import type { PostmortemRecord, PostmortemFailureType } from "./postmortem-store";
 
