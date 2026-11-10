@@ -59,12 +59,12 @@ export interface ArmedState {
  *  never fail a start/stop that already succeeded in memory (the in-memory
  *  flag remains the live source; the disk file is the restart tier). */
 export function markArmed(armed: boolean, by: string): void {
+  if (!PROJECT_ROOT) {
+    console.error("markArmed: PROJECT_ROOT is not defined, cannot persist armed state.");
+    return;
+  }
+  
   try {
-    // Validate PROJECT_ROOT exists
-    if (!PROJECT_ROOT) {
-      throw new Error("markArmed: PROJECT_ROOT is not defined");
-    }
-    
     // Ensure directory exists first to avoid race condition
     const infoDir = join(PROJECT_ROOT, ".git/info");
     if (!existsSync(infoDir)) {
@@ -80,7 +80,8 @@ export function markArmed(armed: boolean, by: string): void {
     writeFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2), "utf8");
   } catch (error) {
     // Log the error for debugging but don't throw to maintain the contract
-    console.error("markArmed: Failed to persist armed state:", error instanceof Error ? error.message : error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("markArmed: Failed to persist armed state:", errorMessage);
   }
 }
 
@@ -91,13 +92,12 @@ export function markArmed(armed: boolean, by: string): void {
  *  a bad read. This is the dual-layer fail-closed contract: the boot
  *  auto-arm only proceeds when the disk EXPLICITLY says armed:true. */
 export function readArmedState(): ArmedState | null {
+  if (!PROJECT_ROOT) {
+    console.error("readArmedState: PROJECT_ROOT is not defined");
+    return null;
+  }
+  
   try {
-    // Validate PROJECT_ROOT exists
-    if (!PROJECT_ROOT) {
-      console.error("readArmedState: PROJECT_ROOT is not defined");
-      return null;
-    }
-    
     if (!existsSync(ARMED_STATE_FILE)) {
       return null;
     }
@@ -105,9 +105,10 @@ export function readArmedState(): ArmedState | null {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
     const parsed = JSON.parse(raw);
     
-    // Validate that parsed is an object and has all required fields
+    // Validate that parsed is a non-null object and has all required fields
     if (parsed && 
         typeof parsed === "object" && 
+        parsed !== null && // Explicitly check for null if JSON.parse somehow yields it
         parsed.armed !== undefined && 
         typeof parsed.armed === "boolean" && 
         parsed.at !== undefined && 
@@ -126,7 +127,8 @@ export function readArmedState(): ArmedState | null {
     return null;
   } catch (error) {
     // Log the error for debugging but return null to maintain the contract
-    console.error("readArmedState: Failed to read armed state:", error instanceof Error ? error.message : error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("readArmedState: Failed to read armed state:", errorMessage);
     return null;
   }
 }

@@ -174,10 +174,15 @@ interface GeminiConfig {
   model: string;
 }
 
-/** Read the stored Gemini config (with key) — server-side only. */
+/** Read the stored Gemini config (with key) — server-side only.
+ *  Returns null when no row exists OR when the row exists but
+ *  geminiApiKey is empty (the @default("") lets an NVIDIA-only setup
+ *  create a row without a Gemini key — this guard treats that case as
+ *  "not configured" so the Gemini leg short-circuits cleanly). */
 export async function getGeminiConfig(): Promise<GeminiConfig | null> {
   const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } }).catch(() => null);
   if (!row) return null;
+  if (!row.geminiApiKey) return null;
   return { apiKey: row.geminiApiKey, model: row.geminiModel };
 }
 
@@ -189,7 +194,7 @@ export async function getGeminiConfigPublic(): Promise<{
   lastError?: string | null;
 }> {
   const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } }).catch(() => null);
-  if (!row) return { configured: false };
+  if (!row || !row.geminiApiKey) return { configured: false };
   return {
     configured: true,
     model: row.geminiModel,
