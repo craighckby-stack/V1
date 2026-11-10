@@ -25,6 +25,9 @@ function HoverCardContent({
   sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof HoverCardPrimitive.Content>) {
+  if (sideOffset < 0) {
+    throw new Error("HoverCardContent: sideOffset must be a non-negative number.")
+  }
   return (
     <HoverCardPrimitive.Portal data-slot="hover-card-portal">
       <HoverCardPrimitive.Content
