@@ -92,8 +92,8 @@ export async function oracleSchedulerTick(): Promise<{
   try {
     const result = await listDueProphecies();
     // Validate that we got an array back
-    if (!Array.isArray(result)) {
-      throw new Error(`listDueProphecies() returned non-array: ${typeof result}`);
+    if (!result || !Array.isArray(result)) {
+      throw new Error(`listDueProphecies() returned invalid data: ${typeof result}, expected array`);
     }
     due = result;
   } catch (err) {
@@ -130,6 +130,13 @@ export async function oracleSchedulerTick(): Promise<{
 function bootOracleScheduler(): void {
   const s = sched();
   if (s.booted) return;
+  
+  // Clean up any existing timer before creating a new one
+  if (s.timer) {
+    clearInterval(s.timer);
+    s.timer = null;
+  }
+  
   s.booted = true;
 
   // First tick after a short delay (not immediately) — gives the

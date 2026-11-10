@@ -291,6 +291,36 @@ Growth audit (2026-11-09): what accumulates, what's bounded, and what must never
 
 ---
 
+## The branch architecture & main↔loop divergence (audit 4)
+
+**How the loop's mutations reach GitHub, and why `main` lags.** The loop commits each mutation to local HEAD and pushes it to a per-cycle remote `loop-NN` branch (`git push origin HEAD:refs/heads/loop-NN`). The branches form a **linear chain** — each `loop-NN` is an ancestor of `loop-(NN+1)`, so the newest retained branch contains the full mutation lineage. `main`, by contrast, is **operator-curated**: the operator deliberately merges specific loops in (e.g. the `Merge remote-tracking branch 'origin/loop-175'` commit), plus operator pushes, lessons exports, and host-injected UUID commits on machine restart.
+
+**The divergence this created (the thing the user flagged):** because the loop had no path back to `main`, after 198 cycles `main` was 35 mutations behind `loop-198` — 49 files differed (782 insertions / 874 deletions), and the **running system was not benefiting from its own recent self-enhancements**. The mutations existed only on the `loop-NN` branches; the working tree (which tracks `main`) was stale. Verifying: local `main` HEAD = `1439f02 memory: lessons.md export`; `origin/loop-198` HEAD = `928284d Self-enhancement: src/lib/pipeline/oracle/prophecy-store.ts`; `git log main..origin/loop-198` = 35 commits.
+
+**The fix — merge-back (reviewed, typecheck-gated, no auto-merge):**
+- `GET /api/self-enhance/merge-back` lists retained `loop-NN` branches with a per-branch summary (sha, commits ahead, src/ files delta).
+- `GET ?branch=loop-NN` returns the full plan (source files to change, main-only files, conflicts).
+- `POST {branch, strategy, push?}` executes. `strategy: "theirs-for-source"` stages src/ files from the loop branch, runs `tsc --noEmit`, and commits **only if typecheck passes** (aborts + restores the working tree on failure). Main's metadata (README, `memory/`, `postmortems/`, `package.json`, `prisma/`) is kept on main's version — only `src/` comes forward. Push is **off by default** so the merge stays reversible (`git reset --soft HEAD~1`) until the operator pushes via the existing [PUSH] UI.
+- The `merge-back-panel.tsx` UI exposes this from the header's [MERGE-BACK] button.
+
+**Why no auto-merge:** a raw `git merge origin/loop-198` would conflict across ~48 files (both lineages edited the same autonomous-pipeline files after main's last deliberate merge). The operator's curation history signals they want manual control over what reaches main. Merge-back gives them that control with a typecheck safety net.
+
+---
+
+## Honest assessment — what the loop actually does (audit 4)
+
+Three read-only audits (retention, oracle calibration, pass-rate trend) ran in parallel. The honest findings:
+
+**Retention (grow-only sweep):** the loop had **four** unbounded stores with no deletion logic — git branches (fixed in audit 3), `PipelineRun` autonomous path (200 KB blobs + no prune — a 178 MB-waiting-to-happen copy-paste mistake), `AutonomousCycle` (1 row/cycle, never deleted), and the hot-swap disk journal (append-only). All four are now bounded via `retention.ts`. Lower-risk stores (`MemoryEntry`, `SelfTask` terminal states, `Lesson` deactivated rows) are unbounded but slow-growing — flagged for future soft-caps, not urgent. `Prophecy` is grow-only **by design** (judged prophecies are the calibration evidence; pruning would be self-flattery).
+
+**Oracle calibration: UNVERIFIABLE.** The DB held 2 prophecies, both pending, zero resolved. Every calibration metric (bucket table, Brier score, reliability, resolution bias, time drift) is `n/a` because the denominator is zero. The oracle subsystem is plumbed correctly (schema, store, generator, evaluator, scheduler) but has **not accumulated a track record**. To get a useful calibration curve (≥30 per bucket × 10 buckets) we need ≥300 resolved prophecies — at ~1/cycle that's ≥300 cycles with the LLM gate open. Secondary smell: the generator quantizes confidence (both observed prophecies sat at exactly 0.70) — worth re-checking once a real track record exists.
+
+**Pass-rate trend: IMPROVING but plateauing.** Reconstructed from 198 `git log origin/loop-NN` tip commits (passes) + `Postmortem.attempts` (fails): overall **45.4%** (198/436). Quarterly, monotonic up: Q1 33.3% → Q2 46.3% → Q3 58.1% → Q4 60.0%. First-half → second-half: 28.9% → 61.9% = **+33 pp** (3.3× the schema's own "improving" threshold; 4/4 quarters monotonic = p=1/16 under a fair-coin null). **The system IS learning to mutate itself.** Caveats: (1) per-failure timestamps were lost in a DB rollback, so the exact slope is uncertain (the direction is robust); (2) two improvement mechanisms — genuine lesson-distillation getting better on the bulk of files AND saturation-lockout removing stuck files from the denominator — both raise the pass rate but aren't the same thing. The Q3→Q4 near-plateau (+1.9 pp) suggests an asymptote around 60%. **The wall to break:** `ZERO_DIFF_SATURATION` is 72% of fails (172/238) — the LLM produces no semantic change on files it's already touched. To break past 60%, the loop needs to crack zero-diff, not just lock out the files that trigger it.
+
+**The deeper limitation the loop can't fix itself:** the loop makes local edits — one file, one refactor at a time. It cannot do the cross-file integration work (wiring a new API route to a new UI panel, factoring a shared helper out of two modules, adding a retention helper and calling it from three sites). That's the integration refactor this audit represents — done outside the loop, by the operator, informed by the loop's own measurements.
+
+---
+
 ## File-by-file inventory
 
 ### Root config
@@ -386,7 +416,7 @@ Ambient `bun:test` module declaration so the ratchet's gate 3 (`tsc --noEmit` ov
 
 Standard shadcn/ui components — accordion, alert, alert-dialog, aspect-ratio, avatar, badge, breadcrumb, button, calendar, card, carousel, chart, checkbox, collapsible, command, context-menu, dialog, drawer, dropdown-menu, form, hover-card, input, input-otp, label, menubar, navigation-menu, pagination, popover, progress, radio-group, resizable, scroll-area, select, separator, sheet, sidebar, skeleton, slider, sonner, switch, table, tabs, textarea, toast, toaster, toggle, toggle-group, tooltip. Outside the loop's scan scope.
 
-### `src/lib/pipeline/autonomous/` (41 files — the brain)
+### `src/lib/pipeline/autonomous/` (43 files — the brain)
 
 | File | Purpose |
 |---|---|
@@ -395,6 +425,8 @@ Standard shadcn/ui components — accordion, alert, alert-dialog, aspect-ratio, 
 | `self-enhance-loop.ts` (2862) | **THE BRAIN** — self-mutation loop. Scans own source, builds prompt with postmortems + ancestral RAG + lessons, LLM refactor, gate chain, commit + push to `loop-NN`. Per-cycle: ratchet-draft, distill lessons, meta-tune, test-attacker, gate-integrity-probe, branch-retention drain |
 | `self-task-generator.ts` | **THE INPUT LAYER** — static AST self-scan → `SelfTask` queue (todo, empty-catch, any, missing-return-type, unused-import, magic-number, non-null-assertion) |
 | `push-target.ts` (1838) | 3-tier sealed-PAT GitHub push (DB → root state → `.git/info/`); `git add` → secret-scan → commit → push (no force); auto-create repo; UUID-commit detector + auto-amend; branch retention (`pruneOldLoopBranches` — keep newest 50, hysteresis 10, rate-limit-aware drain) |
+| `retention.ts` | Shared bounded-growth helpers (audit 4 — the grow-only sweep): `prunePipelineRuns(keep=50)`, `pruneAutonomousCycles(keep=200)`, `pruneHotSwapJournal(keepEntries=1000)`. All best-effort (a prune failure never fails the cycle that triggered it). Called fire-and-forget from `loop-runtime.ts` (PipelineRun + AutonomousCycle) and `hot-swap.ts` (journal rotation, every 50th swap). |
+| `merge-back.ts` | Reviewed catch-up of a retained `loop-NN` branch into operator-curated `main` (audit 4 — the main↔loop divergence). `analyzeMergeBack(branch)` computes the plan (commits ahead/behind, src/ files to change, conflicts); `executeMergeBack(branch, {strategy, push?})` stages src/ files from the loop branch, runs `tsc --noEmit`, commits ONLY if typecheck passes (aborts + restores on failure). Strategy `theirs-for-source` brings src/ mutations forward, keeps main's metadata (README, memory/, postmortems/). Push off by default (reversible until pushed). Exposed via `/api/self-enhance/merge-back` + `merge-back-panel.tsx`. |
 | `verify-refactor.ts` | Child-process gate chain: mutation-guard → structural + AST → syntax → typecheck. Nothing written to disk |
 | `in-memory-typecheck.ts` | Full project `tsc --noEmit` with refactored file substituted via custom compiler host |
 | `structural-validator.ts` | Regex pre-gate: truncation, import stripping, export drop, test deletion, license stripping |
