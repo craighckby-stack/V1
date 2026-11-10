@@ -1,3 +1,6 @@
+https://helper-evolution.space-z.ai
+
+
 # LOOP
 
 > A Next.js app that scans its own source code, asks an LLM to improve one file at a time, runs every proposed change through a compiler + AST + debate gate chain, and pushes the survivors to GitHub as one `loop-NN` branch per winning mutation. Failures become postmortems that constrain the next attempt. The loop can't rewrite its own OFF switch.
