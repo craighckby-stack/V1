@@ -62,9 +62,9 @@ export async function createProphecy(input: {
         rationale: input.rationale,
         falsifiabilityCriterion: input.falsifiabilityCriterion,
         evaluateBy: input.evaluateBy,
-        contextSha: input.contextSha || null,
-        historySnapshot: input.historySnapshot || null,
-        domain: input.domain || null,
+        contextSha: input.contextSha ?? null,
+        historySnapshot: input.historySnapshot ?? null,
+        domain: input.domain ?? null,
         status: "pending",
       },
     });
