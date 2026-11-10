@@ -2267,6 +2267,22 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       const SELF_TASKS_PER_CYCLE = 3;
       const selfTaskResults: SelfEnhanceResult[] = [];
       try {
+        // Refresh the task queue every 25th cycle (generateTasks scans
+        // all source files with the TS compiler — too expensive to run
+        // every cycle, but without it the drain would have no tasks to
+        // consume after the initial queue is drained). Matches the
+        // MutationCorpus / retention prune throttle pattern.
+        const cycleNow = this.stats.totalRuns;
+        if (cycleNow % 25 === 0) {
+          try {
+            const scan = await generateTasks();
+            if (scan.newTasks > 0) {
+              this.log(`SelfTask rescan: ${scan.filesAnalyzed} files, ${scan.findings} findings, ${scan.newTasks} new tasks`, "info");
+            }
+          } catch {
+            /* best-effort — the drain can work with the existing queue */
+          }
+        }
         for (let i = 0; i < SELF_TASKS_PER_CYCLE; i++) {
           if (myRun !== this.runId) break;
           if (isSafeMode()) break;
