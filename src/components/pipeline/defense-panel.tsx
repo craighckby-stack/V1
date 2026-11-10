@@ -183,7 +183,7 @@ export function DefensePanel({ open, onClose }: Props) {
 
   if (!open) return null;
 
-  async function doPurge() {
+  async function doPurge() : Promise<void> {
     setBusy(true);
     setMsg(null);
     try {
