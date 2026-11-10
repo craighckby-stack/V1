@@ -54,23 +54,41 @@ export function PostmortemPanel() {
     setLoading(true);
     try {
       const res = await fetch("/api/postmortems");
-      const data = await res.json();
-      if (Array.isArray(data?.postmortems)) {
-        setPostmortems(data.postmortems);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch postmortems: ${res.statusText}`);
       }
-    } catch {
-      /* ignore */
+      const data = await res.json();
+      if (data && Array.isArray(data.postmortems)) {
+        setPostmortems(data.postmortems);
+      } else {
+        console.error("API response structure invalid: expected { postmortems: [...] }", data);
+      }
+    } catch (error) {
+      console.error("Error refreshing postmortems:", error instanceof Error ? error.message : "Unknown error");
+      toast({
+        title: "Error",
+        description: "Could not load postmortem data. Check console for details.",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
   }
 
   async function dismiss(id: string, filePath: string) {
+    if (!id) {
+      toast({
+        title: "Validation Error",
+        description: "Postmortem ID is missing, cannot dismiss.",
+        variant: "destructive",
+      });
+      return;
+    }
     try {
       const res = await fetch(`/api/postmortems?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("Failed to dismiss postmortem");
+      if (!res.ok) throw new Error(`Failed to dismiss postmortem (Status: ${res.status})`);
       setPostmortems((prev) => prev.filter((p) => p.id !== id));
       toast({
         title: "Postmortem dismissed",
