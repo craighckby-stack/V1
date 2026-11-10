@@ -160,7 +160,7 @@ export function DefensePanel({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     let mounted = true;
-    async function poll() {
+    async function poll() : Promise<void> {
       try {
         const [dRes, rRes] = await Promise.all([
           fetch("/api/duress/status"),
