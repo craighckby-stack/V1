@@ -22,6 +22,10 @@ import { db } from "@/lib/db";
 import { postmortemStore, generatePostmortemFromReport } from "../postmortem/postmortem-store";
 import { autoProphecyAfterCycle } from "../oracle/oracle-auto";
 import { isSafeMode, getSafeModeState } from "../core/duress";
+// Retention helpers (audit 4 — grow-only sweep): bounded growth for the
+// AutonomousCycle + PipelineRun tables the loop writes to. Fire-and-
+// forget; a prune failure never fails the cycle that triggered it.
+import { prunePipelineRuns, pruneAutonomousCycles } from "./retention";
 // Operator armed-intent tier (.git/info/loop-armed-state.json). Pure leaf
 // (fs + path), no circulars — the same import class as the agent-llm gate
 // above. See armed-state.ts for why the intent must live on disk.
@@ -1424,13 +1428,28 @@ class AutonomousLoopRuntime {
                 astScore: report.astDiffResult.astScore,
                 consensus: report.reviewVerdict.consensus,
                 proofHash: report.proofCommitHash,
-                originalCode: report.originalCode.slice(0, 200000),
-                evolvedCode: report.evolvedCode.slice(0, 200000),
+                // audit 4 — grow-only sweep: cap code blobs at 20 KB to match
+                // the manual /api/pipeline/run path (route.ts:60-61). The
+                // previous 200 KB cap was a copy-paste mistake when the
+                // autonomous write path was added — the comment at
+                // route.ts:58 says "the full code lives in git history
+                // anyway", and 200 KB × many rows/cycle was a 178 MB-waiting-
+                // to-happen regression. The full evolved code is recoverable
+                // from the loop-NN branch the cycle pushed to.
+                originalCode: report.originalCode.slice(0, 20000),
+                evolvedCode: report.evolvedCode.slice(0, 20000),
                 sanitizerClean: report.sanitizerResult.clean,
                 violations: JSON.stringify(report.sanitizerResult.violations),
                 triggeredBy: mode,
               },
             });
+            // audit 4 — grow-only sweep: prune PipelineRun AFTER each
+            // autonomous write (best-effort, fire-and-forget). The manual
+            // route prunes to 25; the autonomous path ran with NO prune at
+            // all, so every cycle permanently added rows. Keep 50 (2× the
+            // manual cap) since autonomous cycles fire more often — a 25-row
+            // window would age out within hours. See retention.ts.
+            void prunePipelineRuns(50);
           } catch (err) {
             this.addLog(`DB write failed for ${blob.path}: ${(err as Error).message}`, "warn");
           }
@@ -1923,6 +1942,15 @@ class AutonomousLoopRuntime {
           startedAt: new Date(this.currentCycle.startedAt),
           finishedAt: new Date(finishedAt),
         },
+      })
+      .then(() => {
+        // audit 4 — grow-only sweep: prune AutonomousCycle AFTER the write.
+        // Before this, finalizeCycle wrote one row per cycle with NO
+        // deletion logic anywhere in the codebase — the table grew at
+        // 1 row/cycle forever. Keep newest 200 (covers ~a week of
+        // continuous running; the oracle + UI only read the recent tail,
+        // older rows have no live consumer). Fire-and-forget, best-effort.
+        void pruneAutonomousCycles(200);
       })
       .catch(() => {
         /* ignore */

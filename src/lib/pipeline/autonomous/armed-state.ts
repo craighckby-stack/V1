@@ -66,6 +66,10 @@ export function markArmed(armed: boolean, by: string): void {
   
   try {
     // Validate input
+    if (typeof armed !== "boolean") {
+      throw new Error("markArmed: 'armed' parameter must be a boolean");
+    }
+    
     if (!by || typeof by !== "string" || by.trim() === "") {
       throw new Error("markArmed: 'by' parameter must be a non-empty string");
     }
@@ -103,7 +107,14 @@ export function readArmedState(): ArmedState | null {
     }
     
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
-    const parsed = JSON.parse(raw);
+    let parsed;
+    
+    try {
+      parsed = JSON.parse(raw);
+    } catch (jsonError) {
+      console.error("readArmedState: Failed to parse armed state JSON:", jsonError instanceof Error ? jsonError.message : String(jsonError));
+      return null;
+    }
     
     // Validate that parsed is a non-null object and has all required fields
     if (parsed && 

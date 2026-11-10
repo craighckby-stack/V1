@@ -534,11 +534,33 @@ interface SwapJournalEntry {
 }
 
 /** Append one line per successful swap. Never throws — a journal
- *  failure must never fail a swap that already succeeded. */
+ *  failure must never fail a swap that already succeeded.
+ *
+ *  audit 4 — grow-only sweep: the in-memory `swapHistory` is capped at 25
+ *  (see hotSwapPipeline), but this DISK journal was append-only with no
+ *  rotation. The reader at readSwapJournalCount loads the whole file and
+ *  splits on newlines — a multi-MB journal would slow every reader call.
+ *  Rotate every 50th swap to keep newest 1000 entries (see retention.ts).
+ *  The 50-swap throttle amortizes the read-rewrite cost (same pattern as
+ *  mutation-corpus.ts: every 25th cycle). Module-level counter resets on
+ *  restart — worst case the journal grows by 50 entries (~10 KB) before
+ *  the next rotation, which is negligible. */
+let swapAppendCounter = 0;
 function appendSwapJournal(entry: SwapJournalEntry): void {
   try {
     mkdirSync(join(PROJECT_ROOT, ".git/info"), { recursive: true });
     appendFileSync(journalPath(), `${JSON.stringify(entry)}\n`, "utf8");
+    // Throttled rotation: every 50th swap, trim to newest 1000 entries.
+    // Best-effort — a rotation failure logs and leaves the file intact.
+    swapAppendCounter++;
+    if (swapAppendCounter % 50 === 0) {
+      try {
+        const { pruneHotSwapJournal } = require("../autonomous/retention");
+        pruneHotSwapJournal(1000);
+      } catch {
+        /* best-effort — don't fail the swap */
+      }
+    }
   } catch {
     /* best-effort — the DB flag is the other tier */
   }
