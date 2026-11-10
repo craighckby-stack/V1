@@ -36,6 +36,9 @@ function DropdownMenuContent({
   sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+  if (sideOffset < 0) {
+    throw new Error(`DropdownMenuContent: sideOffset must be non-negative, received ${sideOffset}`)
+  }
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
