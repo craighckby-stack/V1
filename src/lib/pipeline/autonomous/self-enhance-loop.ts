@@ -2272,7 +2272,7 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         // every cycle, but without it the drain would have no tasks to
         // consume after the initial queue is drained). Matches the
         // MutationCorpus / retention prune throttle pattern.
-        const cycleNow = this.stats.totalRuns;
+        const cycleNow = this.stats.cyclesCompleted;
         if (cycleNow % 25 === 0) {
           try {
             const scan = await generateTasks();
