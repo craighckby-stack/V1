@@ -1,3 +1,4 @@
+// audit-6: visual-polish mode + API unprotection
 /**
  * Self-Enhance Loop — the system enhances its OWN source code.
  *
