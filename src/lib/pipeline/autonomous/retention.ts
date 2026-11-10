@@ -29,7 +29,7 @@
  */
 
 import { db } from "@/lib/db";
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync, renameSync } from "fs";
 import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
@@ -45,6 +45,12 @@ const HOT_SWAP_JOURNAL_PATH = join(PROJECT_ROOT, ".git", "info", "loop-hot-swap-
  */
 export async function prunePipelineRuns(keep = 50): Promise<{ pruned: number; kept: number } | null> {
   try {
+    // Validate input
+    if (typeof keep !== "number" || keep <= 0) {
+      console.warn("[retention] prunePipelineRuns called with invalid keep value:", keep);
+      return null;
+    }
+    
     const keepRows = await db.pipelineRun.findMany({
       orderBy: { createdAt: "desc" },
       take: keep,
@@ -69,6 +75,12 @@ export async function prunePipelineRuns(keep = 50): Promise<{ pruned: number; ke
  */
 export async function pruneAutonomousCycles(keep = 200): Promise<{ pruned: number; kept: number } | null> {
   try {
+    // Validate input
+    if (typeof keep !== "number" || keep <= 0) {
+      console.warn("[retention] pruneAutonomousCycles called with invalid keep value:", keep);
+      return null;
+    }
+    
     const keepRows = await db.autonomousCycle.findMany({
       orderBy: { startedAt: "desc" },
       take: keep,
@@ -101,17 +113,38 @@ export async function pruneAutonomousCycles(keep = 200): Promise<{ pruned: numbe
  */
 export function pruneHotSwapJournal(keepEntries = 1000): { pruned: number; kept: number } | null {
   try {
+    // Validate input
+    if (typeof keepEntries !== "number" || keepEntries <= 0) {
+      console.warn("[retention] pruneHotSwapJournal called with invalid keepEntries value:", keepEntries);
+      return null;
+    }
+    
     if (!existsSync(HOT_SWAP_JOURNAL_PATH)) return { pruned: 0, kept: 0 };
+    
     const raw = readFileSync(HOT_SWAP_JOURNAL_PATH, "utf-8");
     const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+    
     if (lines.length <= keepEntries) return { pruned: 0, kept: lines.length };
+    
     const tail = lines.slice(lines.length - keepEntries);
     const tmpPath = HOT_SWAP_JOURNAL_PATH + ".tmp";
-    writeFileSync(tmpPath, tail.join("\n") + "\n", "utf-8");
-    // renameSync would be atomic, but the sandbox forbids it in some
-    // contexts; fall back to overwrite + tmp cleanup.
-    writeFileSync(HOT_SWAP_JOURNAL_PATH, tail.join("\n") + "\n", "utf-8");
-    try { if (existsSync(tmpPath)) unlinkSync(tmpPath); } catch { /* best-effort */ }
+    
+    try {
+      writeFileSync(tmpPath, tail.join("\n") + "\n", "utf-8");
+      
+      // Use atomic rename operation instead of overwrite + manual cleanup
+      // This prevents TOCTOU (Time-of-Check-Time-of-Use) race conditions
+      renameSync(tmpPath, HOT_SWAP_JOURNAL_PATH);
+    } catch (err) {
+      // Clean up temp file if it was created but rename failed
+      try {
+        if (existsSync(tmpPath)) unlinkSync(tmpPath);
+      } catch {
+        // Best-effort cleanup
+      }
+      throw err;
+    }
+    
     return { pruned: lines.length - tail.length, kept: tail.length };
   } catch (err) {
     console.warn("[retention] pruneHotSwapJournal failed (non-fatal):", (err as Error).message);
