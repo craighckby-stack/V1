@@ -54,6 +54,11 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
 }) {
+  if (!children) {
+    // Guard clause: DialogContent must have children to be meaningful.
+    // Throwing an error provides actionable context during development/usage.
+    throw new Error("DialogContent must be provided with children.")
+  }
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
