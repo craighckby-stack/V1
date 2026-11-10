@@ -5,6 +5,7 @@ import { ConsoleStream, type ConsoleLine } from "./display/console-stream";
 import { OraclePanel } from "@/components/pipeline/oracle-panel";
 import { DefensePanel } from "@/components/pipeline/defense-panel";
 import { BranchesPanel } from "@/components/pipeline/branches-panel";
+import { MergeBackPanel } from "@/components/pipeline/merge-back-panel";
 import { BootSplash } from "@/components/pipeline/boot-splash";
 import { ApiUnlock } from "@/components/pipeline/api-unlock";
 import { GeminiPanel } from "@/components/pipeline/gemini-panel";
@@ -287,6 +288,11 @@ export default function Home() {
   // polled) so it doesn't burn GitHub API quota. Opened from the
   // [BRANCHES] header button.
   const [branchesOpen, setBranchesOpen] = useState(false);
+  // MergeBackPanel — reviewed catch-up of a retained loop-NN branch into
+  // the operator-curated main. The loop creates loop-NN branches but has
+  // no path back to main; this panel is that path (typecheck-gated). On-
+  // demand fetch. Opened from the [MERGE-BACK] header button.
+  const [mergeBackOpen, setMergeBackOpen] = useState(false);
   // GeminiPanel — LLM provider chain (Gemini → Z.AI). The panel owns its
   // own polling of /api/self-enhance/llm-config while open (key is
   // never returned). Opened from the [GEMINI] header button.
@@ -627,7 +633,7 @@ export default function Home() {
   // typed/pasted key lands in the terminal, not the key field. Same for
   // Oracle / Defense / Branches / Config panels.
   const anyPanelOpen =
-    configOpen || geminiOpen || nvidiaOpen || oracleOpen || defenseOpen || branchesOpen;
+    configOpen || geminiOpen || nvidiaOpen || oracleOpen || defenseOpen || branchesOpen || mergeBackOpen;
 
   // Focus input on click anywhere — but NOT while any modal panel is open
   // (the panel's inputs need the click to land + keep focus).
@@ -658,11 +664,13 @@ export default function Home() {
         setDefenseOpen(false);
       } else if (branchesOpen) {
         setBranchesOpen(false);
+      } else if (mergeBackOpen) {
+        setMergeBackOpen(false);
       }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [anyPanelOpen, configOpen, nvidiaOpen, geminiOpen, oracleOpen, defenseOpen, branchesOpen]);
+  }, [anyPanelOpen, configOpen, nvidiaOpen, geminiOpen, oracleOpen, defenseOpen, branchesOpen, mergeBackOpen]);
 
   /** Append output lines to the unified console stream. */
   function emitOutput(lines: string[]) {
@@ -1946,6 +1954,13 @@ export default function Home() {
             dialog
             active={branchesOpen}
           />
+          <HeaderBtn
+            label="MERGE-BACK"
+            onClick={() => setMergeBackOpen(true)}
+            title="Merge-back — catch main up to a retained loop-NN branch (typecheck-gated, reviewed)"
+            dialog
+            active={mergeBackOpen}
+          />
         </div>
       </div>
 
@@ -2491,6 +2506,7 @@ export default function Home() {
       <OraclePanel open={oracleOpen} onClose={() => setOracleOpen(false)} />
       <DefensePanel open={defenseOpen} onClose={() => setDefenseOpen(false)} />
       <BranchesPanel open={branchesOpen} onClose={() => setBranchesOpen(false)} />
+      <MergeBackPanel open={mergeBackOpen} onClose={() => setMergeBackOpen(false)} />
       <GeminiPanel open={geminiOpen} onClose={() => setGeminiOpen(false)} />
       <NvidiaPanel open={nvidiaOpen} onClose={() => setNvidiaOpen(false)} />
 

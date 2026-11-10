@@ -156,7 +156,7 @@ A self-improving system must not be able to rewrite its own OFF switch, its own 
 
 ---
 
-## API routes (59)
+## API routes (60)
 
 Mutating routes (POST/PUT/PATCH/DELETE) are gated by `src/middleware.ts` (`x-loop-key` header vs `LOOP_API_KEY`, 60 mutations/min/IP rate limit). Fail-open only while unset (one-time warn).
 
@@ -184,6 +184,7 @@ Mutating routes (POST/PUT/PATCH/DELETE) are gated by `src/middleware.ts` (`x-loo
 | POST | `/api/self-enhance/chat-task/propose` | LLM proposes a plan from a user goal (no writes) |
 | POST | `/api/self-enhance/chat-task/apply` | Apply approved plan through the gate chain → push |
 | GET/POST | `/api/self-enhance/prune-branches` | Branch retention: GET = dry-run preview; POST = execute drain (`{keep?, margin?, dryRun?}`) |
+| GET/POST | `/api/self-enhance/merge-back` | Reviewed catch-up of a retained `loop-NN` branch into main: GET (no arg) = list candidates; GET `?branch=loop-NN` = full plan; POST `{branch, strategy:"dry-run"\|"theirs-for-source", push?}` = execute (typecheck-gated, commits but does not push by default) |
 | GET | `/api/self-enhance/pass-rate-trend` | Pass rate over time from the mutation corpus (headline window, trend, buckets) |
 | POST | `/api/autonomous/start` | Arm autonomous remote-repo loop |
 | POST | `/api/autonomous/stop` | Disarm (sticky) |
@@ -278,7 +279,10 @@ Growth audit (2026-11-09): what accumulates, what's bounded, and what must never
 
 | Store | Growth | Policy | Why |
 |---|---|---|---|
-| `loop-NN` branches (GitHub) | +1 per successful mutation | **Keep newest 50**, hysteresis margin 10. Auto-drained fire-and-forget after each successful push (`push-target.ts` → `pruneOldLoopBranches`); operator drain via `GET/POST /api/self-enhance/prune-branches` (GET is always a dry-run). Seed branch and every non-`loop-NN` branch are protected by construction; deletes are sequential + rate-limit-aware and resume on the next push if GitHub throttles mid-batch. | 198 refs had accumulated — the branch listing and audit search were becoming unusable. The commits are the record of truth (seed lineage + mutation number in the log); branches are convenience pins. First drain: 198 → 50, 148 deleted, zero failures, counter intact (`loop-199` next). |
+| `loop-NN` branches (GitHub) | +1 per successful mutation | **Keep newest 50**, hysteresis margin 10. Auto-drained fire-and-forget after each successful push (`push-target.ts` → `pruneOldLoopBranches`); operator drain via `GET/POST /api/self-enhance/prune-branches` (GET is always a dry-run). Seed branch and every non-`loop-NN` branch are protected by construction; deletes are sequential + rate-limit-aware and resume on the next push if GitHub throttles mid-batch. | 198 refs had accumulated — the branch listing and audit search were becoming unusable. The commits are the record of truth (seed lineage + mutation number in the log); branches are convenience pins. First drain: 198 → 50, 148 deleted, zero failures, counter intact (`loop-199` next). Branches are a LINEAR CHAIN (each `loop-NN` is an ancestor of `loop-(NN+1)`), so pruning old branches loses zero history — the full mutation lineage is preserved in the newest retained branch. |
+| `PipelineRun` (DB) | +1 row per file per cycle (autonomous) / per manual run | **Keep newest 25 (manual path) / 50 (autonomous path)**; code blobs capped at **20 KB** (both paths — the full code lives in git history on the `loop-NN` branch). The autonomous path's prune fires fire-and-forget after each write in `loop-runtime.ts` via `retention.ts → prunePipelineRuns`. | The manual path (`/api/pipeline/run/route.ts`) had this from audit 3; the autonomous path copied the WRITE but not the RETENTION and stored 200 KB blobs — a 178 MB-waiting-to-happen copy-paste mistake. Fixed in audit 4 (the grow-only sweep): blob cap 200 KB → 20 KB, prune added. |
+| `AutonomousCycle` (DB) | +1 row per cycle | **Keep newest 200** (~a week of continuous running); pruned fire-and-forget after the write in `loop-runtime.ts → finalizeCycle` via `retention.ts → pruneAutonomousCycles`. | Before audit 4 there was NO deletion logic anywhere in the codebase — the table grew at 1 row/cycle forever. The oracle + UI only read the recent tail; older rows had no live consumer. |
+| `loop-hot-swap-journal.jsonl` (`.git/info/`) | +1 line per successful swap (~200 bytes) | **Keep newest 1000 entries**; rotated every 50th swap in `hot-swap.ts → appendSwapJournal` via `retention.ts → pruneHotSwapJournal`. | The in-memory `swapHistory` was capped at 25, but the DISK journal was append-only — the reader loads the whole file and splits on newlines, so a multi-MB journal would slow every swap-reader call. |
 | `MutationCorpus` (DB) | +1 row per attempt | **Capped at 2000 rows** (~1 MB bound; trimmed every 25th cycle) — pre-existing design | The distiller's digest and the negative-constraint block read recent windows (≤300 rows); 2000 covers them with headroom. |
 | `Postmortem` (DB + `postmortems/` disk) | +1 per (repo, branch, file) failure | **Never pruned** | The tamper-evident sha256 chain threads `parentHash` through every record; resolved postmortems still feed ancestral RAG and the archaeology miner; disk JSON is the wipe-proof record of what actually failed. Deleting them destroys the learning substrate for zero storage benefit. |
 | `Lesson` (DB) | slow (distiller-derived) | **Never pruned** | Deactivated/revoked lessons exist precisely so the distiller SEES them and doesn't re-derive rules reality already rejected. Deleting them un-learns. (Low-scoring lessons are deactivated, not deleted — the score system, not a reaper, is the retention mechanism.) |
@@ -356,7 +360,7 @@ Next.js instrumentation hook — runs once at server boot. Registers `unhandledR
 
 Ambient `bun:test` module declaration so the ratchet's gate 3 (`tsc --noEmit` over drafted tests) doesn't fail with TS2307.
 
-### `src/components/pipeline/` (17 panels)
+### `src/components/pipeline/` (18 panels)
 
 | File | Purpose |
 |---|---|
@@ -365,6 +369,7 @@ Ambient `bun:test` module declaration so the ratchet's gate 3 (`tsc --noEmit` ov
 | `oracle-panel.tsx` (588) | Modal: Oracle track record (counts, calibration per threshold 0.5/0.7/0.9, Brier score), recent prophecies, [GENERATE]/[EVALUATE] |
 | `defense-panel.tsx` (511) | Modal: DURESS/safe-mode (with [PURGE]/[CLEAR]), RED-TEAM (probe catalog + last run + [RUN SUITE]), SECRET-SCAN (paste-and-scan tool) |
 | `branches-panel.tsx` | Modal: `loop-NN` mutation branches from GitHub with commit message, sha, date, link |
+| `merge-back-panel.tsx` | Modal: reviewed catch-up of a retained `loop-NN` branch into the operator-curated `main`. Lists candidates, shows the per-branch merge plan (src/ files to change, conflicts), [DRY-RUN]/[EXECUTE] (typecheck-gated — `tsc --noEmit` runs after staging; the commit never lands if it fails). Push is off by default so the merge stays reversible until the operator pushes. Addresses the main↔loop divergence (the loop creates branches but had no path back to main). |
 | `header-bar.tsx` | Sticky header with subsystem badges, loop status, WS connection, cycle count |
 | `loop-control-panel.tsx` (484) | Loop config form (mode, interval, target repo, branches); legacy shadcn-styled panel |
 | `manual-runner.tsx` | Manual single-file pipeline runner; legacy UI |

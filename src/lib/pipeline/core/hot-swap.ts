@@ -552,14 +552,13 @@ function appendSwapJournal(entry: SwapJournalEntry): void {
     appendFileSync(journalPath(), `${JSON.stringify(entry)}\n`, "utf8");
     // Throttled rotation: every 50th swap, trim to newest 1000 entries.
     // Best-effort — a rotation failure logs and leaves the file intact.
+    // Dynamic import (not top-level) avoids a core→autonomous static
+    // dependency edge; retention.ts is a leaf (db + paths only).
     swapAppendCounter++;
     if (swapAppendCounter % 50 === 0) {
-      try {
-        const { pruneHotSwapJournal } = require("../autonomous/retention");
-        pruneHotSwapJournal(1000);
-      } catch {
-        /* best-effort — don't fail the swap */
-      }
+      void import("../autonomous/retention")
+        .then((m) => m.pruneHotSwapJournal(1000))
+        .catch(() => { /* best-effort — don't fail the swap */ });
     }
   } catch {
     /* best-effort — the DB flag is the other tier */

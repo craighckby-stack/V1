@@ -29,7 +29,7 @@
  */
 
 import { db } from "@/lib/db";
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
@@ -109,9 +109,9 @@ export function pruneHotSwapJournal(keepEntries = 1000): { pruned: number; kept:
     const tmpPath = HOT_SWAP_JOURNAL_PATH + ".tmp";
     writeFileSync(tmpPath, tail.join("\n") + "\n", "utf-8");
     // renameSync would be atomic, but the sandbox forbids it in some
-    // contexts; fall back to overwrite.
+    // contexts; fall back to overwrite + tmp cleanup.
     writeFileSync(HOT_SWAP_JOURNAL_PATH, tail.join("\n") + "\n", "utf-8");
-    try { if (existsSync(tmpPath)) require("fs").unlinkSync(tmpPath); } catch { /* best-effort */ }
+    try { if (existsSync(tmpPath)) unlinkSync(tmpPath); } catch { /* best-effort */ }
     return { pruned: lines.length - tail.length, kept: tail.length };
   } catch (err) {
     console.warn("[retention] pruneHotSwapJournal failed (non-fatal):", (err as Error).message);

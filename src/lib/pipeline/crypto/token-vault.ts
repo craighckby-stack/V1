@@ -162,9 +162,16 @@ export function openToken(stored: string): string {
     const body = stored.slice(ENVELOPE_PREFIX.length);
     const parts = body.split(".");
     if (parts.length !== 3) return "";
-    const iv = Buffer.from(parts[0], "base64url");
-    const tag = Buffer.from(parts[1], "base64url");
-    const ct = Buffer.from(parts[2], "base64url");
+    let iv: Buffer, tag: Buffer, ct: Buffer;
+    
+    try {
+      iv = Buffer.from(parts[0], "base64url");
+      tag = Buffer.from(parts[1], "base64url");
+      ct = Buffer.from(parts[2], "base64url");
+    } catch (error) {
+      // Invalid base64url encoding
+      return "";
+    }
     
     // Validate IV and tag lengths
     if (iv.length !== 12 || tag.length !== 16) return "";
