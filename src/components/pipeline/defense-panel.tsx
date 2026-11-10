@@ -227,7 +227,7 @@ export function DefensePanel({ open, onClose }: Props) {
     }
   }
 
-  async function doRunSuite(skipLlm: boolean) {
+  async function doRunSuite(skipLlm: boolean) : Promise<void> {
     setBusy(true);
     setMsg(skipLlm ? "Dry run (no LLM)…" : "Running red-team suite (7 probes, ~30-90s)…");
     try {
