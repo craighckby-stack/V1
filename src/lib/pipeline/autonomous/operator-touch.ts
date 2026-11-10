@@ -39,7 +39,7 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
 const OPERATOR_TOUCH_FILE = join(
@@ -71,7 +71,8 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
   }
   
   try {
-    mkdirSync(join(PROJECT_ROOT, ".git/info"), { recursive: true });
+    const dirPath = dirname(OPERATOR_TOUCH_FILE);
+    mkdirSync(dirPath, { recursive: true });
     const entry: OperatorTouchState = { at: now.toISOString(), by };
     writeFileSync(OPERATOR_TOUCH_FILE, JSON.stringify(entry, null, 2), "utf8");
   } catch (error) {
@@ -94,12 +95,14 @@ export function readOperatorTouch(): OperatorTouchState | null {
     
     // Validate the parsed object strictly against the required structure
     if (typeof parsed.at !== "string" || typeof parsed.by !== "string") {
+      console.error(`Invalid operator touch file format at ${OPERATOR_TOUCH_FILE}`);
       return null;
     }
     
     // Validate timestamp format before returning
     const timestamp = Date.parse(parsed.at);
     if (isNaN(timestamp)) {
+      console.error(`Invalid timestamp in operator touch file at ${OPERATOR_TOUCH_FILE}`);
       return null;
     }
     
@@ -109,6 +112,9 @@ export function readOperatorTouch(): OperatorTouchState | null {
     };
   } catch (error) {
     // Catches file not found, read errors, JSON parsing errors
+    if (error instanceof Error) {
+      console.error(`Failed to read operator touch file at ${OPERATOR_TOUCH_FILE}: ${error.message}`);
+    }
     return null;
   }
 }
@@ -128,6 +134,7 @@ export function isDeadMansTripped(
   
   if (!(now instanceof Date) || isNaN(now.getTime())) {
     // Handle invalid 'now' input gracefully, treating it as if time cannot be determined (tripped)
+    console.error("isDeadMansTripped: 'now' parameter must be a valid Date object");
     return true;
   }
   
