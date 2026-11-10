@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/autonomous/retention.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "TOCTOU conflict on src/lib/pipeline/autonomous/retention.ts: disk content changed between read and gated write",
@@ -12,8 +12,8 @@
   "parentHash": "545367580c59d5394c159888b29cc854b668763f3d2956205e3beb6ec096e0a5",
   "hash": "67a84cbb91346cfa8a65d139eee1658ff7c524e4cb62460613da61ebb9e19966",
   "lastAttemptAt": "2026-11-10T02:45:10.270Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-10T02:53:29.567Z",
   "createdAt": "2026-11-10T02:45:10.271Z",
-  "updatedAt": "2026-11-10T02:45:10.271Z",
+  "updatedAt": "2026-11-10T02:53:29.567Z",
   "schema": 2
 }

@@ -82,6 +82,9 @@ export function emitOracleEvent(
   if (message == null) {
     throw new Error("Oracle event message cannot be null or undefined");
   }
+  if (typeof message !== "string") {
+    throw new Error("Oracle event message must be a string");
+  }
   if (type == null) {
     throw new Error("Oracle event type cannot be null or undefined");
   }
@@ -127,8 +130,11 @@ export function readOracleEvents(afterSeq?: number): {
     
     // Find the index of the first event that hasn't been seen
     const startIndex = Math.max(0, s.buffer.length - (currentSeq - afterSeq));
+    const events = s.buffer.slice(startIndex);
+    // Clear the slice reference to prevent memory leak
+    s.buffer = s.buffer.slice(0, startIndex).concat(s.buffer.slice(startIndex + events.length));
     return { 
-      events: s.buffer.slice(startIndex), 
+      events, 
       seq: currentSeq 
     };
   }
