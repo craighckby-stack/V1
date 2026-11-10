@@ -65,7 +65,7 @@ export function githubHeaders(token: string | null): Record<string, string> {
   }
 
   if (isInvalidToken(trimmedToken)) {
-    throw new Error(`Invalid token provided: token contains invalid prefixes or values`);
+    throw new Error(`Invalid token provided: token contains invalid prefixes or values. Invalid prefixes: ${INVALID_TOKEN_PREFIXES.join(", ")}, invalid values: ${INVALID_TOKEN_VALUES.join(", ")}`);
   }
 
   const headers: Record<string, string> = {
