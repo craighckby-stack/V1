@@ -68,11 +68,11 @@ function Carousel({
   }, [])
 
   const scrollPrev = React.useCallback(() => {
-    api?.scrollPrev()
+    if (api) api.scrollPrev()
   }, [api])
 
   const scrollNext = React.useCallback(() => {
-    api?.scrollNext()
+    if (api) api.scrollNext()
   }, [api])
 
   const handleKeyDown = React.useCallback(
@@ -101,6 +101,7 @@ function Carousel({
 
     return () => {
       api?.off("select", onSelect)
+      api?.off("reInit", onSelect)
     }
   }, [api, onSelect])
 
@@ -110,8 +111,7 @@ function Carousel({
         carouselRef,
         api: api,
         opts,
-        orientation:
-          orientation || (opts?.axis === "y" ? "vertical" : "horizontal"),
+        orientation: orientation,
         scrollPrev,
         scrollNext,
         canScrollPrev,

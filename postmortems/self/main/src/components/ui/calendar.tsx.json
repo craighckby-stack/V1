@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/ui/calendar.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: src/components/ui/calendar.tsx(26,36): error TS2367: This comparison appears to be unintentional because the types '\"dropdown\" | \"dropdown-months\" | \"dropdown-years\"' and '\"compact\"' have no overlap.; src/components/ui/calendar.tsx(162,9): error TS2322: Type '({ className, day, modifiers, ...props }: { day: CalendarDay; modifiers: Modifiers; } & ButtonHTMLAttributes<HTMLButtonElement>) => Element | null' is not assignable to type '(props: { day: CalendarDay; modifiers: Modifiers; } & ButtonHTMLAttributes<HTMLButtonElement>) => Element'.\n  Type 'Element | null' is not assignable to type 'Element'.\n    Type 'null' is not assignable to type 'ReactElement<any, any>'.",
+  "evidence": "Original: 7660 bytes, Refactored: 7957 bytes. Errors: src/components/ui/calendar.tsx(26,36): error TS2367: This comparison appears to be unintentional because the types '\"dropdown\" | \"dropdown-months\" | \"dropdown-years\"' and '\"compact\"' have no overlap.\nsrc/components/ui/calendar.tsx(162,9): error TS2322: Type '({ className, day, modifiers, ...props }: { day: CalendarDay; modifiers: Modifiers; } & ButtonHTMLAttributes<HTMLButtonElement>) => Element | null' is not assignable to type '(props: { day: CalendarDay; modifiers: Modifiers; } & ButtonHTMLAttributes<HTMLButtonElement>) => Element'.\n  Type 'Element | null' is not assignable to type 'Element'.\n    Type 'null' is not assignable to type 'ReactElement<any, any>'.",
+  "constraints": "The previous refactor of src/components/ui/calendar.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "58edf7d1e079aa24a5717c02d3ac3ae0ec6d277e31b1b0e7d2e0f3a6c8de5dac",
+  "hash": "07f534e42da0825df59d8de52b4a431fd3b9c5c8b503ab62fe604d4d5f2f4d78",
+  "lastAttemptAt": "2026-11-10T07:19:33.053Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T07:19:33.054Z",
+  "updatedAt": "2026-11-10T07:19:33.054Z",
+  "schema": 2
+}
