@@ -12,7 +12,7 @@ export function CurrentCycle() {
 
   if (!cycle) {
     return (
-      <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur">
+      <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur transition-colors" aria-label="No active pipeline cycle detected">
         <CardHeader className="pb-3">
           <CardTitle className="text-slate-100 flex items-center gap-2 text-base">
             <Activity className="h-4 w-4 text-emerald-400" />
@@ -20,7 +20,7 @@ export function CurrentCycle() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-xs text-slate-500 italic">
+          <p className="text-sm text-slate-500 italic">
             No active cycle. Trigger one from the Autonomous Loop panel above.
           </p>
         </CardContent>
@@ -53,7 +53,7 @@ export function CurrentCycle() {
   return (
     <Card
       className={cn(
-        "backdrop-blur border transition-colors",
+        "backdrop-blur border transition-colors duration-150",
         status === "running"
           ? "bg-cyan-950/40 border-cyan-700/50"
           : status === "completed"
@@ -62,10 +62,11 @@ export function CurrentCycle() {
           ? "bg-amber-950/30 border-amber-800/50"
           : "bg-rose-950/30 border-rose-800/50"
       )}
+      aria-live="polite"
     >
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-3">
-          <CardTitle className="text-slate-100 flex items-center gap-2 text-base">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <CardTitle className="text-slate-100 flex items-center gap-2 text-base leading-snug">
             <Activity
               className={cn(
                 "h-4 w-4",
@@ -73,14 +74,14 @@ export function CurrentCycle() {
               )}
             />
             Cycle #{cycle.cycleNumber}{" "}
-            <span className="text-xs text-slate-400 font-normal uppercase tracking-widest">
+            <span className="text-xs text-slate-400 font-normal uppercase tracking-widest hidden sm:inline">
               {cycle.mode}
             </span>
           </CardTitle>
           <Badge
             variant="outline"
             className={cn(
-              "uppercase text-[10px] tracking-widest",
+              "uppercase text-[10px] tracking-widest px-3 py-1",
               status === "running"
                 ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/40"
                 : status === "completed"
@@ -105,46 +106,52 @@ export function CurrentCycle() {
       </CardHeader>
       <CardContent>
         {(!cycle.fileResults || cycle.fileResults.length === 0) ? (
-          <p className="text-xs text-slate-500 italic">No file results yet…</p>
+          <p className="text-sm text-slate-500 italic">No file results yet…</p>
         ) : (
-          <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-2">
             <AnimatePresence>
               {cycle.fileResults.map((r, idx) => (
                 <motion.div
                   key={`${r.path}-${idx}`}
                   initial={{ opacity: 0, x: -8 }}
                   animate={{ opacity: 1, x: 0 }}
-                  className="flex items-center gap-3 rounded-md border border-slate-800/60 bg-slate-900/40 px-3 py-2"
+                  transition={{ duration: 0.2 }}
+                  whileHover={{ scale: 1.005 }}
+                  className="flex items-center gap-3 rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2 transition-transform duration-150"
+                  role="listitem"
+                  aria-label={`File result for ${r.path} with consensus ${getConsensusDisplay(r.consensus)}`}
                 >
-                  <FileCode className="h-4 w-4 text-slate-400 shrink-0" />
-                  <span className="text-xs font-mono text-slate-200 truncate flex-1" title={r.path}>
+                  <FileCode className="h-4 w-4 text-slate-400 shrink-0" aria-hidden="true" />
+                  <span className="text-sm font-mono text-slate-200 truncate flex-1" title={r.path}>
                     {r.path}
                   </span>
-                  <span className="text-[10px] text-amber-300 font-mono tabular-nums">AST {r.astScore}</span>
+                  <span className="text-xs text-amber-300 font-mono tabular-nums shrink-0">AST {r.astScore}</span>
                   <span
                     className={cn(
-                      "text-[10px] px-1.5 py-0.5 rounded border uppercase tracking-wider",
+                      "text-xs px-2 py-0.5 rounded border uppercase tracking-wider shrink-0",
                       getConsensusClass(r.consensus)
                     )}
                   >
                     {getConsensusDisplay(r.consensus)}
                   </span>
-                  <span className="text-[10px] font-mono text-slate-500">{r.proofHash}</span>
-                  {r.pushed ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                  ) : (
-                    <X className="h-3.5 w-3.5 text-slate-600 shrink-0" />
-                  )}
+                  <span className="text-xs font-mono text-slate-500 shrink-0 hidden md:block">{r.proofHash}</span>
+                  <span className="shrink-0" aria-hidden="true">
+                    {r.pushed ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    ) : (
+                      <X className="h-3.5 w-3.5 text-slate-600" />
+                    )}
+                  </span>
                 </motion.div>
               ))}
             </AnimatePresence>
           </div>
         )}
-        <div className="flex items-center gap-3 pt-3 mt-3 border-t border-slate-800/60 text-[10px] text-slate-500">
-          <Cpu className="h-3.5 w-3.5" />
-          <span>
+        <div className="flex items-center gap-3 pt-3 mt-3 border-t border-slate-800/60 text-xs text-slate-500">
+          <Cpu className="h-3.5 w-3.5" aria-hidden="true" />
+          <span className="text-sm">
             {cycle.fileResults?.length || 0} file(s) processed · {cycle.fileResults?.filter(r => r.pushed).length || 0} pushed
-            · proof {cycle.fileResults && cycle.fileResults.length > 0 ? cycle.fileResults[0].proofHash : "—"}
+            · proof {cycle.fileResults && cycle.fileResults.length > 0 ? cycle.fileResults[0].proofHash.substring(0, 8) + '...' : "—"}
           </span>
         </div>
       </CardContent>
