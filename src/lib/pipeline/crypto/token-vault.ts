@@ -174,7 +174,7 @@ export function openToken(stored: string): string {
     }
     
     // Validate IV and tag lengths
-    if (iv.length !== 12 || tag.length !== 16) return "";
+    if (!iv || iv.length !== 12 || !tag || tag.length !== 16) return "";
     
     const decipher = createDecipheriv("aes-256-gcm", key, iv);
     decipher.setAuthTag(tag);
