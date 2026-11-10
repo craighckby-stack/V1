@@ -74,33 +74,41 @@ function ensureKey(): Buffer | null {
     // .git/info (it normally exists; don't assume).
     const key = randomBytes(KEY_BYTES);
     let tmp = `${KEY_FILE}.tmp`;
+    let tmpCreated = false;
     try {
       mkdirSync(dirname(KEY_FILE), { recursive: true });
       writeFileSync(tmp, key.toString("hex") + "\n", { encoding: "utf-8", mode: 0o600 });
+      tmpCreated = true;
       renameSync(tmp, KEY_FILE);
       return key;
-    } catch {
+    } catch (error) {
       // Clean up temp file if it was created but rename failed
-      try {
-        if (existsSync(tmp)) {
-          try {
-            unlinkSync(tmp);
-          } catch {
-            // Ignore cleanup failures
+      if (tmpCreated) {
+        try {
+          if (existsSync(tmp)) {
+            try {
+              unlinkSync(tmp);
+            } catch {
+              // Ignore cleanup failures
+            }
           }
+        } catch {
+          // Ignore errors when trying to clean up
         }
-      } catch {
-        // Ignore errors when trying to clean up
       }
       // Read-only .git? Sealing is impossible — callers fall back to
       // storing plaintext (better a working push than a bricked loop).
       if (!warnedKeyMissing) {
         warnedKeyMissing = true;
-        console.error("[TOKEN-VAULT] cannot create the key file (.git/info/ not writable) — tokens will stay PLAINTEXT");
+        console.error(`[TOKEN-VAULT] cannot create the key file (.git/info/ not writable) — tokens will stay PLAINTEXT. Error: ${error instanceof Error ? error.message : String(error)}`);
       }
       return null;
     }
-  } catch {
+  } catch (error) {
+    if (!warnedKeyMissing) {
+      warnedKeyMissing = true;
+      console.error(`[TOKEN-VAULT] error accessing key file: ${error instanceof Error ? error.message : String(error)}`);
+    }
     return null;
   }
 }
@@ -128,7 +136,11 @@ export function sealToken(plain: string): string {
     const ct = Buffer.concat([cipher.update(plain, "utf-8"), cipher.final()]);
     const tag = cipher.getAuthTag();
     return `${ENVELOPE_PREFIX}${iv.toString("base64url")}.${tag.toString("base64url")}.${ct.toString("base64url")}`;
-  } catch {
+  } catch (error) {
+    if (!warnedKeyMissing) {
+      warnedKeyMissing = true;
+      console.error(`[TOKEN-VAULT] error sealing token: ${error instanceof Error ? error.message : String(error)}`);
+    }
     return plain; // fail-open — see sealToken doc
   }
 }
@@ -142,7 +154,8 @@ export function sealToken(plain: string): string {
  *     automatic migration rewrites it on the next write)
  */
 export function openToken(stored: string): string {
-  if (!stored || typeof stored !== "string" || !isSealedEnvelope(stored)) return stored ?? "";
+  if (!stored || typeof stored !== "string") return "";
+  if (!isSealedEnvelope(stored)) return stored;
   const key = ensureKey();
   if (!key) return "";
   try {
@@ -158,11 +171,11 @@ export function openToken(stored: string): string {
     const opened = pt.toString("utf-8");
     if (!opened || opened.length < 20 || /\s/.test(opened)) return "";
     return opened;
-  } catch {
+  } catch (error) {
     if (!warnedKeyMissing) {
       warnedKeyMissing = true;
       console.error(
-        "[TOKEN-VAULT] failed to open a sealed token (key missing/tampered?) — treating as no-token; re-enter the PAT in [CONFIG] if this persists"
+        `[TOKEN-VAULT] failed to open a sealed token (key missing/tampered?) — treating as no-token; re-enter the PAT in [CONFIG] if this persists. Error: ${error instanceof Error ? error.message : String(error)}`
       );
     }
     return "";
@@ -188,7 +201,7 @@ export function vaultStatus(): {
     if (!warnedKeyMissing) {
       warnedKeyMissing = true;
       console.error(
-        "[TOKEN-VAULT] error checking vault status: " + (error instanceof Error ? error.message : String(error))
+        `[TOKEN-VAULT] error checking vault status: ${error instanceof Error ? error.message : String(error)}`
       );
     }
     return {
