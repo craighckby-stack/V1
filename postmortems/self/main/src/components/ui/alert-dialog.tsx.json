@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/ui/alert-dialog.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "REVIEW_REJECTED",
+  "symptom": "Debate rejected the refactor: Debate rejected (REQUIRES_REWRITE): The security posture is sound, but the architectural implementation of the overlay/portal structure is incorrect based on standard Radix usage and the stated requirement for a full viewport overlay. This structural issue requires a rewrite to ensure correct rendering behavior.",
+  "evidence": "Change summary: ## Changes\n- Corrected `AlertDialogContent` structure: `AlertDialogOverlay` must be rendered *outside* of `AlertDialogPortal` if it's meant to cover the entire viewport, or the portal structure needs adjustment. In Radix, the overlay is usually a sibling or handled by the primitive itself, but since we are wrapping primitives, placing the overlay inside the portal alongside the content is structurally incorrect for a full-screen overlay managed by the primitive. I moved `AlertDialogOverlay` outs",
+  "constraints": "The previous refactor of src/components/ui/alert-dialog.tsx was rejected by the debate tribunal (REQUIRES_REWRITE). Address the review feedback before retrying.",
+  "attempts": 1,
+  "parentHash": "579b538f81a44ce6163a52611691eacd60cc6eb67f814f15cfa420b9c0ac72d3",
+  "hash": "d43c04c60b33413d797d8851c603791a38c4fac202e71889b41f45f1e05ca331",
+  "lastAttemptAt": "2026-11-10T07:13:34.704Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T07:13:34.705Z",
+  "updatedAt": "2026-11-10T07:13:34.705Z",
+  "schema": 2
+}
