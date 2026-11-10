@@ -79,6 +79,17 @@ export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/saturation.ts", // the lockout mechanism + the scan scope definition
   "src/lib/pipeline/autonomous/route-cooldown.ts", // the trigger rate-limiter (control-surface guard)
   "src/lib/pipeline/autonomous/chat-task.ts", // operator-approved code writes — the protection guard itself lives here
+  // D1 (architecture context): the loop's own architecture-vision
+  // injector. arch-context.ts builds the 2-hop neighborhood map that
+  // the refactor prompt uses to avoid breaking changes to importing
+  // modules. A corrupted version could blind the loop (empty context
+  // → LLM refactors in isolation again) OR inject misleading hints
+  // (drop a "(self)" annotation → hide a circular dep the LLM would
+  // otherwise avoid; fabricate an export that doesn't exist → LLM
+  // calls a non-existent API). The loop's prompts depend on this
+  // module's integrity, so it gets the same protection as the gates
+  // and the protected-list itself.
+  "src/lib/pipeline/autonomous/arch-context.ts",
   // Hot-swap core — protect the swapper. If the loop could rewrite its
   // own hot-swap module, a bad mutation could break the swap mechanism
   // and the running process would never benefit from future fixes.

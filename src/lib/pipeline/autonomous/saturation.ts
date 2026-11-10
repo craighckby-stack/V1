@@ -143,6 +143,15 @@ export function classifyGrowth(reason: string): GrowthClassification {
   // fire while such a file is in TARGET_FILES. A human shrinking the file
   // later is covered by unlock (or restart, the natural new-pass boundary).
   if (reason.startsWith("Skipped (file too large")) return "no-growth";
+  // Audit 7: the self-model's proactive skip and the too-small skip are
+  // no-growth verdicts by construction (the file IS finished / can't be
+  // improved). Advancing the lockout counter on them is correct: a file
+  // the model has converged on as "done" should lock out after a few
+  // proactive skips, giving a clean PASS COMPLETE signal. Without this
+  // the file would never lock (neutral default) and PASS COMPLETE could
+  // never fire while such a file remained in scope.
+  if (reason.startsWith("Skipped (self-model predicts zero-diff")) return "no-growth";
+  if (reason.startsWith("Skipped (file too small")) return "no-growth";
   // Unknown — be conservative (don't count either way)
   return "neutral";
 }

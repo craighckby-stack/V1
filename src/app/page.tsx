@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ConsoleStream, type ConsoleLine } from "./display/console-stream";
 import { OraclePanel } from "@/components/pipeline/oracle-panel";
+import { SelfModelPanel } from "@/components/pipeline/self-model-panel";
 import { DefensePanel } from "@/components/pipeline/defense-panel";
 import { BranchesPanel } from "@/components/pipeline/branches-panel";
 import { MergeBackPanel } from "@/components/pipeline/merge-back-panel";
@@ -279,6 +280,9 @@ export default function Home() {
   // open/close is the only state page.tsx owns; the panel manages its
   // own polling, fetch, and rendering internally (see OraclePanel).
   const [oracleOpen, setOracleOpen] = useState(false);
+  // Self-model panel (audit 7): the loop's measured self-knowledge —
+  // bandit scores, calibration curve, Brier verdict. Same modal pattern.
+  const [selfModelOpen, setSelfModelOpen] = useState(false);
   // Defense panel: duress/safe-mode + red-team + secret-scan. The panel
   // owns its own polling like OraclePanel. See docs/CONCEPTS-GRAFTED.md.
   const [defenseOpen, setDefenseOpen] = useState(false);
@@ -633,7 +637,7 @@ export default function Home() {
   // typed/pasted key lands in the terminal, not the key field. Same for
   // Oracle / Defense / Branches / Config panels.
   const anyPanelOpen =
-    configOpen || geminiOpen || nvidiaOpen || oracleOpen || defenseOpen || branchesOpen || mergeBackOpen;
+    configOpen || geminiOpen || nvidiaOpen || oracleOpen || defenseOpen || branchesOpen || mergeBackOpen || selfModelOpen;
 
   // Focus input on click anywhere — but NOT while any modal panel is open
   // (the panel's inputs need the click to land + keep focus).
@@ -660,6 +664,8 @@ export default function Home() {
         setGeminiOpen(false);
       } else if (oracleOpen) {
         setOracleOpen(false);
+      } else if (selfModelOpen) {
+        setSelfModelOpen(false);
       } else if (defenseOpen) {
         setDefenseOpen(false);
       } else if (branchesOpen) {
@@ -670,7 +676,7 @@ export default function Home() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [anyPanelOpen, configOpen, nvidiaOpen, geminiOpen, oracleOpen, defenseOpen, branchesOpen, mergeBackOpen]);
+  }, [anyPanelOpen, configOpen, nvidiaOpen, geminiOpen, oracleOpen, defenseOpen, branchesOpen, mergeBackOpen, selfModelOpen]);
 
   /** Append output lines to the unified console stream. */
   function emitOutput(lines: string[]) {
@@ -1941,6 +1947,13 @@ export default function Home() {
             active={oracleOpen}
           />
           <HeaderBtn
+            label="🧠 SELF-MODEL"
+            onClick={() => setSelfModelOpen(true)}
+            title="Self-model — the loop's measured self-knowledge (bandit scores, calibration, Brier verdict)"
+            dialog
+            active={selfModelOpen}
+          />
+          <HeaderBtn
             label="DEFENSE"
             onClick={() => setDefenseOpen(true)}
             title="Defense — duress · red-team · secret-scan (concepts grafted from your GitHub repos)"
@@ -2504,6 +2517,7 @@ export default function Home() {
           manages its own polling, fetch, and rendering; page.tsx just
           owns the open/close state. */}
       <OraclePanel open={oracleOpen} onClose={() => setOracleOpen(false)} />
+      <SelfModelPanel open={selfModelOpen} onClose={() => setSelfModelOpen(false)} />
       <DefensePanel open={defenseOpen} onClose={() => setDefenseOpen(false)} />
       <BranchesPanel open={branchesOpen} onClose={() => setBranchesOpen(false)} />
       <MergeBackPanel open={mergeBackOpen} onClose={() => setMergeBackOpen(false)} />

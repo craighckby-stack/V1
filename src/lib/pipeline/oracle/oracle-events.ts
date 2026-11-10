@@ -44,8 +44,10 @@ export interface OracleEvent {
   message: string;
   /** Event classification — maps to the console stream's logType. */
   type: "info" | "success" | "warn" | "error";
-  /** Which oracle stage produced it: generator | evaluator | scheduler. */
-  source: "generator" | "evaluator" | "scheduler";
+  /** Which oracle stage produced it: generator | evaluator | scheduler |
+   *  auto-adjudicator (the deterministic self-prophecy judge from
+   *  oracle-auto.ts, audit 7). */
+  source: "generator" | "evaluator" | "scheduler" | "auto-adjudicator";
 }
 
 const MAX_EVENTS = 200;

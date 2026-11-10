@@ -47,7 +47,11 @@
  */
 
 import { db } from "@/lib/db";
-import { readArchaeologyReport } from "./archaeology";
+// NOTE: readArchaeologyReport is imported LAZILY inside bootstrapSelfModel
+// (not at module top-level). This keeps the import chain of getSelfModelSummary
+// (the function the /api/self-model route calls) lightweight — just `db` —
+// so the route's Turbopack compile is small (~136ms) and doesn't compete
+// with the heavy self-enhance-loop.ts compile for memory during cold boot.
 
 // ── Outcome classification ────────────────────────────────────────────
 
@@ -120,9 +124,13 @@ export async function bootstrapSelfModel(): Promise<void> {
 
     // 2. Archaeology priors (audit 7 de-mock): stable files from git
     //    history start MORE exhausted; fragile files start LESS.
+    //    Lazy import (audit 7): keeps getSelfModelSummary's import chain
+    //    light so the /api/self-model route compile doesn't pull in
+    //    archaeology.ts → lessons-markdown.ts at module-eval time.
     let stableSet = new Set<string>();
     let fragileSet = new Set<string>();
     try {
+      const { readArchaeologyReport } = await import("./archaeology");
       const report = readArchaeologyReport();
       if (report) {
         stableSet = new Set(report.stableFiles.map((s) => s.file));
@@ -399,6 +407,72 @@ export async function orderTargetsByBandit(
   } catch {
     // Model unavailable — degrade to the incoming (tree) order.
     return { ordered: candidateAbsPaths, scores: [] };
+  }
+}
+
+// ── Proactive saturation skip (audit 7 — "predict files that will zero-diff") ──
+
+export interface ProactiveSkipDecision {
+  skip: boolean;
+  reason: string;
+  /** The self-model's measured finished-score for this file (0-1). */
+  finishedScore: number;
+  /** The predicted confidence this attempt passes (0-1). */
+  confidence: number;
+  /** How many attempts the model has on this file (0 = no history). */
+  attempts: number;
+}
+
+/** The cognitive layer's proactive "this file is finished" detector. The
+ *  loop calls this BEFORE spending an LLM call on a file. When it returns
+ *  skip=true, the loop logs the decision and moves on — turning a would-be
+ *  zero-diff (which the old design only discovered AFTER burning quota) into
+ *  a free, predicted skip.
+ *
+ *  The threshold is deliberately conservative: a file must have
+ *    - enough history that the verdict is trustworthy (attempts >= 4),
+ *    - a high finished-score (>= 0.7 — three+ consecutive zero-diffs),
+ *    - AND a low predicted confidence (< 0.2 — the model expects failure).
+ *  A file that FAILS a lot (not zero-diffs) has a low confidence but a low
+ *  finished-score → NOT skipped (failures are still learning signal for the
+ *  debate tribunal and the corpus). Only files the model has CONVERGED on
+ *  as "nothing left to improve" are proactively skipped.
+ *
+ *  Fail-soft: a missing table or DB error returns skip=false (the loop
+ *  falls back to spending the LLM call — honest, just not optimal). */
+export async function shouldProactivelySkip(
+  filePath: string
+): Promise<ProactiveSkipDecision> {
+  try {
+    const file = await db.selfModelFile.findUnique({ where: { filePath } });
+    if (!file || file.attempts < 4) {
+      return {
+        skip: false,
+        reason: file ? `only ${file.attempts} attempt(s) — too few to trust` : "no history yet",
+        finishedScore: file?.finishedScore ?? 0,
+        confidence: 0.5,
+        attempts: file?.attempts ?? 0,
+      };
+    }
+    const pred = await predictConfidence(filePath, "refactor");
+    const skip = file.finishedScore >= 0.7 && pred.confidence < 0.2;
+    return {
+      skip,
+      reason: skip
+        ? `proactively skipping — finished ${file.finishedScore.toFixed(2)}, predicted ${(pred.confidence * 100).toFixed(0)}% (will zero-diff); ${file.zeroDiffs}/${file.attempts} zero-diffs`
+        : `not skipping — finished ${file.finishedScore.toFixed(2)}, predicted ${(pred.confidence * 100).toFixed(0)}%`,
+      finishedScore: file.finishedScore,
+      confidence: pred.confidence,
+      attempts: file.attempts,
+    };
+  } catch {
+    return {
+      skip: false,
+      reason: "self-model unavailable — spending the call (honest fallback)",
+      finishedScore: 0,
+      confidence: 0.5,
+      attempts: 0,
+    };
   }
 }
 

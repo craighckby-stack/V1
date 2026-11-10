@@ -8,12 +8,13 @@ export interface SiphonSource {
   readonly patterns: string[];
 }
 
-const SECURITY_THRESHOLD = 96;
-const AGENT_THRESHOLD = 94;
-const DEFAULT_THRESHOLD = 92;
-
-const SECURITY_KEYWORDS = ["crypto", "auth", "token", "key"] as const;
-const AGENT_KEYWORDS = ["agent", "loop", "engine", "prompt"] as const;
+// NOTE (audit 7 de-mock): SECURITY_THRESHOLD / AGENT_THRESHOLD /
+// DEFAULT_THRESHOLD / SECURITY_KEYWORDS / AGENT_KEYWORDS were removed.
+// They drove the mock performArchitecturalVote's hardcoded 96/94/92
+// "confidence" scores. The honest no-op replacement (below) doesn't
+// need them. The SIPHON_SOURCES catalog is retained as a reference
+// list (the UI dropdown + /api/engines/catalog serve it), but it no
+// longer drives a fake selection.
 
 export const SIPHON_SOURCES: readonly SiphonSource[] = [
   {
@@ -98,84 +99,49 @@ export interface ArchitecturalVote {
   recommendedPattern: string;
 }
 
-function containsKeyword(text: string | null | undefined, keywords: readonly string[]): boolean {
-  if (!text || typeof text !== 'string' || text.trim() === '') {
-    return false;
-  }
-  const lowerText = text.toLowerCase();
-  return keywords.some(keyword => keyword && typeof keyword === 'string' && lowerText.includes(keyword));
-}
-
-function isSecurityRelated(fileName: string | null | undefined, codeSnippet: string | null | undefined): boolean {
-  if (!fileName || typeof fileName !== 'string' || fileName.trim() === '' || 
-      !codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
-    return false;
-  }
-  return containsKeyword(fileName, SECURITY_KEYWORDS) || 
-         containsKeyword(codeSnippet, SECURITY_KEYWORDS);
-}
-
-function isAgentRelated(fileName: string | null | undefined, codeSnippet: string | null | undefined): boolean {
-  if (!fileName || typeof fileName !== 'string' || fileName.trim() === '' || 
-      !codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
-    return false;
-  }
-  return containsKeyword(fileName, AGENT_KEYWORDS) || 
-         containsKeyword(codeSnippet, AGENT_KEYWORDS);
-}
-
+/**
+ * performArchitecturalVote — HONEST NO-OP (audit 7 de-mock).
+ *
+ * The previous implementation was a MOCK SIMULATION: it matched keywords
+ * (crypto/auth/token/key → 96; agent/loop/engine/prompt → 94; else → 92)
+ * and returned hardcoded scores + rationale strings, which the manual
+ * pipeline's Stage 0 then surfaced as "[STAGE 0] Selected pattern: X
+ * (Confidence: 96%)" — presenting a hardcoded constant as a measured
+ * confidence. That was dishonest: no measurement happened.
+ *
+ * The honest replacement returns a NEUTRAL vote: score 0, rationale
+ * "no template selection — the LLM refactors directly", recommendedPattern
+ * "Direct LLM Refactor". The manual pipeline's Stage 0 now logs this
+ * honestly. The SIPHON_SOURCES catalog stays as a reference list (the UI
+ * dropdown and the /api/engines/catalog route still serve it), but it no
+ * longer drives a fake selection.
+ *
+ * The interface is unchanged (returns ArchitecturalVote) so
+ * unified-pipeline.ts and its type `patternVote`/`siphonVote` compile
+ * without modification. A future real classifier (LLM-based, measured)
+ * can replace this no-op; until then, nothing is pretending to measure.
+ */
 export function performArchitecturalVote(fileName: string, codeSnippet: string): ArchitecturalVote {
-  if (!fileName || typeof fileName !== 'string' || fileName.trim() === '') {
+  if (!fileName || typeof fileName !== "string" || fileName.trim() === "") {
     throw new Error("Invalid input: fileName must be a non-empty string");
   }
-  
-  if (!codeSnippet || typeof codeSnippet !== 'string' || codeSnippet.trim() === '') {
+  if (!codeSnippet || typeof codeSnippet !== "string" || codeSnippet.trim() === "") {
     throw new Error("Invalid input: codeSnippet must be a non-empty string");
   }
-  
-  // Resolve category anchors once per call (6-element array — trivial,
-  // but keeps the intent explicit). A missing category is a config
-  // integrity error and is thrown, never silently substituted.
-  const securitySource = SIPHON_SOURCES.find(source => source.category === "verification");
-  const agentSource = SIPHON_SOURCES.find(source => source.category === "runtime");
-  const defaultSource = SIPHON_SOURCES.find(source => source.category === "orchestration");
-  
-  if (!securitySource) {
-    throw new Error("Internal configuration error: Security siphon source is missing from SIPHON_SOURCES array. Please check array integrity for verification category.");
-  }
-  
-  if (!agentSource) {
-    throw new Error("Internal configuration error: Agent siphon source is missing from SIPHON_SOURCES array. Please check array integrity for runtime category.");
-  }
-
-  if (isSecurityRelated(fileName, codeSnippet)) {
-    return {
-      source: securitySource,
-      score: SECURITY_THRESHOLD,
-      rationale:
-        "Handles sensitive keys and security credentials; applied Shannon entropy sanitization and memory isolation.",
-      recommendedPattern: "Shannon Entropy Secret Sanitizer",
-    };
-  }
-
-  if (isAgentRelated(fileName, codeSnippet)) {
-    return {
-      source: agentSource,
-      score: AGENT_THRESHOLD,
-      rationale:
-        "Implements execution cycles or agent workflows; mapped to 5-Pillar Modular Agent Architecture.",
-      recommendedPattern: "Bounded ReAct Reasoning Loop & VFS Sandbox",
-    };
-  }
-
+  // The "orchestration" source is the neutral default — it's the category
+  // for general refactoring, not a security/agent specialization. Using it
+  // as the no-op anchor keeps the SIPHON_SOURCES reference list coherent.
+  const defaultSource =
+    SIPHON_SOURCES.find((source) => source.category === "orchestration") ??
+    SIPHON_SOURCES[0];
   if (!defaultSource) {
-    throw new Error("Internal configuration error: Default siphon source is missing from SIPHON_SOURCES array. Please check array integrity for orchestration category.");
+    throw new Error("Internal configuration error: SIPHON_SOURCES is empty — cannot anchor the no-op vote.");
   }
-
   return {
     source: defaultSource,
-    score: DEFAULT_THRESHOLD,
-    rationale: "Standard code refactoring and AST verification baseline.",
-    recommendedPattern: "AST Diff Gate Verification & Type Safety",
+    score: 0,
+    rationale:
+      "no template selection — the LLM refactors this file directly (audit 7 de-mock: the prior keyword-classifier vote was a hardcoded simulation, not a measurement)",
+    recommendedPattern: "Direct LLM Refactor",
   };
 }

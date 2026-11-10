@@ -26,7 +26,7 @@ import { db } from "@/lib/db";
 import { generateTasks, claimNextTask } from "./self-task-generator";
 import { executeTask, type TaskExecutionResult } from "./task-executor";
 import { detectTruncation, stripComments, stripLiteralsAndComments } from "./code-analysis";
-import { autoProphecyAfterCycle } from "../oracle/oracle-auto";
+import { autoProphecyAfterCycle, recordSelfProphecy, adjudicateSelfProphecies } from "../oracle/oracle-auto";
 import {
   TARGET_FILES,
   SCAN_SCOPES,
@@ -38,6 +38,22 @@ import {
   classifyGrowth,
 } from "./saturation";
 import { isProtectedPath } from "./protected-files";
+// D1 (architecture context): builds a 2-hop "neighborhood map" of the
+// file being enhanced (its imports + their exports + 2-hop imports) and
+// injects it into the refactor prompt so the LLM refactors with
+// architecture-level vision instead of in isolation. Fail-soft: if the
+// builder throws or returns empty, the prompt proceeds without it.
+import { buildArchContext } from "./arch-context";
+import {
+  bootstrapSelfModel,
+  orderTargetsByBandit,
+  openSelfPrediction,
+  resolveSelfPrediction,
+  noteOutcome,
+  classifyOutcome,
+  shouldProactivelySkip,
+  predictConfidence,
+} from "./self-model";
 import {
   getLessonsForPrompt,
   getPromotedProcedures,
@@ -470,6 +486,12 @@ class SelfEnhanceLoop {
   // hand-off. Cleared at the top of every enhanceFile so a stale list
   // can never feed back twice.
   private lastLessonIds: string[] = [];
+  // SELF-MODEL (audit 7): the mode of the CURRENT enhanceFile call, so the
+  // post-verdict noteOutcome + resolveSelfPrediction calls feed the
+  // calibration curve with the right per-mode stats. Set at the top of
+  // enhanceFile; consumed by runCycle after the verdict. Serial loop ⇒
+  // instance field is a safe hand-off (same contract as lastLessonIds).
+  private lastAttemptMode: "refactor" | "visual-polish" = "refactor";
   // D4 (corpus): per-attempt provenance scratch, same hand-off pattern
   // as lastLessonIds. Set inside enhanceFile/enhanceSchema at the
   // points where the originals/proposals/summaries are in scope;
@@ -587,6 +609,20 @@ class SelfEnhanceLoop {
     } catch {
       /* hot-swap module not loaded — first boot, no snapshot (normal) */
     }
+
+    // ── SELF-MODEL BOOTSTRAP (audit 7 — the cognitive core) ──────────
+    // One-time: aggregate the MutationCorpus audit trail (every attempt
+    // the loop has ever recorded — 400+ rows on a mature system) into
+    // per-file SelfModelFile rows, then apply archaeology stability
+    // priors. After this, the loop's file selection is DATA-DRIVEN (UCB1
+    // bandit) instead of tree-order, and every attempt opens a self-
+    // prediction that builds a real calibration curve. No-ops if the
+    // model already has rows (restart-safe). Best-effort — a missing
+    // table or DB error degrades to neutral defaults (the bandit
+    // returns the incoming tree order).
+    void bootstrapSelfModel().catch(() => {
+      /* table missing or DB unavailable — bandit degrades to tree order */
+    });
 
     // ── HOST-INJECTED UUID-COMMIT DETECTOR (commit-archaeology defense) ──
     // A bare-UUID commit message landed on `main` (commit e5d2b7a, message
@@ -1312,6 +1348,10 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
   async enhanceFile(filePath: string, mode: "refactor" | "visual-polish" = "refactor"): Promise<SelfEnhanceResult> {
     const relPath = relative(PROJECT_ROOT, filePath);
     this.currentFile = relPath;
+    // SELF-MODEL: record the mode so the post-verdict noteOutcome feeds
+    // the per-mode stats (visual-polish vs refactor) into the calibration
+    // curve. Serial loop ⇒ safe instance-field hand-off.
+    this.lastAttemptMode = mode;
     const startTime = Date.now();
     // Capture the current run generation. If stop() fires during this
     // enhanceFile (incrementing runId), we abort at the next checkpoint
@@ -1375,6 +1415,22 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       if (originalCode.length > MAX_FILE_BYTES) {
         result.reason = `Skipped (file too large: ${originalCode.length}b > ${MAX_FILE_BYTES}b)`;
         this.log(`Skipped ${relPath} (${originalCode.length}b — too large for LLM, would truncate)`, "info");
+        return result;
+      }
+      // 1a-ii. Skip files that are too SMALL to meaningfully enhance. A
+      // sub-80-byte .ts/.tsx file is almost certainly a barrel re-export,
+      // an empty placeholder, or a one-line constant — the LLM either
+      // zero-diffs it ("No issues found" — correct, it's done) or adds a
+      // useless header comment (cosmetic, gate-rejected). Either way the
+      // LLM call is wasted quota. The 80-byte floor is below any file
+      // with a real function/class/interface in it. Files this small are
+      // classified as no-growth by saturation (correctly — they ARE
+      // finished) and lock out after the threshold, so this is a
+      // quota-saving early-exit, not a permanent ban.
+      const MIN_FILE_BYTES = 80;
+      if (originalCode.trim().length < MIN_FILE_BYTES) {
+        result.reason = `Skipped (file too small: ${originalCode.trim().length}b < ${MIN_FILE_BYTES}b — likely barrel/placeholder, no meaningful enhancement)`;
+        this.log(`Skipped ${relPath} (${originalCode.trim().length}b — too small to meaningfully enhance)`, "info");
         return result;
       }
 
@@ -1496,6 +1552,36 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
         /* amplifier, not a gate */
       }
 
+      // 3-arch. ARCHITECTURE CONTEXT (D1) — a 2-hop "neighborhood map"
+      // of the file being refactored: its exports + its imports' exports
+      // + its 2-hop neighbors. Injected into the refactor prompt so the
+      // LLM refactors with architecture-level vision (it sees which
+      // other modules import THIS file's exports, so it won't rename a
+      // helper that 5 other files depend on). Computed ONCE per
+      // enhanceFile call (cheap: target + ≤19 1-hop files), cached in
+      // archContextBlock. Fail-soft: any error → empty block, prompt
+      // proceeds without arch vision (better than losing the cycle).
+      // NOT injected into visual-polish mode (UI components —
+      // architecture context is less relevant for styling changes).
+      let archContextBlock = "";
+      try {
+        const arch = buildArchContext(filePath);
+        if (arch.summary.length > 0) {
+          // Wrap with delimiters so the LLM can clearly see where the
+          // injected context begins and ends (vs. the file's own code
+          // above it). The summary itself already has an "=== ARCHITECTURE
+          // CONTEXT ===" header from the builder; the outer dashes make
+          // the injection block visually distinct from the code fence.
+          archContextBlock = `\n--- ARCHITECTURE CONTEXT (2-hop neighborhood, ${arch.fileCount} files parsed, hop=${arch.hopCount}) ---\n${arch.summary}\n--- END ARCHITECTURE CONTEXT ---\n`;
+          this.log(
+            `Built arch context for ${relPath}: ${arch.fileCount} files, ${arch.hopCount}-hop, ${arch.summary.length}b`,
+            "info"
+          );
+        }
+      } catch {
+        /* arch context is a vision amplifier, not a gate — fail-soft */
+      }
+
       const refactorSystem = `You are a senior code reviewer improving a TypeScript file inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
 
 Your job: find and fix REAL issues. Do NOT make cosmetic changes (type annotations, magic numbers, syntax modernization). Those are pointless. Instead, look for:
@@ -1529,7 +1615,7 @@ OUTPUT FORMAT (mandatory):
 \`\`\`
 ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${rejectedBlock}${ancestralBlock}${lessonsBlock}`;
 
-      const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nFind real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in this file. Fix them. If nothing needs fixing, return the file unchanged. Output the summary first, then the code.`;
+      const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n${archContextBlock}\nFind real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in this file. Fix them. If nothing needs fixing, return the file unchanged. Use the architecture context above (if present) to avoid breaking changes that would affect importing modules. Output the summary first, then the code.`;
 
       // ── VISUAL-POLISH MODE (audit 6 — the user flagged "still not
       //    enhancing its own ui look") ────────────────────────────────
@@ -2465,12 +2551,35 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         }
       }
 
-      const files = this.scanFiles();
+      const scanned = this.scanFiles();
       // Cumulative scan count — increments every cycle so the counter visibly
       // moves (was `= files.length`, frozen at 16 forever, looked broken).
-      this.stats.totalScanned += files.length;
-      this.log(`Scanned ${files.length} files in src/lib/pipeline/`, "info");
+      this.stats.totalScanned += scanned.length;
+      this.log(`Scanned ${scanned.length} files in src/lib/pipeline/`, "info");
 
+      // ── BANDIT TARGET ORDERING (audit 7 — "priority-weighted file
+      //    selection", the cognitive core) ──────────────────────────────
+      // The self-model's UCB1 bandit reorders candidates by:
+      //   empirical success rate (Laplace-smoothed)
+      //   + exploration bonus (untried files get a look)
+      //   + recency bonus (long-untouched files resurface)
+      //   - exhaustion penalty (files that keep zero-diffing sink)
+      // This replaces the old alphabetical tree-order scan with actual
+      // DECISION-MAKING. The bandit self-explains its top 3 picks in the
+      // log ("🧠 target: X — score 0.62 (3/5 passed, 14d untouched, ...)")
+      // so the loop's reasoning is visible. Focus mode (TARGET_FILES
+      // non-empty) respects the operator's named order — the bandit only
+      // reorders full-scope scans. Degrades to tree order if the self-
+      // model table is missing.
+      let files = scanned;
+      if (TARGET_FILES.length === 0 && scanned.length > 1) {
+        try {
+          const { ordered } = await orderTargetsByBandit(scanned, PROJECT_ROOT, (line, level) => this.log(line, level));
+          files = ordered;
+        } catch {
+          /* self-model unavailable — tree order */
+        }
+      }
       // ── VISUAL-POLISH PRE-PASS (audit 6 — "still not enhancing its own
       //    ui look") ────────────────────────────────────────────────────
       // Every VISUAL_POLISH_INTERVAL cycles, pick one .tsx UI component
@@ -2501,9 +2610,20 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
             // Rotate through the list by cycle number so we don't polish
             // the same component every time.
             const pick = uiFiles[this.stats.cyclesCompleted % uiFiles.length];
-            this.log(`Visual-polish mode: targeting ${relative(PROJECT_ROOT, pick)}`, "info");
+            const pickRel = relative(PROJECT_ROOT, pick);
+            this.log(`Visual-polish mode: targeting ${pickRel}`, "info");
+            // SELF-MODEL (audit 7): open a prediction + record the outcome
+            // so the calibration curve has visual-polish samples too. The
+            // per-mode stats (visualPolishAttempts/Passes) feed the mode-
+            // specific confidence in predictConfidence.
+            const vpPredId = await openSelfPrediction(
+              pickRel, "visual-polish", this.stats.cyclesCompleted + 1
+            ).catch(() => null);
             const vpResult = await this.enhanceFile(pick, "visual-polish");
             visualPolishResults.push(vpResult);
+            const vpOutcome = classifyOutcome(vpResult.enhanced, vpResult.reason);
+            void noteOutcome(pickRel, vpOutcome, "visual-polish").catch(() => {});
+            void resolveSelfPrediction(vpPredId, vpOutcome).catch(() => {});
             if (vpResult.enhanced) {
               this.log(`Visual-polish applied: ${vpResult.filePath} — ${vpResult.reason.slice(0, 80)}`, "success");
             } else {
@@ -2570,11 +2690,109 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
           this.log(`LLM cooldown escalated mid-cycle — ending cycle (will pause ${Math.round(cdBefore / 1000)}s before next cycle)`, "warn");
           break;
         }
+
+        // ── PROACTIVE SATURATION SKIP (audit 7 — "predict files that
+        //    will zero-diff", the cognitive core) ──────────────────────
+        // Ask the self-model BEFORE the LLM call: is this file "finished"
+        // (high finishedScore + low predicted confidence + enough
+        // history to trust the verdict)? If yes, skip it for free — no
+        // LLM call, no quota burn, no waiting for the 3-cycle lockout.
+        // This is the loop PREDICTING its own zero-diffs instead of
+        // discovering them after the fact. The skip is logged so the
+        // reasoning is visible ("🧠 proactively skipping X — finished
+        // 0.85, predicted 12% (will zero-diff)"). Falls back to spending
+        // the call if the self-model is unavailable (honest).
+        try {
+          const skip = await shouldProactivelySkip(relPath);
+          if (skip.skip) {
+            this.log(`🧠 ${skip.reason}`, "info");
+            results.push({
+              filePath: relPath,
+              enhanced: false,
+              reason: `Skipped (self-model predicts zero-diff: finished ${skip.finishedScore.toFixed(2)}, predicted ${(skip.confidence * 100).toFixed(0)}%)`,
+              oldBytes: 0,
+              newBytes: 0,
+              diffBytes: 0,
+              llmUsed: false,
+              llmLatencyMs: 0,
+              compiled: false,
+              pushed: false,
+            });
+            lockedSkipped++;
+            continue;
+          }
+        } catch {
+          /* self-model unavailable — proceed to LLM call (honest) */
+        }
+
+        // ── SELF-PREDICTION (audit 7 — the calibration engine) ────────
+        // Open a prediction row BEFORE the attempt. The self-model
+        // predicts its own success probability from empirical data (no
+        // LLM cost — the prediction IS the model speaking). After the
+        // gate verdict, resolveSelfPrediction closes the row. Over
+        // cycles this builds a REAL calibration curve: "when I say 70%
+        // confident, am I right 70% of the time?" with a Brier score as
+        // the single number for self-knowledge. Fail-soft: a null id
+        // means no prediction recorded (calibration loses one sample).
+        const predId = await openSelfPrediction(
+          relPath,
+          "refactor",
+          this.stats.cyclesCompleted + 1
+        ).catch(() => null);
+
+        // ── SELF-PROPHECY (audit 7 — the Oracle's public track record)
+        //    ──────────────────────────────────────────────────────────
+        // The self-model's prediction ALSO becomes an Oracle Prophecy
+        // row (domain="self-prediction") with a 10-min horizon. The
+        // auto-adjudicator resolves it next cycle with NO LLM call — the
+        // verdict IS the next attempt's outcome. This floods the Oracle
+        // with adjudicable, continuous-confidence prophecies (vs the
+        // sparse LLM-generated kind), giving a real calibration curve
+        // within hours. Fire-and-forget; fail-soft.
+        if (predId !== null) {
+          void (async () => {
+            try {
+              const pc = await predictConfidence(relPath, "refactor");
+              await recordSelfProphecy({
+                filePath: relPath,
+                confidence: pc.confidence,
+                reason: pc.reason,
+                mode: "refactor",
+                cycleNumber: this.stats.cyclesCompleted + 1,
+              });
+            } catch {
+              /* fail-soft */
+            }
+          })();
+        }
+
         const result = await this.enhanceFile(file);
         results.push(result);
         if (result.enhanced) enhanced++;
         if (result.reason.startsWith("Rejected")) this.stats.totalReverted++;
         if (result.reason.startsWith("Deferred")) deferredThisCycle++;
+
+        // ── SELF-MODEL OUTCOME (audit 7 — feeds the bandit + the
+        //    calibration curve) ─────────────────────────────────────────
+        // Classify the verdict and record it into the self-model: the
+        // bandit's empirical rate for this file updates, the finished-
+        // score shifts (zero-diff → +0.25 toward "finished", pass →
+        // -0.15 back toward "room to improve"), and the prediction row
+        // resolves. Both calls are fail-soft — a DB hiccup loses one
+        // sample but never fails the cycle. The mode comes from
+        // lastAttemptMode (set at enhanceFile top), defaulting to
+        // refactor for the main loop.
+        const outcome = classifyOutcome(result.enhanced, result.reason);
+        void noteOutcome(relPath, outcome, this.lastAttemptMode).catch(() => {});
+        void resolveSelfPrediction(predId, outcome).catch(() => {});
+        // ── ORACLE SELF-PROPHECY ADJUDICATION (audit 7) ──────────────
+        // Deterministically judge any pending self-prophecies for this
+        // file whose predicted cycle has passed. No LLM, no cooldown
+        // gate — the verdict IS this attempt's outcome. Closes the
+        // oracle's loop in one cycle.
+        void adjudicateSelfProphecies(
+          relPath, result.enhanced, this.stats.cyclesCompleted + 1
+        ).catch(() => {});
 
         // ── COMPOUNDING FEEDBACK SUITE (D1/D4/D7/D8) ─────────────────
         // All best-effort: a feedback failure must never fail the cycle.
