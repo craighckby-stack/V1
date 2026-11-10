@@ -91,10 +91,19 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
 export function readOperatorTouch(): OperatorTouchState | null {
   try {
     const raw = readFileSync(OPERATOR_TOUCH_FILE, "utf8");
-    const parsed: { at: string; by: string } = JSON.parse(raw);
+    let parsed: unknown;
+    
+    try {
+      parsed = JSON.parse(raw);
+    } catch (jsonError) {
+      console.error(`Failed to parse operator touch JSON at ${OPERATOR_TOUCH_FILE}: ${jsonError instanceof Error ? jsonError.message : 'Unknown error'}`);
+      return null;
+    }
     
     // Validate the parsed object strictly against the required structure
-    if (typeof parsed.at !== "string" || typeof parsed.by !== "string") {
+    if (typeof parsed !== "object" || parsed === null || 
+        !("at" in parsed) || !("by" in parsed) ||
+        typeof parsed.at !== "string" || typeof parsed.by !== "string") {
       console.error(`Invalid operator touch file format at ${OPERATOR_TOUCH_FILE}`);
       return null;
     }
