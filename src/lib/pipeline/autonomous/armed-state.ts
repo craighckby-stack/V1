@@ -106,7 +106,9 @@ export function readArmedState(): ArmedState | null {
     const parsed = JSON.parse(raw);
     
     // Validate that parsed is a non-null object and has all required fields
-    if (typeof parsed === "object" && parsed !== null && 
+    if (parsed && 
+        typeof parsed === "object" && 
+        parsed !== null && 
         typeof parsed.armed === "boolean" && 
         typeof parsed.at === "string" && 
         typeof parsed.by === "string" &&
