@@ -60,7 +60,7 @@ class LoopEventBus {
       // This should ideally never happen if constructor succeeded, but kept for robustness.
       throw new Error("LoopEventBus.emit() called on uninitialized EventEmitter");
     }
-    if (typeof evt !== 'object' || evt === null) {
+    if (!evt || typeof evt !== 'object') {
       throw new Error("LoopEventBus.emit() called with null or non-object event");
     }
     if (typeof evt.timestamp !== "number" || evt.timestamp <= 0) {
@@ -73,6 +73,11 @@ class LoopEventBus {
     // Input validation for kinds requiring cycleId and filePath
     if ((evt.kind === "stage" || evt.kind === "push") && (!evt.cycleId || typeof evt.cycleId !== "string" || !evt.filePath || typeof evt.filePath !== "string")) {
       throw new Error(`LoopEventBus.emit() for kind '${evt.kind}' requires non-empty string cycleId and filePath.`);
+    }
+
+    // Additional validation for push event outcomes
+    if (evt.kind === "push" && !["committed", "toctou_conflict", "toctou_healed", "skipped_remote_changed", "failed"].includes(evt.outcome)) {
+      throw new Error(`LoopEventBus.emit() for kind 'push' has invalid outcome: ${evt.outcome}`);
     }
 
     return this.emitter.emit("event", evt);
