@@ -1308,7 +1308,7 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
   /**
    * Enhance a single file: LLM refactor → verify tsc → write live → git push.
    */
-  async enhanceFile(filePath: string): Promise<SelfEnhanceResult> {
+  async enhanceFile(filePath: string, mode: "refactor" | "visual-polish" = "refactor"): Promise<SelfEnhanceResult> {
     const relPath = relative(PROJECT_ROOT, filePath);
     this.currentFile = relPath;
     const startTime = Date.now();
@@ -1530,9 +1530,60 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
 
       const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nFind real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in this file. Fix them. If nothing needs fixing, return the file unchanged. Output the summary first, then the code.`;
 
+      // ── VISUAL-POLISH MODE (audit 6 — the user flagged "still not
+      //    enhancing its own ui look") ────────────────────────────────
+      // The default refactor prompt forbids "cosmetic changes" and only
+      // asks for bugs/security/dead-code. So even when the loop touches a
+      // .tsx UI file, it makes null-safety fixes, never VISUAL changes
+      // (styling, layout, accessibility, responsiveness). The visual-polish
+      // mode flips the prompt: ask for presentation-layer improvements
+      // only, preserve all functionality. Same gate chain applies
+      // (typecheck catches broken JSX, structural-validator catches dropped
+      // exports, mutation-guard catches evil tokens, debate evaluates
+      // reasonableness) — so the safety net is unchanged, only the prompt
+      // differs.
+      const visualPolishSystem = `You are a senior frontend engineer improving a React/TypeScript UI component inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
+
+Your job: improve the VISUAL PRESENTATION and USER EXPERIENCE of this component. Do NOT fix bugs or change logic — other cycles handle that. Focus on:
+
+1. STYLING CONSISTENCY: align spacing, padding, border-radius, font sizes with the surrounding design language. Use consistent Tailwind classes.
+2. ACCESSIBILITY: add aria-labels for icon-only buttons, ensure focus-visible states, check color contrast (avoid gray-on-gray for important text), add sr-only labels where a screen reader needs context.
+3. RESPONSIVE DESIGN: add mobile breakpoints (sm:, md:) where a layout would break on narrow screens. Ensure touch targets are ≥44px.
+4. MICRO-INTERACTIONS: add hover/focus transitions (transition-colors, duration-150), subtle scale on active states for buttons. Keep transitions short (≤200ms).
+5. VISUAL HIERARCHY: improve the information hierarchy — emphasize the primary action, de-emphasize secondary info, use consistent heading sizes.
+
+HARD RULES (violating any rule fails the pipeline):
+- Preserve EVERY top-level exported symbol (function, class, interface, type, const). Do not rename or remove them.
+- Do NOT change any event handler logic, state management, or data flow. Only change className/style/presentation.
+- Do NOT change the public API signature of any export (props, parameter names, types, return type must stay the same).
+- Do NOT add header comments, banners, or branding.
+- Keep changes focused — don't rewrite the whole file. Only improve the presentation.
+- If the component already looks polished, output the original code unchanged.
+
+OUTPUT FORMAT (mandatory):
+- First, write a SHORT summary (1-5 bullet points) of what you changed and why. Start with "## Changes" on its own line.
+- Then output the complete refactored code in a single fenced \`\`\`typescript block.
+- Example:
+## Changes
+- Added aria-label to icon-only close button for screen readers
+- Added focus-visible:ring-2 for keyboard navigation on all interactive elements
+- Added sm: breakpoint so the card grid stacks on mobile
+- Improved contrast of the secondary text from text-gray-400 to text-gray-300
+
+\`\`\`typescript
+// the full file with visual improvements applied
+\`\`\`
+${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${rejectedBlock}${ancestralBlock}${lessonsBlock}`;
+
+      const visualPolishUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nImprove the visual presentation, accessibility, and responsiveness of this UI component. Do NOT change any logic or functionality — only styling, aria attributes, responsive breakpoints, and micro-interactions. If it already looks polished, return the file unchanged. Output the summary first, then the code.`;
+
+      const isVisualPolish = mode === "visual-polish";
+      const activeSystem = isVisualPolish ? visualPolishSystem : refactorSystem;
+      const activeUser = isVisualPolish ? visualPolishUser : refactorUser;
+
       const llmResult = await llmComplete({
-        systemPrompt: refactorSystem,
-        userPrompt: refactorUser,
+        systemPrompt: activeSystem,
+        userPrompt: activeUser,
         temperature: 0.2,
         onRetry: (info) => {
           const backoff = info.isRateLimit ? `${Math.round(info.delayMs / 1000)}s` : `${info.delayMs}ms`;
@@ -2419,10 +2470,60 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       this.stats.totalScanned += files.length;
       this.log(`Scanned ${files.length} files in src/lib/pipeline/`, "info");
 
+      // ── VISUAL-POLISH PRE-PASS (audit 6 — "still not enhancing its own
+      //    ui look") ────────────────────────────────────────────────────
+      // Every VISUAL_POLISH_INTERVAL cycles, pick one .tsx UI component
+      // from src/components/pipeline/ and run it through the visual-polish
+      // prompt (styling/accessibility/responsive/micro-interactions) BEFORE
+      // the whole-file bug-hunt scan. The default refactor prompt forbids
+      // cosmetic changes, so without this pre-pass the loop only ever
+      // makes null-safety fixes to UI files — never visual improvements.
+      // Same gate chain (typecheck + structural-validator + mutation-guard
+      // + debate) applies; only the prompt differs.
+      const VISUAL_POLISH_INTERVAL = 5;
+      const visualPolishResults: SelfEnhanceResult[] = [];
+      if (
+        this.stats.cyclesCompleted % VISUAL_POLISH_INTERVAL === 0 &&
+        !isSafeMode() &&
+        myRun === this.runId &&
+        llmCooldownMs() === 0
+      ) {
+        try {
+          // Pick a .tsx UI component that's not protected and not locked out.
+          const uiFiles = files.filter(
+            (f) =>
+              f.includes("/components/pipeline/") &&
+              f.endsWith(".tsx") &&
+              !isProtectedPath(relative(PROJECT_ROOT, f)),
+          );
+          if (uiFiles.length > 0) {
+            // Rotate through the list by cycle number so we don't polish
+            // the same component every time.
+            const pick = uiFiles[this.stats.cyclesCompleted % uiFiles.length];
+            this.log(`Visual-polish mode: targeting ${relative(PROJECT_ROOT, pick)}`, "info");
+            const vpResult = await this.enhanceFile(pick, "visual-polish");
+            visualPolishResults.push(vpResult);
+            if (vpResult.enhanced) {
+              this.log(`Visual-polish applied: ${vpResult.filePath} — ${vpResult.reason.slice(0, 80)}`, "success");
+            } else {
+              this.log(`Visual-polish no-op: ${vpResult.filePath} — ${vpResult.reason.slice(0, 80)}`, "info");
+            }
+          }
+        } catch (vpErr) {
+          this.log(`Visual-polish error (non-fatal): ${(vpErr as Error).message.slice(0, 120)}`, "warn");
+        }
+      }
+
       const results: SelfEnhanceResult[] = [];
       let enhanced = 0;
       let deferredThisCycle = 0;
       let lockedSkipped = 0;
+
+      // Merge visual-polish results into the cycle's result list.
+      if (visualPolishResults.length > 0) {
+        results.push(...visualPolishResults);
+        enhanced += visualPolishResults.filter((r) => r.enhanced).length;
+      }
 
       for (const file of files) {
         // Run-token check inside the for-loop. Token-ONLY (audit 2): the

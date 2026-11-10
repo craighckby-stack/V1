@@ -104,14 +104,14 @@ export function readOperatorTouch(): OperatorTouchState | null {
     if (typeof parsed !== "object" || parsed === null || 
         !("at" in parsed) || !("by" in parsed) ||
         typeof parsed.at !== "string" || typeof parsed.by !== "string") {
-      console.error(`Invalid operator touch file format at ${OPERATOR_TOUCH_FILE}`);
+      console.error(`Invalid operator touch file format at ${OPERATOR_TOUCH_FILE}: missing required 'at' or 'by' fields or wrong types`);
       return null;
     }
     
     // Validate timestamp format before returning
     const timestamp = Date.parse(parsed.at);
     if (isNaN(timestamp)) {
-      console.error(`Invalid timestamp in operator touch file at ${OPERATOR_TOUCH_FILE}`);
+      console.error(`Invalid timestamp in operator touch file at ${OPERATOR_TOUCH_FILE}: '${parsed.at}' is not a valid ISO date`);
       return null;
     }
     
@@ -151,7 +151,7 @@ export function isDeadMansTripped(
   if (!state) return true; // never touched, unreadable, or malformed → tripped
   
   const lastTouch = Date.parse(state.at);
-  if (!Number.isFinite(lastTouch)) return true; // bad timestamp → tripped
+  if (isNaN(lastTouch)) return true; // bad timestamp → tripped
   
   return now.getTime() - lastTouch > thresholdMs;
 }
