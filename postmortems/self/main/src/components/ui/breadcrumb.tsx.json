@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/ui/breadcrumb.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "evidence": "Original: 2401 bytes, Refactored: 2670 bytes. Errors: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "constraints": "The previous refactor of src/components/ui/breadcrumb.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "0b33bd7ccedcee40c468628ccdebecd284b2aec0f3618908a17c172512d27f42",
+  "hash": "2739e26ff59d2c3c38f165e8bb132d237239cd030d5ef0af75f41f5fb32a1f19",
+  "lastAttemptAt": "2026-11-10T23:31:45.664Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T23:31:45.665Z",
+  "updatedAt": "2026-11-10T23:31:45.665Z",
+  "schema": 2
+}

@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/ui/carousel.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "evidence": "Original: 5544 bytes, Refactored: 5922 bytes. Errors: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "constraints": "The previous refactor of src/components/ui/carousel.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "2739e26ff59d2c3c38f165e8bb132d237239cd030d5ef0af75f41f5fb32a1f19",
+  "hash": "f09ab2db407884eb4f9bba2097ed663a9185b5ce651cbdd89c455bf440999fa5",
+  "lastAttemptAt": "2026-11-10T23:33:06.489Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T23:33:06.490Z",
+  "updatedAt": "2026-11-10T23:33:06.490Z",
+  "schema": 2
+}

@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/ui/toast.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "evidence": "Original: 4829 bytes, Refactored: 4835 bytes. Errors: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
+  "constraints": "The previous refactor of src/components/ui/toast.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "f09ab2db407884eb4f9bba2097ed663a9185b5ce651cbdd89c455bf440999fa5",
+  "hash": "4d57bd7c0b9aaf91af8128b26ed8650b4f0ccf5f5f737c9e858a4737e055f116",
+  "lastAttemptAt": "2026-11-10T23:44:17.564Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T23:44:17.565Z",
+  "updatedAt": "2026-11-10T23:44:17.565Z",
+  "schema": 2
+}
