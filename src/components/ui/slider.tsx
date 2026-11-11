@@ -23,6 +23,18 @@ function Slider({
     [value, defaultValue, min, max]
   )
 
+  const thumbCount = React.useMemo(() => {
+    if (Array.isArray(value)) {
+      return value.length;
+    }
+    if (Array.isArray(defaultValue)) {
+      return defaultValue.length;
+    }
+    // If neither is an array, we assume a single thumb if min/max are set,
+    // or rely on Radix default behavior, but for rendering, 1 is safer than 2 if inputs are missing.
+    return 1;
+  }, [value, defaultValue])
+
   return (
     <SliderPrimitive.Root
       data-slot="slider"
@@ -49,7 +61,7 @@ function Slider({
           )}
         />
       </SliderPrimitive.Track>
-      {Array.from({ length: _values.length }, (_, index) => (
+      {Array.from({ length: thumbCount }, (_, index) => (
         <SliderPrimitive.Thumb
           data-slot="slider-thumb"
           key={index}

@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/ui/sheet.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
@@ -12,8 +12,8 @@
   "parentHash": "349109bc5ca22fd145df5e37ea41582207b2c6d29306727b221448062f8c6bfe",
   "hash": "c967103cbee3bb008b0215fe252648432a125d85fc52094aee4baa050c77a0a7",
   "lastAttemptAt": "2026-11-10T23:18:08.938Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-11T14:27:18.379Z",
   "createdAt": "2026-11-10T22:42:12.162Z",
-  "updatedAt": "2026-11-10T23:18:08.938Z",
+  "updatedAt": "2026-11-11T14:27:18.379Z",
   "schema": 2
 }
