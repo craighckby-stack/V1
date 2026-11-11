@@ -32,6 +32,12 @@ function SelectTrigger({
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
   size?: "sm" | "default"
 }) {
+  if (size !== "sm" && size !== "default") {
+    // Guard clause for invalid size input
+    console.error("Invalid size provided to SelectTrigger. Must be 'sm' or 'default'. Received:", size);
+    // Default to 'default' if invalid, maintaining API contract while preventing bad rendering
+    size = "default";
+  }
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
