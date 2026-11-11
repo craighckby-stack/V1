@@ -5,12 +5,17 @@ import * as SeparatorPrimitive from "@radix-ui/react-separator"
 
 import { cn } from "@/lib/utils"
 
+type Orientation = "horizontal" | "vertical"
+
 function Separator({
   className,
   orientation = "horizontal",
   decorative = true,
   ...props
 }: React.ComponentProps<typeof SeparatorPrimitive.Root>) {
+  if (orientation !== "horizontal" && orientation !== "vertical") {
+    throw new Error(`Invalid orientation provided to Separator. Must be 'horizontal' or 'vertical', received: ${orientation}`)
+  }
   return (
     <SeparatorPrimitive.Root
       data-slot="separator"
