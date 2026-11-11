@@ -99,16 +99,17 @@ export async function oracleSchedulerTick(): Promise<{
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     emitOracleEvent(
-      `Oracle scheduler tick error: ${error.message}`,
+      `Oracle scheduler tick error: ${error.message}\n${error.stack || ''}`,
       "error",
       "scheduler",
     );
     return { ran: false, reason: "failed to list due prophecies" };
   }
 
+  s.lastTickAt = Date.now(); // Update tick time even if no prophecies are due
+  s.ticks += 1;
+
   if (due.length === 0) {
-    s.lastTickAt = Date.now();
-    s.ticks += 1;
     return { ran: true, judged: 0, skipped: 0 };
   }
 
@@ -125,9 +126,7 @@ export async function oracleSchedulerTick(): Promise<{
     if (!Array.isArray(judged) || !Array.isArray(skipped)) {
       throw new Error('evaluateDueProphecies() returned non-array for judged or skipped');
     }
-    s.lastTickAt = Date.now();
     s.lastJudgedCount = judged.length;
-    s.ticks += 1;
     return { ran: true, judged: judged.length, skipped: skipped.length };
   } finally {
     s.running = false;
@@ -154,7 +153,7 @@ function bootOracleScheduler(): void {
       // A background bookkeeper must never crash the process.
       const error = err instanceof Error ? err : new Error(String(err));
       emitOracleEvent(
-        `Oracle scheduler tick error: ${error.message}\n${error.stack}`,
+        `Oracle scheduler tick error: ${error.message}\n${error.stack || ''}`,
         "error",
         "scheduler",
       );
