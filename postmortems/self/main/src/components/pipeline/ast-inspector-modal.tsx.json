@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/ast-inspector-modal.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/ast-inspector-modal.tsx(79,27): error TS2367: This comparison appears to be unintentional because the types '\"HALTED\" | \"SANITIZED_APPLIED\"' and '\"PENDING\"' have no overlap.",
@@ -12,8 +12,8 @@
   "parentHash": "c1a0938cd4d2dac48a0193027ba33bf2ca408b64761962e56e636062cf842f36",
   "hash": "c331cf205660ed3d3314defc6e41353779ca42cc018f6256cf880a4e7526a80a",
   "lastAttemptAt": "2026-11-10T05:04:10.330Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-11T13:30:24.285Z",
   "createdAt": "2026-11-10T04:33:40.292Z",
-  "updatedAt": "2026-11-10T05:04:10.330Z",
+  "updatedAt": "2026-11-11T13:30:24.285Z",
   "schema": 2
 }
