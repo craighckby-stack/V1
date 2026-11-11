@@ -82,7 +82,8 @@ export function markArmed(armed: boolean, by: string): void {
       try {
         mkdirSync(infoDir, { recursive: true });
       } catch (mkdirError) {
-        console.error(`markArmed: Failed to create directory ${infoDir}:`, mkdirError instanceof Error ? mkdirError.message : String(mkdirError));
+        const errorMessage = mkdirError instanceof Error ? mkdirError.message : String(mkdirError);
+        console.error(`markArmed: Failed to create directory ${infoDir}. Check permissions. Error: ${errorMessage}`);
         return; // Cannot proceed without directory
       }
     }
@@ -92,7 +93,7 @@ export function markArmed(armed: boolean, by: string): void {
   } catch (error) {
     // Log the error for debugging but don't throw to maintain the contract
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`markArmed: Failed to persist armed state to ${ARMED_STATE_FILE}:`, errorMessage);
+    console.error(`markArmed: Failed to persist armed state to ${ARMED_STATE_FILE}. Check file system permissions. Error: ${errorMessage}`);
   }
 }
 
@@ -119,7 +120,7 @@ export function readArmedState(): ArmedState | null {
     try {
       parsed = JSON.parse(raw);
     } catch (jsonError) {
-      console.error(`readArmedState: Failed to parse armed state JSON from ${ARMED_STATE_FILE}:`, jsonError instanceof Error ? jsonError.message : String(jsonError));
+      console.error(`readArmedState: Failed to parse armed state JSON from ${ARMED_STATE_FILE}. File content is invalid JSON. Error: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}`);
       return null;
     }
     
@@ -140,12 +141,12 @@ export function readArmedState(): ArmedState | null {
       };
     }
     
-    console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data`);
+    console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure.`);
     return null;
   } catch (error) {
     // Log the error for debugging but return null to maintain the contract
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`readArmedState: Failed to read armed state from ${ARMED_STATE_FILE}:`, errorMessage);
+    console.error(`readArmedState: Failed to read armed state from ${ARMED_STATE_FILE}. Check file permissions or existence. Error: ${errorMessage}`);
     return null;
   }
 }
