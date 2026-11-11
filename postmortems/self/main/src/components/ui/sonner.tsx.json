@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/ui/sonner.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: src/components/ui/sonner.tsx(11,7): error TS2322: Type 'string' is not assignable to type '\"system\" | \"dark\" | \"light\" | undefined'.",
+  "evidence": "Original: 564 bytes, Refactored: 538 bytes. Errors: src/components/ui/sonner.tsx(11,7): error TS2322: Type 'string' is not assignable to type '\"system\" | \"dark\" | \"light\" | undefined'.",
+  "constraints": "The previous refactor of src/components/ui/sonner.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "c4edb1310840017794ecc58d990f72867daf9b2aa6d67bbbb4c0a7b925e95c4d",
+  "hash": "03767779432b5294af757c3551e18438a38b050a9518318ad4bf623a0bb0edcc",
+  "lastAttemptAt": "2026-11-11T14:28:38.449Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-11T14:28:38.450Z",
+  "updatedAt": "2026-11-11T14:28:38.450Z",
+  "schema": 2
+}
