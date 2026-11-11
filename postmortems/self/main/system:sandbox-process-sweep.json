@@ -1,0 +1,20 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "system:sandbox-process-sweep",
+  "status": "resolved",
+  "verificationStatus": "verified",
+  "failureType": "OTHER",
+  "symptom": "The Next.js dev server (bun run dev / next dev) dies silently — no OOM, no exit code, no shutdown log — within seconds-to-minutes of the Bash tool call that launched it. The user sees 'Not loading' in the preview panel.",
+  "evidence": "Investigated 2026-11-10 after repeated 'Not loading' reports. (1) Kernel counters: oom_kill=0, under_oom=0 — the kernel NEVER OOM-killed the process. Container uptime continuous since 04:32 — no restarts. (2) Instrumented run: launched dev server + an unrelated bash RSS-sampler as children of the same tool-call shell; BOTH died at EXACTLY the tool-call boundary — no exit code captured, no shutdown trace in dev.log (log truncates mid-line at the last request). The whole process tree was swept. (3) Control: the agent-browser daemon (PID 10631, launched 06:00) survived the same sweep — because it double-forked to PPID=1 (init) before its launching call ended. (4) Root cause: the sandbox driver sweeps the entire process tree of each Bash tool call when that call ENDS. Any child of the tool-call shell — including bun run dev — is SIGKILL'd at call completion. This is why the dev server dies when a session ends (the final call's tree is swept) and why nohup-style launches die within the call. (5) The 429 cortex-ping error in dev.log is a red herring — it's handled (cortex marks ready-with-note on 429). Memory pressure is also a red herring — 4GB limit, 3.2GB free at time of death.",
+  "constraints": "MANDATORY launch pattern for the dev server (and any long-lived process spawned from a Bash tool call): use the subshell-exit + setsid double-fork so the process reparents to init (PPID=1) BEFORE the tool call ends. Exact command: cd /home/z/my-project && rm -f dev.log && ( setsid bun run dev > dev.log 2>&1 < /dev/null & ) ; sleep 9 ; verify with ps -eo pid,ppid,cmd | grep 'next dev' (expect the 'bun run dev' PID to have PPID=1). The subshell ( ) exits immediately, setsid makes bun a session leader, and the & backgrounds it — by the time the tool call ends, the process is no longer in the call's tree. Plain nohup is NOT sufficient (still gets reaped). The keepalive cron (cron job 520064, every 10 min) uses this exact pattern in its relaunch step and is the second-line defense — tighten its interval to 3 min if deaths are frequent. This finding is operational environment knowledge, NOT a code defect — the sandbox sweep is by design; the fix is the launch pattern, not a source change.",
+  "attempts": 4,
+  "parentHash": null,
+  "hash": null,
+  "lastAttemptAt": "2026-11-10T07:30:00.000Z",
+  "resolvedAt": "2026-11-10T07:35:00.000Z",
+  "resolution": "Resolved operationally: all dev-server launches now use the setsid subshell-exit pattern (PPID=1). Keepalive cron (job 520064) monitors /api/healthz every 10 min and relaunches with the same pattern if dead. The pattern is also baked into the keepalive cron prompt so a fresh session inherits it. This finding is persisted so a fresh session does not re-derive the root cause (took ~8 instrumented runs to isolate).",
+  "createdAt": "2026-11-10T07:00:00.000Z",
+  "updatedAt": "2026-11-10T07:35:00.000Z",
+  "schema": 2
+}

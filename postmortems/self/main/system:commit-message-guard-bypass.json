@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "system:commit-message-guard-bypass",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "OTHER",
+  "symptom": "The loop produced a bare-UUID commit message (fd91251) despite validateCommitMessage being the documented defense — the guard's 'guarantee' (system:commit-message-guard.json constraints) is insufficient.",
+  "evidence": "Observed 2026-11-10 during push-divergence reconciliation: git log showed commit fd912512431c4e79c72e7865dc691d9932d39a46 with message 'c9b2331d-10ed-41fc-888d-68f7a5bee002' (bare UUID v4), author craighckby-stack <242091616+craighckby-stack@users.noreply.github.com>, committed 2026-11-10T06:56:49Z, touching only postmortems/self/main/system:push-divergence.json (1 file, +3/-1). This was committed ~90s after the loop was rebooted at 06:55:11 (POST /api/self-enhance/reboot). The existing guard postmortem (system:commit-message-guard.json) states validateCommitMessage runs before every git add -A in pushCurrentState (both paths ~L698 and ~L778) and rejects empty/whitespace/bare-UUID first lines. Yet fd91251 landed. Either (a) the postmortem-recording path (recordFailure writing to postmortems/) commits via a path that does NOT go through pushCurrentState, bypassing validateCommitMessage, or (b) validateCommitMessage's regex /^[0-9a-f]{8}-...$/i missed this UUID, or (c) the commit was made before validateCommitMessage was added and only detected at boot. Hypothesis (a) is most likely: the postmortem-recording path appears to git-commit its JSON write directly rather than routing through pushCurrentState. Manually amended fd91251 -> ed9af89 with message 'self-enhance: mark push-divergence postmortem resolved after operator merge-back of loop-187 orphans' to unblock the push (a bare-UUID commit is not a valid message for the push-target gate).",
+  "constraints": "The commit-message-guard (system:commit-message-guard.json) has a SCOPE GAP: it only guards commits that route through pushCurrentState. The postmortem-recording path (and possibly other direct git-commit sites in the loop) bypass it. Required fix for a future audit: (1) audit ALL git commit sites in src/lib/pipeline/ for validateCommitMessage coverage — not just pushCurrentState; (2) move the guard to a git pre-commit hook (.git/hooks/pre-commit) or a wrapper around child_process exec git commit so it covers every commit site by construction, not by convention; (3) the boot-time detector is necessary but not sufficient — it only catches the artifact after it lands. Until the guard covers all commit sites, the loop can produce bare-UUID commits undetected between boots. Related: the keepalive cron prompt (cron job 520064) and the dev-server daemonizing finding (system:sandbox-process-sweep.json) — both are operational knowledge that a fresh session must re-derive if these postmortems are lost.",
+  "attempts": 1,
+  "parentHash": null,
+  "hash": null,
+  "lastAttemptAt": "2026-11-10T06:56:49.000Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-10T07:00:00.000Z",
+  "updatedAt": "2026-11-10T07:00:00.000Z",
+  "schema": 2
+}
