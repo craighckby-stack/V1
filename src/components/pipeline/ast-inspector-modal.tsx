@@ -41,7 +41,7 @@ export function AstInspectorModal() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
+        className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6"
         onClick={() => setInspectorFile(null)}
       >
         <motion.div
@@ -61,17 +61,17 @@ export function AstInspectorModal() {
                   {path}
                 </span>
               </div>
-              <div className="text-[11px] text-slate-400 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <div className="text-xs text-slate-400 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="inline-flex items-center gap-1">
                   <GitCommit className="h-3 w-3" /> proof {report?.proofCommitHash}
                 </span>
-                <span>AST {ast?.astScore}/100</span>
+                <span className="text-slate-300">AST {ast?.astScore}/100</span>
                 <span className="inline-flex items-center gap-1">
                   status
                   <Badge
                     variant="outline"
                     className={cn(
-                      "ml-1 text-[9px] uppercase tracking-widest",
+                      "ml-1 text-[10px] uppercase tracking-widest",
                       report?.status === "COMPLETED"
                         ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
                         : report?.status === "REJECTED"
@@ -97,7 +97,8 @@ export function AstInspectorModal() {
                       toast({ title: "Failed to copy code", description: "Please try copying manually" });
                     });
                 }}
-                className="bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-200"
+                className="bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-cyan-500"
+                aria-label="Copy evolved code to clipboard"
               >
                 <Copy className="h-3.5 w-3.5 mr-1.5" />
                 Copy evolved
@@ -106,7 +107,8 @@ export function AstInspectorModal() {
                 variant="ghost"
                 size="sm"
                 onClick={() => setInspectorFile(null)}
-                className="text-slate-400 hover:text-slate-100 hover:bg-slate-800"
+                className="text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-slate-500"
+                aria-label="Close inspector modal"
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -137,33 +139,44 @@ export function AstInspectorModal() {
 
           {/* Footer: AST details */}
           <div className="border-t border-slate-800/60 bg-slate-950/40 p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">AST Symbol Map</div>
               <div className="text-xs text-slate-300 font-mono">
-                <div>Original: <span className="text-amber-300">{ast?.symbolMap?.originalCount}</span></div>
-                <div>Proposed: <span className="text-cyan-300">{ast?.symbolMap?.proposedCount}</span></div>
-                <div>Retained: <span className="text-emerald-300">{ast?.symbolMap?.retainedCount}</span></div>
+                <div className="flex justify-between">
+                  <span>Original:</span>
+                  <span className="text-amber-300">{ast?.symbolMap?.originalCount}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Proposed:</span>
+                  <span className="text-cyan-300">{ast?.symbolMap?.proposedCount}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Retained:</span>
+                  <span className="text-emerald-300">{ast?.symbolMap?.retainedCount}</span>
+                </div>
               </div>
               <div className="text-[10px] text-slate-500">
                 Drift ratio: <span className="font-mono text-amber-300">{(ast?.structuralDriftRatio ? (ast.structuralDriftRatio * 100).toFixed(0) : '0')}%</span>
               </div>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Sanitizer</div>
-              <div className="text-xs text-slate-300">
-                Clean:{" "}
-                <span className={sanitizer?.clean ? "text-emerald-300" : "text-rose-300"}>
+              <div className="text-xs text-slate-300 flex justify-between">
+                <span>Clean:</span>
+                <span className={sanitizer?.clean ? "text-emerald-300 font-medium" : "text-rose-300 font-medium"}>
                   {sanitizer?.clean ? "YES" : "NO"}
                 </span>
               </div>
-              <div className="text-xs text-slate-300">
-                Violations: <span className="font-mono text-amber-300">{sanitizer?.violations?.length || 0}</span>
+              <div className="text-xs text-slate-300 flex justify-between">
+                <span>Violations:</span>
+                <span className="font-mono text-amber-300">{sanitizer?.violations?.length || 0}</span>
               </div>
-              <div className="text-xs text-slate-300">
-                High-entropy: <span className="font-mono text-amber-300">{sanitizer?.highEntropyTokensFound || 0}</span>
+              <div className="text-xs text-slate-300 flex justify-between">
+                <span>High-entropy:</span>
+                <span className="font-mono text-amber-300">{sanitizer?.highEntropyTokensFound || 0}</span>
               </div>
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">AST Violations</div>
               {ast?.violations?.length === 0 ? (
                 <div className="text-xs text-emerald-300 flex items-center gap-1.5">
@@ -175,7 +188,7 @@ export function AstInspectorModal() {
                     // Add fallback for unknown severity values
                     const Icon = violationIcon[v.severity] || AlertTriangle;
                     return (
-                      <div key={i} className="flex items-start gap-1.5 text-[11px]">
+                      <div key={i} className="flex items-start gap-1.5 text-[11px] focus-visible:ring-1 focus-visible:ring-slate-500 p-0.5 rounded">
                         <Icon
                           className={cn(
                             "h-3 w-3 mt-0.5 shrink-0",
