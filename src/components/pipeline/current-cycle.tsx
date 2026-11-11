@@ -12,10 +12,10 @@ export function CurrentCycle() {
 
   if (!cycle) {
     return (
-      <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur transition-colors" aria-label="No active pipeline cycle detected">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-slate-100 flex items-center gap-2 text-base">
-            <Activity className="h-4 w-4 text-emerald-400" />
+      <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur transition-colors shadow-lg" aria-label="No active pipeline cycle detected">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-slate-100 flex items-center gap-2 text-lg font-semibold leading-snug">
+            <Activity className="h-5 w-5 text-emerald-400" aria-hidden="true" />
             Current Cycle
           </CardTitle>
         </CardHeader>
@@ -53,7 +53,7 @@ export function CurrentCycle() {
   return (
     <Card
       className={cn(
-        "backdrop-blur border transition-colors duration-150",
+        "backdrop-blur border transition-colors duration-200 shadow-lg",
         status === "running"
           ? "bg-cyan-950/40 border-cyan-700/50"
           : status === "completed"
@@ -64,60 +64,63 @@ export function CurrentCycle() {
       )}
       aria-live="polite"
     >
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <CardTitle className="text-slate-100 flex items-center gap-2 text-base leading-snug">
+          <CardTitle className="text-slate-100 flex items-center gap-2 text-lg leading-snug">
             <Activity
               className={cn(
-                "h-4 w-4",
+                "h-5 w-5",
                 status === "running" ? "text-cyan-400 animate-pulse" : "text-slate-400"
               )}
+              aria-hidden="true"
             />
-            Cycle #{cycle.cycleNumber}{" "}
-            <span className="text-xs text-slate-400 font-normal uppercase tracking-widest hidden sm:inline">
+            Cycle #{cycle.cycleNumber}
+            <span className="text-xs text-slate-400 font-normal uppercase tracking-widest hidden sm:inline ml-1">
               {cycle.mode}
             </span>
           </CardTitle>
           <Badge
             variant="outline"
             className={cn(
-              "uppercase text-[10px] tracking-widest px-3 py-1",
+              "uppercase text-[10px] tracking-widest px-3 py-1 transition-colors",
               status === "running"
-                ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/40"
+                ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/20"
                 : status === "completed"
-                ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/20"
                 : status === "halted"
-                ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
-                : "bg-rose-500/15 text-rose-300 border-rose-500/40"
+                ? "bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/20"
+                : "bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/20"
             )}
+            aria-label={`Current cycle status: ${status}`}
           >
             {status}
           </Badge>
         </div>
-        <div className="text-xs text-slate-500 font-mono mt-2 flex flex-wrap gap-x-4 gap-y-1">
+        <div className="text-xs text-slate-500 font-mono mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-800/60 pt-3">
           <span className="inline-flex items-center gap-1">
-            <GitBranch className="h-3 w-3" />
+            <GitBranch className="h-3 w-3 text-slate-500" aria-hidden="true" />
             {cycle.targetRepo}:{cycle.branch}
           </span>
-          <span>started: {new Date(cycle.startedAt).toLocaleTimeString()}</span>
-          <span>scanned: {cycle.filesScanned}</span>
-          <span>committed: {cycle.filesCommitted}</span>
+          <span aria-label={`Started at ${new Date(cycle.startedAt).toLocaleTimeString()}`}>started: {new Date(cycle.startedAt).toLocaleTimeString()}</span>
+          <span aria-label={`Scanned ${cycle.filesScanned} files`}>scanned: {cycle.filesScanned}</span>
+          <span aria-label={`Committed ${cycle.filesCommitted} files`}>committed: {cycle.filesCommitted}</span>
         </div>
       </CardHeader>
       <CardContent>
         {(!cycle.fileResults || cycle.fileResults.length === 0) ? (
           <p className="text-sm text-slate-500 italic">No file results yet…</p>
         ) : (
-          <div className="space-y-2 max-h-72 overflow-y-auto pr-2">
-            <AnimatePresence>
+          <div className="space-y-2 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
+            <AnimatePresence initial={false}>
               {cycle.fileResults.map((r, idx) => (
                 <motion.div
                   key={`${r.path}-${idx}`}
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.2 }}
-                  whileHover={{ scale: 1.005 }}
-                  className="flex items-center gap-3 rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2 transition-transform duration-150"
+                  whileHover={{ scale: 1.005, boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}
+                  className="flex items-center gap-3 rounded-lg border border-slate-800/60 bg-slate-900/40 px-3 py-2 transition-all duration-150 focus-visible:ring-2 focus-visible:ring-cyan-500"
                   role="listitem"
                   aria-label={`File result for ${r.path} with consensus ${getConsensusDisplay(r.consensus)}`}
                 >
@@ -125,7 +128,7 @@ export function CurrentCycle() {
                   <span className="text-sm font-mono text-slate-200 truncate flex-1" title={r.path}>
                     {r.path}
                   </span>
-                  <span className="text-xs text-amber-300 font-mono tabular-nums shrink-0">AST {r.astScore}</span>
+                  <span className="text-xs text-amber-300 font-mono tabular-nums shrink-0 hidden sm:inline">AST {r.astScore}</span>
                   <span
                     className={cn(
                       "text-xs px-2 py-0.5 rounded border uppercase tracking-wider shrink-0",
@@ -147,8 +150,8 @@ export function CurrentCycle() {
             </AnimatePresence>
           </div>
         )}
-        <div className="flex items-center gap-3 pt-3 mt-3 border-t border-slate-800/60 text-xs text-slate-500">
-          <Cpu className="h-3.5 w-3.5" aria-hidden="true" />
+        <div className="flex items-center gap-3 pt-4 mt-3 border-t border-slate-800/60 text-xs text-slate-500">
+          <Cpu className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
           <span className="text-sm">
             {cycle.fileResults?.length || 0} file(s) processed · {cycle.fileResults?.filter(r => r.pushed).length || 0} pushed
             · proof {cycle.fileResults && cycle.fileResults.length > 0 ? cycle.fileResults[0].proofHash.substring(0, 8) + '...' : "—"}
