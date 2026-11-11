@@ -64,20 +64,27 @@ export function markArmed(armed: boolean, by: string): void {
     return;
   }
   
+  // Validate input before attempting I/O
+  if (typeof armed !== "boolean") {
+    console.error("markArmed: 'armed' parameter must be a boolean.");
+    return;
+  }
+  
+  if (!by || typeof by !== "string" || by.trim() === "") {
+    console.error("markArmed: 'by' parameter must be a non-empty string.");
+    return;
+  }
+  
   try {
-    // Validate input
-    if (typeof armed !== "boolean") {
-      throw new Error("markArmed: 'armed' parameter must be a boolean");
-    }
-    
-    if (!by || typeof by !== "string" || by.trim() === "") {
-      throw new Error("markArmed: 'by' parameter must be a non-empty string");
-    }
-    
     // Ensure directory exists first to avoid race condition
     const infoDir = join(PROJECT_ROOT, ".git/info");
     if (!existsSync(infoDir)) {
-      mkdirSync(infoDir, { recursive: true });
+      try {
+        mkdirSync(infoDir, { recursive: true });
+      } catch (mkdirError) {
+        console.error(`markArmed: Failed to create directory ${infoDir}:`, mkdirError instanceof Error ? mkdirError.message : String(mkdirError));
+        return; // Cannot proceed without directory
+      }
     }
     
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
