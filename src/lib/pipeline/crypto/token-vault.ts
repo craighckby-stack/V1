@@ -126,7 +126,8 @@ export function isSealedEnvelope(value: string): boolean {
  *   - key unavailable → returned unchanged (PLAINTEXT beats a bricked push)
  */
 export function sealToken(plain: string): string {
-  if (typeof plain !== "string" || !plain || isSealedEnvelope(plain)) return plain;
+  if (typeof plain !== "string" || !plain) return plain;
+  if (isSealedEnvelope(plain)) return plain;
   if (plain.length < 20 || /\s/.test(plain)) return plain;
   const key = ensureKey();
   if (!key) return plain;
@@ -154,7 +155,7 @@ export function sealToken(plain: string): string {
  *     automatic migration rewrites it on the next write)
  */
 export function openToken(stored: string): string {
-  if (!stored || typeof stored !== "string") return "";
+  if (typeof stored !== "string" || !stored) return "";
   if (!isSealedEnvelope(stored)) return stored;
   const key = ensureKey();
   if (!key) return "";
