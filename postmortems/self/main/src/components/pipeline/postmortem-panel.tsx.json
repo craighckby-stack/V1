@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/postmortem-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
@@ -12,8 +12,8 @@
   "parentHash": "bfd354663fc55fdf53f681e1250b7ad6efe9da42a5494c8362d767740ef46bfe",
   "hash": "7f3e71c68c5341efe24d8fae8c3871801bf9a7cca3a1655d2af077d160ed5457",
   "lastAttemptAt": "2026-11-10T23:07:13.319Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-11T14:01:02.818Z",
   "createdAt": "2026-11-10T22:22:50.077Z",
-  "updatedAt": "2026-11-10T23:07:13.319Z",
+  "updatedAt": "2026-11-11T14:01:02.818Z",
   "schema": 2
 }

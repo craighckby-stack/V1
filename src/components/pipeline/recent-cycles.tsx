@@ -26,7 +26,7 @@ export function RecentCycles() {
     try {
       const res = await fetch("/api/autonomous/recent-cycles");
       if (!res.ok) {
-        throw new Error(`Failed to fetch recent cycles: HTTP status ${res.status}`);
+        throw new Error(`Failed to fetch recent cycles: HTTP status ${res.status} ${res.statusText}`);
       }
       const data = await res.json();
       if (typeof data !== 'object' || data === null || !Array.isArray(data.cycles)) {
@@ -36,7 +36,7 @@ export function RecentCycles() {
       }
       setFetched(data.cycles);
     } catch (error) {
-      console.error("Error refreshing recent cycles:", error instanceof Error ? error.message : "Unknown error");
+      console.error("Error refreshing recent cycles:", error instanceof Error ? error.message : "Unknown error during fetch or parsing");
     } finally {
       setLoading(false);
     }
