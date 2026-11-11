@@ -115,7 +115,7 @@ export function readArmedState(): ArmedState | null {
     }
     
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
-    let parsed;
+    let parsed: any;
     
     try {
       parsed = JSON.parse(raw);
