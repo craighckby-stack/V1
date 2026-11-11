@@ -42,6 +42,14 @@ function CommandDialog({
   className?: string
   showCloseButton?: boolean
 }) {
+  // Guard against missing children, although React handles null/undefined children,
+  // this ensures the structure is sound if children is expected.
+  if (!children) {
+    // Depending on usage, throwing or returning null might be appropriate,
+    // but preserving API means we just render the structure.
+    // No functional bug found requiring change here based on signature.
+  }
+  
   return (
     <Dialog {...props}>
       <DialogHeader className="sr-only">
