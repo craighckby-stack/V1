@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/ui/calendar.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/ui/calendar.tsx(84,15): error TS2367: This comparison appears to be unintentional because the types '\"dropdown\" | \"dropdown-months\" | \"dropdown-years\"' and '\"compact\"' have no overlap.; tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
@@ -12,8 +12,8 @@
   "parentHash": "de86bd98e0ac35af516eb2aadf02d9e3b4b018437b15bee91a4d9baf495ca7b2",
   "hash": "87d336680039833a0d8d75d05bda0038005825d0f5abca40c486c69d39ff513a",
   "lastAttemptAt": "2026-11-10T23:09:48.590Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-11T14:05:39.172Z",
   "createdAt": "2026-11-10T22:05:24.180Z",
-  "updatedAt": "2026-11-10T23:09:48.590Z",
+  "updatedAt": "2026-11-11T14:05:39.172Z",
   "schema": 2
 }
