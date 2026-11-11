@@ -60,16 +60,19 @@ export interface SelfEnhanceArmedState {
  *  never fail a start/stop that already succeeded in memory (the in-memory
  *  flag remains the live source; the disk file is the restart tier). */
 export function markSelfEnhanceArmed(armed: boolean, by: string): void {
+  if (!PROJECT_ROOT) {
+    console.error(`markSelfEnhanceArmed: PROJECT_ROOT is not defined, cannot write to ${ARMED_STATE_FILE}`);
+    return;
+  }
+  if (typeof armed !== "boolean") {
+    console.error("markSelfEnhanceArmed: 'armed' must be a boolean");
+    return;
+  }
+  if (!by || typeof by !== "string" || by.trim().length === 0) {
+    console.error("markSelfEnhanceArmed: 'by' must be a non-empty string");
+    return;
+  }
   try {
-    if (!PROJECT_ROOT) {
-      throw new Error(`markSelfEnhanceArmed: PROJECT_ROOT is not defined, cannot write to ${ARMED_STATE_FILE}`);
-    }
-    if (typeof armed !== "boolean") {
-      throw new Error("markSelfEnhanceArmed: 'armed' must be a boolean");
-    }
-    if (!by || typeof by !== "string" || by.trim() === "") {
-      throw new Error("markSelfEnhanceArmed: 'by' must be a non-empty string");
-    }
     const infoDir = join(PROJECT_ROOT, ".git/info");
     mkdirSync(infoDir, { recursive: true });
     const entry: SelfEnhanceArmedState = {
@@ -80,7 +83,7 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
     writeFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2), "utf8");
   } catch (error) {
     console.error(
-      "markSelfEnhanceArmed: Failed to persist armed state. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by':",
+      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}). Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}`,
       error instanceof Error ? error.message : String(error)
     );
   }
