@@ -21,6 +21,14 @@ export async function GET(req: Request) {
       );
     }
     const result = emgRagInstance.query(q);
+
+    if (!result) {
+      return NextResponse.json(
+        { error: "RAG query returned no result." },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       query: q,
       topFixes: result.topFixes.map((e) => ({
@@ -49,6 +57,7 @@ export async function GET(req: Request) {
       epistemicRuling: result.epistemicRuling,
     });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during memory query.";
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
