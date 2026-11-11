@@ -36,7 +36,7 @@ function useCarousel() {
   const context = React.useContext(CarouselContext)
 
   if (!context) {
-    throw new Error("useCarousel must be used within a <Carousel />")
+    throw new Error("useCarousel must be used within a <Carousel /> component.")
   }
 
   return context
@@ -51,6 +51,10 @@ function Carousel({
   children,
   ...props
 }: React.ComponentProps<"div"> & CarouselProps) {
+  if (orientation !== "horizontal" && orientation !== "vertical") {
+    throw new Error(`Invalid orientation provided: ${orientation}. Must be 'horizontal' or 'vertical'.`)
+  }
+
   const [carouselRef, api] = useEmblaCarousel(
     {
       ...opts,
