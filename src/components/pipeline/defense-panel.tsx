@@ -258,7 +258,7 @@ export function DefensePanel({ open, onClose }: Props) {
     }
   }
 
-  async function doScan() : Promise<void> {
+  async function doScan() {
     if (!scanInput.trim()) {
       setMsg("Paste some content to scan first.");
       return;

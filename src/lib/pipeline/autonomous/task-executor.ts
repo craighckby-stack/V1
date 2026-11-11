@@ -36,7 +36,6 @@ export interface TaskExecutionResult {
   status: "applied" | "deferred" | "failed" | "no-op";
   method: "deterministic" | "llm";
   newCode?: string; // verified replacement (caller writes it)
-  baseCode?: string; // the EXACT disk content this fix was computed against (external audit F1: the caller's TOCTOU check compares disk-now vs this — a concurrent writer between executeTask's read and the caller's write is detected instead of clobbered)
   summary: string;
   error?: string;
   modelUsed?: string; // which LLM upstream served an 'applied' result (observability)
@@ -137,41 +136,6 @@ function executeMissingReturnType(task: TaskRow, code: string): TaskExecutionRes
   // Guard: don't annotate garbage
   if (!typeText || typeText === "any" || typeText.length > 90 || typeText.includes("error")) {
     return { status: "no-op", method: "deterministic", summary: `inferred type not annotatable: "${typeText.slice(0, 40)}"` };
-  }
-
-  // Guard (2026-11-11): every type NAME in the annotation must already be
-  // resolvable in this file. typeToString renders React component return
-  // types under their alias (e.g. `Element | null`, `ReactElement<any, any>`
-  // via UseAliasDefinedOutsideCurrentScope) — but the target file usually
-  // has no such import, so TypeScript resolves the inserted annotation to
-  // the DOM globals (`Element` from lib.dom). The value (a ReactElement)
-  // then fails assignability with TS2740 ("missing 181 properties from
-  // type 'Element': classList, clientHeight, ..."), or the component stops
-  // being JSX-usable at its call sites (TS2786). Observed 3/3 failures on
-  // console-stream.tsx:51, api-unlock.tsx:32, ast-inspector-modal.tsx:19 —
-  // every attempt burned a full typecheck gate + revert for an annotation
-  // that could never compile. The deterministic path cannot add imports,
-  // so it must SKIP these and leave them for a scope-aware fixer.
-  const GLOBAL_TYPE_NAMES = new Set([
-    "Promise", "Record", "Array", "ReadonlyArray", "Map", "Set", "WeakMap", "WeakSet",
-    "Partial", "Required", "Readonly", "Pick", "Omit", "Exclude", "Extract", "NonNullable",
-    "ReturnType", "Parameters", "InstanceType", "Awaited", "ReadonlySet", "ReadonlyMap",
-    "Iterable", "IterableIterator", "Iterator", "Generator", "AsyncGenerator",
-    "Date", "RegExp", "Error", "unknown", "never", "void", "object",
-  ]);
-  const referencedNames = typeText.match(/[A-Z][A-Za-z0-9_$]*/g) ?? [];
-  const outOfScope = referencedNames.filter(
-    (name) =>
-      !GLOBAL_TYPE_NAMES.has(name) &&
-      // escape `$` (legal in TS identifiers, regex-special) before the word-boundary test
-      !new RegExp(`\\b${name.replace(/\$/g, "\\$")}\\b`).test(code)
-  );
-  if (outOfScope.length > 0) {
-    return {
-      status: "no-op",
-      method: "deterministic",
-      summary: `inferred type \`${typeText.slice(0, 60)}\` references name(s) not in scope in this file (${outOfScope.join(", ")}) — the deterministic path cannot add imports; skipping rather than landing an annotation that resolves to the wrong global`,
-    };
   }
 
   // Insert `: T ` immediately before the body's opening brace
@@ -440,9 +404,6 @@ export async function executeTask(task: TaskRow): Promise<TaskExecutionResult> {
 
   // Verify in memory before handing back
   if (result.status === "applied" && result.newCode) {
-    // External audit F1: attach the base content so the caller can TOCTOU-check
-    // the disk right before its guarded write (see TaskExecutionResult.baseCode).
-    result.baseCode = code;
     const check = typecheckRefactor(absPath, result.newCode);
     if (!check.ok) {
       return {
