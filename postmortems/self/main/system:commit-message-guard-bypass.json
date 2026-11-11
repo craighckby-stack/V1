@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "system:commit-message-guard-bypass",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "The loop produced a bare-UUID commit message (fd91251) despite validateCommitMessage being the documented defense — the guard's 'guarantee' (system:commit-message-guard.json constraints) is insufficient.",
@@ -12,8 +12,9 @@
   "parentHash": null,
   "hash": null,
   "lastAttemptAt": "2026-11-10T06:56:49.000Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-11T06:11:04.000Z",
   "createdAt": "2026-11-10T07:00:00.000Z",
-  "updatedAt": "2026-11-10T07:00:00.000Z",
-  "schema": 2
+  "updatedAt": "2026-11-11T06:11:04.000Z",
+  "schema": 2,
+  "resolution": "Resolved by operator (constructive gate, 2026-11-11): (1) Installed .githooks/commit-msg (versioned in-repo, activated via `git config core.hooksPath .githooks`) — git itself invokes it with the final message file for EVERY `git commit`, so coverage is by construction, not convention. Note: commit-msg is the correct hook, not the pre-commit suggested in constraints — pre-commit runs before the message is composed and cannot see it; commit-msg receives the proposed message as $1. Rules mirror validateCommitMessage (reject empty/whitespace first line, reject bare-UUID first line); re-tested live: bare-UUID and empty commits exit 1, valid messages pass. (2) Removed the repo's only --no-verify (lessons-markdown.ts commitLessonsFile) so no commit site can bypass the hook; its constant message always passes the gate. (3) Full audit of git-commit sites at fix time: push-target.ts L1178 (guarded L1165), L1288 (guarded L1270), L968 amend (guarded L945), merge-back.ts L318 (constant template, now hook-covered), lessons-markdown.ts (constant message, now hook-covered after --no-verify removal). All five sites constructively covered. Residual risk documented: core.hooksPath is local git config — a fresh clone or full .git rehydration must re-run `git config core.hooksPath .githooks`; deleting .githooks/ is visible in git status so it cannot vanish silently. The in-process validateCommitMessage guards remain as the first layer (they give structured reject reasons to the loop); the hook is the backstop that makes bypass structurally impossible rather than conventionally unlikely."
 }

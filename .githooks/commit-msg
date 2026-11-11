@@ -1,0 +1,61 @@
+#!/bin/sh
+# ── Constructive commit-message gate ──────────────────────────────────────
+# Fixes: postmortems/self/main/system:commit-message-guard-bypass.json
+#
+# WHY THIS HOOK EXISTS
+#   validateCommitMessage (push-target.ts) only guards the commit sites that
+#   call it by CONVENTION — pushCurrentState, amendUuidHeadCommit, and the
+#   two guarded direct sites. The loop's postmortem-recording path proved
+#   the convention insufficient: bare-UUID commit fd91251 landed on main
+#   (2026-11-10) via a git-commit site that didn't route through the guard.
+#
+#   This hook covers EVERY `git commit` in this repo BY CONSTRUCTION —
+#   any site, any caller, any future code — because git itself invokes it
+#   with the final message file ($1) before the commit lands. It is the
+#   commit-msg hook (not pre-commit) because pre-commit runs BEFORE the
+#   message is composed and has no access to it; commit-msg receives the
+#   proposed message file as its first argument — the correct hook for
+#   message validation with the same universal coverage.
+#
+# RULES (mirror validateCommitMessage in push-target.ts — keep in sync):
+#   1. The first non-comment line must exist and be non-whitespace.
+#   2. The first line must NOT be a bare UUID v4
+#      (the shape the host restore orchestrator injects on rehydration).
+#
+# ACTIVATION (this file is versioned; the config is local to each clone):
+#   git config core.hooksPath .githooks
+#   If a fresh clone/rehydrate loses that config, re-run it. Deleting this
+#   file shows up in `git status` — it cannot vanish silently.
+#
+# BYPASS WARNING: `git commit --no-verify` skips this hook. Grep the repo
+#   for `--no-verify` before ever adding one; the only historical use
+#   (lessons-markdown.ts) was removed as part of this fix.
+
+msgfile="$1"
+
+# First non-comment, non-blank line = the message subject.
+trimmed=""
+while IFS= read -r line || [ -n "$line" ]; do
+  line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  case "$line" in
+    ""|"#"*) continue ;;   # blank / editor comment (cleanup runs after this hook)
+  esac
+  trimmed="$line"
+  break
+done < "$msgfile"
+
+if [ -z "$trimmed" ]; then
+  echo "commit-msg hook: REJECTED — commit message is empty." >&2
+  echo "LOOP requires an explicit, human-readable intent (searchable by commit-archaeology)." >&2
+  echo "See postmortems/self/main/system:commit-message-guard-bypass.json" >&2
+  exit 1
+fi
+
+if printf '%s' "$trimmed" | grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'; then
+  echo "commit-msg hook: REJECTED — bare UUID commit message (\"$trimmed\")." >&2
+  echo "This shape is what the host restore orchestrator injects; LOOP must never produce one." >&2
+  echo "See postmortems/self/main/system:commit-message-guard-bypass.json" >&2
+  exit 1
+fi
+
+exit 0
