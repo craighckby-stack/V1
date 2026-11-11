@@ -11,6 +11,8 @@ import { DayButton, DayPicker, getDefaultClassNames } from "react-day-picker"
 import { cn } from "@/lib/utils"
 import { Button, buttonVariants } from "@/components/ui/button"
 
+type CaptionLayout = "label" | "rounded-md";
+
 function Calendar({
   className,
   classNames,
@@ -23,6 +25,14 @@ function Calendar({
 }: React.ComponentProps<typeof DayPicker> & {
   buttonVariant?: React.ComponentProps<typeof Button>["variant"]
 }) {
+  if (!["label", "rounded-md"].includes(captionLayout as CaptionLayout)) {
+    throw new Error(`Invalid captionLayout provided: "${captionLayout}". Must be "label" or "rounded-md".`)
+  }
+  if (!buttonVariant || !["default", "outline", "ghost", "link", "secondary", "destructive"].includes(buttonVariant as any)) {
+    // Assuming standard button variants from shadcn/ui implementation
+    throw new Error(`Invalid buttonVariant provided: "${buttonVariant}". Must be one of the supported variants (e.g., "ghost").`)
+  }
+
   const defaultClassNames = getDefaultClassNames()
 
   return (
