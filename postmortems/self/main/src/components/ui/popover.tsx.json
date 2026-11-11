@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/ui/popover.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
@@ -12,8 +12,8 @@
   "parentHash": "2005558071287558bed1c950e754916bc0d24e8c66e82f206d86eee0b27d0fa0",
   "hash": "63588213c2c4da315d3529992b281d807cef9b0e04e4f4c2bc98d11328e67cc4",
   "lastAttemptAt": "2026-11-10T23:17:03.647Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-11T14:19:56.026Z",
   "createdAt": "2026-11-10T22:39:20.417Z",
-  "updatedAt": "2026-11-10T23:17:03.647Z",
+  "updatedAt": "2026-11-11T14:19:56.026Z",
   "schema": 2
 }
