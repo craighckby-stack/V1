@@ -35,6 +35,9 @@ function ResizableHandle({
 }: React.ComponentProps<typeof ResizablePrimitive.PanelResizeHandle> & {
   withHandle?: boolean
 }) {
+  if (typeof withHandle !== 'boolean') {
+    throw new Error("ResizableHandle requires 'withHandle' prop to be a boolean.")
+  }
   return (
     <ResizablePrimitive.PanelResizeHandle
       data-slot="resizable-handle"
