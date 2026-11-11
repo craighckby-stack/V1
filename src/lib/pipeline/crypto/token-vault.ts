@@ -20,7 +20,7 @@
  * backups, file snapshots, crash artifacts. It does NOT protect against an
  * attacker with code execution on this machine (they can call openToken
  * like anyone else); nothing short of an HSM does. The server must be able
- * to decrypt unattended — "auto-connect with no input anywhere" is the
+ * decrypt unattended — "auto-connect with no input anywhere" is the
  * requirement — so the key is local, not password-derived.
  *
  * Migration is automatic: readers transparently open legacy plaintext
@@ -100,14 +100,16 @@ function ensureKey(): Buffer | null {
       // storing plaintext (better a working push than a bricked loop).
       if (!warnedKeyMissing) {
         warnedKeyMissing = true;
-        console.error(`[TOKEN-VAULT] cannot create the key file (.git/info/ not writable) — tokens will stay PLAINTEXT. Error: ${error instanceof Error ? error.message : String(error)}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`[TOKEN-VAULT] cannot create the key file (.git/info/ not writable) — tokens will stay PLAINTEXT. Error: ${errorMessage}`);
       }
       return null;
     }
   } catch (error) {
     if (!warnedKeyMissing) {
       warnedKeyMissing = true;
-      console.error(`[TOKEN-VAULT] error accessing key file: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[TOKEN-VAULT] error accessing key file: ${errorMessage}`);
     }
     return null;
   }
@@ -140,7 +142,8 @@ export function sealToken(plain: string): string {
   } catch (error) {
     if (!warnedKeyMissing) {
       warnedKeyMissing = true;
-      console.error(`[TOKEN-VAULT] error sealing token: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[TOKEN-VAULT] error sealing token: ${errorMessage}`);
     }
     return plain; // fail-open — see sealToken doc
   }
@@ -186,8 +189,9 @@ export function openToken(stored: string): string {
   } catch (error) {
     if (!warnedKeyMissing) {
       warnedKeyMissing = true;
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(
-        `[TOKEN-VAULT] failed to open a sealed token (key missing/tampered?) — treating as no-token; re-enter the PAT in [CONFIG] if this persists. Error: ${error instanceof Error ? error.message : String(error)}`
+        `[TOKEN-VAULT] failed to open a sealed token (key missing/tampered?) — treating as no-token; re-enter the PAT in [CONFIG] if this persists. Error: ${errorMessage}`
       );
     }
     return "";
@@ -212,8 +216,9 @@ export function vaultStatus(): {
   } catch (error) {
     if (!warnedKeyMissing) {
       warnedKeyMissing = true;
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(
-        `[TOKEN-VAULT] error checking vault status: ${error instanceof Error ? error.message : String(error)}`
+        `[TOKEN-VAULT] error checking vault status: ${errorMessage}`
       );
     }
     return {
