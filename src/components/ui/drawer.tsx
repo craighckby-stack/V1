@@ -50,6 +50,10 @@ function DrawerContent({
   children,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Content>) {
+  if (!children) {
+    // Guard clause to prevent rendering without children, which might lead to unexpected layout/behavior
+    return null
+  }
   return (
     <DrawerPortal data-slot="drawer-portal">
       <DrawerOverlay {...props} />
