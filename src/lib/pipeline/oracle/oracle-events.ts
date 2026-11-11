@@ -82,16 +82,17 @@ export function emitOracleEvent(
   source: OracleEvent["source"] = "scheduler",
 ): OracleEvent {
   if (message == null) {
-    throw new Error("Oracle event message cannot be null or undefined");
+    throw new TypeError("Oracle event message cannot be null or undefined");
   }
   if (typeof message !== "string") {
-    throw new Error("Oracle event message must be a string");
+    throw new TypeError("Oracle event message must be a string");
   }
+  // Type guards ensure type is valid based on interface definition, but checking for null/undefined defensively is fine.
   if (type == null) {
-    throw new Error("Oracle event type cannot be null or undefined");
+    throw new TypeError("Oracle event type cannot be null or undefined");
   }
   if (source == null) {
-    throw new Error("Oracle event source cannot be null or undefined");
+    throw new TypeError("Oracle event source cannot be null or undefined");
   }
   
   const s = state();
@@ -130,20 +131,25 @@ export function readOracleEvents(afterSeq?: number): {
       return { events: [], seq: currentSeq };
     }
     
-    // The number of events to retrieve is currentSeq - afterSeq
+    // Events to retrieve are those with sequence > afterSeq.
+    // Since seq increments *after* event creation, the number of events since afterSeq is currentSeq - afterSeq.
     const eventsToRetrieve = currentSeq - afterSeq;
     
-    // The starting index should be buffer.length - eventsToRetrieve, but not less than 0.
+    // The index of the first event we want is buffer.length - eventsToRetrieve.
+    // We must ensure this index is not negative.
     const startIndex = Math.max(0, s.buffer.length - eventsToRetrieve);
     
-    // Ensure we don't try to slice more than what's available, though logic above should prevent this if buffer length <= currentSeq
-    const actualStartIndex = Math.max(0, s.buffer.length - eventsToRetrieve);
+    // If startIndex is 0, we take all events. If startIndex > 0, we take the tail.
+    const events = s.buffer.slice(startIndex);
     
-    const events = s.buffer.slice(actualStartIndex);
-    
-    // Only truncate if we actually retrieved events and the slice started after index 0
-    if (events.length > 0) {
-        s.buffer = s.buffer.slice(0, actualStartIndex);
+    // Crucially, we only truncate the buffer if we actually retrieved events (i.e., startIndex > 0 or events.length > 0)
+    // and if the slice operation actually removed elements from the start.
+    if (events.length > 0 && startIndex > 0) {
+        s.buffer = s.buffer.slice(0, startIndex);
+    } else if (events.length > 0 && startIndex === 0) {
+        // If startIndex is 0, it means we are retrieving all available events (buffer.length == eventsToRetrieve).
+        // We should still clear the buffer if we retrieved everything up to currentSeq.
+        s.buffer = [];
     }
     
     return { 
