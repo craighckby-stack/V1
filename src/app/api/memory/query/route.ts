@@ -13,14 +13,16 @@ export async function GET(req: Request) {
   try {
     await emgRagInstance.ensureSeeded();
     const url = new URL(req.url);
-    const q = url.searchParams.get("q") ?? "";
-    if (!q.trim()) {
+    const q = url.searchParams.get("q");
+
+    if (!q || typeof q !== 'string' || !q.trim()) {
       return NextResponse.json(
-        { error: "Missing ?q=<query> parameter" },
+        { error: "Missing or invalid ?q=<query> parameter. Query must be a non-empty string." },
         { status: 400 }
       );
     }
-    const result = emgRagInstance.query(q);
+    
+    const result = await emgRagInstance.query(q);
 
     if (!result) {
       return NextResponse.json(
