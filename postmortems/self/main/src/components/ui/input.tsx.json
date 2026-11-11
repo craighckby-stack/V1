@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/ui/input.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [AST_STRUCTURAL_DRIFT] Structural drift exceeds safe threshold (78%)",
@@ -12,8 +12,8 @@
   "parentHash": "76236ba0c26889fc1a07d1804fe57a523817bd9a694ab5e2b44994221a18dfc2",
   "hash": "ade16b707450b67fd3116e8e89a4083601e63fd34ea2ee82962307ba750736fe",
   "lastAttemptAt": "2026-11-10T07:52:15.835Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-11T14:16:05.982Z",
   "createdAt": "2026-11-10T07:52:15.843Z",
-  "updatedAt": "2026-11-10T07:52:15.843Z",
+  "updatedAt": "2026-11-11T14:16:05.982Z",
   "schema": 2
 }
