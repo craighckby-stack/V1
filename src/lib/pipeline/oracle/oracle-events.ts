@@ -123,18 +123,29 @@ export function readOracleEvents(afterSeq?: number): {
   
   if (typeof afterSeq === "number") {
     if (!Number.isInteger(afterSeq) || afterSeq < 0) {
-      throw new Error("afterSeq must be a non-negative integer");
+      throw new Error(`Invalid afterSeq provided: ${afterSeq}. afterSeq must be a non-negative integer.`);
     }
     const currentSeq = s.seq;
     if (afterSeq >= currentSeq) {
       return { events: [], seq: currentSeq };
     }
     
-    // Find the index of the first event that hasn't been seen
-    const startIndex = Math.max(0, s.buffer.length - (currentSeq - afterSeq));
-    const events = s.buffer.slice(startIndex);
-    // Properly update the buffer to remove the returned events
-    s.buffer = s.buffer.slice(0, startIndex);
+    // The number of events to retrieve is currentSeq - afterSeq
+    const eventsToRetrieve = currentSeq - afterSeq;
+    
+    // The starting index should be buffer.length - eventsToRetrieve, but not less than 0.
+    const startIndex = Math.max(0, s.buffer.length - eventsToRetrieve);
+    
+    // Ensure we don't try to slice more than what's available, though logic above should prevent this if buffer length <= currentSeq
+    const actualStartIndex = Math.max(0, s.buffer.length - eventsToRetrieve);
+    
+    const events = s.buffer.slice(actualStartIndex);
+    
+    // Only truncate if we actually retrieved events and the slice started after index 0
+    if (events.length > 0) {
+        s.buffer = s.buffer.slice(0, actualStartIndex);
+    }
+    
     return { 
       events, 
       seq: currentSeq 
