@@ -28,8 +28,9 @@ export async function GET() {
     }));
     return NextResponse.json({ sources });
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during catalog retrieval.";
     return NextResponse.json(
-      { error: (err as Error).message },
+      { error: errorMessage },
       { status: 500 }
     );
   }
