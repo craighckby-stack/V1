@@ -57,13 +57,18 @@ export const runtime = "nodejs";
 
 /** Count *.json scar files under postmortems/ (recursive, sync — small tree). */
 function diskScarCount(): number {
+  if (!PROJECT_ROOT) {
+    throw new Error("PROJECT_ROOT is not defined, cannot scan for scar files.");
+  }
   const root = join(PROJECT_ROOT, "postmortems");
   let n = 0;
   const walk = (dir: string): void => {
     let entries: string[];
     try {
       entries = readdirSync(dir);
-    } catch {
+    } catch (e) {
+      // Log or handle specific FS errors instead of swallowing silently
+      console.error(`Error reading directory ${dir}:`, e);
       return;
     }
     for (const e of entries) {
@@ -71,7 +76,8 @@ function diskScarCount(): number {
       let st;
       try {
         st = statSync(p);
-      } catch {
+      } catch (e) {
+        // Skip files/dirs we can't stat (e.g., permission denied)
         continue;
       }
       if (st.isDirectory()) walk(p);
@@ -98,13 +104,16 @@ async function checkGitHubAuth(
       signal: ac.signal,
     });
     if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status}` };
+      return { ok: false, error: `HTTP ${res.status}: ${res.statusText || 'Unknown Error'}` };
     }
     const user = (await res.json()) as { login?: string };
-    if (!user?.login) return { ok: false, error: "no login in /user response" };
+    if (!user?.login) return { ok: false, error: "No login found in /user response body" };
     return { ok: true, login: user.login };
   } catch (e) {
-    return { ok: false, error: (e as Error).name === "AbortError" ? "timeout" : "network" };
+    if ((e as Error).name === "AbortError") {
+      return { ok: false, error: "Request timed out after 3.5s" };
+    }
+    return { ok: false, error: `Network or parsing error: ${(e as Error).message}` };
   } finally {
     clearTimeout(kill);
   }
@@ -122,7 +131,9 @@ export async function GET() {
     } else {
       auth = null; // not configured — the splash shows ?? honestly
     }
-  } catch {
+  } catch (e) {
+    // Catching errors from getStoredTarget (e.g., vault read failure)
+    console.error("Error retrieving stored target for GitHub auth:", e);
     auth = null;
   }
 
@@ -135,7 +146,8 @@ export async function GET() {
       db.mutationCorpus.count({ where: { gateOutcome: "enhanced" } }),
     ]);
     corpus = { attempts, failed, enhanced };
-  } catch {
+  } catch (e) {
+    console.error("Error querying mutation corpus from DB:", e);
     corpus = null;
   }
 
@@ -159,7 +171,8 @@ export async function GET() {
         trend: t.trend,
       };
     }
-  } catch {
+  } catch (e) {
+    console.error("Error fetching pass rate trend:", e);
     passRate = null;
   }
 
@@ -167,7 +180,8 @@ export async function GET() {
   let scars: number | null = null;
   try {
     scars = diskScarCount();
-  } catch {
+  } catch (e) {
+    console.error("Error counting disk scars:", e);
     scars = null;
   }
 
@@ -175,7 +189,8 @@ export async function GET() {
   let hotSwap: { lifetime: number; thisBoot: number } | null = null;
   try {
     hotSwap = { lifetime: await getHotSwapSuccessCount(), thisBoot: getSwapCount() };
-  } catch {
+  } catch (e) {
+    console.error("Error retrieving hot-swap counts:", e);
     hotSwap = null;
   }
 
@@ -199,7 +214,8 @@ export async function GET() {
       livePhase: state.livePhase,
       recoveryRemainingMs: state.recoveryRemainingMs,
     };
-  } catch {
+  } catch (e) {
+    console.error("Error getting autonomous loop state:", e);
     autonomy = null;
   }
 
@@ -214,7 +230,8 @@ export async function GET() {
   try {
     warmZaiCortex();
     zai = zaiCortexStatus();
-  } catch {
+  } catch (e) {
+    console.error("Error warming or checking Zai Cortex status:", e);
     zai = null;
   }
 
