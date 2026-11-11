@@ -46,6 +46,9 @@ function ChartContainer({
     typeof RechartsPrimitive.ResponsiveContainer
   >["children"]
 }) {
+  if (!config) {
+    throw new Error("ChartContainer requires a 'config' prop of type ChartConfig.")
+  }
   const uniqueId = React.useId()
   const chartId = `chart-${id || uniqueId.replace(/:/g, "")}`
 
@@ -92,6 +95,7 @@ ${colorConfig
       itemConfig.color
     return color ? `  --color-${key}: ${color};` : null
   })
+  .filter(Boolean) // Filter out nulls before joining
   .join("\n")}
 }
 `
@@ -182,7 +186,7 @@ function ChartTooltipContent({
         {payload.map((item, index) => {
           const key = `${nameKey || item.name || item.dataKey || "value"}`
           const itemConfig = getPayloadConfigFromPayload(config, item, key)
-          const indicatorColor = color || item.payload.fill || item.color
+          const indicatorColor = color || item.payload?.fill || item.payload?.color
 
           return (
             <div
@@ -232,7 +236,7 @@ function ChartTooltipContent({
                         {itemConfig?.label || item.name}
                       </span>
                     </div>
-                    {item.value && (
+                    {item.value !== undefined && (
                       <span className="text-foreground font-mono font-medium tabular-nums">
                         {item.value.toLocaleString()}
                       </span>
@@ -323,24 +327,33 @@ function getPayloadConfigFromPayload(
 
   let configLabelKey: string = key
 
+  // Check if the key itself is a string value in the payload
   if (
     key in payload &&
-    typeof payload[key as keyof typeof payload] === "string"
+    typeof (payload as Record<string, any>)[key] === "string"
   ) {
-    configLabelKey = payload[key as keyof typeof payload] as string
-  } else if (
+    configLabelKey = (payload as Record<string, any>)[key] as string
+  } 
+  // Check if the key exists in payload.payload and its value is a string
+  else if (
     payloadPayload &&
     key in payloadPayload &&
-    typeof payloadPayload[key as keyof typeof payloadPayload] === "string"
+    typeof (payloadPayload as Record<string, any>)[key] === "string"
   ) {
-    configLabelKey = payloadPayload[
-      key as keyof typeof payloadPayload
-    ] as string
+    configLabelKey = (payloadPayload as Record<string, any>)[key] as string
   }
 
-  return configLabelKey in config
-    ? config[configLabelKey]
-    : config[key as keyof typeof config]
+  // Check if the derived configLabelKey exists in config, otherwise fall back to original key
+  if (configLabelKey in config) {
+    return config[configLabelKey]
+  }
+  
+  // Final fallback: check if the original key exists in config
+  if (key in config) {
+      return config[key as keyof typeof config]
+  }
+
+  return undefined
 }
 
 export {
