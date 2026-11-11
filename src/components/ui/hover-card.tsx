@@ -25,6 +25,10 @@ function HoverCardContent({
   sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof HoverCardPrimitive.Content>) {
+  const validAlignments = ["center", "left", "right", "top", "bottom"]
+  if (!validAlignments.includes(align)) {
+    throw new Error(`HoverCardContent: Invalid 'align' value provided. Must be one of: ${validAlignments.join(', ')}`)
+  }
   if (sideOffset < 0) {
     throw new Error("HoverCardContent: sideOffset must be a non-negative number.")
   }
