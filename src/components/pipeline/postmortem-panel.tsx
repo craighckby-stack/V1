@@ -76,10 +76,10 @@ export function PostmortemPanel() {
   }
 
   async function dismiss(id: string, filePath: string) {
-    if (!id) {
+    if (!id || typeof id !== 'string' || id.length === 0) {
       toast({
         title: "Validation Error",
-        description: "Postmortem ID is missing, cannot dismiss.",
+        description: "Postmortem ID is missing or invalid, cannot dismiss.",
         variant: "destructive",
       });
       return;
@@ -95,9 +95,10 @@ export function PostmortemPanel() {
         description: `Constraints for ${filePath} removed.`,
       });
     } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : "An unknown error occurred during dismissal.";
       toast({
         title: "Dismiss failed",
-        description: (e as Error).message,
+        description: errorMessage,
         variant: "destructive",
       });
     }
