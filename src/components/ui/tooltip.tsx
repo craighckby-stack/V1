@@ -9,6 +9,9 @@ function TooltipProvider({
   delayDuration = 0,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
+  if (delayDuration < 0) {
+    throw new Error("TooltipProvider: delayDuration must be a non-negative number.")
+  }
   return (
     <TooltipPrimitive.Provider
       data-slot="tooltip-provider"
