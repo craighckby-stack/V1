@@ -30,7 +30,7 @@ export async function GET() {
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during catalog retrieval.";
     return NextResponse.json(
-      { error: errorMessage },
+      { error: `Failed to retrieve catalog from /api/engines/catalog: ${errorMessage}` },
       { status: 500 }
     );
   }
