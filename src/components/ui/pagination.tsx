@@ -48,11 +48,14 @@ function PaginationLink({
   size = "icon",
   ...props
 }: PaginationLinkProps) {
+  // Ensure isActive is treated as boolean for aria-current, defaulting to false if undefined
+  const current = isActive ? "page" : undefined;
+
   return (
     <a
-      aria-current={isActive ? "page" : undefined}
+      aria-current={current}
       data-slot="pagination-link"
-      data-active={isActive}
+      data-active={isActive === true}
       className={cn(
         buttonVariants({
           variant: isActive ? "outline" : "ghost",
