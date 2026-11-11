@@ -36,6 +36,7 @@ export interface TaskExecutionResult {
   status: "applied" | "deferred" | "failed" | "no-op";
   method: "deterministic" | "llm";
   newCode?: string; // verified replacement (caller writes it)
+  baseCode?: string; // the EXACT disk content this fix was computed against (external audit F1: the caller's TOCTOU check compares disk-now vs this — a concurrent writer between executeTask's read and the caller's write is detected instead of clobbered)
   summary: string;
   error?: string;
   modelUsed?: string; // which LLM upstream served an 'applied' result (observability)
@@ -439,6 +440,9 @@ export async function executeTask(task: TaskRow): Promise<TaskExecutionResult> {
 
   // Verify in memory before handing back
   if (result.status === "applied" && result.newCode) {
+    // External audit F1: attach the base content so the caller can TOCTOU-check
+    // the disk right before its guarded write (see TaskExecutionResult.baseCode).
+    result.baseCode = code;
     const check = typecheckRefactor(absPath, result.newCode);
     if (!check.ok) {
       return {

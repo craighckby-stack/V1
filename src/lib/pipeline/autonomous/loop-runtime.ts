@@ -237,6 +237,17 @@ class AutonomousLoopRuntime {
   private recentCycles: AutonomousCycleSummary[] = [];
   private timer: NodeJS.Timeout | null = null;
   private continuousLoopRunning = false;
+  /** STOP-interrupt generation (external audit F2). stop() increments
+   *  this; executeCycle() captures it at entry and re-checks per file
+   *  and before every remote commit. Previously stop() only disabled
+   *  the scheduler — an executeCycle() already in flight processed its
+   *  whole file list and could still commit to the remote repo after
+   *  [STOP]. A generation counter (rather than reading config.enabled
+   *  directly) keeps manual one-shot triggers working while the loop is
+   *  stopped: triggerManual() captures the CURRENT generation and is
+   *  only interrupted by a STOP pressed after it began, which is the
+   *  correct semantics for an operator interrupt. */
+  private cycleGeneration = 0;
   /** ARMED-RECOVERING countdown anchor (epoch ms). 0 when not recovering.
    *  Set to `Date.now() + RECOVERY_SETTLE_MS` the moment the LLM 429 gate
    *  transitions from active → clear. While > Date.now(), `livePhase()`
@@ -847,6 +858,11 @@ class AutonomousLoopRuntime {
       clearInterval(this.timer);
       this.timer = null;
     }
+    // External audit F2: bump the cycle generation so an executeCycle()
+    // currently in flight sees the STOP at its next per-file / pre-commit
+    // checkpoint and aborts — the scheduler clear above only stops FUTURE
+    // cycles, it cannot reach into a running one.
+    this.cycleGeneration++;
     // Also kill any pending recovery probe. Without this, a stopped
     // instance's probe could fire later and re-arm ITS scheduler — a
     // zombie loop running in parallel with whichever instance the
@@ -1142,6 +1158,13 @@ class AutonomousLoopRuntime {
       this.addLog("Skipping cycle — another cycle already running.", "warn");
       return null;
     }
+    // External audit F2: capture the STOP generation for this cycle. stop()
+    // increments it; the per-file and pre-commit checkpoints below compare
+    // against it so an in-flight cycle is interruptible, not just the
+    // scheduler. (See the cycleGeneration field docs for why a generation
+    // counter rather than config.enabled: manual triggers must still work
+    // while the loop is stopped.)
+    const myGen = this.cycleGeneration;
     // ── LLM rate-limit fast-path (pre-tree-fetch) ────────────────────
     // If the LLM gate is already active, defer BEFORE the expensive part
     // of a cycle (GitHub tree fetch over ~667 entries + branch checks +
@@ -1274,7 +1297,7 @@ class AutonomousLoopRuntime {
       // refactor is possible. Config stubs (next.config, postcss, eslint,
       // tailwind, tsconfig) are also excluded — they're declarative
       // configs with no business logic to refactor.
-      const ignored = /^(node_modules|\.git|\.next|dist|build|coverage|public\/assets|vendor|third_party|\.agents|docs?|examples?|scripts\/|build-guide\/|proxy\/|mini-services\/)\//i;
+      const ignored = /^(node_modules|\.git|\.next|dist|build|coverage|public\/assets|vendor|third_party|\.agents|docs?|examples?|scripts|build-guide|proxy|mini-services)\//i;
       const ignoredFiles = /^(next-env\.d\.ts|next\.config\.(ts|js|mjs)|postcss\.config\.(mjs|js|ts)|eslint\.config\.(mjs|js|ts)|tailwind\.config\.(ts|js|mjs)|tsconfig\.json|prettier\.config\.(js|mjs|ts)|\.env\.example|package\.json|bun\.lock|bun\.lockb)$/i;
       // Hard cap on files per cycle — prevents runaway LLM API costs.
       const effectiveMaxFiles = Math.min(this.config.maxFilesPerCycle, 500);
@@ -1402,6 +1425,14 @@ class AutonomousLoopRuntime {
       let halted = false;
       for (const blob of codeBlobs) {
         if (halted) break;
+        // External audit F2 — per-file STOP checkpoint: [STOP] pressed
+        // during a previous file's pipeline run bumps cycleGeneration; stop
+        // here instead of fetching and LLM-processing more files.
+        if (myGen !== this.cycleGeneration) {
+          this.addLog("STOP mid-cycle — aborting remaining files (in-flight cycle interrupted)", "warn");
+          halted = true;
+          break;
+        }
         try {
           const fileUrl = `https://api.github.com/repos/${this.config.targetRepo}/contents/${blob.path}?ref=${this.config.branch}`;
           const fileRes = await fetch(fileUrl, { headers });
@@ -1490,6 +1521,13 @@ class AutonomousLoopRuntime {
           const hasRealChange = !isZeroDiffSaturation;
 
           if (gatesPassed && hasRealChange && this.config.autoPush && token) {
+            // External audit F2 — pre-commit STOP checkpoint: the pipeline
+            // run above takes tens of seconds; a [STOP] that landed during
+            // it must still prevent THIS file's remote commit.
+            if (myGen !== this.cycleGeneration) {
+              this.addLog(`STOP mid-cycle — skipping GitHub commit for ${blob.path} (gates had passed, but the operator interrupted)`, "warn");
+              continue;
+            }
             const pushResult = await this.putFileWithToctouRetry({
               token,
               filePath: blob.path,
