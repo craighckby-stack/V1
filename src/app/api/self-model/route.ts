@@ -31,23 +31,34 @@ export async function GET() {
     const summary = await getSelfModelSummary();
     return NextResponse.json(summary);
   } catch (err) {
+    const errorMessage = (err as Error).message || "An unknown error occurred while fetching self-model summary.";
     return NextResponse.json(
-      { files: [], calibration: { buckets: [], resolvedPredictions: 0, pendingPredictions: 0, brierScore: null, reliability: null, verdict: "error" }, modeStats: { refactor: { attempts: 0, passes: 0 }, visualPolish: { attempts: 0, passes: 0 } }, totals: { attempts: 0, passes: 0, failss: 0, zeroDiffs: 0 }, error: (err as Error).message },
+      { 
+        files: [], 
+        calibration: { buckets: [], resolvedPredictions: 0, pendingPredictions: 0, brierScore: null, reliability: null, verdict: "error" }, 
+        modeStats: { refactor: { attempts: 0, passes: 0 }, visualPolish: { attempts: 0, passes: 0 } }, 
+        totals: { attempts: 0, passes: 0, failss: 0, zeroDiffs: 0 }, 
+        error: errorMessage 
+      },
       { status: 500 }
     );
   }
 }
 
 export async function POST(req: Request) {
+  let force = false;
   try {
-    let force = false;
-    try {
-      const body = (await req.json()) as { force?: boolean };
-      force = body.force === true;
-    } catch {
-      /* empty body is fine */
+    const body = await req.json();
+    if (typeof body === 'object' && body !== null && 'force' in body && typeof body.force === 'boolean') {
+      force = body.force;
     }
-    if (force) {
+  } catch (e) {
+    // Empty body or invalid JSON is acceptable, force remains false.
+    // No action needed, proceed with default force=false.
+  }
+
+  if (force) {
+    try {
       const { bootstrapSelfModel } = await import("@/lib/pipeline/autonomous/self-model");
       // The module-level `bootstrapped` guard prevents re-running even
       // with force — but a fresh import in dev (Turbopack re-eval) gives
@@ -55,10 +66,17 @@ export async function POST(req: Request) {
       // In a long-running process without re-eval, force is a no-op
       // (the model already has rows). Both are safe.
       await bootstrapSelfModel().catch(() => {});
+    } catch (bootstrapError) {
+      // Log or handle bootstrap failure but allow summary retrieval to proceed if possible
+      console.error("Failed to bootstrap self-model:", bootstrapError);
     }
+  }
+  
+  try {
     const summary = await getSelfModelSummary();
     return NextResponse.json(summary);
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    const errorMessage = (err as Error).message || "An unknown error occurred while fetching self-model summary after POST operation.";
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
