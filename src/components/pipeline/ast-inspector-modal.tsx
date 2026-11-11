@@ -53,8 +53,8 @@ export function AstInspectorModal() {
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="px-6 py-4 border-b border-slate-800/60 flex items-center justify-between gap-4 bg-slate-950/40">
-            <div className="min-w-0">
+          <div className="px-6 py-4 border-b border-slate-800/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-950/40">
+            <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold text-slate-100 flex items-center gap-2">
                 <FileCode className="h-4 w-4 text-cyan-400 shrink-0" />
                 <span className="truncate font-mono text-sm" title={path}>
@@ -84,7 +84,7 @@ export function AstInspectorModal() {
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 mt-2 sm:mt-0">
               <Button
                 variant="outline"
                 size="sm"
@@ -139,56 +139,56 @@ export function AstInspectorModal() {
 
           {/* Footer: AST details */}
           <div className="border-t border-slate-800/60 bg-slate-950/40 p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">AST Symbol Map</div>
-              <div className="text-xs text-slate-300 font-mono">
+              <div className="text-xs text-slate-300 font-mono space-y-1">
                 <div className="flex justify-between">
-                  <span>Original:</span>
-                  <span className="text-amber-300">{ast?.symbolMap?.originalCount}</span>
+                  <span className="text-slate-400">Original:</span>
+                  <span className="text-amber-300 font-medium">{ast?.symbolMap?.originalCount}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Proposed:</span>
-                  <span className="text-cyan-300">{ast?.symbolMap?.proposedCount}</span>
+                  <span className="text-slate-400">Proposed:</span>
+                  <span className="text-cyan-300 font-medium">{ast?.symbolMap?.proposedCount}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Retained:</span>
-                  <span className="text-emerald-300">{ast?.symbolMap?.retainedCount}</span>
+                  <span className="text-slate-400">Retained:</span>
+                  <span className="text-emerald-300 font-medium">{ast?.symbolMap?.retainedCount}</span>
                 </div>
               </div>
-              <div className="text-[10px] text-slate-500">
+              <div className="text-[10px] text-slate-500 pt-1">
                 Drift ratio: <span className="font-mono text-amber-300">{(ast?.structuralDriftRatio ? (ast.structuralDriftRatio * 100).toFixed(0) : '0')}%</span>
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Sanitizer</div>
-              <div className="text-xs text-slate-300 flex justify-between">
-                <span>Clean:</span>
+              <div className="text-xs text-slate-300 flex justify-between items-center">
+                <span className="text-slate-400">Clean:</span>
                 <span className={sanitizer?.clean ? "text-emerald-300 font-medium" : "text-rose-300 font-medium"}>
                   {sanitizer?.clean ? "YES" : "NO"}
                 </span>
               </div>
-              <div className="text-xs text-slate-300 flex justify-between">
-                <span>Violations:</span>
+              <div className="text-xs text-slate-300 flex justify-between items-center">
+                <span className="text-slate-400">Violations:</span>
                 <span className="font-mono text-amber-300">{sanitizer?.violations?.length || 0}</span>
               </div>
-              <div className="text-xs text-slate-300 flex justify-between">
-                <span>High-entropy:</span>
+              <div className="text-xs text-slate-300 flex justify-between items-center">
+                <span className="text-slate-400">High-entropy:</span>
                 <span className="font-mono text-amber-300">{sanitizer?.highEntropyTokensFound || 0}</span>
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">AST Violations</div>
               {ast?.violations?.length === 0 ? (
-                <div className="text-xs text-emerald-300 flex items-center gap-1.5">
+                <div className="text-xs text-emerald-300 flex items-center gap-1.5 p-2 bg-slate-800/30 rounded">
                   <CheckCircle2 className="h-3 w-3" /> None — passed all gates
                 </div>
               ) : (
-                <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
                   {ast?.violations?.map((v, i) => {
                     // Add fallback for unknown severity values
                     const Icon = violationIcon[v.severity] || AlertTriangle;
                     return (
-                      <div key={i} className="flex items-start gap-1.5 text-[11px] focus-visible:ring-1 focus-visible:ring-slate-500 p-0.5 rounded">
+                      <div key={i} className="flex items-start gap-2 text-[11px] focus-visible:ring-1 focus-visible:ring-slate-500 p-1 rounded transition-colors duration-150 hover:bg-slate-800/50">
                         <Icon
                           className={cn(
                             "h-3 w-3 mt-0.5 shrink-0",
