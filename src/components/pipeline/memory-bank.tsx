@@ -53,7 +53,7 @@ export function MemoryBank() {
       </CardHeader>
       <CardContent>
         {entries.length === 0 ? (
-          <p className="text-xs text-slate-500 italic py-6 text-center">Loading memory entries…</p>
+          <p className="text-xs text-slate-500 italic py-6 text-center">Loading memory entries...</p>
         ) : (
           <ScrollArea className="h-[280px] pr-3">
             <div className="space-y-2">
