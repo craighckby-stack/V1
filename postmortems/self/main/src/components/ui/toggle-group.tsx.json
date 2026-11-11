@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/ui/toggle-group.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
@@ -12,8 +12,8 @@
   "parentHash": "969dc57578eebe6908b079503e3661463ddb58a25c0c81fc3522cda48ff9f12b",
   "hash": "0ebf180ef72e0b74bdde49d254eb96230512df6705f15927371c5199b9629bc1",
   "lastAttemptAt": "2026-11-10T23:19:38.660Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-11T14:32:16.358Z",
   "createdAt": "2026-11-10T22:52:46.953Z",
-  "updatedAt": "2026-11-10T23:19:38.660Z",
+  "updatedAt": "2026-11-11T14:32:16.358Z",
   "schema": 2
 }

@@ -35,6 +35,16 @@ function Toggle({
   ...props
 }: React.ComponentProps<typeof TogglePrimitive.Root> &
   VariantProps<typeof toggleVariants>) {
+  if (
+    variant && !["default", "outline"].includes(variant) ||
+    size && !["default", "sm", "lg"].includes(size)
+  ) {
+    throw new Error(
+      `Invalid variant or size provided to Toggle. Valid variants: ${
+        ["default", "outline"].join(", ")
+      }. Valid sizes: ${["default", "sm", "lg"].join(", ")}.`
+    )
+  }
   return (
     <TogglePrimitive.Root
       data-slot="toggle"
