@@ -1155,6 +1155,16 @@ class SelfEnhanceLoop {
    */
   private async writeTestsForFile(filePath: string): Promise<boolean> {
     const relPath = relative(PROJECT_ROOT, filePath);
+    // STOP-interrupt (external audit F3): capture the run generation so a
+    // [STOP] during the ratchet's LLM call / sandbox gates / debate aborts
+    // BEFORE the pin's live write. The caller's checkpoint ("Fix C", after
+    // this method returns) was too late — the pin could already be written
+    // and pushed. Captured at method entry so the whole gate chain is
+    // covered. If STOP lands in the tiny write→push window AFTER a pin has
+    // passed every gate and been written, the push still completes — a
+    // gated, written pin left unpushed would leave the tree dirty relative
+    // to origin for no safety benefit.
+    const myRun = this.runId;
     // Strip the real extension (.ts/.tsx) — same bug as findTestFilesFor:
     // basename(p, ".ts") left .tsx sources with their extension attached, so
     // the ratchet wrote/looked for `console-stream.tsx.test.ts`.
@@ -1291,8 +1301,21 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // matter.) Runs against the same overlay so the draft still never
       // touches the live tree.
       const tsc = typecheckInSandbox(overlay);
-      if (tsc.status !== 0 && tsc.output.includes(`${base}.test.ts`)) {
-        this.log(`Ratchet: rejected test for ${relPath} (typecheck errors in the test file)`, "warn");
+      // Fail-closed (external audit F5): status === null means the typecheck
+      // NEVER RAN (sandbox setup failure, overlay failure, spawn error, or
+      // timeout — see typecheckInSandbox's return paths). The old condition
+      // (`status !== 0 && output.includes(test file)`) only rejected when
+      // the output NAMED the test file — but a setup-failure output never
+      // names it, so a never-run typecheck passed the gate and the test
+      // proceeded to debate and a possible live write. The comment on the
+      // sandbox path says "fail-closed"; now the caller actually is.
+      if (tsc.status !== 0 && (tsc.status === null || tsc.output.includes(`${base}.test.ts`))) {
+        this.log(
+          `Ratchet: rejected test for ${relPath} (${
+            tsc.status === null ? `typecheck did not run — fail-closed: ${tsc.output.slice(0, 120)}` : "typecheck errors in the test file"
+          })`,
+          "warn"
+        );
         return false;
       }
 
@@ -1307,6 +1330,16 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
         } else {
           this.log(`Ratchet: rejected test for ${relPath} by debate: ${debate.reason.slice(0, 150)}`, "warn");
         }
+        return false;
+      }
+
+      // STOP checkpoint (external audit F3): a [STOP] that arrived during
+      // the LLM call or any of the gates above must not produce a live
+      // write. Discard the drafted pin — it cost prompt slots, but nothing
+      // was written and the module simply stays unpinned (retried if the
+      // loop is restarted before the attempt-decay window closes).
+      if (myRun !== this.runId) {
+        this.log(`Ratchet: STOP requested while drafting tests for ${relPath} — discarding pin before its live write`, "warn");
         return false;
       }
 
@@ -2452,19 +2485,129 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
           }));
 
           if (exec.status === "applied" && exec.newCode) {
-            // Write live (same as enhanceFile's success path).
             const abs = join(PROJECT_ROOT, filePath);
             const relPath = relative(PROJECT_ROOT, abs);
-            try {
-              writeFileSync(abs, exec.newCode, "utf-8");
-            } catch (wErr) {
-              await this.updateTask(task.id, { status: "failed", lastError: `write failed: ${(wErr as Error).message}` });
-              this.log(`SelfTask[${kind}] write failed: ${(wErr as Error).message}`, "warn");
+            let candidate = exec.newCode;
+            // ── FULL GATE CHAIN for LLM-produced fixes (external audit F1) ──
+            // The SelfTask path previously went truncation → syntax →
+            // typecheck → LIVE WRITE, skipping the structural validator,
+            // mutation guard, debate tribunal and behavioral test gate that
+            // enhanceFile runs. A SelfTask fix is smaller, but it is still
+            // an LLM rewrite of a live file: it can drop exports
+            // (structural), smuggle evil tokens (mutation-guard), or
+            // subtly change behavior (debate + tests). Deterministic kinds
+            // (missing-return-type, unused-import) are checker-driven
+            // insertions/removals that cannot drop exports or add tokens —
+            // for those, executeTask's in-memory typecheck plus the guarded
+            // write below is the proportionate gate set.
+            if (exec.method === "llm") {
+              // Banner strip (same defense-in-depth as enhanceFile 3b)
+              const banner = this.stripBannerComments(candidate);
+              if (banner.stripped) {
+                this.log(`SelfTask[${kind}] stripped decorative banner from ${relPath} (LLM ignored the no-header rule)`, "warn");
+              }
+              candidate = banner.code;
+              if (exec.baseCode !== undefined && candidate.trim() === exec.baseCode.trim()) {
+                await this.updateTask(task.id, { status: "skipped", lastError: "LLM fix was banner-only (no real change)" });
+                this.log(`SelfTask[${kind}] no-op: banner-only change, nothing to write`, "info");
+                continue;
+              }
+              // Structural validator + mutation guard + AST retention
+              // (verifyRefactor bundles them; candidate passed via stdin,
+              // nothing touches disk). Also re-typechecks — executeTask
+              // already did, but the banner strip changed the content.
+              const verification = this.verifyRefactor(abs, candidate);
+              if (!verification.ok) {
+                await this.updateTask(task.id, {
+                  status: "failed",
+                  lastError: `structural/mutation gate rejected: ${verification.errors.slice(0, 2).join(" | ").slice(0, 250)}`,
+                });
+                this.log(`SelfTask[${kind}] rejected by structural/mutation gates: ${verification.errors[0]?.slice(0, 120)}`, "warn");
+                continue;
+              }
+              // Debate tribunal — fail-closed on unavailability (same
+              // contract as the ratchet: a deferred task is requeued, not
+              // counted as a failure or auto-approved).
+              const debate = await this.debateGate(abs, exec.baseCode ?? "", candidate, `self-task ${kind} fix: ${exec.summary.slice(0, 180)}`);
+              if (!debate.approved) {
+                if (debate.deferred) {
+                  await this.updateTask(task.id, { status: "pending", deferred: 1 });
+                  this.log(`SelfTask[${kind}] deferred: debate tribunal unavailable, not auto-approving (fail-closed)`, "warn");
+                } else {
+                  await this.updateTask(task.id, { status: "failed", lastError: `debate rejected: ${debate.reason.slice(0, 200)}` });
+                  this.log(`SelfTask[${kind}] rejected by debate: ${debate.reason.slice(0, 120)}`, "warn");
+                }
+                continue;
+              }
+              // Behavioral test gate — co-located tests must still pass.
+              const testResult = this.testGate(abs, candidate);
+              if (!testResult.passed) {
+                await this.updateTask(task.id, { status: "failed", lastError: `test gate failed: ${testResult.reason.slice(0, 200)}` });
+                this.log(`SelfTask[${kind}] rejected by test gate: ${testResult.reason.slice(0, 120)}`, "warn");
+                continue;
+              }
+            }
+            // ── GUARDED LIVE WRITE (external audit F1: the concurrent-write
+            // hole) — same three protections as enhanceFile's phase 6:
+            //   (a) STOP checkpoint before the write (a stop() during the
+            //       executor or the gates above must not still land a write),
+            //   (b) TOCTOU disk-conflict check — the disk content must still
+            //       be what this fix was computed against (exec.baseCode);
+            //       a concurrent writer between executeTask's read and this
+            //       write would otherwise be silently clobbered,
+            //   (c) the tree lock, serializing against chat-task rollback.
+            const pushMsg = `self-task[${kind}]: ${relPath}:${task.line} — ${exec.summary.slice(0, 120)}`;
+            type SelfTaskWriteOutcome =
+              | { kind: "stopped" }
+              | { kind: "conflict" }
+              | { kind: "write-failed"; error: string }
+              | { kind: "done"; pushed: boolean; commitSha?: string };
+            const writeOutcome = await withTreeLock<SelfTaskWriteOutcome>(async () => {
+              if (myRun !== this.runId) {
+                return { kind: "stopped" };
+              }
+              const diskNow = readFileSync(abs, "utf-8");
+              if (exec.baseCode !== undefined && sha16(diskNow) !== sha16(exec.baseCode)) {
+                return { kind: "conflict" };
+              }
+              try {
+                writeFileSync(abs, candidate, "utf-8");
+              } catch (wErr) {
+                return { kind: "write-failed", error: (wErr as Error).message };
+              }
+              const push = await this.gitPush(pushMsg);
+              return { kind: "done", pushed: push.pushed, commitSha: push.commitSha };
+            });
+            if (writeOutcome.kind === "stopped") {
+              await this.updateTask(task.id, { status: "pending", lastError: "stop requested before live write — requeued" });
+              this.log(`SelfTask[${kind}] aborted: stop requested before live write (task requeued)`, "warn");
               continue;
             }
-            // Push — same path as enhanceFile's success.
-            const pushMsg = `self-task[${kind}]: ${relPath}:${task.line} — ${exec.summary.slice(0, 120)}`;
-            const push = await this.gitPush(pushMsg);
+            if (writeOutcome.kind === "conflict") {
+              await postmortemStore
+                .recordFailure({
+                  repo: "self",
+                  branch: "main",
+                  filePath: relPath,
+                  failureType: "OTHER",
+                  symptom: `TOCTOU conflict on ${relPath}: disk content changed between the SelfTask read and its gated write`,
+                  evidence: `fix computed against sha ${sha16(exec.baseCode ?? "")} vs on-disk sha ${sha16(readFileSync(abs, "utf-8"))} — a concurrent writer (chat-task, operator edit, or host restore) landed while the SelfTask gates ran`,
+                  constraints: `Re-read the current file before proposing changes — the disk state moved during the last SelfTask gate chain; clobbering it would revert someone else's work.`,
+                  observed: false,
+                })
+                .catch(() => {
+                  /* best-effort scar */
+                });
+              await this.updateTask(task.id, { status: "pending", lastError: "TOCTOU conflict — disk changed during gates; requeued" });
+              this.log(`CONFLICT: ${relPath} changed on disk while the SelfTask gates ran — requeued instead of clobbering`, "error");
+              continue;
+            }
+            if (writeOutcome.kind === "write-failed") {
+              await this.updateTask(task.id, { status: "failed", lastError: `write failed: ${writeOutcome.error}` });
+              this.log(`SelfTask[${kind}] write failed: ${writeOutcome.error}`, "warn");
+              continue;
+            }
+            const push = { pushed: writeOutcome.pushed, commitSha: writeOutcome.commitSha };
             if (push.pushed) {
               this.stats.totalEnhanced++;
               this.stats.totalPushed++;
@@ -2478,8 +2621,8 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
                 enhanced: true,
                 reason: `SelfTask[${kind}]: ${exec.summary.slice(0, 100)}`,
                 oldBytes: 0,
-                newBytes: exec.newCode.length,
-                diffBytes: exec.newCode.length,
+                newBytes: candidate.length,
+                diffBytes: candidate.length,
                 llmUsed: exec.method === "llm",
                 llmLatencyMs: 0,
                 compiled: true,

@@ -257,6 +257,15 @@ export function warmZaiCortex(): void {
       // this health check reports the connection, and the connection
       // works). Anything else (network, timeout, 5xx) is a real error.
       const isRateLimit = /\b429\b|too many requests|rate.?limit/i.test(raw);
+      // OPERATOR FIX (2026-11-11): token-rotation awareness (same fix as
+      // performLlmComplete's catch). An auth failure here means the cached
+      // instance's token was retired by the platform's /etc/.z-ai-config
+      // rotation — drop the instance so the next warm (30s retry) or any
+      // llmComplete call re-reads the freshly rotated config. See the
+      // longer comment in performLlmComplete for the live evidence.
+      if (/\b401\b|missing x-token|unauthorized/i.test(raw)) {
+        gateState().zaiPromise = null;
+      }
       if (isRateLimit) {
         c.state = "ready";
         c.injected = true;
@@ -577,6 +586,22 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
       lastError = (err as Error).message;
       const isRateLimit = /\b429\b|too many requests|rate.?limit/i.test(lastError);
       if (isRateLimit) sawRateLimit = true;
+
+      // OPERATOR FIX (2026-11-11): token-rotation awareness. The platform
+      // rotates the token in /etc/.z-ai-config continuously (its mtime is
+      // often < 5 min old); the SDK captures the token ONCE at ZAI.create()
+      // and zaiPromise caches the instance forever. A retired token makes
+      // every call fail with "401 missing X-Token header" — the gateway's
+      // (misleading) response for an unknown token: the header IS sent,
+      // it's just no longer valid. Observed live: a 21.5h outage with 2194
+      // consecutive 401s while a fresh ZAI.create() against the same file
+      // passed auth (empirically verified: fresh instance got 429 = auth
+      // OK, quota cooling). Fix: drop the cached instance on ANY auth
+      // failure; the next getZai() (this call's attempt 2, or any later
+      // call) re-reads the freshly rotated config.
+      if (/\b401\b|missing x-token|unauthorized/i.test(lastError)) {
+        gateState().zaiPromise = null;
+      }
 
       if (attempt < maxAttempts) {
         // For 429s: short backoff (was 10s base; now just 2-4s with jitter)
