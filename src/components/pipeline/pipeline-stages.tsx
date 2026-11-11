@@ -200,15 +200,19 @@ export function PipelineStages() {
     },
     {} as Record<string, number>
   );
-  const progressPct = report
-    ? Math.round(
-        ((statusCounts.succeeded ?? 0) +
-          (statusCounts.blocked ?? 0) * 0.5 +
-          (statusCounts.skipped ?? 0)) /
-          stages.length *
-          100
-      )
-    : 0;
+  const totalStages = stages.length;
+  
+  let progressPct = 0;
+  if (totalStages > 0) {
+    progressPct = Math.round(
+      ((statusCounts.succeeded ?? 0) +
+        (statusCounts.blocked ?? 0) * 0.5 +
+        (statusCounts.skipped ?? 0)) /
+        totalStages *
+        100
+    );
+  }
+
 
   return (
     <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur">
