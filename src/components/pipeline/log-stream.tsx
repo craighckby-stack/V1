@@ -71,13 +71,16 @@ export function LogStream() {
               </div>
             ) : (
               <AnimatePresence initial={false}>
-                {logs.map((entry, idx) => {
-                  const Icon = TYPE_ICON[entry.type as keyof typeof TYPE_ICON] || Info;
-                  const color = TYPE_COLOR[entry.type as keyof typeof TYPE_COLOR] || "text-slate-400";
-                  const sourceColor = SOURCE_COLOR[entry.source as keyof typeof SOURCE_COLOR] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
+                {logs.map((entry) => {
+                  const typeKey = entry.type as keyof typeof TYPE_ICON;
+                  const sourceKey = entry.source as keyof typeof SOURCE_COLOR;
+
+                  const Icon = TYPE_ICON[typeKey] || Info;
+                  const color = TYPE_COLOR[typeKey] || "text-slate-400";
+                  const sourceColor = SOURCE_COLOR[sourceKey] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
                   
-                  // Use index as key for stable ordering in AnimatePresence, assuming order reflects chronological flow.
-                  const key = idx; 
+                  // Use a stable identifier from the log entry instead of array index for AnimatePresence key
+                  const key = entry.timestamp + entry.message; 
                   
                   return (
                     <motion.div
