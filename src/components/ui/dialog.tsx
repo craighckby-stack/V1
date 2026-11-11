@@ -59,6 +59,9 @@ function DialogContent({
     // Throwing an error provides actionable context during development/usage.
     throw new Error("DialogContent must be provided with children.")
   }
+  if (typeof showCloseButton !== 'boolean') {
+    throw new Error("DialogContent prop 'showCloseButton' must be a boolean.")
+  }
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
