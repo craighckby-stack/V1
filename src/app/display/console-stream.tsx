@@ -81,7 +81,8 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
           color = USER_INPUT_COLOR;
         } else if (line.type === "log" && line.logType) {
           // Safely determine color using COLOR_MAP, defaulting to TEXT_COLOR if logType is unknown
-          color = COLOR_MAP[line.logType as keyof typeof COLOR_MAP] || TEXT_COLOR;
+          const logTypeKey = line.logType as keyof typeof COLOR_MAP;
+          color = COLOR_MAP[logTypeKey] || TEXT_COLOR;
         }
 
         return (
