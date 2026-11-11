@@ -9,8 +9,8 @@ function TooltipProvider({
   delayDuration = 0,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
-  if (delayDuration < 0) {
-    throw new Error("TooltipProvider: delayDuration must be a non-negative number.")
+  if (typeof delayDuration !== 'number' || delayDuration < 0 || !isFinite(delayDuration)) {
+    throw new Error("TooltipProvider: delayDuration must be a finite, non-negative number.")
   }
   return (
     <TooltipPrimitive.Provider
