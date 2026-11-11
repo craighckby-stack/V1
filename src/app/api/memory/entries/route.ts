@@ -16,7 +16,11 @@ export async function GET() {
     const entries: VectorEntry[] = emgRagInstance.getAll();
     return NextResponse.json({ entries });
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred while fetching memory entries.";
+    let errorMessage = "An unknown error occurred while fetching memory entries.";
+    if (err instanceof Error) {
+      // Provide context but sanitize the message for external API consumption
+      errorMessage = `Failed to retrieve memory entries: ${err.message}`;
+    }
     return NextResponse.json(
       { error: errorMessage },
       { status: 500 }
