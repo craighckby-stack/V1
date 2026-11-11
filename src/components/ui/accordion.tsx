@@ -30,6 +30,9 @@ function AccordionTrigger({
   children,
   ...props
 }: React.ComponentProps<typeof AccordionPrimitive.Trigger>) {
+  if (!children) {
+    throw new Error("AccordionTrigger requires children to be rendered.")
+  }
   return (
     <AccordionPrimitive.Header className="flex">
       <AccordionPrimitive.Trigger
