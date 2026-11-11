@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/ui/drawer.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
@@ -12,8 +12,8 @@
   "parentHash": "531651075c3ff268fa9c6a585a305e65f5849ad227f40e16628ba0bf8044ab61",
   "hash": "9aa3d347d8b963bb78f6631e82ed16dc30b1145c251c4e67032bd8d3ea15443c",
   "lastAttemptAt": "2026-11-10T23:13:24.933Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-11T14:12:15.543Z",
   "createdAt": "2026-11-10T22:34:28.159Z",
-  "updatedAt": "2026-11-10T23:13:24.933Z",
+  "updatedAt": "2026-11-11T14:12:15.543Z",
   "schema": 2
 }
