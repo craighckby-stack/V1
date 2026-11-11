@@ -38,7 +38,7 @@ export async function GET() {
         calibration: { buckets: [], resolvedPredictions: 0, pendingPredictions: 0, brierScore: null, reliability: null, verdict: "error" }, 
         modeStats: { refactor: { attempts: 0, passes: 0 }, visualPolish: { attempts: 0, passes: 0 } }, 
         totals: { attempts: 0, passes: 0, failss: 0, zeroDiffs: 0 }, 
-        error: errorMessage 
+        error: `Failed to retrieve self-model summary: ${errorMessage}` 
       },
       { status: 500 }
     );
@@ -48,11 +48,18 @@ export async function GET() {
 export async function POST(req: Request) {
   let force = false;
   try {
+    if (!(req instanceof Request)) {
+        throw new Error("Invalid Request object provided to POST handler.");
+    }
     const body = await req.json();
     if (typeof body === 'object' && body !== null && 'force' in body && typeof body.force === 'boolean') {
       force = body.force;
     }
   } catch (e) {
+    if (e instanceof Error && e.message.includes("Invalid Request object")) {
+        // Re-throw specific validation error
+        throw e;
+    }
     // Empty body or invalid JSON is acceptable, force remains false.
     // No action needed, proceed with default force=false.
   }
@@ -77,6 +84,6 @@ export async function POST(req: Request) {
     return NextResponse.json(summary);
   } catch (err) {
     const errorMessage = (err as Error).message || "An unknown error occurred while fetching self-model summary after POST operation.";
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    return NextResponse.json({ error: `Failed to retrieve self-model summary after POST operation: ${errorMessage}` }, { status: 500 });
   }
 }
