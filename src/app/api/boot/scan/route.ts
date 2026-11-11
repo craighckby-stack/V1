@@ -67,7 +67,7 @@ function diskScarCount(): number {
     try {
       entries = readdirSync(dir);
     } catch (e) {
-      // Log or handle specific FS errors instead of swallowing silently
+      // Log specific FS errors instead of swallowing silently
       console.error(`Error reading directory ${dir}:`, e);
       return;
     }
@@ -78,6 +78,7 @@ function diskScarCount(): number {
         st = statSync(p);
       } catch (e) {
         // Skip files/dirs we can't stat (e.g., permission denied)
+        console.warn(`Could not stat path ${p}:`, e);
         continue;
       }
       if (st.isDirectory()) walk(p);
