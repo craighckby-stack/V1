@@ -23,6 +23,9 @@ function PopoverContent({
   sideOffset = 4,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+  if (typeof sideOffset !== 'number' || sideOffset < 0) {
+    throw new Error("PopoverContent: sideOffset must be a non-negative number.");
+  }
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content
