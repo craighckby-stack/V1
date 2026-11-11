@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/ui/dropdown-menu.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
@@ -12,8 +12,8 @@
   "parentHash": "30053dd338661e954478193193cc61ecc6ca3dee205ffa41d686eedc21aabfa2",
   "hash": "8f4e1d68ca530b9cc937ccf03a5f17e3869daae679e609c4277fd86c0de5e513",
   "lastAttemptAt": "2026-11-10T23:14:00.847Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-11T14:13:13.624Z",
   "createdAt": "2026-11-10T22:35:07.879Z",
-  "updatedAt": "2026-11-10T23:14:00.847Z",
+  "updatedAt": "2026-11-11T14:13:13.624Z",
   "schema": 2
 }
