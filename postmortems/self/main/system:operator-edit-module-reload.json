@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "system:operator-edit-module-reload",
+  "status": "resolved",
+  "verificationStatus": "verified",
+  "failureType": "OTHER",
+  "symptom": "An operator edit to a pipeline file (task-executor.ts scope-guard) did not take effect after POST /api/self-enhance/reboot NOR after POST /api/hot-swap/trigger — the running loop kept executing the old compiled module (observed: SelfTask kept applying annotations that the new code would have skipped).",
+  "evidence": "2026-11-11: edited task-executor.ts (missing-return-type scope guard). Reboot at 06:14 — loop resumed but failures continued (old code). Hot-swap at 06:16:35 returned swapped:true, pinsCleared:[__selfEnhanceLoop,...], but the log showed 'State restored from hot-swap snapshot (reaper) — constructor didn't run, reaper caught it' and the resumed loop STILL ran old executor code. Only a cold dev-server restart (setsid pattern) at 06:19 loaded the new module — first SelfTask drain after restart produced the expected no-op lines. The reaper path restores the loop from the globalThis snapshot through a module reference that predates the recompile; the swap's intended fresh-constructor path did not run ('constructor didn't run').",
+  "constraints": "Operator edits to src/lib/pipeline/** that must be picked up by the RUNNING loop: (1) a loop reboot reuses the pinned singleton — insufficient; (2) hot-swap's happy path re-imports the module tree, but its reaper fallback can resume through stale module references — insufficient when the reaper catches it; (3) a cold dev-server restart (kill PID; cd /home/z/my-project && rm -f dev.log && ( setsid bun run dev > dev.log 2>&1 < /dev/null & )) guarantees fresh module evaluation. Loop stats reset on restart (in-memory) — they are cosmetic, not data loss. Verification after any reload attempt: check the dev.log for the NEW code's distinct log line (e.g. the no-op summary text) before concluding the fix landed.",
+  "resolution": "Resolved operationally: cold dev-server restart loads operator pipeline edits deterministically. The loop auto-arms on boot (armed-state persists). Cost: in-memory loop stats reset to zero (cosmetic) and any in-flight cycle aborts.",
+  "attempts": [],
+  "resolvedAt": "2026-11-11T06:26:47.000Z",
+  "lastAttemptAt": "2026-11-11T06:26:47.000Z",
+  "createdAt": "2026-11-11T06:26:47.000Z",
+  "updatedAt": "2026-11-11T06:26:47.000Z",
+  "schema": 2,
+  "hash": "35b912de8edaf787"
+}
