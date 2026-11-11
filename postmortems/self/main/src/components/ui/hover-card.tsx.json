@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/ui/hover-card.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: tailwind.config.ts(2,32): error TS2307: Cannot find module 'tailwindcss-animate' or its corresponding type declarations.",
@@ -12,8 +12,8 @@
   "parentHash": "c5824801ddc3bab4410cc1434c5f29a76f2f16e444a68ba0d9b1983274ce8c58",
   "hash": "e351e1392f0a7d9d28a5dc7bdecba9b6265ea32ff398c49a0507be5fdb8c086c",
   "lastAttemptAt": "2026-11-10T23:15:01.354Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-11T14:14:58.109Z",
   "createdAt": "2026-11-10T22:36:08.175Z",
-  "updatedAt": "2026-11-10T23:15:01.354Z",
+  "updatedAt": "2026-11-11T14:14:58.109Z",
   "schema": 2
 }

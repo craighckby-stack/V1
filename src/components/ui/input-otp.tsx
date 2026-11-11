@@ -45,7 +45,7 @@ function InputOTPSlot({
 }) {
   const inputOTPContext = React.useContext(OTPInputContext)
   
-  if (!inputOTPContext || !inputOTPContext.slots || !inputOTPContext.slots[index]) {
+  if (!inputOTPContext || !inputOTPContext.slots || !Array.isArray(inputOTPContext.slots) || index < 0 || index >= inputOTPContext.slots.length) {
     // Guard against being used outside of OTPInput context or invalid index
     return null
   }
