@@ -222,12 +222,14 @@ export async function getProphecyCounts(): Promise<{
       total: 0,
     };
     
-    // Process the groupBy results
-    result.forEach(item => {
-      if (item.status && item.status in counts) {
-        counts[item.status as keyof typeof counts] = item._count.status;
-      }
-    });
+    // Process the groupBy results safely
+    if (result && Array.isArray(result)) {
+      result.forEach(item => {
+        if (item.status && item.status in counts) {
+          counts[item.status as keyof typeof counts] = item._count.status;
+        }
+      });
+    }
     
     // Calculate total by summing individual counts
     counts.total = counts.pending + counts.fulfilled + counts.failed + counts.retired;
