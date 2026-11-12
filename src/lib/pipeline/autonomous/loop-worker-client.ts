@@ -44,7 +44,17 @@ export async function workerFetch<T = unknown>(
       body: init?.body,
       signal: AbortSignal.timeout(timeoutMs),
     });
-    const data = (await res.json().catch(() => null)) as T | null;
+
+    let data: T | null = null;
+    if (res.ok || res.status >= 400) {
+      try {
+        data = await res.json();
+      } catch (e) {
+        // Failed to parse JSON, treat as null data but respect HTTP status
+        data = null;
+      }
+    }
+    
     return { ok: res.ok, status: res.status, data };
   } catch (error) {
     // Catch specific network/timeout errors, but still return null as per contract
