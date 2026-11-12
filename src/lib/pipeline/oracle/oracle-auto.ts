@@ -123,7 +123,7 @@ function currentHeadSha(): string | null {
       stdio: "pipe",
     }).trim() || null;
   } catch {
-    return null;
+    return null; // git command failed, return null
   }
 }
 

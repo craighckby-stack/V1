@@ -4,7 +4,7 @@ export interface SiphonSource {
   readonly repo: string;
   readonly branch: string;
   readonly label: string;
-  readonly category: "neural" | "orchestration" | "verification" | "runtime" | "cryptography";
+  readonly category: "orchestration" | "verification" | "runtime";
   readonly patterns: string[];
 }
 
@@ -12,9 +12,14 @@ export interface SiphonSource {
 // DEFAULT_THRESHOLD / SECURITY_KEYWORDS / AGENT_KEYWORDS were removed.
 // They drove the mock performArchitecturalVote's hardcoded 96/94/92
 // "confidence" scores. The honest no-op replacement (below) doesn't
-// need them. The SIPHON_SOURCES catalog is retained as a reference
-// list (the UI dropdown + /api/engines/catalog serve it), but it no
-// longer drives a fake selection.
+// need them.
+//
+// Endpoint cleanup: the /api/engines/catalog route and the duplicated
+// UI dropdown serving this list are gone, and the three aspirational
+// external entries (deepmind-research, ms-autogen, langchain-langgraph)
+// were removed with them — they were never fetched, never matched any
+// measurement, and existed only as filler. What remains are the three
+// reference helper repos this system was actually built from.
 
 export const SIPHON_SOURCES: readonly SiphonSource[] = [
   {
@@ -63,33 +68,6 @@ export const SIPHON_SOURCES: readonly SiphonSource[] = [
       "Multi-Agent Coordination Helper",
     ],
   },
-  {
-    id: "deepmind-research",
-    owner: "google-deepmind",
-    repo: "deepmind-research",
-    branch: "master",
-    label: "Algorithm Research Patterns",
-    category: "neural",
-    patterns: ["Algorithmic Program Search", "Policy Heuristics", "Self-Supervised Verification"],
-  },
-  {
-    id: "ms-autogen",
-    owner: "microsoft",
-    repo: "autogen",
-    branch: "main",
-    label: "Multi-Agent Coordination Helper",
-    category: "orchestration",
-    patterns: ["Conversational Agent Protocol", "Group Consensus Review", "Execution Sandbox"],
-  },
-  {
-    id: "langchain-langgraph",
-    owner: "langchain-ai",
-    repo: "langgraph",
-    branch: "main",
-    label: "Stateful Workflow Helper",
-    category: "runtime",
-    patterns: ["Cyclic Graph State Machine", "State Checkpointing", "Human-in-the-Loop Review"],
-  },
 ];
 
 export interface ArchitecturalVote {
@@ -112,9 +90,9 @@ export interface ArchitecturalVote {
  * The honest replacement returns a NEUTRAL vote: score 0, rationale
  * "no template selection — the LLM refactors directly", recommendedPattern
  * "Direct LLM Refactor". The manual pipeline's Stage 0 now logs this
- * honestly. The SIPHON_SOURCES catalog stays as a reference list (the UI
- * dropdown and the /api/engines/catalog route still serve it), but it no
- * longer drives a fake selection.
+ * honestly. The SIPHON_SOURCES catalog stays as a small reference list
+ * (the three helper repos the system was built from), but it no longer
+ * drives a fake selection.
  *
  * The interface is unchanged (returns ArchitecturalVote) so
  * unified-pipeline.ts and its type `patternVote`/`siphonVote` compile

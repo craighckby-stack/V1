@@ -129,6 +129,10 @@ export class SelfStoppingGovernor {
     return this.consecutiveFailures;
   }
 
+  public getMaxConsecutiveFailures(): number {
+    return this.maxConsecutiveFailures;
+  }
+
   public getSkippedPaths(): string[] {
     return Array.from(this.skippedPaths);
   }

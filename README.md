@@ -159,16 +159,16 @@ A self-improving system must not be able to rewrite its own OFF switch, its own 
 
 ---
 
-## API routes (60)
+## API routes (50)
 
 Mutating routes (POST/PUT/PATCH/DELETE) are gated by `src/middleware.ts` (`x-loop-key` header vs `LOOP_API_KEY`, 60 mutations/min/IP rate limit). Fail-open only while unset (one-time warn).
 
 | Method | Path | What it does |
 |---|---|---|
-| GET | `/api` | Service index (lists every route) |
-| GET | `/api/health` | Liveness probe of every subsystem incl. WS mini-service |
+| GET | `/api/health` | Liveness probe of every subsystem incl. WS mini-service (all claims computed from live state) |
 | GET/HEAD | `/api/healthz` | Minimal always-200 probe; exposes `mutationGate.configured` |
 | GET | `/api/boot/scan` | Boot-splash vitals (sealed-PAT auth, corpus, pass-rate trend, scars, autonomy, cortex, quota) |
+| GET/POST | `/api/self-model` | Cortex self-model: per-file confidence priors + reflection notes |
 | POST | `/api/self-enhance/start` | Start the continuous self-enhance loop |
 | POST | `/api/self-enhance/stop` | Stop it |
 | GET | `/api/self-enhance/status` | Live status (running, stats, logs, current file, llmGate, saturation) |
@@ -186,9 +186,7 @@ Mutating routes (POST/PUT/PATCH/DELETE) are gated by `src/middleware.ts` (`x-loo
 | GET/POST | `/api/self-enhance/archaeology` | Run git-history miner (zero LLM) |
 | POST | `/api/self-enhance/chat-task/propose` | LLM proposes a plan from a user goal (no writes) |
 | POST | `/api/self-enhance/chat-task/apply` | Apply approved plan through the gate chain → push |
-| GET/POST | `/api/self-enhance/prune-branches` | Branch retention: GET = dry-run preview; POST = execute drain (`{keep?, margin?, dryRun?}`) |
 | GET/POST | `/api/self-enhance/merge-back` | Reviewed catch-up of a retained `loop-NN` branch into main: GET (no arg) = list candidates; GET `?branch=loop-NN` = full plan; POST `{branch, strategy:"dry-run"\|"theirs-for-source", push?}` = execute (typecheck-gated, commits but does not push by default) |
-| GET | `/api/self-enhance/pass-rate-trend` | Pass rate over time from the mutation corpus (headline window, trend, buckets) |
 | POST | `/api/autonomous/start` | Arm autonomous remote-repo loop |
 | POST | `/api/autonomous/stop` | Disarm (sticky) |
 | GET | `/api/autonomous/status` | Full LoopState (config, livePhase, stats, logs, currentCycle) |
@@ -202,30 +200,23 @@ Mutating routes (POST/PUT/PATCH/DELETE) are gated by `src/middleware.ts` (`x-loo
 | GET | `/api/oracle/events` | Oracle event ring buffer (200 cap, `since` cursor) |
 | GET/POST | `/api/oracle/archaeology` | Mine target repo's git history → seed prophecies |
 | GET/DELETE | `/api/postmortems` | List active postmortems; dismiss by id |
-| POST | `/api/postmortems/seed` | Import postmortems from external markdown |
 | GET/POST | `/api/postmortems/chain` | Verify/backfill the tamper-evident chain |
 | POST | `/api/red-team/run` | Run the 7-probe adversarial suite (300s timeout) |
 | GET | `/api/red-team/status` | Suite metadata + last run summary |
-| POST | `/api/emg/sanitize` | Run the sanitizer on pasted code |
 | POST | `/api/pipeline/run` | Manual 6-stage remote-repo pipeline run |
-| GET | `/api/pipeline/history` | Last 25 PipelineRun rows |
 | POST | `/api/secret-scan/scan` | Scan pasted content for secrets |
 | GET | `/api/memory/entries` | All MemoryEntry rows |
-| GET | `/api/memory/query` | TF-IDF ranked retrieval |
 | POST | `/api/duress/purge` | Manual PKM §3 purge (purge PAT → safe-mode → halt) |
 | GET | `/api/duress/status` | Safe-mode state + consecutive auth failures |
 | POST | `/api/duress/clear` | Operator clears safe-mode (read-back) |
-| POST | `/api/evolution/coherence-gate` | Length-ratio coherence check |
-| POST | `/api/evolution/debate` | Run the LLM debate tribunal |
 | GET | `/api/branches` | List `loop-NN` branches from GitHub |
-| GET | `/api/engines/catalog` | List configured siphon sources |
 | POST | `/api/hot-swap/trigger` | Force pipeline hot-swap |
 | GET | `/api/hot-swap/status` | Swap count + running fingerprint |
 | POST | `/api/github/validate-token` | Validate GitHub PAT |
 | POST | `/api/github/repo-tree` | Fetch repo tree (recursive) |
 | POST | `/api/github/fetch-file` | Fetch a single file |
-| POST | `/api/github/commit-file` | Commit a single file to a branch |
-| POST | `/api/github/batch-commit` | Commit multiple files in one batch |
+
+> Endpoint cleanup note: 12 unused routes were removed — the `/api` index, `pipeline/history`, `memory/query`, `engines/catalog`, `evolution/coherence-gate`, `evolution/debate`, `emg/sanitize`, `github/commit-file`, `github/batch-commit`, `postmortems/seed`, `self-enhance/prune-branches`, and `self-enhance/pass-rate-trend`. The pipeline runs its debate/sanitize stages via direct lib imports; the removed write-proxies and one-shot importers had no remaining callers.
 
 ---
 

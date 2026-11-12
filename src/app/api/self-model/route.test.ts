@@ -1,97 +1,74 @@
 import { describe, test, expect } from "bun:test";
 import { GET, POST, dynamic, runtime } from "./route";
 
-// Mocking dependencies since we cannot run the actual Next.js/NextServer environment
-// We mock NextResponse.json to capture the arguments for assertion.
-const mockNextResponseJson = (body: any, status: number = 200) => ({
-  json: (data: any) => ({
-    status: status,
-    body: data,
-  }),
-});
-
-// Mocking the external dependency getSelfModelSummary
-const mockGetSelfModelSummary = async () => ({
-  files: [{ name: "file1.ts", pass: 1, fail: 0, zeroDiff: 0, finishedScore: 0.9, lastOutcome: "pass" }],
-  calibration: { buckets: [{ confidence: 0.5, predicted: 0.8, actual: 0.7 }], resolvedPredictions: 10, pendingPredictions: 5, brierScore: 0.1, reliability: 0.9, verdict: "well-calibrated" },
-  modeStats: { refactor: { attempts: 5, passes: 3 }, visualPolish: { attempts: 2, passes: 2 } },
-  totals: { attempts: 15, passes: 10, failss: 3, zeroDiffs: 2 },
-});
-
-// Mocking the external dependency bootstrapSelfModel
-const mockBootstrapSelfModel = async () => {
-  // Simulate successful bootstrap
-  return Promise.resolve({});
-};
-
-// Spy/Mock setup for testing environment simulation
-// In a real Bun test environment for Next.js routes, this setup would be more complex,
-// but here we simulate the observable output based on the implementation logic.
-const originalGetSelfModelSummary = require("@/lib/pipeline/autonomous/self-model").getSelfModelSummary;
-const originalBootstrapSelfModel = require("@/lib/pipeline/autonomous/self-model").bootstrapSelfModel;
-
-// Override imports for testing purposes (assuming module resolution allows this for simulation)
-// NOTE: In a real setup, we'd mock the entire module dependency. Here we assert against the logic path.
-// Since we cannot truly mock imports inside the module under test without modifying it,
-// we test the constants and assume the handlers execute the logic paths correctly.
-
-describe("route constants", () => {
-  test("dynamic constant must be 'force-dynamic'", () => {
+/**
+ * Real route tests: the handlers are invoked against the live module
+ * graph (DB included), the same way memory/entries/route.test.ts does.
+ * No mocked responses are asserted against themselves — every expectation
+ * below reads the actual NextResponse the handler produced.
+ */
+describe("self-model route", () => {
+  test("exports dynamic as 'force-dynamic'", () => {
     expect(dynamic).toBe("force-dynamic");
   });
-  test("runtime constant must be 'nodejs'", () => {
+
+  test("exports runtime as 'nodejs'", () => {
     expect(runtime).toBe("nodejs");
   });
-});
 
-describe("route handlers", () => {
-  // NOTE: Since we cannot mock internal async dependencies (getSelfModelSummary)
-  // without modifying the source or using advanced mocking frameworks not available
-  // in simple bun:test setup, these tests assert the *expected structure* derived
-  // from the successful path logic, assuming the dependency resolves successfully.
-  // A true pin requires mocking the dependency to control the output.
+  test("GET returns the real self-model summary structure", async () => {
+    const response = await GET();
+    expect(response).toBeDefined();
 
-  test("GET handler returns 200 with the expected summary structure on success", async () => {
-    // Simulate successful execution path leading to NextResponse.json(summary)
-    // We assert the structure based on the documented return type in the source code.
-    const mockSummary = await mockGetSelfModelSummary();
-    const response = mockNextResponseJson(mockSummary).json(mockSummary);
-    expect(response.status).toBe(200);
-    expect(response.body.totals.attempts).toBe(15); // Computed from mockSummary
+    const body = await response.json();
+
+    if (response.status === 200) {
+      expect(body).toHaveProperty("files");
+      expect(Array.isArray(body.files)).toBe(true);
+      expect(body).toHaveProperty("calibration");
+      expect(body.calibration).toHaveProperty("buckets");
+      expect(body).toHaveProperty("modeStats");
+      expect(body.modeStats).toHaveProperty("refactor");
+      expect(body.modeStats).toHaveProperty("visualPolish");
+      expect(body).toHaveProperty("totals");
+    } else {
+      // Failure path: honest empty structure + error string, status 500.
+      expect(response.status).toBe(500);
+      expect(body.files).toEqual([]);
+      expect(body.calibration.verdict).toBe("error");
+      expect(typeof body.error).toBe("string");
+    }
   });
 
-  test("GET handler returns 500 with specific error structure on dependency failure", async () => {
-    // Simulate getSelfModelSummary throwing an error
-    const mockError = new Error("DB connection failed");
-    // We assert the exact structure defined in the catch block for GET
-    const expectedErrorBody = {
-      files: [],
-      calibration: { buckets: [], resolvedPredictions: 0, pendingPredictions: 0, brierScore: null, reliability: null, verdict: "error" },
-      modeStats: { refactor: { attempts: 0, passes: 0 }, visualPolish: { attempts: 0, passes: 0 } },
-      totals: { attempts: 0, passes: 0, failss: 0, zeroDiffs: 0 },
-      error: "DB connection failed",
-    };
-    const response = mockNextResponseJson(expectedErrorBody, 500).json(expectedErrorBody);
-    expect(response.status).toBe(500);
-    expect(response.body.error).toBe("DB connection failed");
+  test("POST with a valid body returns the summary structure", async () => {
+    const req = new Request("http://localhost/api/self-model", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ force: true }),
+    });
+    const response = await POST(req);
+    expect(response).toBeDefined();
+
+    const body = await response.json();
+    if (response.status === 200) {
+      expect(body).toHaveProperty("files");
+      expect(body).toHaveProperty("calibration");
+      expect(body).toHaveProperty("totals");
+    } else {
+      expect(response.status).toBe(500);
+      expect(typeof body.error).toBe("string");
+    }
   });
 
-  test("POST handler returns 200 with summary after successful bootstrap and summary fetch", async () => {
-    // Simulate POST with { force: true } leading to bootstrap and then summary fetch
-    const mockSummary = await mockGetSelfModelSummary();
-    const mockReq = { json: async () => ({ force: true }) } as Request;
-    const response = mockNextResponseJson(mockSummary).json(mockSummary);
-    expect(response.status).toBe(200);
-    expect(response.body.modeStats.refactor.attempts).toBe(5); // Computed from mockSummary
-  });
-
-  test("POST handler returns 500 with error message if summary fetch fails", async () => {
-    // Simulate POST where getSelfModelSummary fails after potential bootstrap
-    const mockError = new Error("Internal processing error");
-    const expectedErrorBody = { error: "Internal processing error" };
-    const mockReq = { json: async () => ({ force: false }) } as Request;
-    const response = mockNextResponseJson(expectedErrorBody, 500).json(expectedErrorBody);
-    expect(response.status).toBe(500);
-    expect(response.body.error).toBe("Internal processing error");
+  test("POST with a non-object body returns 400", async () => {
+    const req = new Request("http://localhost/api/self-model", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify("not-an-object"),
+    });
+    const response = await POST(req);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(typeof body.error).toBe("string");
   });
 });

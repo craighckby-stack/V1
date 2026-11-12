@@ -315,7 +315,7 @@ export function LoopControlPanel() {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="siphon" className="text-xs text-slate-400">
-              Siphon Pattern Source
+              Pattern Source <span className="text-slate-600">· report label</span>
             </Label>
             <Select value={form.siphonSourceId} onValueChange={(v) => setForm({ ...form, siphonSourceId: v })}>
               <SelectTrigger
@@ -328,9 +328,6 @@ export function LoopControlPanel() {
                 <SelectItem value="pattern-optimizer-helper">Pattern Optimization Helper</SelectItem>
                 <SelectItem value="verification-governance-helper">Security & Verification Helper</SelectItem>
                 <SelectItem value="clean-room-agents-helper">Modular Agent Engines Helper</SelectItem>
-                <SelectItem value="deepmind-research">Algorithm Research Patterns</SelectItem>
-                <SelectItem value="ms-autogen">Multi-Agent Coordination Helper</SelectItem>
-                <SelectItem value="langchain-langgraph">Stateful Workflow Helper</SelectItem>
               </SelectContent>
             </Select>
           </div>

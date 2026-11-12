@@ -312,14 +312,17 @@ Output a 3-5 bullet refactor plan only.`;
         };
       }
       llmError = planRes.error;
-      const fallbackPlan = `1. Add explicit type annotations to inferred parameters.\n2. Extract magic numbers into named constants.\n3. Add JSDoc to undocumented public functions.\n4. Preserve every public symbol exactly.`;
-      session.addMessage("assistant", fallbackPlan);
+      // No fallback plan is invented here (de-mock): a canned plan would
+      // inject fabricated planning content into the session history. The
+      // observation records the truth; the refactor step below will also
+      // fail without the LLM, and the downstream pipeline keeps the
+      // original code unchanged.
       return {
         stepNumber,
-        thought: `[Pillar 1/2] LLM unavailable (${planRes.error}). Using deterministic fallback plan.`,
-        actionName: "plan_fallback",
+        thought: `[Pillar 1/2] LLM unavailable (${planRes.error}). Planning cannot proceed without the LLM.`,
+        actionName: "plan_unavailable",
         actionPayload: { filePath },
-        observation: fallbackPlan,
+        observation: `LLM unavailable (${planRes.error}) — planning step skipped, no plan fabricated.`,
         isTerminal: false,
         llmUsed: false,
         llmLatencyMs: planRes.latencyMs,
@@ -381,8 +384,8 @@ Output ONLY the refactored code in a single \`\`\`${lang} fenced block. Preserve
 
     return {
       stepNumber,
-      thought: `[Pillar 3] Engine '${engineId}' synthesized clean-room solution${
-        llmUsed ? " via LLM" : " via deterministic fallback"
+      thought: `[Pillar 3] Engine '${engineId}' concluded${
+        llmUsed ? " via LLM" : " without LLM (no fallback plan fabricated)"
       }.`,
       isTerminal: true,
       observation: `Execution concluded within step budget. LLM used: ${llmUsed}.`,

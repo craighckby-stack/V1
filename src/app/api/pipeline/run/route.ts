@@ -14,7 +14,9 @@ export const runtime = "nodejs";
  *
  * Manual single-file pipeline execution. Accepts a PipelineConfig JSON body
  * and runs the full 6-stage helper pipeline, persisting the result to the
- * PipelineRun table for later inspection via /api/pipeline/history.
+ * PipelineRun table (a durable audit trail queryable directly in the DB;
+ * the unused /api/pipeline/history read route was removed in the endpoint
+ * cleanup).
  */
 export async function POST(req: Request) {
   try {

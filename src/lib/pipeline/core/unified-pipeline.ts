@@ -176,14 +176,14 @@ export class UnifiedPipelineRunner {
     updateStage(
       "stage0_ingestion",
       "succeeded",
-      `Applied template: ${selectedSource.label}`,
+      "Ingestion complete — direct LLM refactor (no template selection)",
       { selectedSource, vote: patternVote },
       dur0
     );
     log({
       timestamp: new Date().toLocaleTimeString(),
-      message: `[STAGE 0] Selected pattern: ${selectedSource.label} (Confidence: ${patternVote.score}%)`,
-      type: "success",
+      message: `[STAGE 0] No pattern classifier configured — ${config.filePath} goes straight to the LLM refactor.`,
+      type: "info",
     });
 
     // STAGE 1
@@ -743,6 +743,22 @@ export class UnifiedPipelineRunner {
 
   public resetGovernor(): void {
     this.governor.reset();
+  }
+
+  /** Live governor counters — the health probe reports these instead of
+   *  an asserted "ready" string. */
+  public getGovernorStats(): {
+    currentCycle: number;
+    maxCycles: number;
+    consecutiveFailures: number;
+    maxConsecutiveFailures: number;
+  } {
+    return {
+      currentCycle: this.governor.getCurrentCycle(),
+      maxCycles: this.governor.getMaxCycles(),
+      consecutiveFailures: this.governor.getConsecutiveFailures(),
+      maxConsecutiveFailures: this.governor.getMaxConsecutiveFailures(),
+    };
   }
 
   public setMaxCycles(max: number): void {
