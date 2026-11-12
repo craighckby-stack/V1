@@ -61,6 +61,9 @@ function ContextMenuSubTrigger({
 }: React.ComponentProps<typeof ContextMenuPrimitive.SubTrigger> & {
   inset?: boolean
 }) {
+  if (children == null) {
+    throw new Error("ContextMenuSubTrigger: children prop is required")
+  }
   const isInset = !!inset;
   return (
     <ContextMenuPrimitive.SubTrigger
@@ -121,6 +124,9 @@ function ContextMenuItem({
   inset?: boolean
   variant?: "default" | "destructive"
 }) {
+  if (variant !== "default" && variant !== "destructive") {
+    throw new Error(`ContextMenuItem: variant must be "default" or "destructive", got "${variant}"`)
+  }
   return (
     <ContextMenuPrimitive.Item
       data-slot="context-menu-item"
@@ -141,6 +147,9 @@ function ContextMenuCheckboxItem({
   checked,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.CheckboxItem>) {
+  if (children == null) {
+    throw new Error("ContextMenuCheckboxItem: children prop is required")
+  }
   return (
     <ContextMenuPrimitive.CheckboxItem
       data-slot="context-menu-checkbox-item"
@@ -166,6 +175,9 @@ function ContextMenuRadioItem({
   children,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.RadioItem>) {
+  if (children == null) {
+    throw new Error("ContextMenuRadioItem: children prop is required")
+  }
   return (
     <ContextMenuPrimitive.RadioItem
       data-slot="context-menu-radio-item"
