@@ -61,6 +61,14 @@ export const TASK_KINDS = {
   "unused-import": { priority: 4, method: "deterministic" as const },
   "magic-number": { priority: 5, method: "llm" as const },
   "non-null-assertion": { priority: 6, method: "llm" as const },
+  // Oracle-failed-prophecy (audit 8 — the closure for the oracle's
+  // heartbreak channel). Added here rather than in oracle-task-feed.ts
+  // so the task-executor's getTaskMethod() and the queue-stats UI
+  // recognize it without a special-case lookup. Priority 7 (lowest):
+  // a failed prophecy is a soft signal — the file wasn't enhanced, the
+  // self-model was wrong — and the loop should work on real findings
+  // (TODOs, empty catches) before investigating prediction failures.
+  "oracle-failed-prophecy": { priority: 7, method: "llm" as const },
 };
 
 export type TaskKind = keyof typeof TASK_KINDS;
