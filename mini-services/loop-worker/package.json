@@ -1,0 +1,10 @@
+{
+  "name": "loop-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dedicated Bun worker hosting the self-enhancement loop, extracted from the Next.js server process. Port 3004.",
+  "scripts": {
+    "dev": "bun index.ts",
+    "start": "bun index.ts"
+  }
+}
