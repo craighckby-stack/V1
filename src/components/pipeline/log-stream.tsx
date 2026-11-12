@@ -72,15 +72,26 @@ export function LogStream() {
             ) : (
               <AnimatePresence initial={false}>
                 {logs.map((entry) => {
-                  const typeKey = entry.type as keyof typeof TYPE_ICON;
-                  const sourceKey = entry.source as keyof typeof SOURCE_COLOR;
-
+                  // Safely access type with fallback
+                  const typeKey = entry.type && typeof entry.type === 'string' 
+                    ? entry.type as keyof typeof TYPE_ICON 
+                    : 'info';
                   const Icon = TYPE_ICON[typeKey] || Info;
                   const color = TYPE_COLOR[typeKey] || "text-slate-400";
+                  
+                  // Safely access source with fallback
+                  const sourceKey = entry.source && typeof entry.source === 'string'
+                    ? entry.source as keyof typeof SOURCE_COLOR
+                    : 'pipeline';
                   const sourceColor = SOURCE_COLOR[sourceKey] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
                   
+                  // Validate timestamp and provide fallback
+                  const timestamp = entry.timestamp && typeof entry.timestamp === 'string'
+                    ? entry.timestamp
+                    : 'invalid timestamp';
+                  
                   // Use a stable identifier from the log entry instead of array index for AnimatePresence key
-                  const key = entry.timestamp + entry.message; 
+                  const key = timestamp + (entry.message || ''); 
                   
                   return (
                     <motion.div
@@ -91,16 +102,16 @@ export function LogStream() {
                       className="flex items-start gap-2.5 rounded-md px-2 py-1.5 hover:bg-slate-900/40 border border-transparent hover:border-slate-800/40"
                     >
                       <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", color)} />
-                      <span className="text-slate-500 shrink-0 tabular-nums">{entry.timestamp}</span>
+                      <span className="text-slate-500 shrink-0 tabular-nums">{timestamp}</span>
                       <span
                         className={cn(
                           "shrink-0 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border",
                           sourceColor
                         )}
                       >
-                        {entry.source}
+                        {sourceKey}
                       </span>
-                      <span className="text-slate-200 leading-relaxed break-all flex-1">{entry.message}</span>
+                      <span className="text-slate-200 leading-relaxed break-all flex-1">{entry.message || ''}</span>
                     </motion.div>
                   );
                 })}
