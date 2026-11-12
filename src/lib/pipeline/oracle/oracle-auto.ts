@@ -186,6 +186,14 @@ export async function recordSelfProphecy(input: {
     );
     return;
   }
+  if (!input.reason || typeof input.reason !== 'string' || input.reason.length === 0) {
+    emitOracleEvent(
+      "recordSelfProphecy error: reason must be a non-empty string",
+      "error",
+      "scheduler",
+    );
+    return;
+  }
   try {
     const claim =
       `The next ${input.mode} mutation attempt on ${input.filePath} ` +
@@ -279,5 +287,11 @@ export async function adjudicateSelfProphecies(
     }
   } catch (e) {
     // fail-soft: ignore DB errors, do not halt the cycle.
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    emitOracleEvent(
+      `Oracle self-prophecy adjudication error: ${errorMessage}`,
+      "error",
+      "auto-adjudicator",
+    );
   }
 }

@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/oracle/prophecy-store.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/oracle/prophecy-store.ts(211,11): error TS2502: 'counts' is referenced directly or indirectly in its own type annotation.",
@@ -12,8 +12,8 @@
   "parentHash": "c13622759286e8f7916e1d15a5c4a12838acf6135a69d529fd4d9f7b47cc8ccc",
   "hash": "6972fdba1e24f759589f7ed17e110c4679935df702373c8b17269e1d78880a0e",
   "lastAttemptAt": "2026-11-12T13:14:29.869Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-12T16:13:47.528Z",
   "createdAt": "2026-11-12T12:45:40.510Z",
-  "updatedAt": "2026-11-12T13:14:29.869Z",
+  "updatedAt": "2026-11-12T16:13:47.528Z",
   "schema": 2
 }
