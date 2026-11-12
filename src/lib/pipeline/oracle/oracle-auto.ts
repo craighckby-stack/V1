@@ -176,7 +176,7 @@ export async function recordSelfProphecy(input: {
       domain: "self-prediction",
     });
   } catch {
-    /* fail-soft — the oracle loses one sample */
+    // fail-soft — the oracle loses one sample
   }
 }
 
@@ -240,6 +240,6 @@ export async function adjudicateSelfProphecies(
       );
     }
   } catch {
-    /* fail-soft */
+    // fail-soft
   }
 }
