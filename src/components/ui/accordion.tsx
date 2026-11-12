@@ -16,6 +16,9 @@ function AccordionItem({
   className,
   ...props
 }: React.ComponentProps<typeof AccordionPrimitive.Item>) {
+  if (typeof className !== "string" && className != null) {
+    throw new Error("AccordionItem className must be a string or undefined")
+  }
   return (
     <AccordionPrimitive.Item
       data-slot="accordion-item"
@@ -30,8 +33,11 @@ function AccordionTrigger({
   children,
   ...props
 }: React.ComponentProps<typeof AccordionPrimitive.Trigger>) {
-  if (!children) {
+  if (children == null) {
     throw new Error("AccordionTrigger requires children to be rendered.")
+  }
+  if (typeof className !== "string" && className != null) {
+    throw new Error("AccordionTrigger className must be a string or undefined")
   }
   return (
     <AccordionPrimitive.Header className="flex">
@@ -44,7 +50,11 @@ function AccordionTrigger({
         {...props}
       >
         {children}
-        <ChevronDownIcon className="text-muted-foreground pointer-events-none size-4 shrink-0 translate-y-0.5 transition-transform duration-200" />
+        {ChevronDownIcon ? (
+          <ChevronDownIcon className="text-muted-foreground pointer-events-none size-4 shrink-0 translate-y-0.5 transition-transform duration-200" />
+        ) : (
+          <span className="text-muted-foreground pointer-events-none size-4 shrink-0">▼</span>
+        )}
       </AccordionPrimitive.Trigger>
     </AccordionPrimitive.Header>
   )
@@ -55,6 +65,9 @@ function AccordionContent({
   children,
   ...props
 }: React.ComponentProps<typeof AccordionPrimitive.Content>) {
+  if (typeof className !== "string" && className != null) {
+    throw new Error("AccordionContent className must be a string or undefined")
+  }
   return (
     <AccordionPrimitive.Content
       data-slot="accordion-content"
