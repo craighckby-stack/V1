@@ -57,7 +57,7 @@ export const runtime = "nodejs";
 
 /** Count *.json scar files under postmortems/ (recursive, sync — small tree). */
 function diskScarCount(): number {
-  if (!PROJECT_ROOT || typeof PROJECT_ROOT !== 'string') {
+  if (typeof PROJECT_ROOT !== 'string') {
     throw new Error("PROJECT_ROOT is not defined or is not a string, cannot scan for scar files.");
   }
   const root = join(PROJECT_ROOT, "postmortems");
@@ -67,7 +67,6 @@ function diskScarCount(): number {
     try {
       entries = readdirSync(dir);
     } catch (e) {
-      // Log specific FS errors instead of swallowing silently
       if (e instanceof Error) {
         console.error(`Error reading directory ${dir}: ${e.message}`);
       } else {
@@ -81,7 +80,6 @@ function diskScarCount(): number {
       try {
         st = statSync(p);
       } catch (e) {
-        // Skip files/dirs we can't stat (e.g., permission denied)
         if (e instanceof Error) {
           console.warn(`Could not stat path ${p}: ${e.message}`);
         } else {

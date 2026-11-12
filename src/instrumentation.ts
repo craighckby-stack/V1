@@ -74,6 +74,28 @@ export async function register() {
       }
     })();
 
+    // ── LOOP WORKER AUTO-HEAL (the loop's real home since the split) ──
+    // The self-enhancement loop runs in mini-services/loop-worker (:3004),
+    // NOT in this process. ensureWorkerRunning() is idempotent: it
+    // health-probes and only respawns when down (same detached-spawn
+    // pattern as the WS sidecar above). Fire-and-forget so a cold worker
+    // boot (Prisma + TS compiler import graph) never delays server start;
+    // control routes share the same self-heal via the respawn guard.
+    try {
+      const { ensureWorkerRunning } = await import(
+        "./lib/pipeline/autonomous/loop-worker-client"
+      );
+      void ensureWorkerRunning().catch(() => {
+        /* the worker self-heals again on the next status poll */
+      });
+      console.log("[INSTRUMENTATION] loop worker health probe scheduled (:3004)");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[INSTRUMENTATION] loop worker self-heal could not start: ${msg.slice(0, 200)}`
+      );
+    }
+
     // ── Z.AI CORTEX AUTO-INJECTION (before the splash screen) ────────
     // Runs at SERVER BOOT — before the first HTTP request, so before the
     // boot splash fetches /api/boot/scan. The injection establishes the

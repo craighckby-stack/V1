@@ -102,6 +102,36 @@ export function emitOracleEvent(
     s.buffer.splice(0, s.buffer.length - MAX_EVENTS);
   }
   s.seq += 1;
+
+  // ── WORKER BRIDGE (loop worker split) ────────────────────────────────
+  // Since the self-enhance loop moved to mini-services/loop-worker, the
+  // oracle events it generates (auto-prophecy after a cycle, self-prophecy
+  // adjudication) are emitted in the WORKER process — whose ring buffer
+  // nobody reads. The display ring lives in the Next.js server (the
+  // console stream polls /api/oracle/events there). In the worker, dual-
+  // write each event to the server's ingest endpoint so the console keeps
+  // ONE ring and ONE sequence space. Fire-and-forget: a slow or down
+  // server must never block or throw inside the loop's oracle paths.
+  // The ingest route validates the shared token — this is display-stream
+  // tamper resistance, not a security boundary.
+  if (process.env.LOOP_WORKER === "1") {
+    void fetch(
+      `${process.env.LOOP_SERVER_URL ?? "http://localhost:3000"}/api/oracle/events/ingest`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-loop-worker-token":
+            process.env.LOOP_WORKER_TOKEN ?? "loop-worker-ingest-v1",
+        },
+        body: JSON.stringify(event),
+        signal: AbortSignal.timeout(2000),
+      }
+    ).catch(() => {
+      /* display-stream only — drop on failure */
+    });
+  }
+
   return event;
 }
 

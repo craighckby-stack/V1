@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { autonomousLoopRuntime } from "@/lib/pipeline/autonomous/loop-runtime";
-import { liveSelfEnhanceLoop } from "@/lib/pipeline/autonomous/self-enhance-loop";
+import { workerFetch } from "@/lib/pipeline/autonomous/loop-worker-client";
 import { unifiedPipelineRunnerInstance } from "@/lib/pipeline/core/unified-pipeline";
 
 export const dynamic = "force-dynamic";
@@ -53,12 +53,30 @@ async function probeWebSocketService(): Promise<string> {
  *   - governor: computed from the LIVE halt counters (consecutive
  *     failures / cycle cap), verbatim.
  *   - websocket: answered-or-not from a real HTTP probe.
- *   - loops: from the runtimes' own state getters.
+ *   - loops: from the runtimes' own state getters. The self-enhance loop
+ *     runs in the worker process (port 3004) — its status is a real HTTP
+ *     probe of the worker's /status, never an in-process import (which
+ *     would construct a second singleton here).
  */
 export async function GET() {
   const loopState = autonomousLoopRuntime.getState();
-  const selfLoop = liveSelfEnhanceLoop();
-  const selfStats = selfLoop.getStats();
+  // Self-enhance loop lives in the worker — probe it over HTTP. On any
+  // failure the loop is reported honestly idle (a down worker means no
+  // observably-running loop; the instrumentation respawns it).
+  const workerStatus = await workerFetch<{ running: boolean; stats: Record<string, unknown> }>(
+    "/status",
+    { timeoutMs: 2500 }
+  );
+  const selfStats = workerStatus?.data?.stats ?? {
+    totalScanned: 0,
+    totalEnhanced: 0,
+    totalReverted: 0,
+    totalPushed: 0,
+    testsWritten: 0,
+    cyclesCompleted: 0,
+    tasksGenerated: 0,
+    lastEnhancementAt: null,
+  };
   const websocketStatus = await probeWebSocketService();
 
   const gov = unifiedPipelineRunnerInstance.getGovernorStats();
@@ -86,7 +104,7 @@ export async function GET() {
       pipeline: "loaded",
       governor: governorStatus,
       remoteLoop: loopState.status,
-      selfEnhanceLoop: selfLoop.isRunning() ? "running" : "idle",
+      selfEnhanceLoop: workerStatus?.data?.running ? "running" : "idle",
       websocket: websocketStatus,
     },
     selfEnhanceStats: selfStats,
