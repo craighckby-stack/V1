@@ -88,11 +88,11 @@ function ensureKey(): Buffer | null {
           if (existsSync(tmp)) {
             try {
               unlinkSync(tmp);
-            } catch {
+            } catch (e) {
               // Ignore cleanup failures
             }
           }
-        } catch {
+        } catch (e) {
           // Ignore errors when trying to clean up
         }
       }
