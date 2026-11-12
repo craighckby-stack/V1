@@ -34,3 +34,4 @@ tool-results/
 # uploaded repo snapshots — never commit 99MB of zips (audit finding 5)
 upload/
 loop-ws.log
+mini-services/loop-worker/worker.log

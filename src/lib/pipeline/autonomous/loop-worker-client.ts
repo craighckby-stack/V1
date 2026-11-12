@@ -79,12 +79,26 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   try {
     const { spawn } = await import("child_process");
     const path = await import("path");
+    const fs = await import("fs");
+    // Capture the worker's stdout/stderr — its `[SELF-ENHANCE]` narration
+    // is the only durable record of cycle progress now that the loop does
+    // not log into dev.log anymore. Append mode; the detached child
+    // outlives this request, so the fd is opened per spawn.
+    let outFd: number | "ignore" = "ignore";
+    try {
+      outFd = fs.openSync(
+        path.join("mini-services", "loop-worker", "worker.log"),
+        "a"
+      );
+    } catch {
+      /* fall back to ignore — narration is best-effort */
+    }
     const child = spawn(
       "bun",
       [path.join("mini-services", "loop-worker", "index.ts")],
       {
         cwd: process.cwd(), // project root — worker resolves .env + tsconfig paths
-        stdio: "ignore",
+        stdio: ["ignore", outFd, outFd] as unknown as "ignore",
         detached: true,
       }
     );
