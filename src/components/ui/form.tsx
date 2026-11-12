@@ -61,6 +61,10 @@ const useFormField = () => {
     throw new Error("useFormField should be used within <FormField>")
   }
 
+  if (!itemContext || !itemContext.id) {
+    throw new Error("useFormField should be used within <FormItem>")
+  }
+
   const { id } = itemContext
 
   return {
@@ -75,6 +79,10 @@ const useFormField = () => {
 
 function FormItem({ className, ...props }: React.ComponentProps<"div">) {
   const id = React.useId()
+
+  if (!id) {
+    throw new Error("FormItem failed to generate unique ID")
+  }
 
   return (
     <FormItemContext.Provider value={{ id }}>
@@ -137,7 +145,8 @@ function FormDescription({ className, ...props }: React.ComponentProps<"p">) {
 
 function FormMessage({ className, ...props }: React.ComponentProps<"p">) {
   const { error, formMessageId } = useFormField()
-  const body = error ? String(error?.message ?? "") : props.children
+  const errorMessage = error?.message
+  const body = errorMessage ? String(errorMessage) : props.children
 
   if (!body) {
     return null
