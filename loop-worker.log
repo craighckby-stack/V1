@@ -1,0 +1,16 @@
+$ bun index.ts
+[LOOP-WORKER] fatal boot error: 87 |     new Response(JSON.stringify(data), {
+88 |       status,
+89 |       headers: { "Content-Type": "application/json" },
+90 |     });
+91 | 
+92 |   Bun.serve({
+           ^
+error: Failed to start server. Is port 3004 in use?
+ syscall: "listen",
+   errno: 0,
+    code: "EADDRINUSE"
+
+      at main (/home/z/my-project/mini-services/loop-worker/index.ts:92:7)
+
+error: script "dev" exited with code 1
