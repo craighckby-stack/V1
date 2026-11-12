@@ -116,6 +116,9 @@ export function autoProphecyAfterCycle(): void {
  *  null on any git failure (the adjudicator doesn't need it — it matches on
  *  the stashed cycleNumber + filePath). */
 function currentHeadSha(): string | null {
+  if (!PROJECT_ROOT) {
+    return null;
+  }
   try {
     return execSync("git -C " + PROJECT_ROOT + " rev-parse HEAD", {
       encoding: "utf-8",
@@ -151,6 +154,22 @@ export async function recordSelfProphecy(input: {
   mode: "refactor" | "visual-polish";
   cycleNumber: number;
 }): Promise<void> {
+  if (!input.filePath || typeof input.filePath !== 'string' || input.filePath.length === 0) {
+    emitOracleEvent(
+      "recordSelfProphecy error: filePath must be a non-empty string",
+      "error",
+      "scheduler",
+    );
+    return;
+  }
+  if (input.mode !== "refactor" && input.mode !== "visual-polish") {
+    emitOracleEvent(
+      "recordSelfProphecy error: mode must be 'refactor' or 'visual-polish'",
+      "error",
+      "scheduler",
+    );
+    return;
+  }
   if (input.confidence < 0 || input.confidence > 1) {
     emitOracleEvent(
       "recordSelfProphecy error: confidence must be between 0 and 1",
