@@ -28,6 +28,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { OracleTaskFeedPanel } from "./oracle-task-feed-panel";
 
 const PROMPT_COLOR = "#e0e0e0";
 const DIM_COLOR = "#777777";
@@ -572,6 +573,17 @@ export function OraclePanel({ open, onClose }: Props) {
               ))}
             </div>
           )}
+        </div>
+
+        {/* AUDIT 8 — the oracle-to-task closure, operator-visible. Failed
+            self-prophecies feed SelfTasks (oracle-task-feed.ts); this panel
+            surfaces both halves of the loop in one place. */}
+        <div style={{ marginTop: "16px", paddingTop: "8px", borderTop: `1px solid ${DIM_COLOR}` }}>
+          <div style={{ color: DIM_COLOR, fontSize: "11px", marginBottom: "8px" }}>
+            FAILED PROPHECIES → SELF-TASKS (the closure: a wrong prediction
+            triggers an investigation task on the same file)
+          </div>
+          <OracleTaskFeedPanel />
         </div>
 
         <div style={{ marginTop: "16px", paddingTop: "8px", borderTop: `1px solid ${DIM_COLOR}`, color: DIM_COLOR, fontSize: "11px" }}>

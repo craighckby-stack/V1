@@ -463,6 +463,14 @@ Output the COMPLETE new content for this file that achieves the goal.`;
         filePath: file.path,
         originalCode,
         evolvedCode: newCode,
+        // AUDIT 8 (round 2): the operator approved this plan — the
+        // convergent-move heuristic (an autonomous-loop quality guard
+        // against LLM convergence on defensive no-ops) does not apply.
+        // A legitimate operator goal can be exactly that pattern ("fix
+        // the null handling in X because the upstream contract changed").
+        // Every security check still runs: evil tokens (triage),
+        // protected paths, empty content, symbol retention (AST).
+        operatorApproved: true,
       });
       if (!mutation.allowed) {
         results.push({

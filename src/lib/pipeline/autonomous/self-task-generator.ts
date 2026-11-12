@@ -32,35 +32,34 @@ import { join, relative } from "path";
 import { db } from "@/lib/db";
 
 import { PROJECT_ROOT } from "../core/paths";
+import { isProtectedPath } from "./protected-files";
 const PIPELINE_SRC_DIR = join(PROJECT_ROOT, "src/lib/pipeline");
-const DISPLAY_SRC_DIR = join(PROJECT_ROOT, "src/app/display");
-// audit 5 — extend SelfTask scan scope to match the self-enhance-loop's
-// SCAN_SCOPES (saturation.ts:55). The prior 2-scope list (pipeline +
-// display) meant SelfTasks never fired for src/components (the UI
-// panels) or src/app/api (the API routes), so those files got no
-// deterministic zero-diff-immune fixes. The 4-scope list matches what
-// the loop actually mutates.
-// ── AUDIT 8 (operator-directed, 2026-11-12): the saturation.ts scope
-//    was rolled back to src/lib/pipeline + src/app (v4). The
-//    COMPONENTS_SRC_DIR is now REMOVED from the SelfTask scan too —
-//    if the loop can't MUTATE src/components, the task generator
-//    shouldn't queue SelfTasks for it either (the task-executor would
-//    try to fix them, and those fixes would land on vendored shadcn
-//    primitives the operator said to leave alone). The API_SRC_DIR is
-//    folded into a broader src/app scan to match saturation.ts v4. This
-//    keeps the two scan surfaces in sync: what the loop can mutate =
-//    what the task generator scans for findings.
-const API_SRC_DIR = join(PROJECT_ROOT, "src/app");
+// AUDIT 8 (round 2): the task generator previously filtered scan
+// candidates against PROTECTED_FILES (the EXACT set) only — but most
+// of the control surface is protected by PREFIX (src/app/api/self-
+// enhance/**, api/autonomous/**, api/hot-swap/**, ...). Tasks queued
+// for prefix-protected routes always failed the execution-time gate
+// (verifyRefactor bundles the mutation guard), so this was pure quota
+// waste: the LLM generated fixes that could never land. The scan now
+// filters with isProtectedPath (exact set + prefixes) — same predicate
+// the loop's scanFiles uses. Tasks are never queued for files the
+// loop refuses to mutate.
+//
+// AUDIT 8 (operator-directed, 2026-11-12): the saturation.ts scope
+// was rolled back to src/lib/pipeline + src/app (v4). src/components
+// is REMOVED from this scan too — the task-executor must not land
+// fixes on vendored shadcn primitives. DISPLAY_SRC_DIR is likewise
+// gone: src/app covers src/app/display (scanning both double-counted
+// every display file toward the per-kind caps).
+const APP_SRC_DIR = join(PROJECT_ROOT, "src/app");
 
 /**
  * Files the system must NOT modify (would break its own loop).
  * Tasks are never generated for these — the system doesn't queue work
- * it refuses to do. Imported from protected-files.ts — the SINGLE shared
- * set (audit 2: this local copy had drifted from the loop's set and was
- * missing push-target.ts / in-memory-typecheck.ts / verify-refactor.ts, so
- * tasks could be queued against the verifier and push path).
+ * it refuses to do. Filtered via isProtectedPath (the shared exact set
+ * + prefix predicate, audit 8 round 2 — the old PROTECTED_FILES-only
+ * filter missed every prefix-protected route).
  */
-import { PROTECTED_FILES } from "./protected-files";
 
 export const TASK_KINDS = {
   "todo-comment": { priority: 1, method: "llm" as const },
@@ -115,16 +114,17 @@ function listOwnSourceFiles(): string[] {
         !entry.name.endsWith(".tmp")
       ) {
         const rel = relative(PROJECT_ROOT, full);
-        if (!PROTECTED_FILES.has(rel)) files.push(full);
+        if (!isProtectedPath(rel)) files.push(full);
       }
     }
   };
   scan(PIPELINE_SRC_DIR, false); // .ts only
-  scan(DISPLAY_SRC_DIR, true); // .tsx
-  // AUDIT 8: src/components removed — keep scan scope in sync with
-  // saturation.ts SCAN_SCOPES. The API_SRC_DIR now covers all of
-  // src/app (.ts + .tsx), matching the v4 scope merge.
-  scan(API_SRC_DIR, true); // .ts + .tsx (audit 8 — was src/app/api .ts only)
+  // AUDIT 8 (round 2): src/app covers display + api + page surface in
+  // one scan (saturation.ts v4 parity); src/components is excluded —
+  // vendored shadcn primitives are out of the loop's reach by operator
+  // directive. Prefix-protected subtrees under src/app/api/ are filtered
+  // by isProtectedPath inside scan().
+  scan(APP_SRC_DIR, true); // .ts + .tsx
   return files;
 }
 
@@ -328,14 +328,14 @@ export async function generateTasks(): Promise<ScanResult> {
         !entry.name.endsWith(".test.ts") &&
         !entry.name.endsWith(".test.tsx")
       ) {
-        if (PROTECTED_FILES.has(relative(PROJECT_ROOT, full))) protectedCount++;
+        if (isProtectedPath(relative(PROJECT_ROOT, full))) protectedCount++;
       }
     }
   };
   scanAll(PIPELINE_SRC_DIR, false);
-  scanAll(DISPLAY_SRC_DIR, true);
-  // AUDIT 8: src/components removed; src/app covers .ts + .tsx.
-  scanAll(API_SRC_DIR, true); // audit 8 — was src/app/api .ts only
+  // AUDIT 8 (round 2): one src/app scan covers display + api + page
+  // surface; src/components excluded (operator directive).
+  scanAll(APP_SRC_DIR, true);
 
   for (const file of files) {
     try {

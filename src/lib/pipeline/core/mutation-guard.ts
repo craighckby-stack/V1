@@ -531,6 +531,18 @@ export function detectConvergentMove(
   //     The threshold is ≥ 2 (not ≥ 1) to avoid flagging a single
   //     legitimate null check as convergent — one guard is a judgment
   //     call; two or more is a pattern.
+  //
+  //     COMMENT-STRIP (audit 8, round 2 — the comment false positive):
+  //     a line whose guard-matching content lives in a COMMENT ("//
+  //     typeof x === 'string' fast path") is not a guard — it's
+  //     documentation. Both the guard count and the behavioral-signal
+  //     checks run on stripComments() output (scanner-based, from
+  //     code-analysis.ts — it masks comments but PRESERVES string
+  //     literals, so `?? "N/A"` inside a template interpolation still
+  //     matches, and `//` inside a URL string can't eat the line).
+  //     Comments mentioning "export function" likewise no longer
+  //     false-trigger the behavioral-signal escape hatch.
+  const stripLineComments = (code: string): string => stripComments(code);
   const guardLineMatches = (lines: string[]): number =>
     lines.filter((l) => CONVERGENT_MOVE_LEXICON.some((re) => re.test(l))).length;
   const originalGuardCount = guardLineMatches(
@@ -539,10 +551,10 @@ export function detectConvergentMove(
     // original code's lines (not just the removed multiset) — this is
     // more accurate because a guard that was KEPT (not removed) still
     // counts against the net increase.
-    originalCode.split("\n").map((l) => l.trim()).filter((l) => l.length > 0)
+    stripLineComments(originalCode).split("\n").map((l) => l.trim()).filter((l) => l.length > 0)
   );
   const evolvedGuardCount = guardLineMatches(
-    evolvedCode.split("\n").map((l) => l.trim()).filter((l) => l.length > 0)
+    stripLineComments(evolvedCode).split("\n").map((l) => l.trim()).filter((l) => l.length > 0)
   );
   const netGuardIncrease = evolvedGuardCount - originalGuardCount;
   if (netGuardIncrease < 2) {
@@ -557,8 +569,10 @@ export function detectConvergentMove(
   //     mutation adds real surface area — it's not a pure no-op
   //     guard. We check the ADDED lines (the new content, whether
   //     purely additive or modified — both show up in `added` via
-  //     the multiset diff).
-  const addedCode = added.join("\n");
+  //     the multiset diff). Comments are stripped first (audit 8,
+  //     round 2): a comment mentioning "export function" is
+  //     documentation, not surface area.
+  const addedCode = stripLineComments(added.join("\n"));
   for (const re of BEHAVIORAL_SIGNAL_LEXICON) {
     if (re.test(addedCode)) {
       return {
@@ -578,7 +592,7 @@ export function detectConvergentMove(
   //     the protection: if the removed lines contain behavioral
   //     signals (functions, exports, classes, constructed throws),
   //     the mutation is a real refactor, not a convergent no-op.
-  const removedCode = removed.join("\n");
+  const removedCode = stripLineComments(removed.join("\n"));
   for (const re of BEHAVIORAL_SIGNAL_LEXICON) {
     if (re.test(removedCode)) {
       return {

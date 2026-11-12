@@ -67,11 +67,19 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
       {lines.map((line) => {
         // Skip invalid line entries
         if (!line || typeof line !== "object" || !line.id || !line.type) {
+          console.error("ConsoleStream: Invalid line object encountered", line);
           return null;
         }
 
         // Validate line type is one of the expected values
         if (!["system", "command", "output", "log"].includes(line.type)) {
+          console.error("ConsoleStream: Invalid line type", line.type);
+          return null;
+        }
+
+        // Validate text is a string
+        if (typeof line.text !== "string") {
+          console.error("ConsoleStream: Line text must be a string", line);
           return null;
         }
 
