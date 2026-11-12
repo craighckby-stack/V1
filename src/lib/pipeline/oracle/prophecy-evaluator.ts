@@ -29,6 +29,7 @@ import { readFileSync, existsSync } from "fs";
 import { llmComplete } from "../llm/agent-llm";
 import { listDueProphecies, judgeProphecy } from "./prophecy-store";
 import { emitOracleEvent } from "./oracle-events";
+import { queueTaskForFailedProphecy } from "./oracle-task-feed";
 import { db } from "@/lib/db";
 import type { Prophecy } from "@prisma/client";
 
@@ -264,6 +265,20 @@ export async function evaluateDueProphecies(): Promise<{
           "warn",
           "auto-adjudicator",
         );
+        // AUDIT 8 — close the loop. A failed prophecy used to be a 5-min
+        // heartbreak channel: judged, logged, and forgotten. Now it
+        // feeds a SelfTask on the same file the prophecy was about,
+        // carrying the claim + criterion as evidence. The task-executor
+        // gets a focused instruction to investigate the stall. Fail-
+        // soft: a DB error loses the task, never fails the verdict.
+        const fed = await queueTaskForFailedProphecy(prophecy);
+        if (!fed) {
+          emitOracleEvent(
+            `Oracle: failed to queue SelfTask for failed self-prophecy "${prophecy.claim.slice(0, 60)}" — verdict stands, task feed lost (DB error, fail-soft)`,
+            "error",
+            "auto-adjudicator",
+          );
+        }
         judged.push({ id: prophecy.id, claim: prophecy.claim, verdict: "failed" });
       } else {
         emitOracleEvent(

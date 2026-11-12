@@ -71,6 +71,12 @@ function DropdownMenuItem({
   inset?: boolean
   variant?: "default" | "destructive"
 }) {
+  if (variant !== "default" && variant !== "destructive") {
+    throw new Error(`DropdownMenuItem: variant must be "default" or "destructive", received ${variant}`)
+  }
+  if (inset !== undefined && typeof inset !== "boolean") {
+    throw new Error(`DropdownMenuItem: inset must be a boolean value, received ${inset}`)
+  }
   return (
     <DropdownMenuPrimitive.Item
       data-slot="dropdown-menu-item"
@@ -153,6 +159,9 @@ function DropdownMenuLabel({
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Label> & {
   inset?: boolean
 }) {
+  if (inset !== undefined && typeof inset !== "boolean") {
+    throw new Error(`DropdownMenuLabel: inset must be a boolean value, received ${inset}`)
+  }
   return (
     <DropdownMenuPrimitive.Label
       data-slot="dropdown-menu-label"
@@ -209,6 +218,9 @@ function DropdownMenuSubTrigger({
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger> & {
   inset?: boolean
 }) {
+  if (inset !== undefined && typeof inset !== "boolean") {
+    throw new Error(`DropdownMenuSubTrigger: inset must be a boolean value, received ${inset}`)
+  }
   return (
     <DropdownMenuPrimitive.SubTrigger
       data-slot="dropdown-menu-sub-trigger"

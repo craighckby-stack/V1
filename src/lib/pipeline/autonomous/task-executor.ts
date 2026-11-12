@@ -204,6 +204,8 @@ function kindInstruction(kind: string, evidence: string): string {
       return `Extract the magic number at the evidence line into a named constant declared near its use (function scope is fine). Pick a descriptive name. Do not change behavior or the value.`;
     case "non-null-assertion":
       return `Replace the non-null assertion (\`!\`) at the evidence line with a safe alternative: optional chaining, a guard, or a narrowed check — whichever fits the surrounding code. Do not change observable behavior.`;
+    case "oracle-failed-prophecy":
+      return `The Oracle predicted this file's next enhancement attempt would pass all gates, but no such attempt occurred within the prediction horizon. Investigate WHY the file stalled: is there a structural blocker (the file is too large for the LLM, a gate keeps rejecting it, a protected path)? Read the evidence for the prophecy's claim and criterion. If you can identify a concrete, minimal improvement that would unblock the next attempt (refactor a too-large function, fix a recurring rejection cause, remove dead code that confuses the gates), make it. If the stall is benign (the file is genuinely stable, the self-model was over-confident), return the file unchanged — an honest no-op is the correct outcome here, not theater. Do not add defensive guards or input validation as filler.`;
     default:
       return `Improve the code at the evidence line: "${evidence}". Keep the change minimal and behavior-preserving.`;
   }
