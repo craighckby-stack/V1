@@ -101,7 +101,7 @@ export function readOperatorTouch(): OperatorTouchState | null {
     }
     
     // Validate the parsed object strictly against the required structure
-    if (typeof parsed !== "object" || parsed === null || 
+    if (!parsed || typeof parsed !== "object" || parsed === null || 
         !("at" in parsed) || !("by" in parsed) ||
         typeof parsed.at !== "string" || typeof parsed.by !== "string") {
       console.error(`Invalid operator touch file format at ${OPERATOR_TOUCH_FILE}: missing required 'at' or 'by' fields or wrong types`);
