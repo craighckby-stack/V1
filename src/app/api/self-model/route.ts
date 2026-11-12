@@ -31,7 +31,7 @@ export async function GET() {
     const summary = await getSelfModelSummary();
     return NextResponse.json(summary);
   } catch (err) {
-    const errorMessage = (err as Error).message || "An unknown error occurred while fetching self-model summary.";
+    const errorMessage = (err as Error)?.message || "An unknown error occurred while fetching self-model summary.";
     return NextResponse.json(
       { 
         files: [], 
@@ -48,7 +48,7 @@ export async function GET() {
 export async function POST(req: Request) {
   let force = false;
   try {
-    if (!(req instanceof Request)) {
+    if (!req || typeof req.json !== 'function') {
         throw new Error("Invalid Request object provided to POST handler.");
     }
     const body = await req.json();
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
     const summary = await getSelfModelSummary();
     return NextResponse.json(summary);
   } catch (err) {
-    const errorMessage = (err as Error).message || "An unknown error occurred while fetching self-model summary after POST operation.";
+    const errorMessage = (err as Error)?.message || "An unknown error occurred while fetching self-model summary after POST operation.";
     return NextResponse.json({ error: `Failed to retrieve self-model summary after POST operation: ${errorMessage}` }, { status: 500 });
   }
 }
