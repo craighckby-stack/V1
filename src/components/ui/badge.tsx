@@ -34,6 +34,12 @@ function Badge({
   VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
   const Comp = asChild ? Slot : "span"
 
+  // Validate variant prop to prevent runtime errors
+  if (variant && !["default", "secondary", "destructive", "outline"].includes(variant)) {
+    console.warn(`Invalid variant "${variant}" passed to Badge component. Using default variant instead.`)
+    variant = "default"
+  }
+
   return (
     <Comp
       data-slot="badge"
