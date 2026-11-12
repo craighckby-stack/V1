@@ -259,6 +259,6 @@ export async function adjudicateSelfProphecies(
       );
     }
   } catch (e) {
-    // fail-soft
+    // fail-soft: ignore DB errors, do not halt the cycle.
   }
 }
