@@ -43,6 +43,7 @@
  */
 
 import { isProtectedPath as sharedIsProtectedPath } from "../autonomous/protected-files";
+import { stripComments } from "../autonomous/code-analysis";
 
 // ── SCAFFOLDING paths the loop must never mutate ──────────────────────
 // protected-files.ts (the shared source of truth) covers the runtime, the
@@ -291,11 +292,24 @@ export interface FinalAuthorityResult {
  *  paths (runtime gates + scaffolding), empty-content proposals, and
  *  convergent defensive no-ops (the loop's tendency to "improve" stable
  *  code by adding redundant input validation / null checks / fallbacks
- *  that change nothing observable — see detectConvergentMove below). */
+ *  that change nothing observable — see detectConvergentMove below).
+ *
+ *  operatorApproved (audit 8, round 2): the convergent-move check is a
+ *  heuristic about the AUTONOMOUS loop's convergence tendency — an LLM
+ *  given an open-ended "improve this file" brief converges on defensive
+ *  no-ops. It is NOT a security gate. An operator-approved chat-task
+ *  plan (the operator saw the goal and approved the file list) may
+ *  legitimately need exactly that pattern — e.g. "fix the null handling
+ *  in renderName because the upstream contract changed". The check is
+ *  skipped when operatorApproved is true; every OTHER check (protected
+ *  paths, empty content, evil tokens, symbol retention) still applies.
+ *  Only the chat-task path sets this flag; the autonomous loop never
+ *  does. */
 export function finalAuthority(opts: {
   filePath: string;
   evolvedCode: string;
   originalCode: string;
+  operatorApproved?: boolean;
 }): FinalAuthorityResult {
   const reasons: string[] = [];
 
@@ -330,7 +344,7 @@ export function finalAuthority(opts: {
   //    legitimately add defensive guards as characterization pins.
   const isTestFile =
     opts.filePath.endsWith(".test.ts") || opts.filePath.endsWith(".test.tsx");
-  if (!isTestFile) {
+  if (!isTestFile && !opts.operatorApproved) {
     const cm = detectConvergentMove(opts.originalCode, opts.evolvedCode);
     if (cm.convergent) {
       reasons.push(`convergent-move rejected: ${cm.reason}`);
@@ -596,11 +610,14 @@ export interface MutationGateResult {
 /** Combined gate: triage first (fail-CLOSED), then finalAuthority.
  *  evil → reject (no finalAuthority). unsure/good → run finalAuthority.
  *  Returns the full breakdown so the pipeline can log exactly which
- *  layer rejected and why. */
+ *  layer rejected and why. operatorApproved passes through to
+ *  finalAuthority (skips the convergent-move heuristic only — see
+ *  the finalAuthority doc for why operator-approved plans are exempt). */
 export function gateMutation(opts: {
   filePath: string;
   originalCode: string;
   evolvedCode: string;
+  operatorApproved?: boolean;
 }): MutationGateResult {
   const triage = triageProposal(opts);
   if (triage.verdict === "evil") {

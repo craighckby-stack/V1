@@ -140,7 +140,8 @@ export async function getProphecy(id: string): Promise<ProphecyRow | null> {
   }
 
   try {
-    return await db.prophecy.findUnique({ where: { id } });
+    const prophecy = await db.prophecy.findUnique({ where: { id } });
+    return prophecy || null;
   } catch (error) {
     console.error("Failed to get prophecy in getProphecy:", error);
     return null;
@@ -219,9 +220,11 @@ export async function getProphecyCounts(): Promise<{
     result.forEach(item => {
       if (item.status && item.status in counts) {
         counts[item.status as keyof typeof counts] = item._count.status;
-        counts.total += item._count.status;
       }
     });
+    
+    // Calculate total by summing individual counts
+    counts.total = counts.pending + counts.fulfilled + counts.failed + counts.retired;
     
     return counts;
   } catch (error) {
@@ -240,10 +243,13 @@ export async function getJudgedPropheciesForCalibration(): Promise<
   Array<{ confidence: number; status: string }>
 > {
   try {
-    return await db.prophecy.findMany({
+    const prophecies = await db.prophecy.findMany({
       where: { status: { in: ["fulfilled", "failed"] } },
       select: { confidence: true, status: true },
     });
+    
+    // Ensure we return an array, even if the query returns null
+    return prophecies || [];
   } catch (error) {
     console.error("Failed to get judged prophecies for calibration in getJudgedPropheciesForCalibration:", error);
     return [];
