@@ -60,7 +60,8 @@ export function githubHeaders(token: string | null): Record<string, string> {
   const trimmedToken = token.trim();
 
   if (trimmedToken.length < MIN_TOKEN_LENGTH) {
-    throw new Error(`Invalid token provided: must be at least ${MIN_TOKEN_LENGTH} characters long. Received: ${trimmedToken.length} characters`);
+    const displayToken = trimmedToken.length > 4 ? `${trimmedToken.substring(0, 4)}...` : trimmedToken;
+    throw new Error(`Invalid token provided: must be at least ${MIN_TOKEN_LENGTH} characters long. Received: ${trimmedToken.length} characters (value: ${displayToken})`);
   }
 
   if (isInvalidToken(trimmedToken)) {

@@ -2012,52 +2012,34 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
             this.log(`Branch retention skipped: ${(e as Error).message.slice(0, 160)}`, "warn");
           });
 
-        // ── HOT-SWAP (the point of "fully autonomous") ───────────────
-        // The improved file is now on disk + GitHub. But the running
-        // process is STILL using the OLD module from require.cache. A
-        // self-improving system that has to be manually restarted to
-        // benefit from its own improvements isn't autonomous. So: swap
-        // the pipeline module subtree now, between cycles, so the next
-        // cycle uses the new code. See core/hot-swap.ts.
+        // ── POST-ENHANCEMENT SWAP (vestigial after worker split) ──────
+        // The improved file is now on disk + GitHub. Pre-split, the
+        // loop ran in the server process and called hotSwapPipeline()
+        // here to clear the server's singleton pins so Turbopack's
+        // recompiled module took effect on the next API request.
         //
-        // Fire-and-forget with a defensive catch: a swap failure must
-        // NOT fail this enhancement (the commit + push already succeeded;
-        // the swap is an optimization, not a gate). The hot-swap module
-        // records its own postmortem on failure.
-        // Audit 3 (F3): a stopped run skips the swap — the operator (or the
-        // resumed loop, thanks to the snapshot-before-pause fix in
-        // hot-swap.ts) picks up the new module on next start.
+        // After the worker split, this call would be a SELF-SUICIDE:
+        // pauseLoop() in core/hot-swap.ts reads __selfEnhanceLoop from
+        // globalThis (the worker's OWN pin) and calls sel.stop() on it,
+        // bumping the run token and setting continuous=false. The
+        // in-flight cycle bails at its next checkpoint AND the while-loop
+        // exits — the worker's loop dies mid-enhancement. The server's
+        // pins (__autonomousLoopRuntime, __unifiedPipelineRunner) are
+        // untouched by a worker-side call anyway (separate process,
+        // separate globalThis).
+        //
+        // Server-side module changes still take effect: Turbopack
+        // recompiles changed files automatically, and the server's
+        // hot-swap is operator-triggered via /api/hot-swap/trigger
+        // (the loop's protected files — loop-runtime.ts, core/* — never
+        // need a worker-driven swap because the worker can't mutate
+        // them).
+        //
+        // The block is intentionally empty — kept as a marker so the
+        // postmortem `operator-edit-module-reload.json` and the audit
+        // trail stay legible.
         if (relPath.startsWith("src/lib/pipeline/") && myRun === this.runId) {
-          try {
-            const { hotSwapPipeline } = await import("../core/hot-swap");
-            void hotSwapPipeline({
-              reason: `post-enhancement swap: ${relPath}`,
-            }).then((swapResult) => {
-              if (swapResult.swapped) {
-                this.log(
-                  `HOT-SWAP: ${swapResult.pinsCleared.length} module(s) reloaded (${swapResult.durationMs}ms) — ` +
-                  `next cycle uses the new code`,
-                  "success"
-                );
-              } else if (!swapResult.pending) {
-                // Not swapped and not pending (pending = will complete on
-                // the next API request) — a real failure. Old code still
-                // running; the broken code on disk is what needs fixing.
-                this.log(
-                  `HOT-SWAP FALLBACK: ${swapResult.reason} — old code still running, fix the broken code on disk`,
-                  "error"
-                );
-              }
-            }).catch((swapAsyncErr) => {
-              // The .then above only handles the RESOLVED cases — without
-              // this catch a swap rejection was an unhandled rejection
-              // swallowed by the global handler and neither the success
-              // nor the FALLBACK branch ever logged.
-              this.log(`HOT-SWAP failed: ${(swapAsyncErr as Error).message.slice(0, 150)}`, "error");
-            });
-          } catch (swapErr) {
-            this.log(`HOT-SWAP skipped: ${(swapErr as Error).message.slice(0, 150)}`, "warn");
-          }
+          // no-op since the worker split — see comment above
         }
       }
 
@@ -2702,11 +2684,12 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
                 commitSha: push.commitSha,
               });
               this.log(`SelfTask[${kind}] applied + pushed: ${relPath} — ${exec.summary.slice(0, 80)}`, "success");
-              // Hot-swap so the running process picks up the deterministic fix.
-              try {
-                const { hotSwapPipeline } = await import("../core/hot-swap");
-                void hotSwapPipeline({ reason: `post-selftask swap: ${relPath}` }).catch(() => {});
-              } catch { /* best-effort */ }
+              // (Post-selftask hot-swap was a self-suicide after the worker
+              // split — pauseLoop() would call sel.stop() on the worker's
+              // own __selfEnhanceLoop. Removed; the server picks up the
+              // deterministic fix via Turbopack HMR on the next request, and
+              // protected singletons are operator-triggered via
+              // /api/hot-swap/trigger.)
             } else {
               // Commit didn't land (push failed). Revert the live write
               // so the working tree doesn't drift from the committed state.
@@ -3601,41 +3584,46 @@ if (!globalForSelfEnhance.__selfEnhanceLoop) {
  * Resolve the LIVE loop singleton at CALL time — never trust an
  * import-time binding in route handlers.
  *
- * Why this exists (the hot-swap instance divergence, observed live
- * 2026-11-08): hot-swap.ts's clearPins() clears `__selfEnhanceLoop`
- * from globalThis, re-evaluates the module, and re-pins a FRESH
- * instance; the loop then resumes on the new instance (HOT-SWAP
- * RESTORE). A route bundle that evaluated BEFORE the swap still holds
- * an import-time binding to the OLD instance — /status served a
- * loop frozen at the pre-swap log tail (stats stopped, running:false,
- * STOP unreachable) while the live loop committed mutations #115+
- * on the new instance. Same class of bug as the agent-llm gate (Fix:
- * "Turbopack multi-instance" — mutable shared state must be read
- * through globalThis per call, never captured at import time).
+ * Why this exists (historical, observed live 2026-11-08): pre-split,
+ * the server's hot-swap.ts cleared `__selfEnhanceLoop` from the
+ * server's globalThis, re-evaluated the module, and re-pinned a FRESH
+ * instance; a route bundle that evaluated BEFORE the swap still held
+ * an import-time binding to the OLD instance — /status served a loop
+ * frozen at the pre-swap log tail while the live loop committed
+ * mutations on the new instance. Reading through globalThis per call
+ * (this function) was the fix.
  *
- * Route handlers must call this INSIDE the request handler, not at
- * module top level, so every request sees the current pin.
+ * Since the worker split (the loop moved to mini-services/loop-worker,
+ * port 3004): this function is only called in the WORKER process (the
+ * server proxies through the worker via loop-worker-client.ts). There's
+ * no server-side hot-swap that clears `__selfEnhanceLoop` anymore —
+ * the pin is set once at worker boot and stays. The "reaper" block
+ * below is kept as a defensive no-op: SELF_SNAPSHOT_SLOT is never
+ * populated in the worker (the server doesn't stash snapshots for
+ * the worker's loop), so consumeSelfEnhanceSnapshot always returns
+ * null. The live-loop indirection is still harmless — it just returns
+ * the same singleton every call.
  */
 export function liveSelfEnhanceLoop(): SelfEnhanceLoop {
   const g = globalThis as unknown as { __selfEnhanceLoop?: SelfEnhanceLoop };
   const loop = g.__selfEnhanceLoop ?? selfEnhanceLoop;
-  // ── HOT-SWAP SNAPSHOT REAPER (safety net) ──────────────────────────
-  // The hot-swap stashes a snapshot on globalThis (SELF_SNAPSHOT_SLOT) and
-  // touches the module mtime, expecting Turbopack to re-evaluate the module
-  // → run the constructor → consume the snapshot → resume the loop. But
-  // Turbopack uses content hashing, not mtime — touching mtime without
-  // changing content doesn't trigger re-evaluation. So the snapshot sits
-  // unconsumed, the constructor never runs, and the loop stays dead after
-  // every hot-swap that doesn't change self-enhance-loop.ts itself.
+  // ── HOT-SWAP SNAPSHOT REAPER (defensive no-op after worker split) ──
+  // Pre-split: the server's hot-swap stashed a snapshot on globalThis
+  // (SELF_SNAPSHOT_SLOT) and touched the module mtime, expecting
+  // Turbopack to re-evaluate the module → run the constructor → consume
+  // the snapshot → resume the loop. Turbopack uses content hashing,
+  // not mtime — touching mtime without changing content doesn't
+  // trigger re-evaluation. This reaper ran on every liveSelfEnhanceLoop()
+  // call to consume any stashed snapshot the constructor missed.
   //
-  // This reaper runs on every liveSelfEnhanceLoop() call (every API request
-  // — the page polls /status every few seconds). If there's a stashed
-  // snapshot that the constructor never consumed, the reaper consumes it,
-  // restores the compounding state, and resumes the loop if it was
-  // continuous before the swap. Same logic as the constructor's snapshot
-  // block — just triggered by the next API call instead of a constructor
-  // run. Idempotent: consumeSelfEnhanceSnapshot returns null once the slot
-  // is cleared, so a constructor that DID run + clear is a no-op here.
+  // Post-split: the SERVER no longer stashes self-enhance snapshots
+  // (the loop isn't in the server anymore), and the worker doesn't
+  // trigger its own hot-swap (the worker-side hotSwapPipeline call was
+  // removed because pauseLoop() would suicide the worker's loop). The
+  // slot is permanently empty in the worker; consumeSelfEnhanceSnapshot
+  // always returns null. The block is kept as a defensive guard: if a
+  // snapshot ever appears (future feature, manual injection, debug),
+  // it would be honored — but in the current architecture it's a no-op.
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const hotSwapMod = require("../core/hot-swap") as Partial<{

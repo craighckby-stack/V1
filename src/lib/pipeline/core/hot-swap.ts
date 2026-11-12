@@ -38,8 +38,12 @@ import { db } from "@/lib/db";
  *   1. PAUSE — stop the old instance's timer (no cycle starts mid-swap).
  *   2. SNAPSHOT — capture config + stats from the old instance.
  *   3. CLEAR PINS — delete the globalThis singletons (__autonomousLoopRuntime,
- *      __selfEnhanceLoop, __oracleEvents, __oracleScheduler) so the next
- *      import creates fresh instances.
+ *      __oracleEvents, __oracleScheduler) so the next import creates fresh
+ *      instances. NOTE: __selfEnhanceLoop is no longer in this list — the
+ *      self-enhance loop moved to a dedicated Bun worker (mini-services/
+ *      loop-worker, port 3004) and is not pinned in the server process at
+ *      all. The server-side hot-swap now governs only the in-process
+ *      autonomous loop's pin and the unified pipeline runner's pin.
  *   4. STASH SNAPSHOT — write the snapshot to a well-known globalThis
  *      slot so the new instance's constructor can find it + restore.
  *   5. PROD — touch the loop-runtime file's mtime to nudge Turbopack
@@ -87,9 +91,16 @@ import { PROJECT_ROOT } from "./paths";
 // Modules whose singletons are pinned on globalThis. If we don't clear
 // these pins, re-importing the module returns the old instance (the pin
 // short-circuits the constructor).
+//
+// NOTE: __selfEnhanceLoop is NOT in this list since the worker split. The
+// self-enhance loop now lives in mini-services/loop-worker (port 3004),
+// a dedicated Bun process — it never pins anything in the server's
+// globalThis. The server-side hot-swap only governs server-process
+// singletons: the autonomous loop scheduler and the remote-refactor
+// pipeline runner. The worker takes care of its own lifecycle (reboots
+// via /api/self-enhance/reboot, which the server proxies through).
 const GLOBAL_PINS = [
   "__autonomousLoopRuntime",
-  "__selfEnhanceLoop",
   // __oracleEvents was REMOVED from this list: the event ring is DATA
   // (the UI's event feed), not module code — clearing the pin on every
   // swap wiped the 200-entry history + seq cursor. The re-evaluated
@@ -105,15 +116,13 @@ const GLOBAL_PINS = [
 export const SNAPSHOT_SLOT = "__loopHotSwapSnapshot";
 
 // ── Self-enhance loop state continuity (audit 3, B4/B11) ────────────────
-// The loop-runtime snapshot above restores the high-level scheduler, but
-// the SELF-ENHANCE loop's own state (compounding cadence counter, per-file
-// saturation lockouts, cooldown streak) was never captured — every swap
-// reset cyclesCompleted to 0, which silently restarted the distillation
-// cadence (every 10 cycles → back to square one) and the meta-tuner's
-// warm-up (70 cycles → never elapsing, D8 effectively disabled in steady
-// state) and cleared every saturation lockout (locked-out files burned
-// quota again). A separate slot (not folded into LoopSnapshot) because a
-// different consumer (the SelfEnhanceLoop constructor) reads it.
+// Historical slot for stashing the self-enhance loop's state across a
+// hot-swap. After the worker split (the self-enhance loop moved to
+// mini-services/loop-worker), the SERVER no longer hosts the loop and
+// never produces a snapshot to stash here. The exports are kept as
+// no-ops because the worker's self-enhance-loop.ts still imports them
+// in its constructor (defensive: if a snapshot ever appears, restore
+// it; in practice the slot is always empty now).
 export const SELF_SNAPSHOT_SLOT = "__selfEnhanceLoopSnapshot";
 
 export interface SelfEnhanceSnapshot {
@@ -139,53 +148,12 @@ export interface SelfEnhanceSnapshot {
   reason: string;
 }
 
-function snapshotSelfEnhance(reason: string): SelfEnhanceSnapshot | null {
-  try {
-    const g = globalThis as unknown as { __selfEnhanceLoop?: any };
-    const sel = g.__selfEnhanceLoop;
-    if (!sel) return null;
-    // Count the IN-FLIGHT cycle: pauseLoop() bumps runId, so the cycle
-    // that is mid-work bails at its next checkpoint BEFORE the
-    // cyclesCompleted++ runs — but the files it already committed this
-    // cycle are real work. Without the +1, every mid-cycle swap froze
-    // the compounding counter (snapshot always captured 0 → restore 0 →
-    // distillation cadence and D8 tuner warm-up never elapsed, and the
-    // oracle scheduler then deadline-FAILED prophecies that actually
-    // succeeded).
-    const inFlightCycle = typeof sel.isRunning === "function" && sel.isRunning();
-    const baseStats =
-      sel.stats ?? {
-        totalScanned: 0,
-        totalEnhanced: 0,
-        totalReverted: 0,
-        totalPushed: 0,
-        testsWritten: 0,
-        cyclesCompleted: 0,
-        tasksGenerated: 0,
-        lastEnhancementAt: null,
-      };
-    const stats = { ...baseStats };
-    if (inFlightCycle && typeof stats.cyclesCompleted === "number") {
-      stats.cyclesCompleted += 1;
-    }
-    return {
-      continuous: typeof sel.isContinuous === "function" ? sel.isContinuous() : false,
-      stats,
-      saturation: sel.saturation instanceof Map ? Array.from(sel.saturation.entries()) : [],
-      consecutiveCooldownCycles: sel.consecutiveCooldownCycles ?? 0,
-      quotaExhaustedLogged: sel.quotaExhaustedLogged ?? false,
-      stashedAt: Date.now(),
-      reason,
-    };
-  } catch {
-    return null;
-  }
-}
-
 /** Read (not consume) the stashed self-enhance snapshot. Called by the
- *  SelfEnhanceLoop constructor. Cleared by clearSelfEnhanceSnapshot when
- *  the new instance actually arms — same survival contract as the
- *  loop-runtime snapshot. */
+ *  SelfEnhanceLoop constructor in the worker. Always returns null in the
+ *  current architecture — the server no longer produces self-enhance
+ *  snapshots after the worker split. Kept as a defensive no-op so the
+ *  worker's import doesn't break.
+ *  Cleared by clearSelfEnhanceSnapshot. */
 export function consumeSelfEnhanceSnapshot(): SelfEnhanceSnapshot | null {
   const g = globalThis as any;
   const snap = g[SELF_SNAPSHOT_SLOT];
@@ -330,24 +298,23 @@ function pauseLoop(): void {
   try {
     const g = globalThis as unknown as {
       __autonomousLoopRuntime?: any;
-      __selfEnhanceLoop?: any;
       __oracleScheduler?: { timer?: ReturnType<typeof setInterval> | null };
       __oracleSchedulerTimer?: ReturnType<typeof setInterval> | null;
     };
-    // Stop BOTH singletons. The loop-runtime's timer drives the high-level
-    // cycle scheduler; the self-enhance loop's runContinuous while-loop
-    // drives the enhance-verify-push inner loop. Stopping only the runtime
-    // leaves the enhance loop's while-loop running against the OLD module
-    // code — an invisible rogue loop the STOP button can't reach (it
-    // calls stop() on the NEW singleton post-swap). Bumping runId via
-    // stop() makes the in-flight runCycle exit at its next checkpoint.
+    // Stop the autonomous loop runtime's timer — it drives the high-level
+    // cycle scheduler that still runs in this server process. Bumping
+    // runId via stop() makes any in-flight runCycle exit at its next
+    // checkpoint.
+    //
+    // NOTE: the self-enhance loop's stop() used to be called here too,
+    // but that loop moved to a dedicated Bun worker (mini-services/
+    // loop-worker). The worker's lifecycle is its own concern; the
+    // server's hot-swap no longer touches it. (Calling sel.stop() here
+    // would have no effect — __selfEnhanceLoop is undefined in the
+    // server's globalThis since the split.)
     const rt = g.__autonomousLoopRuntime;
     if (rt) {
       try { rt.stop?.(); } catch { /* already stopped */ }
-    }
-    const sel = g.__selfEnhanceLoop;
-    if (sel) {
-      try { sel.stop?.(); } catch { /* already stopped */ }
     }
     // Stop the oracle scheduler's timer — its closure holds the OLD
     // module's tick code. Without this, the old timer kept firing after
@@ -417,17 +384,9 @@ export async function hotSwapPipeline(opts?: {
     const reason = opts?.reason ?? "post-enhancement swap";
     // 1. SNAPSHOT (before pausing — the state is most accurate now)
     const snapshot = snapshotLoop();
-    // 1b. SNAPSHOT THE SELF-ENHANCE LOOP TOO (audit 3, F2 — critical
-    //     ordering). snapshotSelfEnhance captures `continuous:
-    //     sel.isContinuous()`. pauseLoop() (step 2) calls sel.stop(),
-    //     which sets continuous=false. Taking this snapshot AFTER the
-    //     pause — as the old order did — always recorded
-    //     continuous:false, so the new instance's resume branch
-    //     (`if (snap.continuous)`) was dead code: the "fully autonomous"
-    //     loop silently died after EVERY successful pipeline-file
-    //     enhancement until a human pressed START. Both snapshots now sit
-    //     on the same side of pauseLoop().
-    const selfSnap = snapshotSelfEnhance(reason);
+    // (The self-enhance loop used to be snapshotted here too — moved
+    // to the worker, so it's no longer the server's responsibility.
+    // See SELF_SNAPSHOT_SLOT comment above.)
 
     if (opts?.dryRun) {
       const pinsPresent = GLOBAL_PINS.filter(
@@ -454,29 +413,28 @@ export async function hotSwapPipeline(opts?: {
     // 4. STASH SNAPSHOT so the new instance can restore
     if (snapshot) stashSnapshot(snapshot, reason);
 
-    // 4b. STASH the self-enhance snapshot taken in step 1b (separate slot,
-    //     separate consumer — the SelfEnhanceLoop constructor). Without
-    //     this, every swap reset cyclesCompleted/saturation/cooldown
-    //     state — see the SELF_SNAPSHOT_SLOT note above.
-    if (selfSnap) {
-      (globalThis as any)[SELF_SNAPSHOT_SLOT] = selfSnap;
-    }
+    // (The self-enhance snapshot stash used to happen here — moved to
+    // the worker, so there's nothing to stash. The SELF_SNAPSHOT_SLOT
+    // is now permanently empty in the server.)
 
-    // 5. PROD — touch the loop-runtime + self-enhance-loop mtime to nudge
-    //    Turbopack into recompiling. Post-enhancement triggers already
-    //    wrote the file (Turbopack recompiles from the write), but a MANUAL
-    //    trigger has no file change — without this prod, the singleton line
+    // 5. PROD — touch the loop-runtime mtime to nudge Turbopack into
+    //    recompiling. Post-enhancement triggers already wrote the file
+    //    (Turbopack recompiles from the write), but a MANUAL trigger has
+    //    no file change — without this prod, the singleton line
     //    `globalForLoop.__autonomousLoopRuntime ?? new AutonomousLoopRuntime()`
     //    never re-runs, the new instance is never created, and the swap
-    //    stays pending forever. Touching mtime gives Turbopack a reason to
-    //    recompile + re-evaluate the module, which runs the singleton line,
-    //    which sees the cleared pin and creates the fresh instance.
-    //    Two files because both singletons (__autonomousLoopRuntime AND
-    //    __selfEnhanceLoop) need to re-evaluate.
+    //    stays pending forever. Touching mtime gives Turbopack a reason
+    //    to recompile + re-evaluate the module, which runs the singleton
+    //    line, which sees the cleared pin and creates the fresh instance.
+    //
+    //    Only loop-runtime.ts is prodded now: the autonomous loop is the
+    //    only in-process singleton this hot-swap governs since the worker
+    //    split. (The self-enhance-loop.ts prod was vestigial — that file
+    //    lives in the worker now and isn't re-evaluated by the server's
+    //    Turbopack at all.)
     const prodded: string[] = [];
     for (const rel of [
       "src/lib/pipeline/autonomous/loop-runtime.ts",
-      "src/lib/pipeline/autonomous/self-enhance-loop.ts",
     ]) {
       try {
         const now = new Date();

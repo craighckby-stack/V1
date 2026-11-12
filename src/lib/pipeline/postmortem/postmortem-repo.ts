@@ -213,7 +213,22 @@ function fromFileShape(f: PostmortemFile): PostmortemRecord {
     symptom: f.symptom,
     evidence: f.evidence,
     constraints: f.constraints,
-    attempts: f.attempts,
+    // Defensive coercion: the schema says `attempts: number`, but one
+    // legacy resolved record (`system:operator-edit-module-reload.json`)
+    // was written with `attempts: []` — an array, presumably an early
+    // "no attempts made, resolved operationally" encoding. Prisma's Int
+    // column rejects arrays, so rehydration threw on every boot (and
+    // the per-record try/catch silently swallowed it, falling back to
+    // chain auto-backfill). Coerce here at the disk→memory boundary so
+    // any non-numeric `attempts` becomes 0 — honest ("zero recorded
+    // attempts") and Prisma-safe. The chain hash is unaffected: the
+    // canonical content for that legacy record already used the same
+    // value, so the rehydrated row's hash still matches disk.
+    attempts: typeof f.attempts === "number" && Number.isFinite(f.attempts)
+      ? Math.trunc(f.attempts)
+      : Array.isArray(f.attempts)
+        ? f.attempts.length
+        : 0,
     // Schema-1 files predate the chain — null hashes are honest (the
     // chain just resumes from the next schema-2 record).
     parentHash: f.parentHash ?? null,
