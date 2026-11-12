@@ -71,7 +71,28 @@ const GEMINI_BASE = PROXY_BASE_URL ?? DIRECT_BASE;
 // burning a request per task per cycle while the sandbox is geo-blocked.
 // Resets on server restart (acceptable — a restart is also when the
 // network egress might change).
-let LOCATION_BLOCKED_UNTIL = 0;
+//
+// ALL THREE mutable slots (geo-block cooldown, recovery-probe stamp,
+// per-model circuit breakers) live on globalThis — the same rule as
+// duress's safe-mode flag. Turbopack route graphs get separate module
+// instances; a module-local `let` fragments the state, so a breaker
+// tripped in one graph wouldn't protect the others (quota burn) and a
+// geo-block discovered in one stayed unknown in the rest.
+const __geminiSharedSlot = globalThis as unknown as {
+  __geminiDirectShared?: {
+    locationBlockedUntil: number;
+    lastProbeAt: number;
+    modelCircuitBreakers: Map<string, number>;
+  };
+};
+if (!__geminiSharedSlot.__geminiDirectShared) {
+  __geminiSharedSlot.__geminiDirectShared = {
+    locationBlockedUntil: 0,
+    lastProbeAt: 0,
+    modelCircuitBreakers: new Map<string, number>(),
+  };
+}
+const geminiShared = __geminiSharedSlot.__geminiDirectShared;
 const LOCATION_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes (upper bound)
 
 // ── Recovery probe state ─────────────────────────────────────────────
@@ -79,7 +100,8 @@ const LOCATION_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes (upper bound)
 // clear the cooldown immediately. If it fails, leave the cooldown alone
 // (don't extend it — the next probe will try again). This cuts average
 // wasted cooldown time from 10min to ~60s when the block lifts early.
-let LAST_PROBE_AT = 0;
+// (probe stamp lives in geminiShared.lastProbeAt — shared across module
+// graphs; see the slot above)
 const RECOVERY_PROBE_INTERVAL_MS = 60 * 1000; // 60s between probes
 
 // ── Retry config ─────────────────────────────────────────────────────
@@ -125,7 +147,7 @@ const GEMINI_MODEL_CASCADE = [
   "gemini-2.5-pro",
 ];
 const CIRCUIT_BREAKER_COOLDOWN_MS = 15_000; // 15s — short, so a brief overload self-heals fast
-const modelCircuitBreakers = new Map<string, number>(); // model → unblock epoch ms
+const modelCircuitBreakers = geminiShared.modelCircuitBreakers; // shared across module graphs
 
 function breakerClear(model: string): boolean {
   const until = modelCircuitBreakers.get(model);
@@ -162,7 +184,7 @@ export function geminiHealthSnapshot(): {
   disabled: boolean;
 } {
   return {
-    locationBlockedUntilMs: LOCATION_BLOCKED_UNTIL,
+    locationBlockedUntilMs: geminiShared.locationBlockedUntil,
     breakers: geminiModelBreakers(),
     proxyConfigured: !!PROXY_BASE_URL,
     disabled: process.env.GEMINI_DISABLED === "true",
@@ -319,7 +341,7 @@ async function callGeminiOnce(
       // (429, 503) might lift on the very next call, so we don't penalize
       // them with a 10-min short-circuit.
       if (kind === "location-block") {
-        LOCATION_BLOCKED_UNTIL = Date.now() + LOCATION_COOLDOWN_MS;
+        geminiShared.locationBlockedUntil = Date.now() + LOCATION_COOLDOWN_MS;
       }
 
       const friendlyError =
@@ -515,16 +537,16 @@ export async function geminiComplete(opts: {
   // from 10min to ~60s when the block lifts early. The probe uses the
   // first breaker-clear model so a tripped primary doesn't make the
   // probe itself fail spuriously.
-  if (LOCATION_BLOCKED_UNTIL > Date.now()) {
-    const dueForProbe = Date.now() - LAST_PROBE_AT > RECOVERY_PROBE_INTERVAL_MS;
+  if (geminiShared.locationBlockedUntil > Date.now()) {
+    const dueForProbe = Date.now() - geminiShared.lastProbeAt > RECOVERY_PROBE_INTERVAL_MS;
     if (dueForProbe) {
-      LAST_PROBE_AT = Date.now();
+      geminiShared.lastProbeAt = Date.now();
       const probeModel = [cfg.model, ...GEMINI_MODEL_CASCADE].find((m) => breakerClear(m)) ?? cfg.model;
       const probe = await probeGemini(cfg, probeModel);
       if (probe.ok) {
         // Block lifted! Clear the cooldown and fall through to the
         // real call below.
-        LOCATION_BLOCKED_UNTIL = 0;
+        geminiShared.locationBlockedUntil = 0;
       } else {
         // Still blocked — return the cooldown message but mention the
         // probe so the operator knows we're actively checking, not
@@ -540,7 +562,7 @@ export async function geminiComplete(opts: {
       }
     } else {
       const secondsUntilProbe = Math.round(
-        (RECOVERY_PROBE_INTERVAL_MS - (Date.now() - LAST_PROBE_AT)) / 1000,
+        (RECOVERY_PROBE_INTERVAL_MS - (Date.now() - geminiShared.lastProbeAt)) / 1000,
       );
       return {
         ok: false,
@@ -594,7 +616,10 @@ export async function geminiComplete(opts: {
     // "overloaded") get retried up to MAX_RETRIES times on the SAME model
     // before we give up on it and advance to the next model in the cascade.
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      totalAttemptsUsed = attempt;
+      // Accumulate across the WHOLE cascade — the old `= attempt` reset
+      // the counter per model, so cascade exhaustion reported the last
+      // model's inner-loop index (0–2) instead of the real attempt count.
+      totalAttemptsUsed++;
       const { result, transient, overload } = await callGeminiOnce(
         cfg,
         opts,
@@ -614,7 +639,7 @@ export async function geminiComplete(opts: {
             data: { lastUsedAt: new Date(), lastError: null },
           })
           .catch(() => {});
-        return { ...result, retries: attempt };
+        return { ...result, retries: totalAttemptsUsed - 1 };
       }
 
       // Location-block: the whole upstream is region-blocked — arm the
@@ -627,7 +652,7 @@ export async function geminiComplete(opts: {
             data: { lastError: result.error?.slice(0, 200) ?? "Gemini location-block" },
           })
           .catch(() => {});
-        return { ...result, retries: attempt };
+        return { ...result, retries: totalAttemptsUsed - 1 };
       }
 
       // Auth / empty / blocked-content: NOT model-specific — retrying
@@ -644,7 +669,7 @@ export async function geminiComplete(opts: {
             data: { lastError: result.error?.slice(0, 200) ?? "Gemini error" },
           })
           .catch(() => {});
-        return { ...result, retries: attempt };
+        return { ...result, retries: totalAttemptsUsed - 1 };
       }
 
       // model-not-found: advance to the next model WITHOUT tripping the
@@ -693,5 +718,5 @@ export async function geminiComplete(opts: {
     })
     .catch(() => {});
 
-  return { ...(lastResult as GeminiCallResult), retries: totalAttemptsUsed };
+  return { ...(lastResult as GeminiCallResult), retries: totalAttemptsUsed - 1 };
 }

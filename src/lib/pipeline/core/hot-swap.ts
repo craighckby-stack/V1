@@ -90,8 +90,13 @@ import { PROJECT_ROOT } from "./paths";
 const GLOBAL_PINS = [
   "__autonomousLoopRuntime",
   "__selfEnhanceLoop",
-  "__oracleEvents",
+  // __oracleEvents was REMOVED from this list: the event ring is DATA
+  // (the UI's event feed), not module code — clearing the pin on every
+  // swap wiped the 200-entry history + seq cursor. The re-evaluated
+  // module finds the pin and reuses the ring, which is the continuity
+  // the pin mechanism exists for.
   "__oracleScheduler",
+  "__unifiedPipelineRunner",
 ];
 
 // The globalThis slot where we stash the snapshot so the new instance's
@@ -139,19 +144,33 @@ function snapshotSelfEnhance(reason: string): SelfEnhanceSnapshot | null {
     const g = globalThis as unknown as { __selfEnhanceLoop?: any };
     const sel = g.__selfEnhanceLoop;
     if (!sel) return null;
+    // Count the IN-FLIGHT cycle: pauseLoop() bumps runId, so the cycle
+    // that is mid-work bails at its next checkpoint BEFORE the
+    // cyclesCompleted++ runs — but the files it already committed this
+    // cycle are real work. Without the +1, every mid-cycle swap froze
+    // the compounding counter (snapshot always captured 0 → restore 0 →
+    // distillation cadence and D8 tuner warm-up never elapsed, and the
+    // oracle scheduler then deadline-FAILED prophecies that actually
+    // succeeded).
+    const inFlightCycle = typeof sel.isRunning === "function" && sel.isRunning();
+    const baseStats =
+      sel.stats ?? {
+        totalScanned: 0,
+        totalEnhanced: 0,
+        totalReverted: 0,
+        totalPushed: 0,
+        testsWritten: 0,
+        cyclesCompleted: 0,
+        tasksGenerated: 0,
+        lastEnhancementAt: null,
+      };
+    const stats = { ...baseStats };
+    if (inFlightCycle && typeof stats.cyclesCompleted === "number") {
+      stats.cyclesCompleted += 1;
+    }
     return {
       continuous: typeof sel.isContinuous === "function" ? sel.isContinuous() : false,
-      stats:
-        sel.stats ?? {
-          totalScanned: 0,
-          totalEnhanced: 0,
-          totalReverted: 0,
-          totalPushed: 0,
-          testsWritten: 0,
-          cyclesCompleted: 0,
-          tasksGenerated: 0,
-          lastEnhancementAt: null,
-        },
+      stats,
       saturation: sel.saturation instanceof Map ? Array.from(sel.saturation.entries()) : [],
       consecutiveCooldownCycles: sel.consecutiveCooldownCycles ?? 0,
       quotaExhaustedLogged: sel.quotaExhaustedLogged ?? false,
@@ -312,6 +331,8 @@ function pauseLoop(): void {
     const g = globalThis as unknown as {
       __autonomousLoopRuntime?: any;
       __selfEnhanceLoop?: any;
+      __oracleScheduler?: { timer?: ReturnType<typeof setInterval> | null };
+      __oracleSchedulerTimer?: ReturnType<typeof setInterval> | null;
     };
     // Stop BOTH singletons. The loop-runtime's timer drives the high-level
     // cycle scheduler; the self-enhance loop's runContinuous while-loop
@@ -327,6 +348,21 @@ function pauseLoop(): void {
     const sel = g.__selfEnhanceLoop;
     if (sel) {
       try { sel.stop?.(); } catch { /* already stopped */ }
+    }
+    // Stop the oracle scheduler's timer — its closure holds the OLD
+    // module's tick code. Without this, the old timer kept firing after
+    // the swap AND the next module re-import booted a SECOND timer
+    // (the pin clear orphaned the state the boot guard checks), doubling
+    // the DB-poll rate on every swap. The dedicated
+    // __oracleSchedulerTimer slot + boot-time clear in oracle-scheduler.ts
+    // is the self-healing backstop; this is the immediate stop.
+    if (g.__oracleSchedulerTimer) {
+      clearInterval(g.__oracleSchedulerTimer);
+      g.__oracleSchedulerTimer = null;
+    }
+    if (g.__oracleScheduler?.timer) {
+      clearInterval(g.__oracleScheduler.timer);
+      g.__oracleScheduler.timer = null;
     }
   } catch {
     /* no instance */
@@ -633,14 +669,19 @@ export async function getHotSwapSuccessCount(): Promise<number> {
 /** Fingerprint of the currently-loaded pipeline code. With Turbopack
  *  we can't enumerate the module cache from Node, so this is a hash
  *  of the globalThis pins' presence — a proxy for "has the instance
- *  been swapped?". Changes when a swap clears + recreates. */
+ *  been swapped?" — mixed with the swap counter. (The old hash used the
+ *  pin bitmask alone: "1111" before a swap → "0000" during the sub-second
+ *  clear → "1111" again after re-pin, so the value the swap panel polls
+ *  every 2s NEVER actually changed across a completed swap.) */
 export function runningPipelineFingerprint(): string {
   const g = globalThis as any;
   const pins = GLOBAL_PINS.map((p) => (g[p] !== undefined ? "1" : "0")).join("");
-  // Simple hash of the pin state.
+  const swapCount = getSwapCount();
+  const mixed = `${pins}:${swapCount}`;
+  // Simple hash of the pin state + swap generation.
   let h = 0;
-  for (let i = 0; i < pins.length; i++) {
-    h = ((h << 5) - h + pins.charCodeAt(i)) | 0;
+  for (let i = 0; i < mixed.length; i++) {
+    h = ((h << 5) - h + mixed.charCodeAt(i)) | 0;
   }
   return `fp_${(h >>> 0).toString(16)}`;
 }

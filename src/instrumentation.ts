@@ -31,6 +31,49 @@ export async function register() {
       );
     });
 
+    // ── LOOP WEBSOCKET MINI-SERVICE AUTO-LAUNCH ──────────────────────
+    // The dashboard's real-time stream (use-loop-socket.ts → Caddy →
+    // port 3003) depends on this sidecar, but nothing ever launched it —
+    // the client reconnected forever (reconnectionAttempts: Infinity)
+    // and the UI silently ran on HTTP-poll fallback. Spawn it once per
+    // process if its health endpoint doesn't already answer. The
+    // globalThis guard + health probe make it idempotent across hot
+    // reloads and restarts; fire-and-forget so a slow spawn never blocks
+    // server start.
+    void (async () => {
+      const slot = globalThis as unknown as { __loopWsServiceSpawned?: boolean };
+      if (slot.__loopWsServiceSpawned) return;
+      slot.__loopWsServiceSpawned = true;
+      try {
+        const res = await fetch("http://localhost:3003/health", {
+          signal: AbortSignal.timeout(800),
+        });
+        if (res.ok) {
+          console.log("[INSTRUMENTATION] loop-ws-service already live on :3003");
+          return;
+        }
+      } catch {
+        /* not running — spawn it below */
+      }
+      try {
+        const { spawn } = await import("child_process");
+        const path = await import("path");
+        const cwd = path.join(process.cwd(), "mini-services", "loop-ws-service");
+        const child = spawn("bun", ["index.ts"], {
+          cwd,
+          stdio: "ignore",
+          detached: true,
+        });
+        child.unref();
+        console.log("[INSTRUMENTATION] loop-ws-service spawned on :3003 (detached)");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[INSTRUMENTATION] loop-ws-service spawn failed: ${msg.slice(0, 200)}`
+        );
+      }
+    })();
+
     // ── Z.AI CORTEX AUTO-INJECTION (before the splash screen) ────────
     // Runs at SERVER BOOT — before the first HTTP request, so before the
     // boot splash fetches /api/boot/scan. The injection establishes the

@@ -530,6 +530,20 @@ class SelfEnhanceLoop {
   }> = [];
 
   constructor() {
+    // ── ZOMBIE-TASK SWEEP ─────────────────────────────────────────────
+    // A fresh process cannot have a legitimate in_progress SelfTask —
+    // any row in that state was abandoned by a previous process death
+    // (segfault / OOM kill mid-gate-chain). claimNextTask only claims
+    // pending, generateTasks treats in_progress as already-queued, and
+    // pruneTerminalSelfTasks only prunes terminal rows — without this
+    // sweep the zombies leaked forever and distorted the queue counts.
+    // Fire-and-forget: the table may not exist until first migration.
+    void db.selfTask
+      .updateMany({ where: { status: "in_progress" }, data: { status: "pending" } })
+      .catch(() => {
+        /* table missing — dormant, same as the seed calls */
+      });
+
     // ── HOT-SWAP STATE CONTINUITY (audit 3, B4/B11) ─────────────────
     // Every post-enhancement swap used to reset this instance's state:
     // cyclesCompleted → 0 (restarting the distillation cadence and the
@@ -2034,6 +2048,12 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
                   "error"
                 );
               }
+            }).catch((swapAsyncErr) => {
+              // The .then above only handles the RESOLVED cases — without
+              // this catch a swap rejection was an unhandled rejection
+              // swallowed by the global handler and neither the success
+              // nor the FALLBACK branch ever logged.
+              this.log(`HOT-SWAP failed: ${(swapAsyncErr as Error).message.slice(0, 150)}`, "error");
             });
           } catch (swapErr) {
             this.log(`HOT-SWAP skipped: ${(swapErr as Error).message.slice(0, 150)}`, "warn");
@@ -2363,6 +2383,47 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
     }
   }
 
+  /** Classify a cycle outcome for one file and advance its saturation
+   *  state. Shared by the normal post-enhancement path AND the
+   *  proactive-skip path — both must advance the counter, or a converged
+   *  repo can never reach the PASS COMPLETE checkpoint (the skip path
+   *  used to `continue` before the saturation update, so self-model-
+   *  predicted files were re-skipped forever and classifyGrowth's
+   *  documented "clean PASS COMPLETE signal" was dead code). */
+  private async advanceSaturation(relPath: string, reason: string): Promise<void> {
+    const growth = classifyGrowth(reason);
+    const prev = this.saturation.get(relPath) ?? {
+      consecutiveNoGrowth: 0,
+      lockedOut: false,
+      lockedAt: null,
+      lastNoGrowthReason: null,
+      enhancementsThisPass: 0,
+    };
+    if (growth === "growth") {
+      prev.consecutiveNoGrowth = 0;
+      prev.lastNoGrowthReason = null;
+      prev.enhancementsThisPass++;
+    } else if (growth === "no-growth") {
+      prev.consecutiveNoGrowth++;
+      prev.lastNoGrowthReason = reason;
+      // D8: the lockout threshold is meta-tunable — read the live value.
+      const threshold = await getSaturationThreshold();
+      if (prev.consecutiveNoGrowth >= threshold && !prev.lockedOut) {
+        prev.lockedOut = true;
+        prev.lockedAt = new Date().toISOString();
+        this.log(
+          `🔒 ${relPath} LOCKED OUT — ${threshold} consecutive no-growth cycles (last: ${reason.slice(0, 80)})`,
+          "warn"
+        );
+        this.log(
+          `Pass will skip ${relPath} until you unlock it (UI button) or restart the server for a fresh pass`,
+          "info"
+        );
+      }
+    }
+    this.saturation.set(relPath, prev);
+  }
+
   /**
    * Run one cycle: scan files, enhance each one sequentially.
    */
@@ -2559,16 +2620,27 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
             const pushMsg = `self-task[${kind}]: ${relPath}:${task.line} — ${exec.summary.slice(0, 120)}`;
             type SelfTaskWriteOutcome =
               | { kind: "stopped" }
-              | { kind: "conflict" }
+              | { kind: "conflict"; diskSha?: string; diskError?: string }
               | { kind: "write-failed"; error: string }
               | { kind: "done"; pushed: boolean; commitSha?: string };
             const writeOutcome = await withTreeLock<SelfTaskWriteOutcome>(async () => {
               if (myRun !== this.runId) {
                 return { kind: "stopped" };
               }
-              const diskNow = readFileSync(abs, "utf-8");
+              // The target file may have been DELETED (not just changed)
+              // during the 1–3-minute gate chain above. The old unguarded
+              // readFileSync threw here, escaped withTreeLock, was
+              // swallowed by the drain's outer catch, and the claimed task
+              // was never updated — a permanent in_progress zombie that
+              // claimNextTask (pending-only) never re-queues.
+              let diskNow: string;
+              try {
+                diskNow = readFileSync(abs, "utf-8");
+              } catch (rErr) {
+                return { kind: "conflict", diskSha: undefined, diskError: (rErr as Error).message };
+              }
               if (exec.baseCode !== undefined && sha16(diskNow) !== sha16(exec.baseCode)) {
-                return { kind: "conflict" };
+                return { kind: "conflict", diskSha: sha16(diskNow) };
               }
               try {
                 writeFileSync(abs, candidate, "utf-8");
@@ -2591,7 +2663,7 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
                   filePath: relPath,
                   failureType: "OTHER",
                   symptom: `TOCTOU conflict on ${relPath}: disk content changed between the SelfTask read and its gated write`,
-                  evidence: `fix computed against sha ${sha16(exec.baseCode ?? "")} vs on-disk sha ${sha16(readFileSync(abs, "utf-8"))} — a concurrent writer (chat-task, operator edit, or host restore) landed while the SelfTask gates ran`,
+                  evidence: `fix computed against sha ${sha16(exec.baseCode ?? "")} vs on-disk sha ${writeOutcome.diskSha ?? `(unreadable: ${writeOutcome.diskError ?? "missing"})`} — a concurrent writer (chat-task, operator edit, host restore, or file deletion) landed while the SelfTask gates ran`,
                   constraints: `Re-read the current file before proposing changes — the disk state moved during the last SelfTask gate chain; clobbering it would revert someone else's work.`,
                   observed: false,
                 })
@@ -2849,10 +2921,11 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
           const skip = await shouldProactivelySkip(relPath);
           if (skip.skip) {
             this.log(`🧠 ${skip.reason}`, "info");
+            const skipReason = `Skipped (self-model predicts zero-diff: finished ${skip.finishedScore.toFixed(2)}, predicted ${(skip.confidence * 100).toFixed(0)}%)`;
             results.push({
               filePath: relPath,
               enhanced: false,
-              reason: `Skipped (self-model predicts zero-diff: finished ${skip.finishedScore.toFixed(2)}, predicted ${(skip.confidence * 100).toFixed(0)}%)`,
+              reason: skipReason,
               oldBytes: 0,
               newBytes: 0,
               diffBytes: 0,
@@ -2862,6 +2935,11 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
               pushed: false,
             });
             lockedSkipped++;
+            // Advance the saturation state for this synthetic no-growth
+            // outcome TOO — the old code continued BEFORE the saturation
+            // update, so the counter never advanced for proactive skips
+            // and the pass-complete checkpoint was unreachable.
+            await this.advanceSaturation(relPath, skipReason);
             continue;
           }
         } catch {
@@ -3015,40 +3093,11 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
 
         // ── Per-file saturation update ───────────────────────────────
         // Classify this cycle's outcome for THIS file and update its
-        // saturation counter. Growth → reset. No-growth → increment,
+        // saturation counter (shared with the proactive-skip path — see
+        // advanceSaturation). Growth → reset. No-growth → increment,
         // and lock out at SATURATION_THRESHOLD. Neutral (quota/transient)
         // → don't touch the counter (don't punish a file for API limits).
-        const growth = classifyGrowth(result.reason);
-        const prev = this.saturation.get(relPath) ?? {
-          consecutiveNoGrowth: 0,
-          lockedOut: false,
-          lockedAt: null,
-          lastNoGrowthReason: null,
-          enhancementsThisPass: 0,
-        };
-        if (growth === "growth") {
-          prev.consecutiveNoGrowth = 0;
-          prev.lastNoGrowthReason = null;
-          prev.enhancementsThisPass++;
-        } else if (growth === "no-growth") {
-          prev.consecutiveNoGrowth++;
-          prev.lastNoGrowthReason = result.reason;
-          // D8: the lockout threshold is meta-tunable — read the live value.
-          const threshold = await getSaturationThreshold();
-          if (prev.consecutiveNoGrowth >= threshold && !prev.lockedOut) {
-            prev.lockedOut = true;
-            prev.lockedAt = new Date().toISOString();
-            this.log(
-              `🔒 ${relPath} LOCKED OUT — ${threshold} consecutive no-growth cycles (last: ${result.reason.slice(0, 80)})`,
-              "warn"
-            );
-            this.log(
-              `Pass will skip ${relPath} until you unlock it (UI button) or restart the server for a fresh pass`,
-              "info"
-            );
-          }
-        }
-        this.saturation.set(relPath, prev);
+        await this.advanceSaturation(relPath, result.reason);
 
         // Brief pause between files to avoid hammering the LLM API
         await new Promise((r) => setTimeout(r, 2000));
@@ -3354,7 +3403,21 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         this.log("SAFE-MODE active — continuous self-enhancement loop halted (clear via the Duress panel after review)", "error");
         break;
       }
-      await this.runCycle();
+      try {
+        await this.runCycle();
+      } catch (cycleErr) {
+        // runCycle's body has only a `finally` (no catch) — a rejection
+        // from its ~900-line body previously propagated HERE, killed the
+        // while-loop, and left this.continuous true: every surface
+        // reported "running", the start route answered "already running",
+        // and nothing ever cycled again (the running-but-dead wedge).
+        // This defensive catch mirrors loop-runtime's own continuous-loop
+        // guarantee: one thrown cycle is logged and the loop survives.
+        this.log(
+          `Cycle threw (continuous loop survived): ${(cycleErr as Error).message}`,
+          "error"
+        );
+      }
       if (onUpdate) onUpdate();
       if (!(this.continuous && myRun === this.runId)) break;
       // D3: the inter-cycle gap is the other idle moment — one dream
@@ -3371,6 +3434,18 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       // Wait between cycles
       this.log("Waiting 5s before next cycle...", "info");
       await new Promise((r) => setTimeout(r, 5000));
+    }
+    // If the loop exits WITHOUT an explicit stop() (safe-mode break, or a
+    // throw that escaped even the defensive catch), clear the continuous
+    // flag so isContinuous() reflects reality — the old code left it true
+    // and the start route then refused every restart with "already
+    // running" while nothing ran.
+    if (this.continuous && myRun === this.runId) {
+      this.continuous = false;
+      this.log(
+        "Continuous loop exited abnormally — continuous flag cleared so [START] can re-arm.",
+        "warn"
+      );
     }
     this.log("Continuous self-enhancement loop exited", "info");
   }

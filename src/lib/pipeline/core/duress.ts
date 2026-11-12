@@ -70,12 +70,19 @@ function setRuntimeSafeMode(active: boolean, reason: string | null): void {
   __loopSafeModeSlot.__loopSafeMode!.reason = reason;
 }
 
-// Consecutive push-auth-failure counter. Reset to 0 on any successful
-// push. The duress trigger fires when this crosses the threshold.
-let consecutiveAuthFailures = 0;
-
-// No-re-entry guard for the purge sequence itself (PKM SEQ_RUNNING).
-let purgeInProgress = false;
+// Consecutive push-auth-failure counter + purge no-re-entry guard.
+// Both live on globalThis (same rule as the runtime safe-mode flag
+// above): recordPushAuthFailure is imported from several route graphs,
+// and a module-local `let` fragments the counter across instances — the
+// 5-consecutive-401 auto-purge could then never reach threshold during
+// a real PAT-compromise scenario.
+const __duressCountersSlot = globalThis as unknown as {
+  __duressCounters?: { authFailures: number; purgeRunning: boolean };
+};
+if (!__duressCountersSlot.__duressCounters) {
+  __duressCountersSlot.__duressCounters = { authFailures: 0, purgeRunning: false };
+}
+const duressState = __duressCountersSlot.__duressCounters;
 
 // Default: 5 consecutive 401/403 failures = purge. Tunable so an
 // operator can raise it for a flaky-network environment or lower it
@@ -158,7 +165,7 @@ export async function raiseSafeModeFlag(setBy: string, reason: string): Promise<
 /** Clear the safe-mode flag (operator action). Clears BOTH tiers. */
 export async function clearSafeMode(by: string = "operator"): Promise<{ cleared: boolean }> {
   setRuntimeSafeMode(false, null);
-  consecutiveAuthFailures = 0;
+  duressState.authFailures = 0;
   try {
     await db.systemFlag.upsert({
       where: { key: "safe-mode" },
@@ -187,7 +194,7 @@ export async function clearSafeMode(by: string = "operator"): Promise<{ cleared:
  *  consecutive-auth-failure counter. A single success clears the
  *  accumulated suspicion. */
 export function recordPushSuccess(): void {
-  consecutiveAuthFailures = 0;
+  duressState.authFailures = 0;
 }
 
 /** Called by push-target after a 401/403 from GitHub. Returns true if
@@ -199,10 +206,10 @@ export async function recordPushAuthFailure(statusCode: number): Promise<{ trigg
   if (statusCode !== 401 && statusCode !== 403) {
     return { triggered: false };
   }
-  consecutiveAuthFailures++;
-  if (consecutiveAuthFailures >= DURESS_AUTH_FAILURE_THRESHOLD) {
+  duressState.authFailures++;
+  if (duressState.authFailures >= DURESS_AUTH_FAILURE_THRESHOLD) {
     const reason =
-      `Duress auto-trigger: ${consecutiveAuthFailures} consecutive push ` +
+      `Duress auto-trigger: ${duressState.authFailures} consecutive push ` +
       `auth failures (401/403). PAT may be compromised or rotated; ` +
       `purging all tiers and entering safe mode.`;
     // Fire-and-forget the purge; recordPushAuthFailure stays synchronous
@@ -218,7 +225,7 @@ export async function recordPushAuthFailure(statusCode: number): Promise<{ trigg
 
 /** Operator-facing count for the UI. */
 export function getConsecutiveAuthFailures(): number {
-  return consecutiveAuthFailures;
+  return duressState.authFailures;
 }
 
 // ── The PKM §3 purge sequence ─────────────────────────────────────────
@@ -285,7 +292,7 @@ export async function duressPurgePat(opts: {
   const degraded: string[] = [];
 
   // No-re-entry guard (PKM SEQ_RUNNING).
-  if (purgeInProgress) {
+  if (duressState.purgeRunning) {
     return {
       outcome: "FAILED",
       keysPurged: { tier2: false, tier3: false, db: false },
@@ -297,7 +304,7 @@ export async function duressPurgePat(opts: {
       finishedAt: new Date().toISOString(),
     };
   }
-  purgeInProgress = true;
+  duressState.purgeRunning = true;
 
   try {
     // ── PHASE 1 — KEYS (MANDATORY) ────────────────────────────────
@@ -333,7 +340,7 @@ export async function duressPurgePat(opts: {
     // The runtime safe-mode cache + auth-failure counter. These are
     // in-process only; a process restart clears them. Non-fatal.
     try {
-      consecutiveAuthFailures = 0;
+      duressState.authFailures = 0;
     } catch (err) {
       degraded.push(`Phase 2 CACHE degraded: ${(err as Error).message.slice(0, 200)}`);
     }
@@ -412,7 +419,7 @@ export async function duressPurgePat(opts: {
       finishedAt: new Date().toISOString(),
     };
   } finally {
-    purgeInProgress = false;
+    duressState.purgeRunning = false;
   }
 }
 

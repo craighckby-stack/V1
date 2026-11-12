@@ -323,7 +323,11 @@ export class UnifiedPipelineRunner {
       type: "info",
     });
 
-    const astDiffResult = evaluateAstDiff(config.code, evolvedCode, config.filePath);
+    // The AST gate measures the LLM's diff — compare against the
+    // SANITIZED base (the refactor stage's actual input), not the raw
+    // original. (The old baseline attributed sanitizer redaction deltas
+    // — [REDACTED_*] injections — to the "LLM refactor".)
+    const astDiffResult = evaluateAstDiff(sanitizedBaseCode, evolvedCode, config.filePath);
     const dur3 = Math.round(performance.now() - t3);
 
     if (astDiffResult.passed) {
@@ -369,10 +373,14 @@ export class UnifiedPipelineRunner {
     const t4 = performance.now();
 
     // 0-diff short-circuit: if the evolution stage produced NO change
-    // (LLM unavailable or returned the original), there is nothing to
-    // review and nothing to commit. Convening a tribunal over identical
-    // code proves nothing — report HALTED honestly and stop here.
-    if (evolvedCode === config.code) {
+    // relative to its ACTUAL input (the sanitized base), there is nothing
+    // to review and nothing to commit. (The old check compared against
+    // the RAW config.code — when the sanitizer had redacted secrets from
+    // the base, a sanitizer-only rewrite masqueraded as an "evolution"
+    // and sailed through the gates to a commit.) Convening a tribunal
+    // over identical code proves nothing — report HALTED honestly and
+    // stop here.
+    if (evolvedCode === sanitizedBaseCode) {
       updateStage(
         "stage4_review",
         "skipped",
@@ -388,7 +396,7 @@ export class UnifiedPipelineRunner {
 
       let haltStateEarly: HaltEvaluationState | null = null;
       try {
-        haltStateEarly = this.governor.checkZeroDiffSaturation(config.code, evolvedCode);
+        haltStateEarly = this.governor.checkZeroDiffSaturation(sanitizedBaseCode, evolvedCode);
       } catch {
         haltStateEarly = null;
       }
@@ -653,7 +661,7 @@ export class UnifiedPipelineRunner {
       type: "info",
     });
 
-    const zeroDiffCheck = this.governor.checkZeroDiffSaturation(config.code, evolvedCode);
+    const zeroDiffCheck = this.governor.checkZeroDiffSaturation(sanitizedBaseCode, evolvedCode);
     let haltState = zeroDiffCheck;
 
     if (zeroDiffCheck) {
@@ -773,4 +781,16 @@ export class UnifiedPipelineRunner {
   }
 }
 
-export const unifiedPipelineRunnerInstance = new UnifiedPipelineRunner();
+// Pin the singleton on globalThis (same pattern as the Prisma client):
+// Turbopack gives each route its own module graph, and WITHOUT the pin
+// the remote loop, the manual /api/pipeline/run route, and /api/health
+// each got their OWN runner — three governors, three saturation banks,
+// and the health probe reporting a different governor than the loop's.
+// hot-swap clears this pin (GLOBAL_PINS) so a swap recreates the runner
+// with the new code.
+const runnerGlobal = globalThis as unknown as {
+  __unifiedPipelineRunner?: UnifiedPipelineRunner;
+};
+export const unifiedPipelineRunnerInstance: UnifiedPipelineRunner =
+  runnerGlobal.__unifiedPipelineRunner ??
+  (runnerGlobal.__unifiedPipelineRunner = new UnifiedPipelineRunner());

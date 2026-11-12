@@ -237,6 +237,13 @@ class AutonomousLoopRuntime {
   private recentCycles: AutonomousCycleSummary[] = [];
   private timer: NodeJS.Timeout | null = null;
   private continuousLoopRunning = false;
+  /** Generation token for the continuous while-loop. restartScheduler()
+   *  bumps it to invalidate any old loop still parked in an await — the
+   *  old code flipped continuousLoopRunning false→true synchronously, so
+   *  a mid-await old loop re-checked the flag AFTER the new spawn set it
+   *  true again and BOTH loops ran (duplicate cycles, doubled crash
+   *  budget, "another cycle already running" spam). */
+  private continuousLoopGeneration = 0;
   /** STOP-interrupt generation (external audit F2). stop() increments
    *  this; executeCycle() captures it at entry and re-checks per file
    *  and before every remote commit. Previously stop() only disabled
@@ -739,6 +746,28 @@ class AutonomousLoopRuntime {
     // arm/disarm must not silently desync from the persisted intent).
     if (typeof patch.enabled === "boolean") {
       markArmed(patch.enabled, "config-patch");
+      if (!patch.enabled && wasEnabled) {
+        // Disarm via config PATCH must actually tear down the machinery.
+        // (The old code only wrote the disk intent: the interval kept
+        // firing full cycles that still fetched, mutated, and PUSHED
+        // commits while every status surface reported "disarmed".)
+        this.config.enabled = false;
+        this.stopMachinery();
+        this.addLog(
+          "Loop DISARMED via config PATCH (enabled:false) — scheduler and continuous loop torn down.",
+          "warn"
+        );
+      } else if (patch.enabled && !wasEnabled) {
+        // Arm via config PATCH must actually arm the scheduler / spawn
+        // the continuous loop (the old code only wrote the disk intent —
+        // nothing ran until the next boot's auto-arm).
+        this.config.enabled = true;
+        this.restartScheduler();
+        this.addLog(
+          "Loop ARMED via config PATCH (enabled:true) — scheduler restarted.",
+          "success"
+        );
+      }
     }
     // If the target repo or evolution branch changed, clear the committed-
     // paths cache — those commits don't apply to the new target.
@@ -827,6 +856,14 @@ class AutonomousLoopRuntime {
     // Clear any stale recovery deadline — a re-arm starts a fresh cycle,
     // not a recovery window.
     this.recoveryDeadlineMs = 0;
+    // Kill any pending recovery probe — [START] is the explicit gesture,
+    // so a probe scheduled by an earlier pause must not fire later and
+    // spawn a SECOND scheduler alongside the one restartScheduler() arms
+    // below.
+    if (this.recoveryProbeTimer) {
+      clearTimeout(this.recoveryProbeTimer);
+      this.recoveryProbeTimer = null;
+    }
     this.status = "idle";
     this.addLog(
       `Autonomous loop ENABLED in ${this.config.mode.toUpperCase()} mode. First run scheduled in ${this.config.intervalMinutes} minute(s). Armed state persisted — it survives restarts.`,
@@ -853,25 +890,7 @@ class AutonomousLoopRuntime {
     // recovery. Same reasoning as start() — a re-arm starts a fresh
     // cycle, not a recovery window.
     this.recoveryDeadlineMs = 0;
-    this.status = "paused";
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
-    // External audit F2: bump the cycle generation so an executeCycle()
-    // currently in flight sees the STOP at its next per-file / pre-commit
-    // checkpoint and aborts — the scheduler clear above only stops FUTURE
-    // cycles, it cannot reach into a running one.
-    this.cycleGeneration++;
-    // Also kill any pending recovery probe. Without this, a stopped
-    // instance's probe could fire later and re-arm ITS scheduler — a
-    // zombie loop running in parallel with whichever instance the
-    // operator (or a hot-swap) actually started.
-    if (this.recoveryProbeTimer) {
-      clearTimeout(this.recoveryProbeTimer);
-      this.recoveryProbeTimer = null;
-    }
-    this.continuousLoopRunning = false;
+    this.stopMachinery();
     this.addLog(
       "Autonomous loop DISABLED. No further cycles will run until re-enabled. Armed state cleared — this stop is sticky across restarts.",
       "warn"
@@ -890,6 +909,11 @@ class AutonomousLoopRuntime {
       clearInterval(this.timer);
       this.timer = null;
     }
+    // Invalidate any continuous loop from a previous scheduling round.
+    // (The old code only flipped continuousLoopRunning false→true
+    // synchronously — a mid-await old loop re-checked the flag AFTER the
+    // new spawn set it true again, so BOTH loops ran.)
+    this.continuousLoopGeneration++;
     this.continuousLoopRunning = false;
     if (!this.config.enabled) {
       this.status = "paused";
@@ -930,14 +954,15 @@ class AutonomousLoopRuntime {
     }
 
     if (this.config.mode === "continuous") {
+      const myGen = this.continuousLoopGeneration;
       this.continuousLoopRunning = true;
-      this.runContinuousLoop().catch((err) => {
+      this.runContinuousLoop(myGen).catch((err) => {
         this.addLog(`Continuous loop crashed: ${(err as Error).message}`, "error");
       });
     }
   }
 
-  private async runContinuousLoop() {
+  private async runContinuousLoop(myGen: number) {
     // The continuous loop is the heart of "fully autonomous". It MUST
     // NOT die on a single cycle crash — a bug in one cycle (a thrown
     // error inside executeCycle's internals, an OOM in the LLM call,
@@ -945,6 +970,11 @@ class AutonomousLoopRuntime {
     // The cycle itself already catches its own errors, but a defensive
     // try/catch around the whole loop body guarantees a future refactor
     // can't accidentally make one uncaught throw kill the loop forever.
+    //
+    // GENERATION TOKEN: the while condition also requires the captured
+    // generation to match. restartScheduler() bumps the generation before
+    // spawning a successor, so an old loop parked in an await exits at
+    // its next checkpoint instead of resurrecting alongside the new one.
     //
     // DYNAMIC COOLDOWN: the base cooldown is 10s, but when the LLM is
     // rate-limited (429 gate active), the cooldown extends to avoid
@@ -974,6 +1004,7 @@ class AutonomousLoopRuntime {
     let wasThrottled = false;
     while (
       this.continuousLoopRunning &&
+      this.continuousLoopGeneration === myGen &&
       this.config.enabled &&
       this.config.mode === "continuous" &&
       !this.crashWall
@@ -1022,7 +1053,7 @@ class AutonomousLoopRuntime {
             "warn"
           );
           this.status = "paused";
-          this.continuousLoopRunning = false;
+          if (this.continuousLoopGeneration === myGen) this.continuousLoopRunning = false;
           this.scheduleRecoveryProbe();
           return;
         }
@@ -1063,7 +1094,7 @@ class AutonomousLoopRuntime {
             "error"
           );
           this.status = "paused";
-          this.continuousLoopRunning = false;
+          if (this.continuousLoopGeneration === myGen) this.continuousLoopRunning = false;
           if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
@@ -1108,6 +1139,39 @@ class AutonomousLoopRuntime {
       }
       await new Promise((r) => setTimeout(r, cooldownMs));
     }
+    // Only the CURRENT generation may clear the flag — a stale loop
+    // exiting here (after restartScheduler spawned its successor) must
+    // not kill the successor's flag.
+    if (this.continuousLoopGeneration === myGen) {
+      this.continuousLoopRunning = false;
+    }
+  }
+
+  /** Tear down all scheduling machinery: interval, continuous loop
+   *  (generation bump + flag), recovery probe, and the in-flight cycle
+   *  generation. Shared by stop() and config-PATCH disarm so both paths
+   *  cannot drift apart. Does NOT touch armed-state tiers or logs. */
+  private stopMachinery(): void {
+    this.status = "paused";
+    this.stats.nextRunAt = null;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    // External audit F2: bump the cycle generation so an executeCycle()
+    // currently in flight sees the STOP at its next per-file / pre-commit
+    // checkpoint and aborts — the scheduler clear above only stops FUTURE
+    // cycles, it cannot reach into a running one.
+    this.cycleGeneration++;
+    // Also kill any pending recovery probe. Without this, a stopped
+    // instance's probe could fire later and re-arm ITS scheduler — a
+    // zombie loop running in parallel with whichever instance the
+    // operator (or a hot-swap) actually started.
+    if (this.recoveryProbeTimer) {
+      clearTimeout(this.recoveryProbeTimer);
+      this.recoveryProbeTimer = null;
+    }
+    this.continuousLoopGeneration++;
     this.continuousLoopRunning = false;
   }
 
@@ -1240,6 +1304,13 @@ class AutonomousLoopRuntime {
 
     let cycleStatus: AutonomousCycleState["status"] = "completed";
     let cycleProofHash: string | null = null;
+    // The tree fingerprint is committed to stats ONLY when the cycle
+    // finishes non-error. (The old code wrote it immediately after the
+    // unchanged-check, BEFORE the per-file work — a mid-cycle crash then
+    // made every later watch cycle see "fingerprint unchanged" and skip,
+    // permanently swallowing the crashed cycle's files until the remote
+    // tree changed again.)
+    let completedFingerprint: string | null = null;
 
     try {
       // 1. Fetch repo tree (recursive)
@@ -1273,7 +1344,9 @@ class AutonomousLoopRuntime {
         // in-memory list kept both copies).
         return this.currentCycle!;
       }
-      this.stats.lastTreeFingerprint = fp;
+      // Capture for the completed path only — stats.lastTreeFingerprint
+      // is committed AFTER the per-file work succeeds (see below).
+      completedFingerprint = fp;
       this.addLog(`Tree fingerprint computed: ${fp} (${tree.length} entries)`, "info");
 
       // 2. Filter to REAL code files only. The LLM cannot meaningfully
@@ -1431,6 +1504,10 @@ class AutonomousLoopRuntime {
         if (myGen !== this.cycleGeneration) {
           this.addLog("STOP mid-cycle — aborting remaining files (in-flight cycle interrupted)", "warn");
           halted = true;
+          // Record the operator interrupt honestly — the cycle did NOT
+          // run to completion, so the DB row / recent-cycles must not say
+          // "completed".
+          cycleStatus = "halted";
           break;
         }
         try {
@@ -1526,6 +1603,8 @@ class AutonomousLoopRuntime {
             // it must still prevent THIS file's remote commit.
             if (myGen !== this.cycleGeneration) {
               this.addLog(`STOP mid-cycle — skipping GitHub commit for ${blob.path} (gates had passed, but the operator interrupted)`, "warn");
+              halted = true;
+              cycleStatus = "halted";
               continue;
             }
             const pushResult = await this.putFileWithToctouRetry({
@@ -1730,7 +1809,11 @@ class AutonomousLoopRuntime {
       this.currentCycle!.filesCommitted = committed;
       this.stats.totalFilesCommitted += committed;
       this.stats.lastRunTime = new Date().toISOString();
-      if (!halted) cycleStatus = "completed";
+      if (!halted) {
+        cycleStatus = "completed";
+        // Commit the fingerprint only on a cycle that ran to completion.
+        if (completedFingerprint) this.stats.lastTreeFingerprint = completedFingerprint;
+      }
     } catch (err) {
       this.addLog(`Cycle #${cycleNumber} aborted: ${(err as Error).message}`, "error");
       cycleStatus = "error";

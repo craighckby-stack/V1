@@ -11,6 +11,7 @@ import { BootSplash } from "@/components/pipeline/boot-splash";
 import { ApiUnlock } from "@/components/pipeline/api-unlock";
 import { GeminiPanel } from "@/components/pipeline/gemini-panel";
 import { NvidiaPanel } from "@/components/pipeline/nvidia-panel";
+import { useLoopSocket } from "@/hooks/use-loop-socket";
 
 interface LogEntry {
   timestamp: string;
@@ -221,6 +222,15 @@ function HeaderBtn(props: {
 }
 
 export default function Home() {
+  // ── REAL-TIME LOOP STATE (WebSocket) ───────────────────────────────
+  // Mounts the socket.io connection to the loop-ws mini-service
+  // (/ ?XTransformPort=3003 → Caddy → :3003). The hook pushes every
+  // `state` event into the shared store and flips wsConnected — the
+  // header's "ws live/ws idle" indicator reads it. (The hook existed
+  // but was never mounted: the header permanently showed "ws idle" and
+  // the dashboard silently ran on HTTP-poll fallback.)
+  useLoopSocket();
+
   const [status, setStatus] = useState<SelfEnhanceStatus | null>(null);
   const [pushTarget, setPushTarget] = useState<PushTargetInfo | null>(null);
   // Boot splash — true until the observer enters the Loop. Rendered from

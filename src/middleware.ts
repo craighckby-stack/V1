@@ -24,8 +24,13 @@ import { NextRequest, NextResponse } from "next/server";
  * Rate limiting (mutations only):
  *   - In-memory sliding window per client IP: max 60 requests / 60s → 429.
  *     IP comes from the first x-forwarded-for segment, fallback "local".
- *   - The IP map is capped at ~1000 entries (cleared when exceeded) so a
- *     spoofed-header flood cannot grow it without bound.
+ *   - The IP map is capped at ~1000 entries; when the cap is exceeded the
+ *     OLDEST entries are evicted (the old wholesale clear() reset every
+ *     IP's window — a spoofed-XFF flood rotating identities got a fresh
+ *     window each time and the limit never tripped).
+ *   - The limiter runs BEFORE the auth check so unauthenticated x-loop-key
+ *     guesses are counted too (the old order returned 401 before any
+ *     accounting — unlimited brute force on the API key).
  *
  * Runtime: Next 16 runs middleware on Node.js by default (dev + prod), so
  * process.env is the live server environment — no runtime config needed.
@@ -53,7 +58,33 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // ── 2. Auth gate ─────────────────────────────────────────────────────────
+  // ── 2. Rate limit FIRST: sliding window per client IP, authed or not ───
+  // (The old order ran auth before accounting, so 401 brute-force guesses
+  // were never counted and the API key could be guessed unthrottled.)
+  const ip =
+    (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "local";
+  const now = Date.now();
+  // Cap the tracked-IP map by evicting the OLDEST entries (Map preserves
+  // insertion order). The old wholesale clear() reset every IP's window
+  // when a spoofed-XFF flood rotated past the cap — the flood itself never
+  // got limited and legit clients lost their counts too.
+  while (hitsByIp.size > RATE_LIMIT_MAX_IPS) {
+    const oldestKey = hitsByIp.keys().next().value;
+    if (oldestKey === undefined) break;
+    hitsByIp.delete(oldestKey);
+  }
+
+  const windowStart = now - RATE_LIMIT_WINDOW_MS;
+  const recent = (hitsByIp.get(ip) ?? []).filter((t) => t > windowStart);
+  if (recent.length >= RATE_LIMIT_MAX) {
+    // Keep the trimmed window so the client stays blocked until it slides.
+    hitsByIp.set(ip, recent);
+    return NextResponse.json({ error: "rate limited" }, { status: 429 });
+  }
+  recent.push(now);
+  hitsByIp.set(ip, recent);
+
+  // ── 3. Auth gate ──────────────────────────────────────────────────────────
   // Read per-request so an env reload (next dev watches .env files) is
   // picked up without touching this module.
   const expectedKey = process.env.LOOP_API_KEY;
@@ -76,23 +107,6 @@ export function middleware(req: NextRequest) {
         "Set LOOP_API_KEY in .env to lock them down."
     );
   }
-
-  // ── 3. Rate limit: sliding window per client IP (mutations only) ────────
-  const ip =
-    (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "local";
-  const now = Date.now();
-  // Cap the tracked-IP map: clear wholesale when it outgrows the cap.
-  if (hitsByIp.size > RATE_LIMIT_MAX_IPS) hitsByIp.clear();
-
-  const windowStart = now - RATE_LIMIT_WINDOW_MS;
-  const recent = (hitsByIp.get(ip) ?? []).filter((t) => t > windowStart);
-  if (recent.length >= RATE_LIMIT_MAX) {
-    // Keep the trimmed window so the client stays blocked until it slides.
-    hitsByIp.set(ip, recent);
-    return NextResponse.json({ error: "rate limited" }, { status: 429 });
-  }
-  recent.push(now);
-  hitsByIp.set(ip, recent);
 
   return NextResponse.next();
 }

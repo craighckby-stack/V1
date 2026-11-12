@@ -40,6 +40,7 @@
 
 import { execSync, execFileSync } from "child_process";
 import { PROJECT_ROOT } from "../core/paths";
+import { getStoredTargetSync } from "./push-target";
 
 // (local helper type — the branch-picker summary row)
 type BranchCandidate = { name: string; number: number };
@@ -327,15 +328,31 @@ export function executeMergeBack(
     // 6. Optional push. Off by default — the operator pushes via the
     //    existing [PUSH] UI so the merge-back stays reversible until then.
     if (opts.push) {
+      // Auth injected per-push via GIT_CONFIG_* env vars (same scheme as
+      // push-target.pushCurrentState) — the OLD bare `git push origin
+      // main` had no credentials, so on the private configured remote it
+      // ALWAYS failed with "could not read Username" and push:true was
+      // effectively dead.
+      const stored = getStoredTargetSync();
+      const pushEnv = stored?.token
+        ? {
+            ...process.env,
+            GIT_CONFIG_COUNT: "1",
+            GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+            GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(
+              `x-access-token:${stored.token}`
+            ).toString("base64")}`,
+          }
+        : process.env;
       try {
         execSync("git push origin main", {
-          cwd: PROJECT_ROOT, timeout: 60000, stdio: "pipe",
+          cwd: PROJECT_ROOT, timeout: 60000, stdio: "pipe", env: pushEnv,
         });
         base.pushed = true;
       } catch (err) {
         return {
           ...base, ok: true,
-          error: `committed ${commitSha} but push failed: ${String((err as Error).message).slice(0, 200)}`,
+          error: `committed ${commitSha} but push failed: ${String((err as Error).message).slice(0, 200)}${stored?.token ? "" : " (no push target configured — configure it in the UI)"}`,
         };
       }
     }

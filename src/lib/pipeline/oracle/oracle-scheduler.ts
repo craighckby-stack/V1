@@ -50,7 +50,16 @@ interface SchedulerState {
   booted: boolean;
 }
 
-const g = globalThis as unknown as { __oracleScheduler?: SchedulerState };
+const g = globalThis as unknown as {
+  __oracleScheduler?: SchedulerState;
+  // Dedicated timer slot that survives the hot-swap pin clear — the
+  // boot guard below clears ANY previous process-wide timer from here,
+  // so a missed pauseLoop() can never leak a second timer. (The old
+  // design kept the interval handle inside the pinned state: clearPins()
+  // orphaned the old timer AND reset `booted`, so the next module
+  // re-import booted a second one — tick/DB-poll rate doubled per swap.)
+  __oracleSchedulerTimer?: ReturnType<typeof setInterval> | null;
+};
 
 function sched(): SchedulerState {
   if (!g.__oracleScheduler) {
@@ -138,7 +147,13 @@ function bootOracleScheduler(): void {
   const s = sched();
   if (s.booted) return;
   
-  // Clean up any existing timer before creating a new one
+  // Clean up ANY previous process-wide timer — first the dedicated slot
+  // (survives pin clears), then the state's own handle if it somehow
+  // still exists.
+  if (g.__oracleSchedulerTimer) {
+    clearInterval(g.__oracleSchedulerTimer);
+    g.__oracleSchedulerTimer = null;
+  }
   if (s.timer) {
     clearInterval(s.timer);
     s.timer = null;
@@ -163,6 +178,7 @@ function bootOracleScheduler(): void {
   // Never keep the process alive just for the scheduler.
   if (typeof timer.unref === "function") timer.unref();
   s.timer = timer;
+  g.__oracleSchedulerTimer = timer;
 
   emitOracleEvent(
     `Oracle scheduler booted — auto-evaluating due prophecies every ${Math.round(TICK_MS / 60000)} min`,

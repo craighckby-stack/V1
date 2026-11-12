@@ -114,8 +114,17 @@ export function nvidiaHealthSnapshot(): {
 // re-burning a request on a known-dead model id. Every 60s during
 // cooldown, a recovery probe is sent — if the operator swapped the
 // model id (and the new one works), the cooldown clears immediately.
-let MODEL_DEAD_UNTIL = 0;
-let LAST_PROBE_AT = 0;
+// Both slots live on globalThis (same rule as gemini-direct's shared
+// slot): module-local `let`s fragment across Turbopack route graphs, so
+// a dead-model cooldown discovered in one graph stayed unknown in the
+// rest and every graph re-burned a request on the dead model.
+const __nvidiaSharedSlot = globalThis as unknown as {
+  __nvidiaDirectShared?: { modelDeadUntil: number; lastProbeAt: number };
+};
+if (!__nvidiaSharedSlot.__nvidiaDirectShared) {
+  __nvidiaSharedSlot.__nvidiaDirectShared = { modelDeadUntil: 0, lastProbeAt: 0 };
+}
+const nvidiaShared = __nvidiaSharedSlot.__nvidiaDirectShared;
 const DEAD_COOLDOWN_MS = 10 * 60 * 1000; // 10 min
 const RECOVERY_PROBE_INTERVAL_MS = 60 * 1000; // 60s
 
@@ -258,7 +267,7 @@ async function callNvidiaOnce(
       // Arm the dead-model cooldown ONLY for model-not-found — the
       // failure mode that persists until the operator swaps the id.
       if (kind === "model-not-found") {
-        MODEL_DEAD_UNTIL = Date.now() + DEAD_COOLDOWN_MS;
+        nvidiaShared.modelDeadUntil = Date.now() + DEAD_COOLDOWN_MS;
       }
 
       // Friendly error: surface 410 distinctly so the operator knows
@@ -444,13 +453,13 @@ export async function nvidiaComplete(opts: {
   // the model id (and the new one works), the cooldown clears and the
   // real call proceeds immediately. Cuts average wasted cooldown from
   // 10min to ~60s when the model is swapped.
-  if (MODEL_DEAD_UNTIL > Date.now()) {
-    const dueForProbe = Date.now() - LAST_PROBE_AT > RECOVERY_PROBE_INTERVAL_MS;
+  if (nvidiaShared.modelDeadUntil > Date.now()) {
+    const dueForProbe = Date.now() - nvidiaShared.lastProbeAt > RECOVERY_PROBE_INTERVAL_MS;
     if (dueForProbe) {
-      LAST_PROBE_AT = Date.now();
+      nvidiaShared.lastProbeAt = Date.now();
       const probe = await probeNvidia(cfg, cfg.model);
       if (probe.ok) {
-        MODEL_DEAD_UNTIL = 0;
+        nvidiaShared.modelDeadUntil = 0;
       } else {
         return {
           ok: false,
@@ -463,7 +472,7 @@ export async function nvidiaComplete(opts: {
       }
     } else {
       const secondsUntilProbe = Math.round(
-        (RECOVERY_PROBE_INTERVAL_MS - (Date.now() - LAST_PROBE_AT)) / 1000,
+        (RECOVERY_PROBE_INTERVAL_MS - (Date.now() - nvidiaShared.lastProbeAt)) / 1000,
       );
       return {
         ok: false,
@@ -497,7 +506,9 @@ export async function nvidiaComplete(opts: {
   let totalAttemptsUsed = 0;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    totalAttemptsUsed = attempt;
+    // Accumulate honestly — the old `= attempt` reset the counter per
+    // model/loop so exhausted retries underreported the real attempt count.
+    totalAttemptsUsed++;
     const { result, transient, overload } = await callNvidiaOnce(cfg, opts, started, cfg.model);
     lastResult = result;
 
@@ -509,7 +520,7 @@ export async function nvidiaComplete(opts: {
           data: { nvidiaLastUsedAt: new Date(), nvidiaLastError: null },
         })
         .catch(() => {});
-      return { ...result, retries: attempt };
+      return { ...result, retries: totalAttemptsUsed - 1 };
     }
 
     // Permanent errors — return immediately (don't burn retries).
@@ -527,7 +538,7 @@ export async function nvidiaComplete(opts: {
         .catch(() => {});
       // Quota trips the breaker so the next call skips for 15s.
       if (overload) tripBreaker(cfg.model);
-      return { ...result, retries: attempt };
+      return { ...result, retries: totalAttemptsUsed - 1 };
     }
 
     // Transient (network / 502/503/504 / overloaded): retry if we
@@ -547,12 +558,12 @@ export async function nvidiaComplete(opts: {
         data: { nvidiaLastError: result.error?.slice(0, 200) ?? "NVIDIA error" },
       })
       .catch(() => {});
-    return { ...result, retries: attempt };
+    return { ...result, retries: totalAttemptsUsed - 1 };
   }
 
   // Should be unreachable (loop returns on every path above), but keep
   // the type system honest: a lastResult is always set after the loop.
-  return { ...(lastResult as NvidiaCallResult), retries: totalAttemptsUsed };
+  return { ...(lastResult as NvidiaCallResult), retries: totalAttemptsUsed - 1 };
 }
 
 /**
