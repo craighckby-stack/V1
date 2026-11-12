@@ -91,7 +91,6 @@ describe("detectConvergentMove", () => {
     expect(r.convergent).toBe(false);
     expect(r.reason).toMatch(/not guard-dominated/);
   });
-
   // ── Condition 4: behavioral signal escape hatch ──────────────────
 
   test("returns not-convergent when additions include a new export", () => {
@@ -264,7 +263,9 @@ describe("detectConvergentMove", () => {
   });
 
   test("finalAuthority EXEMPTS test files — tests legitimately add defensive guards as pins", () => {
-    // Same convergent-looking diff, but on a .test.ts file → must pass.
+    // Same convergent-looking diff, but on a .test.ts file in a NON-
+    // protected path → must pass. (A .test.ts file under core/ would
+    // still be rejected by the protected-path check, which runs first.)
     const original = [
       "function process(input) {",
       "  return input.map((x) => x.value);",
@@ -279,7 +280,7 @@ describe("detectConvergentMove", () => {
       "}",
     ].join("\n");
     const r = finalAuthority({
-      filePath: "src/lib/pipeline/core/widget.test.ts",
+      filePath: "src/lib/pipeline/autonomous/widget.test.ts",
       originalCode: original,
       evolvedCode: evolved,
     });

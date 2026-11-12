@@ -387,11 +387,10 @@ function computeLineDiff(
   const evolvedCounts = countLines(evolved);
   const added: string[] = [];
   const removed: string[] = [];
-  const allLines = new Set<string>([
-    ...origCounts.keys(),
-    ...evolvedCounts.keys(),
-  ]);
-  for (const line of allLines) {
+  const allLines = new Set<string>(
+    Array.from(origCounts.keys()).concat(Array.from(evolvedCounts.keys()))
+  );
+  for (const line of Array.from(allLines)) {
     const o = origCounts.get(line) ?? 0;
     const e = evolvedCounts.get(line) ?? 0;
     if (e > o) {
@@ -457,17 +456,45 @@ export function detectConvergentMove(
   // (3) Added lines ≥ 50% match the defensive-guard lexicon. A
   //     mutation that adds 5 lines of which 2 are guards and 3 are
   //     real logic is not convergent — it's a guarded feature.
+  //     SUBSTANTIVE-LINE FILTER: purely structural lines (`}`, `{`,
+  //     `} catch {`, `return null;`, `return;`, bare `else`) are the
+  //     syntactic scaffolding of a guard, not separate additions.
+  //     Counting them in the denominator dilutes the density below
+  //     the threshold for a legitimate try-catch wrap (e.g. `try {`
+  //     + `} catch {` + `if (err instanceof Error) ...` + `return
+  //     null;` + `}` = 5 added lines, 2 guard matches = 40% < 50%).
+  //     These scaffolding lines are excluded from BOTH the numerator
+  //     and the denominator — they neither help nor hurt the density.
+  const isStructuralOnly = (line: string): boolean => {
+    const s = line.trim();
+    if (s.length === 0) return true;
+    if (/^[{}();,]+$/.test(s)) return true; // bare braces / parens / semicolons
+    if (/^\}\s*catch\s*(?:\([^)]*\))?\s*\{?$/.test(s)) return true; // `} catch {`
+    if (/^\}\s*else\s*\{?$/.test(s)) return true; // `} else {`
+    if (/^else\s*\{?$/.test(s)) return true; // `else {`
+    if (/^return\s*(?:null|undefined)?\s*;?\s*$/.test(s)) return true; // `return;` / `return null;`
+    if (/^return\s+(?:null|undefined|''|""|0|false)\s*;?\s*$/i.test(s)) return true;
+    return false;
+  };
+  const substantiveAdded = added.filter((l) => !isStructuralOnly(l));
+  if (substantiveAdded.length < 2) {
+    return {
+      convergent: false,
+      reason: `too few substantive additions (${substantiveAdded.length} < 2)`,
+    };
+  }
   let guardMatches = 0;
-  for (const line of added) {
+  for (const line of substantiveAdded) {
     if (CONVERGENT_MOVE_LEXICON.some((re) => re.test(line))) {
       guardMatches++;
     }
   }
-  const guardDensity = added.length > 0 ? guardMatches / added.length : 0;
+  const guardDensity =
+    substantiveAdded.length > 0 ? guardMatches / substantiveAdded.length : 0;
   if (guardDensity < 0.5) {
     return {
       convergent: false,
-      reason: `additions not guard-dominated (${guardMatches}/${added.length} = ${(guardDensity * 100).toFixed(0)}% < 50%)`,
+      reason: `additions not guard-dominated (${guardMatches}/${substantiveAdded.length} substantive = ${(guardDensity * 100).toFixed(0)}% < 50%)`,
     };
   }
 
