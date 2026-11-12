@@ -62,6 +62,11 @@ export function PostmortemPanel() {
         setPostmortems(data.postmortems);
       } else {
         console.error("API response structure invalid: expected { postmortems: [...] }", data);
+        toast({
+          title: "Data Error",
+          description: "Invalid postmortem data received from server.",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error("Error refreshing postmortems:", error instanceof Error ? error.message : "Unknown error");
@@ -80,6 +85,14 @@ export function PostmortemPanel() {
       toast({
         title: "Validation Error",
         description: "Postmortem ID is missing or invalid, cannot dismiss.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!filePath || typeof filePath !== 'string' || filePath.length === 0) {
+      toast({
+        title: "Validation Error",
+        description: "File path is missing or invalid, cannot dismiss.",
         variant: "destructive",
       });
       return;
@@ -197,7 +210,13 @@ export function PostmortemPanel() {
                             attempt #{pm.attempts}
                           </span>
                           <span className="text-[10px] text-slate-500 font-mono ml-auto">
-                            {new Date(pm.lastAttemptAt).toLocaleString()}
+                            {(() => {
+                              try {
+                                return new Date(pm.lastAttemptAt).toLocaleString();
+                              } catch {
+                                return "Invalid date";
+                              }
+                            })()}
                           </span>
                         </div>
                         <div className="text-xs font-mono text-slate-200 mt-1 truncate" title={pm.filePath}>
