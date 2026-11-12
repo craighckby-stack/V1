@@ -21,12 +21,30 @@ export async function GET(req: Request) {
         { status: 400 }
       );
     }
+
+    // Prevent excessively long queries that could cause performance issues
+    if (q.length > 1000) {
+      return NextResponse.json(
+        { error: "Query too long. Maximum length is 1000 characters." },
+        { status: 400 }
+      );
+    }
     
     const result = await emgRagInstance.query(q);
 
     if (!result) {
       return NextResponse.json(
         { error: "RAG query returned no result." },
+        { status: 500 }
+      );
+    }
+
+    // Add null checks for result properties before destructuring
+    if (!result.topFixes || !result.topFailures || 
+        typeof result.cognitiveFrictionScore === 'undefined' || 
+        typeof result.epistemicRuling === 'undefined') {
+      return NextResponse.json(
+        { error: "RAG query returned malformed result data." },
         { status: 500 }
       );
     }
@@ -60,6 +78,13 @@ export async function GET(req: Request) {
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during memory query.";
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    // Add more context to the error message
+    return NextResponse.json(
+      { 
+        error: `Memory query failed: ${errorMessage}`,
+        operation: "ensureSeeded or query"
+      }, 
+      { status: 500 }
+    );
   }
 }
