@@ -130,7 +130,8 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy): Promise<bo
   if (!filePath) return false; // not a self-prophecy — not actionable
   const line = hashProphecyIdToLine(prophecy.id);
   const evidence = buildEvidence(prophecy);
-  const priority = TASK_KINDS[ORACLE_FAILED_PROPHECY_KIND]?.priority ?? 7;
+  const taskKind = TASK_KINDS[ORACLE_FAILED_PROPHECY_KIND];
+  const priority = taskKind?.priority ?? 7;
 
   try {
     await db.selfTask.upsert({
