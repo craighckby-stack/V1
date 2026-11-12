@@ -213,7 +213,9 @@ export async function adjudicateSelfProphecies(
       // evaluator handle them as deadline-failed).
       let meta: { selfProphecy?: boolean; filePath?: string; cycleNumber?: number; mode?: string } = {};
       try {
-        meta = p.historySnapshot ? JSON.parse(p.historySnapshot) : {};
+        if (p.historySnapshot) {
+          meta = JSON.parse(p.historySnapshot);
+        }
       } catch {
         continue;
       }
