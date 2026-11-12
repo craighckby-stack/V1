@@ -123,9 +123,6 @@ export function readOracleEvents(afterSeq?: number): {
   s.lastReadAt = Date.now();
   
   if (typeof afterSeq === "number") {
-    if (afterSeq == null) {
-      throw new Error("afterSeq cannot be null or undefined");
-    }
     if (!Number.isInteger(afterSeq) || afterSeq < 0) {
       throw new Error(`Invalid afterSeq provided: ${afterSeq}. afterSeq must be a non-negative integer.`);
     }
@@ -145,8 +142,8 @@ export function readOracleEvents(afterSeq?: number): {
     // Get the events from startIndex to the end
     const events = s.buffer.slice(startIndex);
     
-    // Truncate the buffer to remove events that have been read
-    s.buffer = s.buffer.slice(startIndex);
+    // Don't truncate the buffer - events should remain available for future reads
+    // with different sequence numbers
     
     return { 
       events, 
