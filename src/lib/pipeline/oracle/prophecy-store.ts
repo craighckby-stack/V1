@@ -208,7 +208,13 @@ export async function getProphecyCounts(): Promise<{
     });
     
     // Initialize all counts to 0
-    const counts = {
+    const counts: {
+      pending: number;
+      fulfilled: number;
+      failed: number;
+      retired: number;
+      total: number;
+    } = {
       pending: 0,
       fulfilled: 0,
       failed: 0,
