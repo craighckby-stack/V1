@@ -24,9 +24,13 @@ export async function GET() {
       );
     }
 
-    const sources: CatalogEntry[] = SIPHON_SOURCES.map((source) => {
-      if (!source || !source.patterns) {
-        throw new Error("Invalid siphon source: missing required 'patterns' property");
+    const sources: CatalogEntry[] = SIPHON_SOURCES.map((source, index) => {
+      if (!source) {
+        throw new Error(`Invalid siphon source at index ${index}: source is null or undefined`);
+      }
+      
+      if (!source.patterns || !Array.isArray(source.patterns)) {
+        throw new Error(`Invalid siphon source at index ${index}: missing or invalid 'patterns' property`);
       }
       
       return {
