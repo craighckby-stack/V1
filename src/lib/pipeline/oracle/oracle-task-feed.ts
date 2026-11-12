@@ -111,9 +111,9 @@ function buildEvidence(prophecy: Prophecy): string {
   return (
     `Oracle self-prophecy FAILED by deadline. ` +
     `Claim: "${prophecy.claim}". ` +
-    `Confidence when made: ${prophecy.confidence.toFixed(2)}. ` +
-    `Made at ${prophecy.createdAt.toISOString()}, deadline ${prophecy.evaluateBy.toISOString()}. ` +
-    `Criterion: ${prophecy.falsifiabilityCriterion}`
+    `Confidence when made: ${prophecy.confidence?.toFixed(2) ?? "N/A"}. ` +
+    `Made at ${prophecy.createdAt?.toISOString() ?? "N/A"}, deadline ${prophecy.evaluateBy?.toISOString() ?? "N/A"}. ` +
+    `Criterion: ${prophecy.falsifiabilityCriterion ?? "N/A"}`
   );
 }
 
