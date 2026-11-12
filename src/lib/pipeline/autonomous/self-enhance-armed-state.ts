@@ -102,24 +102,23 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
   try {
     if (!existsSync(ARMED_STATE_FILE)) return null;
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
-    const parsed: any = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
 
+    // Validate the parsed object structure strictly
     if (
       parsed &&
       typeof parsed === "object" &&
+      'armed' in parsed &&
+      'at' in parsed &&
+      'by' in parsed &&
       typeof parsed.armed === "boolean" &&
       typeof parsed.at === "string" &&
       typeof parsed.by === "string" &&
       parsed.by.trim() !== "" &&
       !isNaN(Date.parse(parsed.at))
     ) {
-      // Strict check against interface structure
-      if (
-        Object.keys(parsed).length === 3 &&
-        'armed' in parsed &&
-        'at' in parsed &&
-        'by' in parsed
-      ) {
+      // Ensure no extra properties exist
+      if (Object.keys(parsed).length === 3) {
         return {
           armed: parsed.armed,
           at: parsed.at,
