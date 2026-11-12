@@ -32,6 +32,10 @@ export async function workerFetch<T = unknown>(
   pathname: string,
   init?: RequestInit & { timeoutMs?: number }
 ): Promise<WorkerResult<T> | null> {
+  if (!pathname) {
+    console.error("workerFetch called with empty pathname.");
+    return null;
+  }
   const timeoutMs = init?.timeoutMs ?? 5000;
   try {
     const res = await fetch(`${WORKER_URL}${pathname}`, {
@@ -42,7 +46,13 @@ export async function workerFetch<T = unknown>(
     });
     const data = (await res.json().catch(() => null)) as T | null;
     return { ok: res.ok, status: res.status, data };
-  } catch {
+  } catch (error) {
+    // Catch specific network/timeout errors, but still return null as per contract
+    if (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+        // Timeout/Abort handled gracefully, return null
+    } else {
+        console.error(`Error fetching ${WORKER_URL}${pathname}:`, error);
+    }
     return null;
   }
 }
@@ -53,7 +63,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   // Fast path: healthy (single ~ms localhost probe).
   try {
     const probe = await fetch(`${WORKER_URL}/health`, {
-      signal: AbortSignal.timeout(1200),
+      signal: AbortSignal.timeout(1000), // Reduced timeout for faster failure detection
     });
     if (probe.ok) return true;
   } catch {
@@ -79,7 +89,8 @@ export async function ensureWorkerRunning(): Promise<boolean> {
       }
     );
     child.unref();
-  } catch {
+  } catch (error) {
+    console.error("Failed to spawn loop worker:", error);
     return false;
   }
 

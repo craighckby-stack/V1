@@ -1,30 +1,47 @@
 import { NextResponse } from "next/server";
-import { liveSelfEnhanceLoop } from "@/lib/pipeline/autonomous/self-enhance-loop";
+import { workerFetch, ensureWorkerRunning } from "@/lib/pipeline/autonomous/loop-worker-client";
 import { markSelfEnhanceArmed } from "@/lib/pipeline/autonomous/self-enhance-armed-state";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST() {
-  // Guard against double-start: if the continuous loop is already active,
-  // report it honestly instead of spinning up a second while-loop.
-  if (liveSelfEnhanceLoop().isContinuous()) {
-    return NextResponse.json({
-      started: true,
-      alreadyRunning: true,
-      message: "Continuous self-enhancement already running",
-    });
-  }
-  // Persist the armed intent to the wipe-proof tier — this is what makes
-  // [START] a ONE-TIME ritual: every subsequent process boot re-arms
-  // from disk (see the constructor's boot auto-start). Best-effort, never
-  // throws (in-memory remains the live source; disk is the restart tier).
+  // Persist the armed intent FIRST (server-owned tier, unchanged semantics):
+  // this is what makes [START] a ONE-TIME ritual — every subsequent process
+  // boot re-arms from disk. Best-effort, never throws.
   markSelfEnhanceArmed(true, "operator-start");
-  liveSelfEnhanceLoop().runContinuous().catch((err) => {
-    console.error("[SELF-ENHANCE] continuous loop crashed:", err);
-  });
+
+  // The runtime lives in the worker. Self-heal it if it's down (a stopped
+  // worker respawned here honors the armed:true we just persisted).
+  const alive = await ensureWorkerRunning();
+  if (!alive) {
+    return NextResponse.json(
+      {
+        started: false,
+        error:
+          "Loop worker unreachable — armed state persisted; the loop will auto-start when the worker comes up.",
+      },
+      { status: 503 }
+    );
+  }
+
+  const r = await workerFetch<{ started: boolean; alreadyRunning?: boolean }>(
+    "/start",
+    { method: "POST", timeoutMs: 10000 }
+  );
+  if (!r?.ok || !r.data?.started) {
+    return NextResponse.json(
+      { started: false, error: "Worker did not accept the start command." },
+      { status: 502 }
+    );
+  }
+
+  // Preserve the exact response the UI has always rendered.
   return NextResponse.json({
     started: true,
-    message: "Continuous self-enhancement started (armed state persisted — survives restarts)",
+    alreadyRunning: r.data.alreadyRunning === true,
+    message: r.data.alreadyRunning
+      ? "Continuous self-enhancement already running"
+      : "Continuous self-enhancement started (armed state persisted — survives restarts)",
   });
 }

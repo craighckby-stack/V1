@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { liveSelfEnhanceLoop } from "@/lib/pipeline/autonomous/self-enhance-loop";
+import { workerFetch, ensureWorkerRunning } from "@/lib/pipeline/autonomous/loop-worker-client";
 import { markSelfEnhanceArmed } from "@/lib/pipeline/autonomous/self-enhance-armed-state";
 
 export const dynamic = "force-dynamic";
@@ -14,23 +14,18 @@ export const runtime = "nodejs";
  * or self-exited after a pass, and a fresh provider quota is the reason to
  * bring it back to life immediately instead of waiting for a manual [START].
  *
- * Semantics:
- *   1. stop() — bumps the run token (any in-flight cycle bails at its next
- *      checkpoint) and sets continuous=false. Harmless when the loop is
- *      already stopped (just bumps a token no one holds + one warn log).
+ * Semantics (unchanged by the worker split — the runtime just moved):
+ *   1. worker stop() — bumps the run token (any in-flight cycle bails at
+ *      its next checkpoint) and sets continuous=false. Harmless when the
+ *      loop is already stopped.
  *   2. markSelfEnhanceArmed(true, "reboot-on-config") — persists the armed
  *      intent to the wipe-proof tier (.git/info/loop-self-enhance-armed.json)
- *      so the loop ALSO auto-starts on every subsequent process boot. The
- *      operator's reboot-on-config gesture is treated as a re-arm: if the
- *      dev server later recycles, the loop comes back on its own — that's
- *      the "automate this with system start" contract.
- *   3. runContinuous() — sets continuous=true, captures the new run token,
- *      and starts a fresh while-loop. The runCycle re-entry guard
- *      (`if (this.running) return`) means the new loop's first cycle no-ops
- *      if a stale cycle is still mid-flight, then takes over cleanly once
- *      the old one releases `running` in its `finally` block. No two loops
- *      ever run concurrently (the generation token guarantees it — see
- *      self-enhance-loop.ts runContinuous audit 2).
+ *      so the loop ALSO auto-starts on every subsequent worker boot. The
+ *      operator's reboot-on-config gesture is treated as a re-arm.
+ *   3. worker runContinuous() — sets continuous=true, captures the new run
+ *      token, and starts a fresh while-loop in the worker process. The
+ *      runCycle re-entry guard means the new loop's first cycle no-ops if a
+ *      stale cycle is still mid-flight, then takes over cleanly.
  *
  * This route deliberately does NOT touch the autonomous scheduler
  * (autonomousLoopRuntime). That loop has its own operator-gated armed state
@@ -44,35 +39,28 @@ export const runtime = "nodejs";
  */
 export async function POST() {
   try {
-    const loop = liveSelfEnhanceLoop();
-    const wasRunning = loop.isContinuous();
-
-    // 1. Stop: bump the run token so any in-flight cycle bails; set
-    //    continuous=false so the outer while-loop exits.
-    if (wasRunning) {
-      loop.stop();
-    }
-
-    // 2. Persist armed:true so the loop also auto-starts on every
-    //    subsequent process boot (the "automate with system start" tier).
-    //    Best-effort, never throws.
+    // 2 first (armed is server-owned): persist before touching the runtime
+    // so even a worker crash mid-reboot leaves the re-arm persisted.
     markSelfEnhanceArmed(true, "reboot-on-config");
 
-    // 3. Start fresh. Fire-and-forget the async while-loop — the HTTP
-    //    response returns immediately with the running state.
-    loop.runContinuous().catch((err) => {
-      console.error("[REBOOT] self-enhance loop crashed on restart:", err);
-    });
+    const alive = await ensureWorkerRunning();
+    if (!alive) {
+      return NextResponse.json(
+        { rebooted: false, error: "Loop worker unreachable — armed state persisted; the loop will auto-start when the worker comes up." },
+        { status: 503 }
+      );
+    }
 
-    return NextResponse.json({
-      rebooted: true,
-      running: true,
-      wasRunning,
-      armed: true,
-      message: wasRunning
-        ? "Self-enhancement loop rebooted — in-flight cycle aborted, fresh loop started with the new provider chain. Armed state persisted — it auto-starts on the next system boot too."
-        : "Self-enhancement loop started — running with the new provider chain. Armed state persisted — it auto-starts on the next system boot too.",
-    });
+    // 1 + 3 execute in the worker (stop-if-running → fresh runContinuous);
+    // the worker returns the exact response shape this route always sent.
+    const r = await workerFetch("/reboot", { method: "POST", timeoutMs: 15000 });
+    if (!r?.ok || !r.data) {
+      return NextResponse.json(
+        { rebooted: false, error: "Worker did not complete the reboot." },
+        { status: 502 }
+      );
+    }
+    return NextResponse.json(r.data);
   } catch (err) {
     return NextResponse.json(
       { rebooted: false, error: (err as Error).message },

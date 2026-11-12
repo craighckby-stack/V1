@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { liveSelfEnhanceLoop } from "@/lib/pipeline/autonomous/self-enhance-loop";
+import { workerFetch, ensureWorkerRunning } from "@/lib/pipeline/autonomous/loop-worker-client";
 import { assertRouteCooldown } from "@/lib/pipeline/autonomous/route-cooldown";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,10 @@ export const runtime = "nodejs";
  * window is intentionally short (5s): long enough to absorb an
  * accidental double-click, short enough that a deliberate re-trigger
  * after a real failure isn't blocked.
+ *
+ * The cooldown stays HERE (the edge) — the cycle itself runs in the
+ * worker, and a runCycle call legitimately takes minutes (LLM + gate
+ * chain + sandbox tests), so the proxy timeout is generous.
  */
 const COOLDOWN_MS = 5_000;
 
@@ -26,6 +30,19 @@ export async function POST() {
       { status: 429, headers: { "Retry-After": String(cd.retryAfterMs), "X-RateLimit-Protection": "enabled" } }
     );
   }
-  const result = await liveSelfEnhanceLoop().runCycle();
-  return NextResponse.json(result);
+  const alive = await ensureWorkerRunning();
+  if (!alive) {
+    return NextResponse.json(
+      { error: "Loop worker unreachable — cycle not fired." },
+      { status: 503 }
+    );
+  }
+  const r = await workerFetch("/trigger", { method: "POST", timeoutMs: 900_000 });
+  if (!r || r.data === null) {
+    return NextResponse.json(
+      { error: "Worker unreachable mid-cycle — the cycle may still be running in the worker; check status." },
+      { status: 502 }
+    );
+  }
+  return NextResponse.json(r.data, { status: r.ok ? 200 : r.status });
 }
