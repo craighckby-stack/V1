@@ -48,29 +48,46 @@ export async function GET() {
 export async function POST(req: Request) {
   let force = false;
   try {
+    // Check if request exists and has json method
     if (!req || typeof req.json !== 'function') {
         throw new Error("Invalid Request object provided to POST handler.");
     }
+    
     const body = await req.json();
     
-    // Validate body is an object when force is specified
+    // Validate body is an object
     if (typeof body !== 'object' || body === null) {
       throw new Error("Request body must be an object");
     }
     
-    if ('force' in body && typeof body.force === 'boolean') {
-      force = body.force;
-    } else if ('force' in body) {
-      throw new Error("Force parameter must be a boolean");
+    // Validate force parameter if present
+    if ('force' in body) {
+      if (typeof body.force === 'boolean') {
+        force = body.force;
+      } else {
+        throw new Error("Force parameter must be a boolean");
+      }
     }
   } catch (e) {
-    if (e instanceof Error && e.message.includes("Invalid Request object")) {
-        // Re-throw specific validation error
-        throw e;
+    // Handle JSON parsing errors specifically
+    if (e instanceof Error && e.message.includes("Failed to parse request body")) {
+      return NextResponse.json(
+        { error: `Invalid JSON in request body: ${e.message}` },
+        { status: 400 }
+      );
     }
-    // For other validation errors, return a proper error response
+    
+    // Handle other validation errors
+    if (e instanceof Error) {
+      return NextResponse.json(
+        { error: `Invalid request body: ${e.message}` },
+        { status: 400 }
+      );
+    }
+    
+    // Fallback for unknown error types
     return NextResponse.json(
-      { error: `Invalid request body: ${e instanceof Error ? e.message : 'Unknown error'}` },
+      { error: "Invalid request body" },
       { status: 400 }
     );
   }
@@ -95,6 +112,15 @@ export async function POST(req: Request) {
     return NextResponse.json(summary);
   } catch (err) {
     const errorMessage = (err as Error)?.message || "An unknown error occurred while fetching self-model summary after POST operation.";
-    return NextResponse.json({ error: `Failed to retrieve self-model summary after POST operation: ${errorMessage}` }, { status: 500 });
+    return NextResponse.json(
+      { 
+        files: [], 
+        calibration: { buckets: [], resolvedPredictions: 0, pendingPredictions: 0, brierScore: null, reliability: null, verdict: "error" }, 
+        modeStats: { refactor: { attempts: 0, passes: 0 }, visualPolish: { attempts: 0, passes: 0 } }, 
+        totals: { attempts: 0, passes: 0, fails: 0, zeroDiffs: 0 }, 
+        error: `Failed to retrieve self-model summary after POST operation: ${errorMessage}` 
+      },
+      { status: 500 }
+    );
   }
 }
