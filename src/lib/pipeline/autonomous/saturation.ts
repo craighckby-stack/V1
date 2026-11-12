@@ -42,21 +42,41 @@ export const TARGET_FILES: string[] = [];
  *  floor underneath is PROTECTED_FILES + PROTECTED_PREFIXES in
  *  protected-files.ts — nothing there is scannable no matter what.
  *
- *  The scope grew in three steps:
- *    v1: pipeline logic only (src/lib/pipeline)
- *    v2: + the display layer (src/app/display)
- *    v3: + UI components (src/components), API routes (src/app/api,
- *        minus the self-enhance control subtree), and the Prisma
- *        schema (additive-only, gated by schema-gate.ts)
+ *  v4 (operator-directed, 2026-11-12): ROLLED BACK `src/components`.
+ *  The v3 expansion added `src/components` (94 files: 69 vendored
+ *  shadcn primitives in `src/components/ui/` + 25 LOOP display
+ *  components in `src/components/pipeline/`). An audit of the first
+ *  10 hours of autonomous commits showed 88% of mutations on these
+ *  files were convergent defensive no-ops ("Added input validation
+ *  for `<prop>` to ensure it is one of the expected values" on stable
+ *  shadcn primitives — the lowest-friction LLM move that passes every
+ *  gate without changing observable behavior). The `src/components/ui`
+ *  subtree is vendored third-party code the loop has no business
+ *  polishing. `src/components/pipeline` produces more substantive
+ *  diffs but is still display-layer churn, not LOOP's actual work.
+ *  The operator's directive: the loop targets `src/lib/pipeline/`
+ *  (the logic) and `src/app/` (the routes + display + page surface),
+ *  which is where code that does LOOP's work lives. `src/app/` is a
+ *  single merged scope (was `src/app/display` + `src/app/api` as
+ *  separate entries); protected subtrees under `src/app/api/` are
+ *  still filtered by PROTECTED_PREFIXES, so the merge changes
+ *  nothing about what's protected — it just stops the loop from
+ *  spending LLM quota on vendored components.
+ *
+ *  The convergent-move guard (mutation-guard.ts detectConvergentMove,
+ *  commit 9584575) is the defense against the SAME pattern recurring
+ *  in the remaining scopes — if the loop starts producing defensive
+ *  no-ops on `src/lib/pipeline` files, the guard rejects them before
+ *  the debate LLM call. This scope change removes the temptation at
+ *  the source.
  *
  *  Everything the system IS now lives inside its own reach: the loop
- *  can enhance the components that render it, the routes that serve
- *  it, and (additively) the database that remembers for it. */
+ *  can enhance the routes that serve it, the display that renders it,
+ *  and the pipeline logic that drives it. It can no longer touch
+ *  vendored components. */
 export const SCAN_SCOPES: Array<{ dir: string; extensions: string[] }> = [
   { dir: "src/lib/pipeline", extensions: [".ts"] },
-  { dir: "src/app/display", extensions: [".tsx"] },
-  { dir: "src/components", extensions: [".tsx"] },
-  { dir: "src/app/api", extensions: [".ts"] },
+  { dir: "src/app", extensions: [".ts", ".tsx"] },
 ];
 
 /** The Prisma schema — handled as a special single-file scope. Not a
