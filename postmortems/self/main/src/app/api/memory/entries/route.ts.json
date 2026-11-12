@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/memory/entries/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "Test gate failed: test failed (sandboxed): src/app/api/memory/entries/route.test.ts — \nsrc/app/api/memory/entries/route.test.ts:\n(pass) memory entries route > exports dynamic as 'force-dynamic' [0.05ms]\n(pass) memory entries route > exports runtime as 'nodejs' [0.01ms]\n15 |     // The ",
@@ -12,8 +12,8 @@
   "parentHash": "c28001098d363c46fdbed80f26fe6b2c04cafb73bb8f941ca42f8085697444f9",
   "hash": "9b14118024e0113ef1d463de40fc2645240d6d13388ca87448bd4d77bf0d57ef",
   "lastAttemptAt": "2026-11-12T13:15:02.414Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-12T16:16:00.837Z",
   "createdAt": "2026-11-12T12:45:40.376Z",
-  "updatedAt": "2026-11-12T13:15:02.414Z",
+  "updatedAt": "2026-11-12T16:16:00.837Z",
   "schema": 2
 }
