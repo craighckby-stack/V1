@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/engines/catalog/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/api/engines/catalog/route.ts(29,42): error TS2339: Property 'name' does not exist on type 'SiphonSource'.",
@@ -12,8 +12,8 @@
   "parentHash": "f3b8ce262ae264344f696cb2a87db4410958c45fe1f7acd65f0cafd54ceb889e",
   "hash": "c28001098d363c46fdbed80f26fe6b2c04cafb73bb8f941ca42f8085697444f9",
   "lastAttemptAt": "2026-11-12T03:23:55.544Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-12T04:11:01.040Z",
   "createdAt": "2026-11-12T02:40:11.361Z",
-  "updatedAt": "2026-11-12T03:23:55.544Z",
+  "updatedAt": "2026-11-12T04:11:01.040Z",
   "schema": 2
 }
