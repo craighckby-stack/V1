@@ -59,8 +59,7 @@ import { TASK_KINDS } from "../autonomous/self-task-generator";
  *  priority task kind is exhausted. This is deliberate: a failed
  *  prophecy is a soft signal, not an emergency. The file wasn't
  *  enhanced; the system's self-model was wrong. Investigating that
- *  matters, but it matters LESS than fixing a real TODO or an empty
- *  catch that the static scanner found. */
+ *  matters. */
 export const ORACLE_FAILED_PROPHECY_KIND = "oracle-failed-prophecy";
 
 /** Hash a prophecy ID (cuid string) to a stable positive 32-bit
