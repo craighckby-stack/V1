@@ -151,32 +151,32 @@ export const PROTECTED_PREFIXES = [
   // The loop's scan scope previously included ALL of src/app/api — a
   // "reasonable cleanup" of these routes could neuter the operator's
   // red-team trigger, forge/clear the scar memory, rewrite the PAT-using
-  // GitHub proxy, or weaken the pipeline/secret-scan/emg/evolution
-  // entry points. Prefix protection prevents EDITING gate modules, but
-  // these ROUTES import and invoke them with route-controlled arguments
-  // — they are part of the defense surface and get the same rule.
+  // GitHub proxy, or weaken the pipeline/secret-scan entry points.
+  // Prefix protection prevents EDITING gate modules, but these ROUTES
+  // import and invoke them with route-controlled arguments — they are
+  // part of the defense surface and get the same rule. (The api/evolution/
+  // and api/emg/ subtrees were removed as dead HTTP wrappers in the
+  // endpoint cleanup — their logic lives in the protected lib subtrees,
+  // emg/ and llm/, which carry the prefix protection instead.)
   "src/app/api/red-team/", // the operator's integrity-probe trigger
-  "src/app/api/postmortems/", // the scar-memory read/seed/chain API
+  "src/app/api/postmortems/", // the scar-memory read/chain API
   "src/app/api/pipeline/", // the remote-repo pipeline entry
-  "src/app/api/github/", // PAT-using GitHub proxy (commit/fetch)
+  "src/app/api/github/", // PAT-using GitHub read proxy (tree/fetch/validate)
   "src/app/api/oracle/", // archaeology uses the stored PAT
   "src/app/api/secret-scan/", // the scanner's own API
-  "src/app/api/evolution/", // the debate/coherence gate API
-  "src/app/api/emg/", // the sanitizer's own API
-  // ── Audit 6: api/memory/ and api/engines/ UNPROTECTED ────────────
+  // ── Audit 6: api/memory/ UNPROTECTED (query route since deleted) ──
   // The user flagged "still not touching the api files" — 60 of 61 API
-  // routes were protected. These two subtrees are pure data/utility:
-  //   - api/memory/ — RAG memory read/query (no auth, no PAT, no gate)
-  //   - api/engines/ — engine catalog (read-only listing)
+  // routes were protected. The memory subtree is pure data/utility:
+  //   - api/memory/entries — RAG memory read (no auth, no PAT, no gate)
+  //   (api/memory/query was deleted as unused in the endpoint cleanup.)
   // The loop can now add JSDoc, input validation, and error handling to
-  // these routes. The existing gates (mutation-guard, structural-
-  // validator, secret-scan, typecheck) enforce symbol preservation and
-  // block evil tokens — the same safety net as any other mutable file.
-  // The control-surface (self-enhance/autonomous/hot-swap/duress) and
-  // security-gate (red-team/postmortems/secret-scan/emg/evolution) and
-  // PAT-using (github/oracle/branches/pipeline) APIs STAY PROTECTED.
+  // it. The existing gates (mutation-guard, structural-validator,
+  // secret-scan, typecheck) enforce symbol preservation and block evil
+  // tokens — the same safety net as any other mutable file. The
+  // control-surface (self-enhance/autonomous/hot-swap/duress) and
+  // security-gate (red-team/postmortems/secret-scan) and PAT-using
+  // (github/oracle/branches/pipeline) APIs STAY PROTECTED.
   "src/app/api/branches", // stored-PAT branch listing
-  "src/app/api/route.ts", // the API index (recon/docs surface)
   // ── Audit 3 (F7): the proposal ENGINE itself ──────────────────────
   // clean-room-runtime is the LLM engine that generates proposals on the
   // remote path — imported by the (protected) unified-pipeline. The

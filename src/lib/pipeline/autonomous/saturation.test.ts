@@ -63,8 +63,6 @@ describe("SCAN_SCOPES (v4 operator-directed rollback)", () => {
       "src/app/api/github/route.ts",
       "src/app/api/oracle/route.ts",
       "src/app/api/secret-scan/route.ts",
-      "src/app/api/evolution/route.ts",
-      "src/app/api/emg/route.ts",
       "src/app/api/branches/route.ts",
     ];
     for (const p of protectedAppPaths) {
@@ -72,13 +70,15 @@ describe("SCAN_SCOPES (v4 operator-directed rollback)", () => {
     }
   });
 
-  test("non-protected src/app paths ARE scannable (display, memory, engines, self-model)", () => {
+  test("non-protected src/app paths ARE scannable (display, memory, boot, self-model)", () => {
     // The merge preserves the previously-scannable non-protected subtrees.
+    // (api/memory/query and api/engines/catalog were deleted as unused
+    // routes in the endpoint cleanup — api/emg and api/evolution went
+    // with them, and their PROTECTED_PREFIXES entries went too.)
     const scannableAppPaths = [
       "src/app/display/console-stream.tsx",
       "src/app/api/memory/entries/route.ts",
-      "src/app/api/memory/query/route.ts",
-      "src/app/api/engines/catalog/route.ts",
+      "src/app/api/boot/scan/route.ts",
       "src/app/api/self-model/route.ts",
     ];
     for (const p of scannableAppPaths) {

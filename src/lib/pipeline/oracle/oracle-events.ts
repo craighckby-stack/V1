@@ -136,8 +136,8 @@ export function readOracleEvents(afterSeq?: number): {
     const eventsToRetrieve = currentSeq - afterSeq;
     
     // The index of the first event we want is buffer.length - eventsToRetrieve.
-    // We must ensure this index is not negative.
-    const startIndex = Math.max(0, s.buffer.length - eventsToRetrieve);
+    // We must ensure this index is not negative and that eventsToRetrieve is not negative.
+    const startIndex = Math.max(0, s.buffer.length - Math.max(0, eventsToRetrieve));
     
     // Get the events from startIndex to the end
     const events = s.buffer.slice(startIndex);
