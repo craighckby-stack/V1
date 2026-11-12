@@ -151,6 +151,22 @@ export async function recordSelfProphecy(input: {
   mode: "refactor" | "visual-polish";
   cycleNumber: number;
 }): Promise<void> {
+  if (input.confidence < 0 || input.confidence > 1) {
+    emitOracleEvent(
+      "recordSelfProphecy error: confidence must be between 0 and 1",
+      "error",
+      "scheduler",
+    );
+    return;
+  }
+  if (input.cycleNumber < 0) {
+    emitOracleEvent(
+      "recordSelfProphecy error: cycleNumber must be non-negative",
+      "error",
+      "scheduler",
+    );
+    return;
+  }
   try {
     const claim =
       `The next ${input.mode} mutation attempt on ${input.filePath} ` +
@@ -226,6 +242,9 @@ export async function adjudicateSelfProphecies(
       // cycleNumber, the attempt it predicted hasn't happened yet.
       if (typeof meta.cycleNumber !== "number") continue;
       if (currentCycleNumber <= meta.cycleNumber) continue;
+      
+      if (!p.id) continue; // Safety check against malformed records from store
+      
       const verdict = enhanced ? "fulfilled" : "failed";
       const evaluation =
         `Auto-adjudicated (no LLM): the ${meta.mode ?? "refactor"} attempt on ` +
