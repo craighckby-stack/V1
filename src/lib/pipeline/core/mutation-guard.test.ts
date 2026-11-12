@@ -3,6 +3,7 @@ import {
   detectConvergentMove,
   finalAuthority,
   gateMutation,
+  triageProposal,
 } from "./mutation-guard";
 
 /**
@@ -336,5 +337,71 @@ describe("detectConvergentMove", () => {
     expect(r.allowed).toBe(false);
     expect(r.rejectedBy).toBe("finalAuthority");
     expect(r.reasons.some((x) => x.includes("convergent-move"))).toBe(true);
+  });
+
+  // ── CLIENT-COMPONENT FETCH EXEMPTION (audit 8) ────────────────────
+
+  test("triage EXEMPTS fetch( for client components (use client directive present)", () => {
+    // A new client panel that calls fetch("/api/...") — the standard
+    // React pattern for calling app routes. The guard must NOT flag
+    // the new fetch( as a dangerous token when "use client" is present.
+    const original = `"use client";\nimport { useState } from "react";\nexport function Panel() { return <div>empty</div>; }\n`;
+    const evolved = `"use client";\nimport { useState, useEffect } from "react";\nexport function Panel() {\n  const [data, setData] = useState(null);\n  useEffect(() => {\n    fetch("/api/self-enhance/tasks").then(r => r.json()).then(setData);\n  }, []);\n  return <div>{JSON.stringify(data)}</div>;\n}\n`;
+    const r = triageProposal({
+      filePath: "src/components/pipeline/oracle-task-feed-panel.tsx",
+      originalCode: original,
+      evolvedCode: evolved,
+    });
+    // fetch is exempted for client components — the verdict must not
+    // be "evil" on the fetch token. (It may be "good" or "unsure" on
+    // other grounds, but NOT evil-with-fetch-reason.)
+    expect(r.verdict).not.toBe("evil");
+    expect(r.reasons.some((x) => x.includes("fetch("))).toBe(false);
+  });
+
+  test("triage STILL BLOCKS fetch( for server modules (no use client directive)", () => {
+    // Same fetch addition, but no "use client" — this is a server
+    // module acquiring a new fetch(, which is the escape pattern the
+    // guard was written to catch. Must still be flagged evil.
+    const original = `import { db } from "@/lib/db";\nexport function getStatus() { return { ok: true }; }\n`;
+    const evolved = `import { db } from "@/lib/db";\nexport function getStatus() {\n  const r = await fetch(process.env.UPSTREAM_URL + "/health");\n  return r.ok;\n}\n`;
+    const r = triageProposal({
+      filePath: "src/lib/pipeline/autonomous/widget.ts",
+      originalCode: original,
+      evolvedCode: evolved,
+    });
+    expect(r.verdict).toBe("evil");
+    expect(r.reasons.some((x) => x.includes("fetch("))).toBe(true);
+  });
+
+  test("triage STILL BLOCKS eval( even in client components (exemption is fetch-only)", () => {
+    // A client component that adds eval( — the exemption is narrow:
+    // only fetch( is exempted for client components. eval, dynamic
+    // import, child_process, etc. are still evil in client code.
+    const original = `"use client";\nexport function Panel() { return <div />; }\n`;
+    const evolved = `"use client";\nexport function Panel({ code }: { code: string }) {\n  return <div>{eval(code)}</div>;\n}\n`;
+    const r = triageProposal({
+      filePath: "src/components/pipeline/evil-panel.tsx",
+      originalCode: original,
+      evolvedCode: evolved,
+    });
+    expect(r.verdict).toBe("evil");
+    expect(r.reasons.some((x) => x.includes("eval("))).toBe(true);
+  });
+
+  test("gateMutation ALLOWS a new client component that uses fetch(", () => {
+    // The end-to-end path: a brand-new client panel (created action,
+    // original is empty) that uses fetch. gateMutation should allow
+    // it through to the debate tribunal / typecheck gate.
+    const evolved = `"use client";\nimport { useState, useEffect } from "react";\nimport { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";\n\nexport function OracleTaskFeedPanel() {\n  const [tasks, setTasks] = useState<any[]>([]);\n  useEffect(() => {\n    fetch("/api/self-enhance/tasks?limit=50").then(r => r.json()).then(d => setTasks(d.tasks ?? []));\n  }, []);\n  const failed = tasks.filter((t: any) => t.kind === "oracle-failed-prophecy");\n  return (\n    <Card>\n      <CardHeader><CardTitle>Oracle → Task Feed</CardTitle></CardHeader>\n      <CardContent>{failed.length} failed prophecies feeding tasks</CardContent>\n    </Card>\n  );\n}\n`;
+    const r = gateMutation({
+      filePath: "src/components/pipeline/oracle-task-feed-panel.tsx",
+      originalCode: "",
+      evolvedCode: evolved,
+    });
+    // triage passes (fetch exempted for client component). finalAuthority
+    // passes (not a protected path, not empty, NOT a convergent move —
+    // the diff adds a new export, which is a behavioral signal).
+    expect(r.allowed).toBe(true);
   });
 });

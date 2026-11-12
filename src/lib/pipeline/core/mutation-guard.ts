@@ -185,6 +185,36 @@ export function triageProposal(opts: {
   const { originalCode, evolvedCode } = opts;
   const reasons: string[] = [];
 
+  // CLIENT-COMPONENT EXEMPTION (audit 8 — the chat-task fetch false-
+  // positive). The `fetch(` pattern in HARD_EVIL_TOKENS was added to
+  // catch server-side escape attempts (a server module acquiring a new
+  // `fetch(host + path)` with an attacker-controlled URL evades the
+  // host allowlist). But client React components — files with a
+  // `"use client"` directive — legitimately use `fetch("/api/...")` to
+  // call the app's own routes. The guard was rejecting every chat-task
+  // plan that generated a client panel (the oracle-task-feed-panel
+  // goal hit this exactly: the LLM produced a correct React component
+  // with `fetch("/api/self-enhance/tasks")`, and triage flagged it as
+  // an escape attempt).
+  //
+  // The exemption: when the evolved code declares `"use client"`, the
+  // `fetch(` pattern is SKIPPED from the HARD_EVIL_TOKENS diff. Every
+  // other evil-token check (eval, child_process, dynamic import,
+  // globalThis[...], etc.) still runs — a client component has no
+  // business using any of those either. The fetch exemption is
+  // narrow: only `fetch(`, only when `"use client"` is present.
+  const isClientComponent = /^\s*["']use client["']\s*;?\s*(?:\r?\n|$)/m.test(
+    evolvedCode
+  );
+  // Patterns exempted for client components (audit 8). Matched by
+  // pattern.source (the regex string) so the Set membership check
+  // works regardless of which object instance the pattern is — Set
+  // compares by reference, and HARD_EVIL_TOKENS's patterns are not the
+  // same object as the ones in this set even when their sources match.
+  const exemptedPatternSources: ReadonlySet<string> = isClientComponent
+    ? new Set([/\bfetch\s*\(/.source])
+    : new Set();
+
   // 1. Newly-introduced HARD_EVIL_TOKENS → EVIL (suspicion 1.0).
   //    PER-OCCURRENCE diffing (audit 3, F3): the old boolean test
   //    (pattern present in evolved AND absent in original) was blind to
@@ -193,6 +223,7 @@ export function triageProposal(opts: {
   //    pattern was already "in the original". We now count occurrences
   //    and flag any INCREASE (a decrease is always fine).
   for (const { pattern, label } of HARD_EVIL_TOKENS) {
+    if (exemptedPatternSources.has(pattern.source)) continue; // audit 8: fetch exempted for client components
     const countIn = (code: string): number => {
         const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
         const re = new RegExp(pattern.source, flags);
