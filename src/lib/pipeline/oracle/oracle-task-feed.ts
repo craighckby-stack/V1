@@ -139,6 +139,11 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
   
   let line: number;
   try {
+    // Ensure prophecy.id exists before hashing
+    if (!prophecy.id) {
+      console.error(`Prophecy ID is missing for prophecy ${JSON.stringify(prophecy)}`);
+      return false;
+    }
     line = hashProphecyIdToLine(prophecy.id);
   } catch (e) {
     console.error(`Failed to hash prophecy ID ${prophecy.id} for task creation:`, e);
