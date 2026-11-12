@@ -87,13 +87,6 @@ export function emitOracleEvent(
   if (typeof message !== "string") {
     throw new TypeError("Oracle event message must be a string");
   }
-  // Type guards ensure type is valid based on interface definition, but checking for null/undefined defensively is fine.
-  if (type == null) {
-    throw new TypeError("Oracle event type cannot be null or undefined");
-  }
-  if (source == null) {
-    throw new TypeError("Oracle event source cannot be null or undefined");
-  }
   
   const s = state();
   const trimmed =
@@ -132,18 +125,16 @@ export function readOracleEvents(afterSeq?: number): {
     }
     
     // Events to retrieve are those with sequence > afterSeq.
-    // Since seq increments *after* event creation, the number of events since afterSeq is currentSeq - afterSeq.
-    const eventsToRetrieve = currentSeq - afterSeq;
+    // The number of events *after* afterSeq is currentSeq - afterSeq.
+    const eventsToRetrieveCount = currentSeq - afterSeq;
     
-    // The index of the first event we want is buffer.length - eventsToRetrieve.
-    // We must ensure this index is not negative and that eventsToRetrieve is not negative.
-    const startIndex = Math.max(0, s.buffer.length - Math.max(0, eventsToRetrieve));
+    // Since the buffer holds the latest MAX_EVENTS, we need to find the starting index
+    // such that the slice includes exactly eventsToRetrieveCount elements, or fewer if the buffer is smaller.
+    // The index should be buffer.length - eventsToRetrieveCount, clamped at 0.
+    const startIndex = Math.max(0, s.buffer.length - eventsToRetrieveCount);
     
     // Get the events from startIndex to the end
     const events = s.buffer.slice(startIndex);
-    
-    // Don't truncate the buffer - events should remain available for future reads
-    // with different sequence numbers
     
     return { 
       events, 
