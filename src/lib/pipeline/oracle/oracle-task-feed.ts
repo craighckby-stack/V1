@@ -70,6 +70,9 @@ export const ORACLE_FAILED_PROPHECY_KIND = "oracle-failed-prophecy";
  *  A different prophecy on the same file hashes differently → a new
  *  task is created (the old one's verdict may still be pending). */
 function hashProphecyIdToLine(prophecyId: string): number {
+  if (!prophecyId) {
+    throw new Error("Prophecy ID is required for hashing");
+  }
   // FNV-1a 32-bit, then mask to positive int. Stable across runs and
   // platforms (no BigInt, no platform-dependent hash).
   let h = 0x811c9dc5;
@@ -126,6 +129,10 @@ function buildEvidence(prophecy: Prophecy): string {
  *  Called from prophecy-evaluator.ts at the FAILED-by-deadline branch.
  *  Never throws. */
 export async function queueTaskForFailedProphecy(prophecy: Prophecy): Promise<boolean> {
+  if (!prophecy) {
+    throw new Error("Prophecy is required for queuing failed prophecy task");
+  }
+
   const filePath = filePathFromSelfProphecy(prophecy);
   if (!filePath) return false; // not a self-prophecy — not actionable
   const line = hashProphecyIdToLine(prophecy.id);
