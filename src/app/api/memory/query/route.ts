@@ -11,6 +11,14 @@ export const runtime = "nodejs";
  */
 export async function GET(req: Request) {
   try {
+    // Check if emgRagInstance is properly initialized
+    if (!emgRagInstance) {
+      return NextResponse.json(
+        { error: "RAG service not properly initialized." },
+        { status: 500 }
+      );
+    }
+
     await emgRagInstance.ensureSeeded();
     const url = new URL(req.url);
     const q = url.searchParams.get("q");
@@ -44,14 +52,18 @@ export async function GET(req: Request) {
         typeof result.cognitiveFrictionScore === 'undefined' || 
         typeof result.epistemicRuling === 'undefined') {
       return NextResponse.json(
-        { error: "RAG query returned malformed result data." },
+        { error: "RAG query returned malformed result data. Missing required properties." },
         { status: 500 }
       );
     }
 
+    // Add null checks for array elements before mapping
+    const safeTopFixes = result.topFixes.filter(e => e != null);
+    const safeTopFailures = result.topFailures.filter(e => e != null);
+
     return NextResponse.json({
       query: q,
-      topFixes: result.topFixes.map((e) => ({
+      topFixes: safeTopFixes.map((e) => ({
         id: e.id,
         provenance: e.provenance,
         trust: e.trust,
@@ -62,7 +74,7 @@ export async function GET(req: Request) {
         ruleToAvoid: e.ruleToAvoid,
         timestamp: e.timestamp,
       })),
-      topFailures: result.topFailures.map((e) => ({
+      topFailures: safeTopFailures.map((e) => ({
         id: e.id,
         provenance: e.provenance,
         trust: e.trust,
