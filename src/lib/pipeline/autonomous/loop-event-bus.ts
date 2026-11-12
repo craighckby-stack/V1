@@ -76,8 +76,11 @@ class LoopEventBus {
     }
 
     // Additional validation for push event outcomes
-    if (evt.kind === "push" && !["committed", "toctou_conflict", "toctou_healed", "skipped_remote_changed", "failed"].includes(evt.outcome)) {
-      throw new Error(`LoopEventBus.emit() for kind 'push' has invalid outcome: ${evt.outcome}. Valid outcomes are: committed, toctou_conflict, toctou_healed, skipped_remote_changed, failed`);
+    if (evt.kind === "push" && 'outcome' in evt && typeof evt.outcome === 'string') {
+      const validOutcomes = ["committed", "toctou_conflict", "toctou_healed", "skipped_remote_changed", "failed"];
+      if (!validOutcomes.includes(evt.outcome)) {
+        throw new Error(`LoopEventBus.emit() for kind 'push' has invalid outcome: ${evt.outcome}. Valid outcomes are: ${validOutcomes.join(', ')}`);
+      }
     }
 
     return this.emitter.emit("event", evt);
