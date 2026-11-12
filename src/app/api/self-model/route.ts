@@ -37,7 +37,7 @@ export async function GET() {
         files: [], 
         calibration: { buckets: [], resolvedPredictions: 0, pendingPredictions: 0, brierScore: null, reliability: null, verdict: "error" }, 
         modeStats: { refactor: { attempts: 0, passes: 0 }, visualPolish: { attempts: 0, passes: 0 } }, 
-        totals: { attempts: 0, passes: 0, failss: 0, zeroDiffs: 0 }, 
+        totals: { attempts: 0, passes: 0, fails: 0, zeroDiffs: 0 }, 
         error: `Failed to retrieve self-model summary: ${errorMessage}` 
       },
       { status: 500 }
@@ -52,16 +52,27 @@ export async function POST(req: Request) {
         throw new Error("Invalid Request object provided to POST handler.");
     }
     const body = await req.json();
-    if (typeof body === 'object' && body !== null && 'force' in body && typeof body.force === 'boolean') {
+    
+    // Validate body is an object when force is specified
+    if (typeof body !== 'object' || body === null) {
+      throw new Error("Request body must be an object");
+    }
+    
+    if ('force' in body && typeof body.force === 'boolean') {
       force = body.force;
+    } else if ('force' in body) {
+      throw new Error("Force parameter must be a boolean");
     }
   } catch (e) {
     if (e instanceof Error && e.message.includes("Invalid Request object")) {
         // Re-throw specific validation error
         throw e;
     }
-    // Empty body or invalid JSON is acceptable, force remains false.
-    // No action needed, proceed with default force=false.
+    // For other validation errors, return a proper error response
+    return NextResponse.json(
+      { error: `Invalid request body: ${e instanceof Error ? e.message : 'Unknown error'}` },
+      { status: 400 }
+    );
   }
 
   if (force) {
@@ -74,7 +85,7 @@ export async function POST(req: Request) {
       // (the model already has rows). Both are safe.
       await bootstrapSelfModel().catch(() => {});
     } catch (bootstrapError) {
-      // Log or handle bootstrap failure but allow summary retrieval to proceed if possible
+      // Log bootstrap failure but allow summary retrieval to proceed if possible
       console.error("Failed to bootstrap self-model:", bootstrapError);
     }
   }
