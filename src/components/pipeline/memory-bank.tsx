@@ -77,7 +77,7 @@ export function MemoryBank() {
                         variant="outline"
                         className="text-[9px] uppercase tracking-widest bg-slate-700/40 text-slate-300 border-slate-600/40"
                       >
-                        {entry.trust}
+                        {entry.trust ?? "unknown"}
                       </Badge>
                       {entry.filePath && (
                         <span className="ml-auto text-[10px] text-slate-500 font-mono truncate" title={entry.filePath}>
