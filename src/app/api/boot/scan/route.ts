@@ -68,7 +68,11 @@ function diskScarCount(): number {
       entries = readdirSync(dir);
     } catch (e) {
       // Log specific FS errors instead of swallowing silently
-      console.error(`Error reading directory ${dir}:`, e);
+      if (e instanceof Error) {
+        console.error(`Error reading directory ${dir}:`, e.message);
+      } else {
+        console.error(`Unknown error reading directory ${dir}:`, e);
+      }
       return;
     }
     for (const e of entries) {
@@ -78,7 +82,11 @@ function diskScarCount(): number {
         st = statSync(p);
       } catch (e) {
         // Skip files/dirs we can't stat (e.g., permission denied)
-        console.warn(`Could not stat path ${p}:`, e);
+        if (e instanceof Error) {
+          console.warn(`Could not stat path ${p}:`, e.message);
+        } else {
+          console.warn(`Unknown error statting path ${p}:`, e);
+        }
         continue;
       }
       if (st.isDirectory()) walk(p);
@@ -93,6 +101,11 @@ function diskScarCount(): number {
 async function checkGitHubAuth(
   token: string
 ): Promise<{ ok: true; login: string } | { ok: false; error: string }> {
+  // Input validation
+  if (!token || typeof token !== 'string') {
+    return { ok: false, error: "Invalid token: must be a non-empty string" };
+  }
+
   const ac = new AbortController();
   const kill = setTimeout(() => ac.abort(), 3500);
   try {
@@ -108,13 +121,18 @@ async function checkGitHubAuth(
       return { ok: false, error: `HTTP ${res.status}: ${res.statusText || 'Unknown Error'}` };
     }
     const user = (await res.json()) as { login?: string };
-    if (!user?.login) return { ok: false, error: "No login found in /user response body" };
+    if (!user?.login) {
+      return { ok: false, error: "No login found in /user response body" };
+    }
     return { ok: true, login: user.login };
   } catch (e) {
-    if ((e as Error).name === "AbortError") {
-      return { ok: false, error: "Request timed out after 3.5s" };
+    if (e instanceof Error) {
+      if (e.name === "AbortError") {
+        return { ok: false, error: "Request timed out after 3.5s" };
+      }
+      return { ok: false, error: `Network or parsing error: ${e.message}` };
     }
-    return { ok: false, error: `Network or parsing error: ${(e as Error).message}` };
+    return { ok: false, error: "Unknown error during GitHub auth check" };
   } finally {
     clearTimeout(kill);
   }
@@ -134,7 +152,11 @@ export async function GET() {
     }
   } catch (e) {
     // Catching errors from getStoredTarget (e.g., vault read failure)
-    console.error("Error retrieving stored target for GitHub auth:", e);
+    if (e instanceof Error) {
+      console.error("Error retrieving stored target for GitHub auth:", e.message);
+    } else {
+      console.error("Unknown error retrieving stored target for GitHub auth:", e);
+    }
     auth = null;
   }
 
@@ -148,7 +170,11 @@ export async function GET() {
     ]);
     corpus = { attempts, failed, enhanced };
   } catch (e) {
-    console.error("Error querying mutation corpus from DB:", e);
+    if (e instanceof Error) {
+      console.error("Error querying mutation corpus from DB:", e.message);
+    } else {
+      console.error("Unknown error querying mutation corpus from DB:", e);
+    }
     corpus = null;
   }
 
@@ -173,7 +199,11 @@ export async function GET() {
       };
     }
   } catch (e) {
-    console.error("Error fetching pass rate trend:", e);
+    if (e instanceof Error) {
+      console.error("Error fetching pass rate trend:", e.message);
+    } else {
+      console.error("Unknown error fetching pass rate trend:", e);
+    }
     passRate = null;
   }
 
@@ -182,7 +212,11 @@ export async function GET() {
   try {
     scars = diskScarCount();
   } catch (e) {
-    console.error("Error counting disk scars:", e);
+    if (e instanceof Error) {
+      console.error("Error counting disk scars:", e.message);
+    } else {
+      console.error("Unknown error counting disk scars:", e);
+    }
     scars = null;
   }
 
@@ -191,7 +225,11 @@ export async function GET() {
   try {
     hotSwap = { lifetime: await getHotSwapSuccessCount(), thisBoot: getSwapCount() };
   } catch (e) {
-    console.error("Error retrieving hot-swap counts:", e);
+    if (e instanceof Error) {
+      console.error("Error retrieving hot-swap counts:", e.message);
+    } else {
+      console.error("Unknown error retrieving hot-swap counts:", e);
+    }
     hotSwap = null;
   }
 
@@ -216,7 +254,11 @@ export async function GET() {
       recoveryRemainingMs: state.recoveryRemainingMs,
     };
   } catch (e) {
-    console.error("Error getting autonomous loop state:", e);
+    if (e instanceof Error) {
+      console.error("Error getting autonomous loop state:", e.message);
+    } else {
+      console.error("Unknown error getting autonomous loop state:", e);
+    }
     autonomy = null;
   }
 
@@ -232,7 +274,11 @@ export async function GET() {
     warmZaiCortex();
     zai = zaiCortexStatus();
   } catch (e) {
-    console.error("Error warming or checking Zai Cortex status:", e);
+    if (e instanceof Error) {
+      console.error("Error warming or checking Zai Cortex status:", e.message);
+    } else {
+      console.error("Unknown error warming or checking Zai Cortex status:", e);
+    }
     zai = null;
   }
 
