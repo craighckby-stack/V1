@@ -70,7 +70,7 @@ export function markArmed(armed: boolean, by: string): void {
     return;
   }
   
-  if (!by || typeof by !== "string" || by.trim() === "") {
+  if (typeof by !== "string" || by.trim() === "") {
     console.error("markArmed: 'by' parameter must be a non-empty string.");
     return;
   }
