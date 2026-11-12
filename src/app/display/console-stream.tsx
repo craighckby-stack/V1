@@ -97,7 +97,9 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
           <div key={line.id} style={{ color, whiteSpace: "pre-wrap" }}>
             {line.type === "command" && "> "}
             {line.type === "log" && line.ts && (
-              <span style={{ color: DIM_COLOR }}>[{line.ts}] </span>
+              <span style={{ color: DIM_COLOR }}>
+                [{typeof line.ts === "string" ? line.ts : ""}]{" "}
+              </span>
             )}
             {line.text || "\u00a0"}
           </div>
