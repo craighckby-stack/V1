@@ -30,7 +30,7 @@
  *   hold no data) so the live DB and file stay in sync.
  */
 
-import { spawnSync } from "child_process";
+import { runChildAsync } from "../core/async-spawn";
 import { readFileSync, writeFileSync } from "fs";
 import { PROJECT_ROOT } from "../core/paths";
 
@@ -178,21 +178,30 @@ export function checkAdditiveSchema(original: string, proposed: string): SchemaC
 
 /** Apply a schema mutation through the full gate chain. Returns
  *  { ok, reason } — on ANY failure the original file is restored and
- *  re-pushed so file and DB stay in sync. */
-export function applySchemaMutation(proposed: string): { ok: boolean; reason: string } {
+ *  re-pushed so file and DB stay in sync.
+ *
+ *  ASYNC (de-mock of the event-loop blocker): the gate chain used to call
+ *  spawnSync four times (validate 90s, push 120s, canary 60s, restore-push
+ *  120s) — each blocking the Next.js server's event loop for up to 120s and
+ *  freezing every /api/* poll mid-cycle. Now each step runs via runChildAsync
+ *  (spawn + await): the child does the identical work, the parent yields the
+ *  loop between steps. The fail-closed restore-on-failure contract is
+ *  preserved bit-for-bit (original file written back, then a best-effort
+ *  db:push of the original so file and DB never desync). */
+export async function applySchemaMutation(proposed: string): Promise<{ ok: boolean; reason: string }> {
   const original = readFileSync(SCHEMA_PATH, "utf-8");
 
   // Step 1: structural additive-only check.
   const check = checkAdditiveSchema(original, proposed);
   if (!check.ok) return { ok: false, reason: check.reason };
 
-  const restore = (why: string): { ok: boolean; reason: string } => {
+  const restore = async (why: string): Promise<{ ok: boolean; reason: string }> => {
     try {
       writeFileSync(SCHEMA_PATH, original, "utf-8");
       // Re-push the ORIGINAL schema. --accept-data-loss covers dropping
       // the just-added (empty) columns/tables; nothing of value existed
       // in them for the seconds they lived.
-      spawnSync("bun", ["run", "db:push"], { cwd: PROJECT_ROOT, timeout: 120000, stdio: "pipe" });
+      await runChildAsync("bun", ["run", "db:push"], { cwd: PROJECT_ROOT, timeoutMs: 120000 });
     } catch {
       /* original file restore is the critical part; push is best-effort */
     }
@@ -203,35 +212,35 @@ export function applySchemaMutation(proposed: string): { ok: boolean; reason: st
   try {
     writeFileSync(SCHEMA_PATH, proposed, "utf-8");
   } catch (e) {
-    return restore(`could not write schema file: ${(e as Error).message}`);
+    return await restore(`could not write schema file: ${(e as Error).message}`);
   }
 
   // Step 3: prisma validate (grammar + datasource sanity).
-  const validate = spawnSync("bunx", ["prisma", "validate"], { cwd: PROJECT_ROOT, timeout: 90000, encoding: "utf-8" });
+  const validate = await runChildAsync("bunx", ["prisma", "validate"], { cwd: PROJECT_ROOT, timeoutMs: 90000 });
   if (validate.status !== 0) {
-    return restore(`prisma validate failed: ${(validate.stderr || validate.stdout || "").slice(-300)}`);
+    return await restore(`prisma validate failed: ${(validate.stderr || validate.stdout || "").slice(-300)}`);
   }
 
   // Step 4: db push (applies to SQLite + regenerates the client).
-  const push = spawnSync("bun", ["run", "db:push"], { cwd: PROJECT_ROOT, timeout: 120000, encoding: "utf-8" });
+  const push = await runChildAsync("bun", ["run", "db:push"], { cwd: PROJECT_ROOT, timeoutMs: 120000 });
   if (push.status !== 0) {
-    return restore(`prisma db push failed: ${(push.stderr || push.stdout || "").slice(-300)}`);
+    return await restore(`prisma db push failed: ${(push.stderr || push.stdout || "").slice(-300)}`);
   }
 
   // Step 5: canary — a FRESH child process imports the regenerated
   //  client and round-trips the memory tables. The running process's
   //  client instance predates the change; the child proves the new
   //  client + new schema actually work together.
-  const canary = spawnSync(
+  const canary = await runChildAsync(
     "bun",
     [
       "-e",
       `const {db}=require('${PROJECT_ROOT}/src/lib/db.ts'); Promise.all([db.postmortem.count(), db.lesson.count(), db.gitPushTarget.findUnique({where:{id:'singleton'}})]).then(([p,l,g])=>{ if(p<0||l<0||!g) process.exit(2); console.log('canary-ok',p,l); process.exit(0); }).catch(e=>{ console.error(e.message); process.exit(3); });`,
     ],
-    { cwd: PROJECT_ROOT, timeout: 60000, encoding: "utf-8" }
+    { cwd: PROJECT_ROOT, timeoutMs: 60000 }
   );
   if (canary.status !== 0) {
-    return restore(`canary round-trip failed: ${(canary.stderr || canary.stdout || "").slice(-300)}`);
+    return await restore(`canary round-trip failed: ${(canary.stderr || canary.stdout || "").slice(-300)}`);
   }
 
   const summary =

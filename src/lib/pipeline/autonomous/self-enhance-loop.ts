@@ -14,7 +14,7 @@
  */
 
 import { readFileSync, writeFileSync, readdirSync, existsSync, rmSync } from "fs";
-import { spawnSync, execSync } from "child_process";
+import { execSync } from "child_process";
 import { join, relative, resolve, basename, dirname } from "path";
 import { createHash } from "crypto";
 import { llmComplete, extractSummaryAndCode, llmCooldownMs } from "../llm/agent-llm";
@@ -70,6 +70,7 @@ import { applySchemaMutation } from "./schema-gate";
 import { PROJECT_ROOT } from "../core/paths";
 import { recoverCrashedTestGate } from "../core/test-gate-journal";
 import { runTestsInSandbox, typecheckInSandbox } from "../core/sandbox-test";
+import { runChildAsync } from "../core/async-spawn";
 // Audit 4 (P1/P2a/P3): shared, best-effort retention helpers for the
 // loop's grow-only DB tables. Fire-and-forget at the cycle end; a prune
 // failure never fails the cycle (the row was already written; pruning
@@ -861,16 +862,15 @@ class SelfEnhanceLoop {
    * whether it typechecks. NOTHING is written to disk — Turbopack never
    * sees the refactored code until it passes verification.
    */
-  private verifyRefactor(filePath: string, refactoredCode: string): { ok: boolean; errors: string[] } {
+  private async verifyRefactor(filePath: string, refactoredCode: string): Promise<{ ok: boolean; errors: string[] }> {
     try {
-      const result = spawnSync(
+      const result = await runChildAsync(
         "bun",
         ["run", "src/lib/pipeline/autonomous/verify-refactor.ts", filePath],
         {
           cwd: PROJECT_ROOT,
           input: refactoredCode,
-          timeout: 60000,
-          encoding: "utf-8",
+          timeoutMs: 60000,
         }
       );
 
@@ -1049,7 +1049,7 @@ class SelfEnhanceLoop {
    * mutation's provenance permanently says which kind of verification it
    * actually received.
    */
-  private testGate(filePath: string, refactoredCode: string): { passed: boolean; reason: string; testCount: number } {
+  private async testGate(filePath: string, refactoredCode: string): Promise<{ passed: boolean; reason: string; testCount: number }> {
     // Legacy crash recovery (idempotent, ~free when no journal exists): a
     // leftover journal means a PRE-SANDBOX testGate died mid-run with a
     // candidate live on disk — restore before anything else so we never
@@ -1070,7 +1070,7 @@ class SelfEnhanceLoop {
     // Run the covering tests against the candidate INSIDE THE SANDBOX.
     // Fail-closed: a sandbox we cannot build or run is a rejected mutation,
     // never a silently-passed one.
-    return runTestsInSandbox(
+    return await runTestsInSandbox(
       [{ path: filePath, content: refactoredCode }],
       testFiles
     );
@@ -1303,7 +1303,7 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // strand a broken .test.ts on the live tree where it would veto every
       // future refactor of the module until manually deleted.
       const overlay = [{ path: testPath, content: code }];
-      const run = runTestsInSandbox(overlay, [testPath], 60000);
+      const run = await runTestsInSandbox(overlay, [testPath], 60000);
       if (!run.passed) {
         this.log(`Ratchet: rejected test for ${relPath} (fails on current code — pins wrong behavior): ${run.reason.slice(0, 250)}`, "warn");
         return false;
@@ -1314,7 +1314,7 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // bun test already proved the test runs; tsc-scoped errors are what
       // matter.) Runs against the same overlay so the draft still never
       // touches the live tree.
-      const tsc = typecheckInSandbox(overlay);
+      const tsc = await typecheckInSandbox(overlay);
       // Fail-closed (external audit F5): status === null means the typecheck
       // NEVER RAN (sandbox setup failure, overlay failure, spawn error, or
       // timeout — see typecheckInSandbox's return paths). The old condition
@@ -1814,7 +1814,7 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       // until it passes typecheck. This prevents Turbopack from ever seeing
       // broken code (the root cause of the stale browser error).
       this.log(`Verifying ${relPath} (in-memory typecheck)...`, "info");
-      const verification = this.verifyRefactor(filePath, cleanCode);
+      const verification = await this.verifyRefactor(filePath, cleanCode);
       result.compiled = verification.ok;
 
       if (!verification.ok) {
@@ -1872,7 +1872,7 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       // Coverage is resolved tree-wide (findTestFilesFor); when a file has no
       // tests the gate passes with coverage:0, and that fact is recorded in
       // the log, the result, and the commit message — never silently.
-      const testResult = this.testGate(filePath, cleanCode);
+      const testResult = await this.testGate(filePath, cleanCode);
       if (!testResult.passed) {
         this.log(`Rejected ${relPath} by test gate: ${testResult.reason}`, "warn");
         await postmortemStore.recordFailure({
@@ -2313,7 +2313,7 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       // push/canary) applySchemaMutation restores the ORIGINAL file and
       // re-pushes it internally, so the live DB and file never desync.
       this.log(`Schema gate: checking additive-only diff...`, "info");
-      const gate = applySchemaMutation(proposed);
+      const gate = await applySchemaMutation(proposed);
       if (!gate.ok) {
         this.log(`Rejected schema mutation: ${gate.reason}`, "warn");
         await postmortemStore.recordFailure({
@@ -2577,7 +2577,7 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
               // (verifyRefactor bundles them; candidate passed via stdin,
               // nothing touches disk). Also re-typechecks — executeTask
               // already did, but the banner strip changed the content.
-              const verification = this.verifyRefactor(abs, candidate);
+              const verification = await this.verifyRefactor(abs, candidate);
               if (!verification.ok) {
                 await this.updateTask(task.id, {
                   status: "failed",
@@ -2601,7 +2601,7 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
                 continue;
               }
               // Behavioral test gate — co-located tests must still pass.
-              const testResult = this.testGate(abs, candidate);
+              const testResult = await this.testGate(abs, candidate);
               if (!testResult.passed) {
                 await this.updateTask(task.id, { status: "failed", lastError: `test gate failed: ${testResult.reason.slice(0, 200)}` });
                 this.log(`SelfTask[${kind}] rejected by test gate: ${testResult.reason.slice(0, 120)}`, "warn");

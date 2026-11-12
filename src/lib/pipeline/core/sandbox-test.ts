@@ -59,7 +59,7 @@ import {
   writeFileSync,
 } from "fs";
 import { join, relative, isAbsolute } from "path";
-import { spawnSync } from "child_process";
+import { spawn } from "child_process";
 import { PROJECT_ROOT } from "./paths";
 
 export interface SandboxOverlay {
@@ -233,6 +233,62 @@ function sandboxPath(sandboxRoot: string, realPath: string): string {
   return join(sandboxRoot, rel);
 }
 
+/** Async child runner — the non-blocking replacement for this module's
+ *  spawnSync calls. spawnSync blocked the shared server event loop for the
+ *  child's full runtime (up to 120s for a sandbox `tsc --noEmit`); `spawn` +
+ *  Promise yields the loop back to HTTP handlers while the child works.
+ *  Same { status, stdout, stderr } contract as spawnSync — fail-closed
+ *  (status null on kill/error/timeout) so callers' `status !== 0` checks
+ *  behave identically.
+ *
+ *  Inlined here (not imported from core/async-spawn) to preserve this
+ *  module's pure-leaf import invariant: fs/path/child_process + paths.ts
+ *  only. The loop self-checks this invariant and protects this file —
+ *  widening the import surface would weaken the sandbox's isolation. */
+function runChild(
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string; timeoutMs?: number }
+): Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }> {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"] });
+    } catch (err) {
+      resolve({ status: null, stdout: "", stderr: `[spawn error] ${(err as Error).message}`, timedOut: false });
+      return;
+    }
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (status: number | null, timedOut = false) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      try { child.stdin?.end(); } catch { /* already closed */ }
+      resolve({ status, stdout, stderr, timedOut });
+    };
+    if (opts.timeoutMs && opts.timeoutMs > 0) {
+      timer = setTimeout(() => {
+        try { child.kill("SIGKILL"); } catch { /* dying */ }
+        finish(null, true);
+      }, opts.timeoutMs);
+    }
+    child.stdin?.on("error", () => {});
+    child.stdout?.on("error", () => {});
+    child.stderr?.on("error", () => {});
+    child.stdout?.on("data", (d: Buffer) => { stdout += d.toString("utf-8"); });
+    child.stderr?.on("data", (d: Buffer) => { stderr += d.toString("utf-8"); });
+    child.on("error", (err) => { stderr += `\n[spawn error] ${err.message}`; finish(null); });
+    child.on("close", (code) => finish(code));
+    if (opts.input !== undefined && child.stdin) {
+      child.stdin.write(opts.input);
+      child.stdin.end();
+    }
+  });
+}
+
 /**
  * Run test files against overlaid candidate content, fully isolated from
  * the live tree. Nothing on the real filesystem is modified — not the
@@ -244,11 +300,11 @@ function sandboxPath(sandboxRoot: string, realPath: string): string {
  *                  run as `bun test <relpath>` with cwd = sandbox root
  * @param perTestTimeoutMs per-test-file spawn timeout (default 30s)
  */
-export function runTestsInSandbox(
+export async function runTestsInSandbox(
   overlays: SandboxOverlay[],
   testFiles: string[],
   perTestTimeoutMs = 30_000
-): SandboxTestResult {
+): Promise<SandboxTestResult> {
   if (testFiles.length === 0) {
     return { passed: true, reason: "no test files to run", testCount: 0 };
   }
@@ -281,10 +337,9 @@ export function runTestsInSandbox(
     let totalTests = 0;
     for (const testFile of testFiles) {
       const relInSandbox = relative(PROJECT_ROOT, testFile);
-      const result = spawnSync("bun", ["test", relInSandbox], {
+      const result = await runChild("bun", ["test", relInSandbox], {
         cwd: sandbox.root,
-        timeout: perTestTimeoutMs,
-        encoding: "utf-8",
+        timeoutMs: perTestTimeoutMs,
         env: childEnv(sandbox.dbOverride),
       });
       totalTests++;
@@ -322,10 +377,10 @@ export function runTestsInSandbox(
  *
  * Returns the raw combined output + exit status; never throws.
  */
-export function typecheckInSandbox(
+export async function typecheckInSandbox(
   overlays: SandboxOverlay[],
   timeoutMs = 120_000
-): { status: number | null; output: string } {
+): Promise<{ status: number | null; output: string }> {
   const sandbox = buildSandbox();
   if (!sandbox) {
     return { status: null, output: "sandbox setup failed — typecheck not run (fail-closed)" };
@@ -340,15 +395,14 @@ export function typecheckInSandbox(
     } catch (err) {
       return { status: null, output: `sandbox overlay failed: ${(err as Error).message}` };
     }
-    const tsc = spawnSync("bunx", ["tsc", "--noEmit"], {
+    const tsc = await runChild("bunx", ["tsc", "--noEmit"], {
       cwd: sandbox.root,
-      timeout: timeoutMs,
-      encoding: "utf-8",
+      timeoutMs: timeoutMs,
       env: childEnv(sandbox.dbOverride),
     });
     return {
       status: tsc.status,
-      output: `${tsc.stdout || ""}${tsc.stderr || ""}`,
+      output: `${tsc.stdout}${tsc.stderr}`,
     };
   } catch (err) {
     return { status: null, output: `sandbox typecheck error: ${(err as Error).message}` };
