@@ -195,7 +195,9 @@ export function PipelineStages() {
   const stages = report ? Object.values(report.stages) : emptyStages;
   const statusCounts = stages.reduce(
     (acc, s) => {
-      acc[s.status] = (acc[s.status] ?? 0) + 1;
+      if (s.status) {
+        acc[s.status] = (acc[s.status] ?? 0) + 1;
+      }
       return acc;
     },
     {} as Record<string, number>
