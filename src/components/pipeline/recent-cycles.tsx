@@ -29,14 +29,13 @@ export function RecentCycles() {
         throw new Error(`Failed to fetch recent cycles: HTTP status ${res.status} ${res.statusText}`);
       }
       const data = await res.json();
-      if (typeof data !== 'object' || data === null || !Array.isArray(data.cycles)) {
-        console.error("API response structure invalid: expected { cycles: [...] }", data);
-        setFetched([]);
-        return;
+      if (!data || typeof data !== 'object' || !Array.isArray(data.cycles)) {
+        throw new Error("Invalid API response: expected { cycles: [...] }");
       }
       setFetched(data.cycles);
     } catch (error) {
       console.error("Error refreshing recent cycles:", error instanceof Error ? error.message : "Unknown error during fetch or parsing");
+      setFetched([]);
     } finally {
       setLoading(false);
     }
@@ -49,6 +48,7 @@ export function RecentCycles() {
   // Merge: in-memory recent from WS (most recent first) + DB fetch (dedup by id).
   const seen = new Set<string>();
   const merged = [...cyclesFromStore, ...fetched].filter((c) => {
+    if (!c || !c.id) return false;
     if (seen.has(c.id)) return false;
     seen.add(c.id);
     return true;
@@ -105,7 +105,7 @@ export function RecentCycles() {
                       {c.status}
                     </Badge>
                     <span className="ml-auto text-[10px] text-slate-500 font-mono">
-                      {new Date(c.startedAt).toLocaleString()}
+                      {c.startedAt ? new Date(c.startedAt).toLocaleString() : "Invalid date"}
                     </span>
                   </div>
                   <div className="flex items-center gap-3 mt-1.5 text-[11px] text-slate-400 font-mono">

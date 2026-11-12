@@ -249,7 +249,10 @@ export interface FinalAuthorityResult {
 
 /** Slower structural invariants — the finalAuthority analog. Called
  *  after triage returns good/unsure. Rejects mutations of protected
- *  paths (runtime gates + scaffolding) and empty-content proposals. */
+ *  paths (runtime gates + scaffolding), empty-content proposals, and
+ *  convergent defensive no-ops (the loop's tendency to "improve" stable
+ *  code by adding redundant input validation / null checks / fallbacks
+ *  that change nothing observable — see detectConvergentMove below). */
 export function finalAuthority(opts: {
   filePath: string;
   evolvedCode: string;
@@ -273,7 +276,219 @@ export function finalAuthority(opts: {
     reasons.push("evolvedCode is empty — a mutation must produce content");
   }
 
+  // 3. Convergent-move detection — the loop's committed history showed
+  //    88% of "Self-enhancement" commits in a 10-hour window were purely
+  //    additive defensive guards on stable code: `let x;` → `let x: any;`,
+  //    `{entry.trust}` → `{entry.trust ?? "unknown"}`, `typeof` checks
+  //    wrapping existing checks, `?? []` fallbacks on already-guarded
+  //    paths. Each one passes every other gate (typechecks, no symbol
+  //    drop, debate approves "reasonable hardening") but changes NO
+  //    observable behavior — the loop is justifying its own existence
+  //    one no-op at a time. This check fails CLOSED on the pattern:
+  //    small, predominantly-additive diff, dominated by the defensive-
+  //    guard lexicon, with no behavioral signal (no new exports, no new
+  //    functions, no new control flow). Test files are exempt — tests
+  //    legitimately add defensive guards as characterization pins.
+  const isTestFile =
+    opts.filePath.endsWith(".test.ts") || opts.filePath.endsWith(".test.tsx");
+  if (!isTestFile) {
+    const cm = detectConvergentMove(opts.originalCode, opts.evolvedCode);
+    if (cm.convergent) {
+      reasons.push(`convergent-move rejected: ${cm.reason}`);
+    }
+  }
+
   return { allowed: reasons.length === 0, reasons };
+}
+
+// ── Convergent-move detection ──────────────────────────────────────
+// The loop's LLM, given an open-ended "improve this file" brief on
+// stable code, converges on the lowest-friction move that passes every
+// other gate: add a defensive guard that changes nothing. This section
+// detects that pattern from the diff structure alone (the guard runs
+// pre-commit, so the commit message is not yet available — and even if
+// it were, the LLM's "## Changes" prose routinely overstates the diff,
+// e.g. claiming 4 improvements for a 1-line type annotation).
+//
+// The heuristic is CONSERVATIVE by design — it requires ALL of:
+//   1. Small total churn (≤ 30 changed lines)
+//   2. Predominantly additive (added ≥ 3, removed ≤ 2)
+//   3. Added lines ≥ 50% match the defensive-guard lexicon
+//   4. Added lines contain NO behavioral signal (new exports / functions
+//      / classes / throws)
+// A mutation that fails any single condition passes this gate (and
+// proceeds to the debate tribunal, which is the existing quality bar).
+
+/** Lexicon of defensive-guard line patterns. A line matching any of
+ *  these is counted as a "guard" line for density calculation. The list
+ *  is intentionally specific to the convergent moves observed in the
+ *  loop's own commit history — broadening it would false-positive on
+ *  legitimate error handling. */
+const CONVERGENT_MOVE_LEXICON: ReadonlyArray<RegExp> = [
+  // typeof guards: `typeof x === "string"`, `typeof x !== "undefined"`
+  /typeof\s+\w+\s*[!=]==?\s*['"`](?:string|number|boolean|undefined|object|function|symbol|bigint)['"`]/,
+  // null/undefined checks: `if (x === null)`, `if (x == null)`, `if (!x)`,
+  // `if (x === undefined)`, `x === null || x === undefined`
+  /\bif\s*\(\s*!?\w+(?:\.\w+)*\s*(?:===|!==|==|!=)\s*(?:null|undefined)\b/,
+  /\bif\s*\(\s*!\s*\w+(?:\.\w+)*\s*\)/,
+  // Array type guards
+  /\bArray\.isArray\s*\(/,
+  // instanceof Error guards in catch blocks
+  /instanceof\s+Error\b/,
+  // Nullish-coalescing with literal default: `x ?? "default"`, `x ?? []`
+  /\?\?\s*['"`][^'"`]*['"`]/,
+  /\?\?\s*\[\s*\]/,
+  /\?\?\s*\{\s*\}/,
+  // OR-fallback with literal default: `x || "default"`, `x || []`
+  /\|\|\s*['"`][^'"`]*['"`]/,
+  /\|\|\s*\[\s*\]/,
+  // Explicit any/unknown type annotations added to existing bindings
+  /:\s*(?:any|unknown)\b/,
+  // try { additions (new try-catch wrapping existing code)
+  /\btry\s*\{/,
+];
+
+/** Lexicon of behavioral-change signals. If ANY added line matches one
+ *  of these, the mutation is NOT a convergent move — it adds real
+ *  surface area (a new export, a new function, a new class, a new
+ *  throw). This is the escape hatch that lets legitimate defensive
+ *  work that also adds a new helper pass through. */
+const BEHAVIORAL_SIGNAL_LEXICON: ReadonlyArray<RegExp> = [
+  // New exports
+  /\bexport\s+(?:async\s+)?(?:function|const|let|var|class|default|interface|type|enum)\s+\w+/,
+  // New function declarations (not arrow, not re-declarations)
+  /\bfunction\s+\w+\s*\(/,
+  // New class declarations
+  /\bclass\s+\w+/,
+  // New throw of a constructed error (not a re-throw of an existing one)
+  /\bthrow\s+new\s+\w*Error\b/,
+  // New interface/type declarations (extends the public contract)
+  /\b(?:interface|type)\s+\w+\s*(?:<[^>]*>)?\s*(?:\{|=|extends)/,
+];
+
+/** Compute the added/removed line multiset for a code change. Uses a
+ *  trimmed-line multiset (not a set — duplicates matter: adding a
+ *  second `if (!x)` is still an additive guard even if the first one
+ *  was already there). Whitespace-only lines are ignored. */
+function computeLineDiff(
+  original: string,
+  evolved: string
+): { added: string[]; removed: string[] } {
+  const countLines = (code: string): Map<string, number> => {
+    const counts = new Map<string, number>();
+    for (const raw of code.split("\n")) {
+      const trimmed = raw.trim();
+      if (trimmed.length === 0) continue;
+      counts.set(trimmed, (counts.get(trimmed) ?? 0) + 1);
+    }
+    return counts;
+  };
+  const origCounts = countLines(original);
+  const evolvedCounts = countLines(evolved);
+  const added: string[] = [];
+  const removed: string[] = [];
+  const allLines = new Set<string>([
+    ...origCounts.keys(),
+    ...evolvedCounts.keys(),
+  ]);
+  for (const line of allLines) {
+    const o = origCounts.get(line) ?? 0;
+    const e = evolvedCounts.get(line) ?? 0;
+    if (e > o) {
+      for (let i = 0; i < e - o; i++) added.push(line);
+    } else if (o > e) {
+      for (let i = 0; i < o - e; i++) removed.push(line);
+    }
+  }
+  return { added, removed };
+}
+
+export interface ConvergentMoveResult {
+  convergent: boolean;
+  reason: string;
+}
+
+/** Detect whether a diff is a convergent defensive no-op. See the
+ *  section doc for the full contract. Returns { convergent: true,
+ *  reason } when ALL four heuristic conditions hold; { convergent:
+ *  false, reason } otherwise (with the reason explaining which
+ *  condition failed — useful for the test suite and for debugging
+ *  a surprising accept/reject). */
+export function detectConvergentMove(
+  originalCode: string,
+  evolvedCode: string
+): ConvergentMoveResult {
+  const { added, removed } = computeLineDiff(originalCode, evolvedCode);
+
+  // (0) No changes — not convergent, the loop's "No change" path
+  //     handles this elsewhere.
+  if (added.length === 0 && removed.length === 0) {
+    return { convergent: false, reason: "no diff" };
+  }
+
+  // (1) Small total churn (≤ 30 changed lines). Large diffs are
+  //     usually real work — a 200-line refactor that happens to add
+  //     some guards is not the convergent pattern.
+  const totalChurn = added.length + removed.length;
+  if (totalChurn > 30) {
+    return {
+      convergent: false,
+      reason: `diff too large (${totalChurn} > 30 changed lines)`,
+    };
+  }
+
+  // (2) Predominantly additive. A mutation that removes as much as it
+  //     adds is a refactor (real work), not a convergent no-op. The
+  //     thresholds (added ≥ 3, removed ≤ 2) are tight: the convergent
+  //     pattern is overwhelmingly "add 1-5 guard lines, remove 0-1".
+  if (added.length < 3) {
+    return {
+      convergent: false,
+      reason: `too few additions (${added.length} < 3)`,
+    };
+  }
+  if (removed.length > 2) {
+    return {
+      convergent: false,
+      reason: `has removals (${removed.length} > 2 — likely a real refactor)`,
+    };
+  }
+
+  // (3) Added lines ≥ 50% match the defensive-guard lexicon. A
+  //     mutation that adds 5 lines of which 2 are guards and 3 are
+  //     real logic is not convergent — it's a guarded feature.
+  let guardMatches = 0;
+  for (const line of added) {
+    if (CONVERGENT_MOVE_LEXICON.some((re) => re.test(line))) {
+      guardMatches++;
+    }
+  }
+  const guardDensity = added.length > 0 ? guardMatches / added.length : 0;
+  if (guardDensity < 0.5) {
+    return {
+      convergent: false,
+      reason: `additions not guard-dominated (${guardMatches}/${added.length} = ${(guardDensity * 100).toFixed(0)}% < 50%)`,
+    };
+  }
+
+  // (4) NO behavioral signal in the added lines. A new export,
+  //     function, class, or constructed throw means the mutation
+  //     adds real surface area — it's not a pure no-op guard.
+  const addedCode = added.join("\n");
+  for (const re of BEHAVIORAL_SIGNAL_LEXICON) {
+    if (re.test(addedCode)) {
+      return {
+        convergent: false,
+        reason: `adds behavioral signal (matched ${re.source.slice(0, 40)})`,
+      };
+    }
+  }
+
+  // All four conditions hold — this is a convergent defensive no-op.
+  return {
+    convergent: true,
+    reason: `${added.length} additive line(s), ${guardMatches} match defensive-guard lexicon (density ${(guardDensity * 100).toFixed(0)}%), no behavioral signal, ${removed.length} removal(s) — mutations must change observable behavior, not add guards to code that already works`,
+  };
 }
 
 export interface MutationGateResult {
