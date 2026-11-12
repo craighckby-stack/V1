@@ -69,8 +69,8 @@ export const ORACLE_FAILED_PROPHECY_KIND = "oracle-failed-prophecy";
  *  A different prophecy on the same file hashes differently → a new
  *  task is created (the old one's verdict may still be pending). */
 function hashProphecyIdToLine(prophecyId: string): number {
-  if (!prophecyId) {
-    throw new Error("Prophecy ID is required for hashing");
+  if (!prophecyId || typeof prophecyId !== 'string') {
+    throw new Error("Prophecy ID must be a non-empty string for hashing.");
   }
   // FNV-1a 32-bit, then mask to positive int. Stable across runs and
   // platforms (no BigInt, no platform-dependent hash).
@@ -127,14 +127,24 @@ function buildEvidence(prophecy: Prophecy): string {
  *
  *  Called from prophecy-evaluator.ts at the FAILED-by-deadline branch.
  *  Never throws. */
-export async function queueTaskForFailedProphecy(prophecy: Prophecy): Promise<boolean> {
+export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined | null): Promise<boolean> {
   if (!prophecy) {
-    throw new Error("Prophecy is required for queuing failed prophecy task");
+    // Input validation: Prophecy must exist to proceed.
+    console.error("queueTaskForFailedProphecy called with null or undefined prophecy.");
+    return false;
   }
 
   const filePath = filePathFromSelfProphecy(prophecy);
   if (!filePath) return false; // not a self-prophecy — not actionable
-  const line = hashProphecyIdToLine(prophecy.id);
+  
+  let line: number;
+  try {
+    line = hashProphecyIdToLine(prophecy.id);
+  } catch (e) {
+    console.error(`Failed to hash prophecy ID ${prophecy.id} for task creation:`, e);
+    return false;
+  }
+  
   const evidence = buildEvidence(prophecy);
   const taskKind = TASK_KINDS[ORACLE_FAILED_PROPHECY_KIND];
   const priority = taskKind?.priority ?? 7;
@@ -164,9 +174,11 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy): Promise<bo
       },
     });
     return true;
-  } catch {
+  } catch (error) {
     // Fail-soft: the evaluator's verdict still landed in the Prophecy
     // table. Losing the task feed is a lost opportunity, not a fault.
+    // Log the error context for debugging, but return false as required by fail-soft contract.
+    console.error(`Database error while queuing oracle-failed-prophecy task for file ${filePath} (ID: ${prophecy.id}):`, error);
     return false;
   }
 }
