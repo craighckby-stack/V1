@@ -93,6 +93,11 @@ export function emitOracleEvent(
     throw new TypeError(`Invalid event type: ${type}. Must be one of: info, success, warn, error`);
   }
   
+  // Validate source parameter
+  if (!["generator", "evaluator", "scheduler", "auto-adjudicator"].includes(source)) {
+    throw new TypeError(`Invalid event source: ${source}. Must be one of: generator, evaluator, scheduler, auto-adjudicator`);
+  }
+  
   const s = state();
   const trimmed =
     message.length > 300 ? `${message.slice(0, 299)}…` : message;
@@ -134,7 +139,7 @@ export function emitOracleEvent(
       }
     ).catch((error) => {
       // Log the error for debugging but don't block the main flow
-      console.error("Failed to send oracle event to server:", error);
+      console.error(`Failed to send oracle event to server (source: ${source}, type: ${type}):`, error);
     });
   }
 
@@ -149,7 +154,6 @@ export function readOracleEvents(afterSeq?: number): {
   seq: number;
 } {
   const s = state();
-  s.lastReadAt = Date.now();
   
   if (typeof afterSeq === "number") {
     if (!Number.isInteger(afterSeq) || afterSeq < 0) {
@@ -157,6 +161,7 @@ export function readOracleEvents(afterSeq?: number): {
     }
     const currentSeq = s.seq;
     if (afterSeq >= currentSeq) {
+      s.lastReadAt = Date.now(); // Update lastReadAt even when no events
       return { events: [], seq: currentSeq };
     }
     
@@ -172,6 +177,7 @@ export function readOracleEvents(afterSeq?: number): {
     // Get the events from startIndex to the end
     const events = s.buffer.slice(startIndex);
     
+    s.lastReadAt = Date.now(); // Update lastReadAt after reading events
     return { 
       events, 
       seq: currentSeq 
@@ -179,6 +185,7 @@ export function readOracleEvents(afterSeq?: number): {
   }
   
   // No afterSeq provided or invalid, return all events
+  s.lastReadAt = Date.now(); // Update lastReadAt when returning all events
   return { events: s.buffer, seq: s.seq };
 }
 
