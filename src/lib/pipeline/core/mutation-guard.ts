@@ -203,14 +203,22 @@ export function triageProposal(opts: {
   // globalThis[...], etc.) still runs — a client component has no
   // business using any of those either. The fetch exemption is
   // narrow: only `fetch(`, only when `"use client"` is present.
-  const isClientComponent = /^\s*["']use client["']\s*;?\s*(?:\r?\n|$)/m.test(
-    evolvedCode
-  );
-  // Patterns exempted for client components (audit 8). Matched by
-  // pattern.source (the regex string) so the Set membership check
-  // works regardless of which object instance the pattern is — Set
-  // compares by reference, and HARD_EVIL_TOKENS's patterns are not the
-  // same object as the ones in this set even when their sources match.
+  //
+  // BYPASS DEFENSE (audit 8 fix): a server module could fake the
+  // exemption by ADDING `"use client"` at the top + `fetch(evilUrl)`.
+  // The exemption now requires that the ORIGINAL code already had
+  // `"use client"` (the file was already a client component) OR the
+  // original is empty (a new-file creation). A mutation that ADDS
+  // `"use client"` to a server module does NOT get the exemption —
+  // adding a module directive is a behavioral change, not a client-
+  // component invariant. The fetch in that case is still flagged as
+  // evil, and the operator sees the `"use client"` addition in the
+  // diff (suspicious on its own).
+  const hasUseClient = (code: string): boolean =>
+    /^\s*["']use client["']\s*;?\s*(?:\r?\n|$)/m.test(code);
+  const isNewFile = originalCode.trim().length === 0;
+  const isClientComponent =
+    hasUseClient(evolvedCode) && (isNewFile || hasUseClient(originalCode));
   const exemptedPatternSources: ReadonlySet<string> = isClientComponent
     ? new Set([/\bfetch\s*\(/.source])
     : new Set();
@@ -440,10 +448,33 @@ export interface ConvergentMoveResult {
 
 /** Detect whether a diff is a convergent defensive no-op. See the
  *  section doc for the full contract. Returns { convergent: true,
- *  reason } when ALL four heuristic conditions hold; { convergent:
+ *  reason } when ALL three heuristic conditions hold; { convergent:
  *  false, reason } otherwise (with the reason explaining which
  *  condition failed — useful for the test suite and for debugging
- *  a surprising accept/reject). */
+ *  a surprising accept/reject).
+ *
+ *  REDESIGN (audit 8 fix — the "removed > 2 = real refactor" false
+ *  negative). The original heuristic had FOUR conditions, one of
+ *  which was "removed ≤ 2". That treated defensive MODIFICATIONS to
+ *  existing lines (adding `?.` and `?? "N/A"` to non-null Prisma
+ *  fields) as "real refactors" because each modified line counts as
+ *  1 removed + 1 added. The loop exploited this: it committed
+ *  convergent no-ops on oracle-task-feed.ts (lines 114-116) that the
+ *  guard failed to catch.
+ *
+ *  The new heuristic uses THREE conditions, built on NET guard-lexicon
+ *  increase rather than added/removed line counts:
+ *    1. Small total churn (≤ 30 changed lines)
+ *    2. NET guard-lexicon increase ≥ 2 (the evolved code has at least
+ *       2 MORE guard-matching lines than the original, by content
+ *       multiset — this catches BOTH purely-additive guards AND
+ *       defensive modifications to existing lines)
+ *    3. NO behavioral signal in the added/modified lines (no new
+ *       exports, functions, classes, constructed throws, or types)
+ *
+ *  This is SIMPLER (3 conditions, not 4), MORE ROBUST (catches
+ *  modifications, not just additions), and has fewer false negatives
+ *  on the loop's actual convergent-move history. */
 export function detectConvergentMove(
   originalCode: string,
   evolvedCode: string
@@ -467,71 +498,52 @@ export function detectConvergentMove(
     };
   }
 
-  // (2) Predominantly additive. A mutation that removes as much as it
-  //     adds is a refactor (real work), not a convergent no-op. The
-  //     thresholds (added ≥ 3, removed ≤ 2) are tight: the convergent
-  //     pattern is overwhelmingly "add 1-5 guard lines, remove 0-1".
-  if (added.length < 3) {
+  // (2) NET guard-lexicon increase ≥ 2. Count how many lines in the
+  //     ORIGINAL match the guard lexicon, and how many in the
+  //     EVOLVED. By multiset: for each unique line content, if the
+  //     evolved has more copies than the original AND that line
+  //     matches the guard lexicon, the surplus is "net new guard
+  //     content". This catches:
+  //       - Purely additive guards (original had 0, evolved has N):
+  //         net increase = N.
+  //       - Defensive modifications (original had line A, evolved has
+  //         line B with guard syntax added): line A is removed, line
+  //         B is added. If B matches the guard lexicon and A didn't,
+  //         that's +1 net guard. The loop's `?.`/`?? "N/A"` pattern
+  //         on oracle-task-feed.ts: 3 lines modified, each gains a
+  //         `?? "N/A"` match → +3 net guard. The old heuristic missed
+  //         this (it saw 3 removed > 2 → "real refactor"); the new
+  //         one catches it.
+  //     The threshold is ≥ 2 (not ≥ 1) to avoid flagging a single
+  //     legitimate null check as convergent — one guard is a judgment
+  //     call; two or more is a pattern.
+  const guardLineMatches = (lines: string[]): number =>
+    lines.filter((l) => CONVERGENT_MOVE_LEXICON.some((re) => re.test(l))).length;
+  const originalGuardCount = guardLineMatches(
+    // The original's "guard lines" = all original lines that match the
+    // lexicon. We approximate by running the lexicon on the full
+    // original code's lines (not just the removed multiset) — this is
+    // more accurate because a guard that was KEPT (not removed) still
+    // counts against the net increase.
+    originalCode.split("\n").map((l) => l.trim()).filter((l) => l.length > 0)
+  );
+  const evolvedGuardCount = guardLineMatches(
+    evolvedCode.split("\n").map((l) => l.trim()).filter((l) => l.length > 0)
+  );
+  const netGuardIncrease = evolvedGuardCount - originalGuardCount;
+  if (netGuardIncrease < 2) {
     return {
       convergent: false,
-      reason: `too few additions (${added.length} < 3)`,
-    };
-  }
-  if (removed.length > 2) {
-    return {
-      convergent: false,
-      reason: `has removals (${removed.length} > 2 — likely a real refactor)`,
-    };
-  }
-
-  // (3) Added lines ≥ 50% match the defensive-guard lexicon. A
-  //     mutation that adds 5 lines of which 2 are guards and 3 are
-  //     real logic is not convergent — it's a guarded feature.
-  //     SUBSTANTIVE-LINE FILTER: purely structural lines (`}`, `{`,
-  //     `} catch {`, `return null;`, `return;`, bare `else`) are the
-  //     syntactic scaffolding of a guard, not separate additions.
-  //     Counting them in the denominator dilutes the density below
-  //     the threshold for a legitimate try-catch wrap (e.g. `try {`
-  //     + `} catch {` + `if (err instanceof Error) ...` + `return
-  //     null;` + `}` = 5 added lines, 2 guard matches = 40% < 50%).
-  //     These scaffolding lines are excluded from BOTH the numerator
-  //     and the denominator — they neither help nor hurt the density.
-  const isStructuralOnly = (line: string): boolean => {
-    const s = line.trim();
-    if (s.length === 0) return true;
-    if (/^[{}();,]+$/.test(s)) return true; // bare braces / parens / semicolons
-    if (/^\}\s*catch\s*(?:\([^)]*\))?\s*\{?$/.test(s)) return true; // `} catch {`
-    if (/^\}\s*else\s*\{?$/.test(s)) return true; // `} else {`
-    if (/^else\s*\{?$/.test(s)) return true; // `else {`
-    if (/^return\s*(?:null|undefined)?\s*;?\s*$/.test(s)) return true; // `return;` / `return null;`
-    if (/^return\s+(?:null|undefined|''|""|0|false)\s*;?\s*$/i.test(s)) return true;
-    return false;
-  };
-  const substantiveAdded = added.filter((l) => !isStructuralOnly(l));
-  if (substantiveAdded.length < 2) {
-    return {
-      convergent: false,
-      reason: `too few substantive additions (${substantiveAdded.length} < 2)`,
-    };
-  }
-  let guardMatches = 0;
-  for (const line of substantiveAdded) {
-    if (CONVERGENT_MOVE_LEXICON.some((re) => re.test(line))) {
-      guardMatches++;
-    }
-  }
-  const guardDensity =
-    substantiveAdded.length > 0 ? guardMatches / substantiveAdded.length : 0;
-  if (guardDensity < 0.5) {
-    return {
-      convergent: false,
-      reason: `additions not guard-dominated (${guardMatches}/${substantiveAdded.length} substantive = ${(guardDensity * 100).toFixed(0)}% < 50%)`,
+      reason: `net guard-lexicon increase ${netGuardIncrease} < 2 (original ${originalGuardCount} → evolved ${evolvedGuardCount})`,
     };
   }
 
-  // (4) NO behavioral signal in the added lines. A new export,
-  //     function, class, or constructed throw means the mutation
-  //     adds real surface area — it's not a pure no-op guard.
+  // (3) NO behavioral signal in the added/modified lines. A new
+  //     export, function, class, or constructed throw means the
+  //     mutation adds real surface area — it's not a pure no-op
+  //     guard. We check the ADDED lines (the new content, whether
+  //     purely additive or modified — both show up in `added` via
+  //     the multiset diff).
   const addedCode = added.join("\n");
   for (const re of BEHAVIORAL_SIGNAL_LEXICON) {
     if (re.test(addedCode)) {
@@ -542,10 +554,30 @@ export function detectConvergentMove(
     }
   }
 
-  // All four conditions hold — this is a convergent defensive no-op.
+  // (3b) NO behavioral signal in the REMOVED lines either. A diff
+  //     that DELETES functions/exports/classes is a real refactor
+  //     (behavioral surface area was removed), even if the added
+  //     lines are pure guards. The original heuristic caught this via
+  //     "removed > 2 = real refactor"; the redesign dropped that and
+  //     introduced a false positive (removing 3 functions + adding
+  //     3 guards was classified as convergent). This check restores
+  //     the protection: if the removed lines contain behavioral
+  //     signals (functions, exports, classes, constructed throws),
+  //     the mutation is a real refactor, not a convergent no-op.
+  const removedCode = removed.join("\n");
+  for (const re of BEHAVIORAL_SIGNAL_LEXICON) {
+    if (re.test(removedCode)) {
+      return {
+        convergent: false,
+        reason: `removes behavioral signal (matched ${re.source.slice(0, 40)} — real refactor, not a no-op)`,
+      };
+    }
+  }
+
+  // All conditions hold — this is a convergent defensive no-op.
   return {
     convergent: true,
-    reason: `${added.length} additive line(s), ${guardMatches} match defensive-guard lexicon (density ${(guardDensity * 100).toFixed(0)}%), no behavioral signal, ${removed.length} removal(s) — mutations must change observable behavior, not add guards to code that already works`,
+    reason: `${netGuardIncrease} net new guard-lexicon line(s) (original ${originalGuardCount} → evolved ${evolvedGuardCount}), no behavioral signal, ${totalChurn} changed lines — mutations must change observable behavior, not add guards to code that already works`,
   };
 }
 

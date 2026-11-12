@@ -40,8 +40,17 @@ const DISPLAY_SRC_DIR = join(PROJECT_ROOT, "src/app/display");
 // panels) or src/app/api (the API routes), so those files got no
 // deterministic zero-diff-immune fixes. The 4-scope list matches what
 // the loop actually mutates.
-const COMPONENTS_SRC_DIR = join(PROJECT_ROOT, "src/components");
-const API_SRC_DIR = join(PROJECT_ROOT, "src/app/api");
+// ── AUDIT 8 (operator-directed, 2026-11-12): the saturation.ts scope
+//    was rolled back to src/lib/pipeline + src/app (v4). The
+//    COMPONENTS_SRC_DIR is now REMOVED from the SelfTask scan too —
+//    if the loop can't MUTATE src/components, the task generator
+//    shouldn't queue SelfTasks for it either (the task-executor would
+//    try to fix them, and those fixes would land on vendored shadcn
+//    primitives the operator said to leave alone). The API_SRC_DIR is
+//    folded into a broader src/app scan to match saturation.ts v4. This
+//    keeps the two scan surfaces in sync: what the loop can mutate =
+//    what the task generator scans for findings.
+const API_SRC_DIR = join(PROJECT_ROOT, "src/app");
 
 /**
  * Files the system must NOT modify (would break its own loop).
@@ -112,8 +121,10 @@ function listOwnSourceFiles(): string[] {
   };
   scan(PIPELINE_SRC_DIR, false); // .ts only
   scan(DISPLAY_SRC_DIR, true); // .tsx
-  scan(COMPONENTS_SRC_DIR, true); // .tsx (audit 5 — was missing)
-  scan(API_SRC_DIR, false); // .ts (audit 5 — was missing)
+  // AUDIT 8: src/components removed — keep scan scope in sync with
+  // saturation.ts SCAN_SCOPES. The API_SRC_DIR now covers all of
+  // src/app (.ts + .tsx), matching the v4 scope merge.
+  scan(API_SRC_DIR, true); // .ts + .tsx (audit 8 — was src/app/api .ts only)
   return files;
 }
 
@@ -323,8 +334,8 @@ export async function generateTasks(): Promise<ScanResult> {
   };
   scanAll(PIPELINE_SRC_DIR, false);
   scanAll(DISPLAY_SRC_DIR, true);
-  scanAll(COMPONENTS_SRC_DIR, true); // audit 5
-  scanAll(API_SRC_DIR, false); // audit 5
+  // AUDIT 8: src/components removed; src/app covers .ts + .tsx.
+  scanAll(API_SRC_DIR, true); // audit 8 — was src/app/api .ts only
 
   for (const file of files) {
     try {

