@@ -60,11 +60,14 @@ class LoopEventBus {
       // This should ideally never happen if constructor succeeded, but kept for robustness.
       throw new Error("LoopEventBus.emit() called on uninitialized EventEmitter");
     }
-    if (!evt || typeof evt !== 'object') {
-      throw new Error("LoopEventBus.emit() called with null or non-object event");
+    if (!evt) {
+      throw new Error("LoopEventBus.emit() called with null or undefined event");
     }
-    if (typeof evt.timestamp !== "number" || evt.timestamp <= 0) {
-      throw new Error(`LoopEventBus.emit() called with invalid timestamp (must be a positive number, got: ${evt.timestamp})`);
+    if (typeof evt !== 'object') {
+      throw new Error("LoopEventBus.emit() called with non-object event");
+    }
+    if (typeof evt.timestamp !== "number" || !Number.isFinite(evt.timestamp) || evt.timestamp <= 0) {
+      throw new Error(`LoopEventBus.emit() called with invalid timestamp (must be a positive finite number, got: ${evt.timestamp})`);
     }
     if (!evt.kind || typeof evt.kind !== "string") {
       throw new Error("LoopEventBus.emit() called with missing or invalid kind");
