@@ -451,4 +451,102 @@ describe("detectConvergentMove", () => {
     expect(r.verdict).toBe("evil");
     expect(r.reasons.some((x) => x.includes("fetch("))).toBe(true);
   });
+
+  // ── COMMENT FALSE-POSITIVE FIX (audit 8, round 2) ─────────────────
+
+  test("comments containing guard syntax do NOT count as guards", () => {
+    // Two comments that DESCRIBE guard behavior — documentation, not
+    // code. The old version counted them as guard lines (net +2 →
+    // convergent → rejected). With comment-stripping, the guard count
+    // sees zero real guards → not convergent.
+    const original = "export function f(x: T): R {\n  return transform(x);\n}";
+    const evolved = [
+      "export function f(x: T): R {",
+      "  // typeof x === 'string' fast path handled by transform",
+      "  // if (x === null) transform throws — documented upstream contract",
+      "  return transform(x);",
+      "}",
+    ].join("\n");
+    const r = detectConvergentMove(original, evolved);
+    expect(r.convergent).toBe(false);
+  });
+
+  test("a comment mentioning 'export function' does NOT trigger the behavioral-signal escape hatch", () => {
+    // A convergent move (2 real null guards, no behavioral change) that
+    // ALSO adds a comment mentioning "export function". The comment
+    // must not rescue the mutation from the convergent rejection.
+    const original = [
+      "export function process(items: Item[]): number {",
+      "  return items.length;",
+      "}",
+    ].join("\n");
+    const evolved = [
+      "export function process(items: Item[]): number {",
+      "  // export function countItems was merged into process last cycle",
+      "  if (items === null) return 0;",        // real guard 1
+      "  if (items === undefined) return 0;",   // real guard 2
+      "  return items.length;",
+      "}",
+    ].join("\n");
+    const r = detectConvergentMove(original, evolved);
+    // The comment is documentation, not surface area — the 2 real guards
+    // with no behavioral signal is still convergent.
+    expect(r.convergent).toBe(true);
+  });
+
+  // ── OPERATOR-APPROVED EXEMPTION (audit 8, round 2) ────────────────
+
+  test("finalAuthority SKIPS the convergent-move check for operator-approved plans", () => {
+    // An operator-driven chat-task goal can legitimately be "fix the
+    // null handling because the upstream contract changed" — exactly
+    // the convergent pattern, but with operator authority behind it.
+    // The heuristic is for the AUTONOMOUS loop's convergence tendency,
+    // not for operator judgment.
+    const original = [
+      "export function renderName(user: User): string {",
+      "  return `${user.profile.firstName} ${user.profile.lastName}`;",
+      "}",
+    ].join("\n");
+    const evolved = [
+      "export function renderName(user: User): string {",
+      "  if (user.profile === null) return 'unknown';",
+      "  if (user.profile.firstName === undefined) return 'unknown';",
+      "  return `${user.profile.firstName} ${user.profile.lastName}`;",
+      "}",
+    ].join("\n");
+    // Without the flag: rejected (convergent).
+    const without = finalAuthority({
+      filePath: "src/lib/widgets/render.ts",
+      originalCode: original,
+      evolvedCode: evolved,
+    });
+    expect(without.allowed).toBe(false);
+    expect(without.reasons.some((x) => x.includes("convergent-move"))).toBe(true);
+    // With the flag: allowed (operator approved).
+    const withFlag = finalAuthority({
+      filePath: "src/lib/widgets/render.ts",
+      originalCode: original,
+      evolvedCode: evolved,
+      operatorApproved: true,
+    });
+    expect(withFlag.allowed).toBe(true);
+    expect(withFlag.reasons).toEqual([]);
+  });
+
+  test("operatorApproved does NOT bypass protected paths or security checks", () => {
+    // The flag skips ONLY the convergent heuristic. A protected path is
+    // still rejected, and triage (evil tokens) still runs.
+    const original = 'export function f() { return 1; }';
+    const evolved = 'export function f() {\n  return eval("1+1");\n}';
+    const r = gateMutation({
+      filePath: "src/app/page.tsx", // protected path
+      originalCode: original,
+      evolvedCode: evolved,
+      operatorApproved: true,
+    });
+    expect(r.allowed).toBe(false);
+    // triage flags eval( even with the flag:
+    expect(r.rejectedBy).toBe("triage");
+    expect(r.reasons.some((x) => x.includes("eval("))).toBe(true);
+  });
 });

@@ -17,15 +17,29 @@ interface CatalogEntry {
  */
 export async function GET() {
   try {
-    const sources: CatalogEntry[] = SIPHON_SOURCES.map((source) => ({
-      source,
-      count: source.patterns.length,
-      complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
-      // Honest label: these are CONFIGURED siphon sources (declarative
-      // config), not verified-live remote repositories. No liveness probe
-      // is performed here, so we don't claim "active".
-      status: "configured",
-    }));
+    if (!SIPHON_SOURCES) {
+      return NextResponse.json(
+        { error: "Catalog sources not available - SIPHON_SOURCES is undefined" },
+        { status: 500 }
+      );
+    }
+
+    const sources: CatalogEntry[] = SIPHON_SOURCES.map((source) => {
+      if (!source || !source.patterns) {
+        throw new Error("Invalid siphon source: missing required 'patterns' property");
+      }
+      
+      return {
+        source,
+        count: source.patterns.length,
+        complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
+        // Honest label: these are CONFIGURED siphon sources (declarative
+        // config), not verified-live remote repositories. No liveness probe
+        // is performed here, so we don't claim "active".
+        status: "configured",
+      };
+    });
+    
     return NextResponse.json({ sources });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during catalog retrieval.";
