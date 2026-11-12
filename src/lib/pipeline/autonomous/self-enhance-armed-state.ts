@@ -124,7 +124,7 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
           armed: parsed.armed,
           at: parsed.at,
           by: parsed.by,
-        };
+        } as SelfEnhanceArmedState;
       }
     }
     return null;

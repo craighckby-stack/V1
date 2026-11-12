@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { liveSelfEnhanceLoop } from "@/lib/pipeline/autonomous/self-enhance-loop";
+import { workerFetch, ensureWorkerRunning } from "@/lib/pipeline/autonomous/loop-worker-client";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,8 +21,25 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    const result = liveSelfEnhanceLoop().unlockFile(body.filePath);
-    return NextResponse.json({ ok: result.unlocked, ...result });
+    const alive = await ensureWorkerRunning();
+    if (!alive) {
+      return NextResponse.json(
+        { ok: false, error: "Loop worker unreachable — unlock not applied." },
+        { status: 503 }
+      );
+    }
+    const r = await workerFetch("/unlock", {
+      method: "POST",
+      body: JSON.stringify({ filePath: body.filePath }),
+      timeoutMs: 10000,
+    });
+    if (!r?.ok || !r.data) {
+      return NextResponse.json(
+        { ok: false, error: "Worker unlock failed." },
+        { status: 502 }
+      );
+    }
+    return NextResponse.json(r.data);
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: (err as Error).message },
