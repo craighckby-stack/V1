@@ -88,6 +88,11 @@ export function emitOracleEvent(
     throw new TypeError("Oracle event message must be a string");
   }
   
+  // Validate type parameter
+  if (!["info", "success", "warn", "error"].includes(type)) {
+    throw new TypeError(`Invalid event type: ${type}. Must be one of: info, success, warn, error`);
+  }
+  
   const s = state();
   const trimmed =
     message.length > 300 ? `${message.slice(0, 299)}…` : message;
@@ -127,8 +132,9 @@ export function emitOracleEvent(
         body: JSON.stringify(event),
         signal: AbortSignal.timeout(2000),
       }
-    ).catch(() => {
-      /* display-stream only — drop on failure */
+    ).catch((error) => {
+      // Log the error for debugging but don't block the main flow
+      console.error("Failed to send oracle event to server:", error);
     });
   }
 
