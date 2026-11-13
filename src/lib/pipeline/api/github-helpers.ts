@@ -45,7 +45,7 @@ export function getUsableToken(clientToken?: string): string | null {
   return candidate;
 }
 
-export function githubHeaders(token: string | null): Record<string, string> {
+export function githubHeaders(token: string | null | undefined): Record<string, string> {
   if (token === null) {
     return {
       "User-Agent": USER_AGENT,
