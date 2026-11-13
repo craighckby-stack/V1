@@ -110,11 +110,17 @@ function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
  *  criterion — everything the LLM executor needs to understand WHY
  *  this task exists without re-querying the Prophecy table. */
 function buildEvidence(prophecy: Prophecy): string {
+  const confidenceStr = prophecy.confidence !== undefined && prophecy.confidence !== null
+    ? prophecy.confidence.toFixed(2)
+    : "N/A";
+  const createdAtStr = prophecy.createdAt?.toISOString() ?? "N/A";
+  const evaluateByStr = prophecy.evaluateBy?.toISOString() ?? "N/A";
+
   return (
     `Oracle self-prophecy FAILED by deadline. ` +
     `Claim: "${prophecy.claim ?? "N/A"}". ` +
-    `Confidence when made: ${prophecy.confidence?.toFixed(2) ?? "N/A"}. ` +
-    `Made at ${prophecy.createdAt?.toISOString() ?? "N/A"}, deadline ${prophecy.evaluateBy?.toISOString() ?? "N/A"}. ` +
+    `Confidence when made: ${confidenceStr}. ` +
+    `Made at ${createdAtStr}, deadline ${evaluateByStr}. ` +
     `Criterion: ${prophecy.falsifiabilityCriterion ?? "N/A"}`
   );
 }
