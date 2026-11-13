@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/self-model/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/autonomous/self-task-generator.ts(453,44): error TS2345: Argument of type '{ readonly where: { status: string; kind: { in: string[]; }; } | { status: string; kind?: undefined; }; readonly orderBy: readonly [{ readonly priority: \"asc\"; }, { readonly deferred: \"asc\"; }, { readonly createdAt: \"asc\"; }]; }' is not assignable to parameter of type '{ select?: SelfTaskSelect<DefaultArgs> | null | undefined; omit?: SelfTaskOmit<DefaultArgs> | null | undefined; where?: SelfTaskWhereInput | undefined; ... 4 more ...; distinct?: SelfTaskScalarFieldEnum | ... 1 more ... | undefined; }'.\n  Types of property 'orderBy' are incompatible.\n    Type 'readonly [{ readonly priority: \"asc\"; }, { readonly deferred: \"asc\"; }, { readonly createdAt: \"asc\"; }]' is not assignable to type 'SelfTaskOrderByWithRelationInput | SelfTaskOrderByWithRelationInput[] | undefined'.\n      The type 'readonly [{ readonly priority: \"asc\"; }, { readonly deferred: \"asc\"; }, { readonly createdAt: \"asc\"; }]' is 'readonly' and cannot be assigned to the mutable type 'SelfTaskOrderByWithRelationInput[]'.; src/lib/pipeline/autonomous/self-task-generator.ts(465,32): error TS2345: Argument of type '{ readonly where: { status: string; kind: { in: string[]; }; } | { status: string; kind?: undefined; }; readonly orderBy: readonly [{ readonly priority: \"asc\"; }, { readonly deferred: \"asc\"; }, { readonly createdAt: \"asc\"; }]; }' is not assignable to parameter of type '{ select?: SelfTaskSelect<DefaultArgs> | null | undefined; omit?: SelfTaskOmit<DefaultArgs> | null | undefined; where?: SelfTaskWhereInput | undefined; ... 4 more ...; distinct?: SelfTaskScalarFieldEnum | ... 1 more ... | undefined; }'.\n  Types of property 'orderBy' are incompatible.\n    Type 'readonly [{ readonly priority: \"asc\"; }, { readonly deferred: \"asc\"; }, { readonly createdAt: \"asc\"; }]' is not assignable to type 'SelfTaskOrderByWithRelationInput | SelfTaskOrderByWithRelationInput[] | undefined'.\n      The type 'readonly [{ readonly priority: \"asc\"; }, { readonly deferred: \"asc\"; }, { readonly createdAt: \"asc\"; }]' is 'readonly' and cannot be assigned to the mutable type 'SelfTaskOrderByWithRelationInput[]'.",
@@ -12,8 +12,8 @@
   "parentHash": "d933a9e76c58a520a23a983b1dc1f9232adad610b25b5833a155808d8bbf7850",
   "hash": "48eb374dc4cfc7af268d5dab3b0ec8c63524209b765e081954a881a776edb848",
   "lastAttemptAt": "2026-11-13T07:38:04.091Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-13T07:52:52.217Z",
   "createdAt": "2026-11-13T06:58:03.931Z",
-  "updatedAt": "2026-11-13T07:38:04.091Z",
+  "updatedAt": "2026-11-13T07:52:52.217Z",
   "schema": 2
 }

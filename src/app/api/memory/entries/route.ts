@@ -28,11 +28,14 @@ export async function GET() {
     
     // Empty entries array is a valid response, not an error
     return NextResponse.json({ entries: entries || [] });
-  } catch (err) {
+  } catch (err: unknown) {
     let errorMessage = "An unknown error occurred while fetching memory entries.";
     if (err instanceof Error) {
       // Provide context but sanitize the message for external API consumption
       errorMessage = `Failed to retrieve memory entries: ${err.message}`;
+    } else {
+      // Handle non-Error objects gracefully
+      errorMessage = "An unknown, non-Error object was encountered while fetching memory entries.";
     }
     return NextResponse.json(
       { error: errorMessage },
