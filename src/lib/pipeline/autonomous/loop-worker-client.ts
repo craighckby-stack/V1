@@ -56,13 +56,12 @@ export async function workerFetch<T = unknown>(
 
     let data: T | null = null;
     
-    // Attempt to parse JSON regardless of res.ok status, as status codes
-    // (like 4xx/5xx) often return JSON error bodies.
-    if (res.ok || res.status >= 400) { // Only attempt JSON parsing if response body might contain data
+    // Attempt to parse JSON only if the response was successful (2xx).
+    if (res.ok) {
         try {
           data = await res.json();
         } catch (e) {
-          // Failed to parse JSON. Data remains null.
+          // Failed to parse JSON on a successful response. Data remains null.
           data = null;
         }
     }
@@ -102,6 +101,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   lastSpawnAt = Date.now();
   isSpawning = true;
 
+  let spawnSuccessful = false;
   try {
     const { spawn } = await import("child_process");
     const path = await import("path");
@@ -130,6 +130,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
       }
     );
     child.unref();
+    spawnSuccessful = true;
   } catch (error) {
     console.error("Failed to spawn loop worker:", error);
     return false;
