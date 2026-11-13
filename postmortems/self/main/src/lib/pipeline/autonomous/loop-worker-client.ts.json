@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/autonomous/loop-worker-client.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "TOCTOU conflict on src/lib/pipeline/autonomous/loop-worker-client.ts: disk content changed between read and gated write",
@@ -12,8 +12,8 @@
   "parentHash": "ca5155e936db9bec0bed1a46b353e30ad7b34e8de45e946c59e7d61cbdbb761b",
   "hash": "f690082105d217fabf6cd73426258ce6c0e03260a7a500f45f02ad57f66ce4f3",
   "lastAttemptAt": "2026-11-13T07:35:54.210Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-13T07:51:19.117Z",
   "createdAt": "2026-11-13T06:58:03.969Z",
-  "updatedAt": "2026-11-13T07:35:54.210Z",
+  "updatedAt": "2026-11-13T07:51:19.117Z",
   "schema": 2
 }

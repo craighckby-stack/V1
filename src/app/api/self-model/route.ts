@@ -50,14 +50,14 @@ export async function POST(req: Request) {
   try {
     // Check if request exists and has json method
     if (!req || typeof req.json !== 'function') {
-        throw new Error("Invalid Request object provided to POST handler.");
+        throw new Error("Invalid Request object provided to POST handler: missing or invalid req object.");
     }
     
     const body = await req.json();
     
     // Validate body is an object
     if (typeof body !== 'object' || body === null) {
-      throw new Error("Request body must be an object");
+      throw new Error("Request body must be a non-null object");
     }
     
     // Validate force parameter if present
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
       );
     }
     
-    // Handle other validation errors
+    // Handle other validation errors (including custom Errors thrown above)
     if (e instanceof Error) {
       return NextResponse.json(
         { error: `Invalid request body: ${e.message}` },
@@ -85,9 +85,9 @@ export async function POST(req: Request) {
       );
     }
     
-    // Fallback for unknown error types
+    // Fallback for unknown error types during parsing/validation
     return NextResponse.json(
-      { error: "Invalid request body" },
+      { error: "Invalid request body: Unknown error during parsing or validation." },
       { status: 400 }
     );
   }
@@ -100,10 +100,10 @@ export async function POST(req: Request) {
       // a fresh module scope, so force works after a server-side re-eval.
       // In a long-running process without re-eval, force is a no-op
       // (the model already has rows). Both are safe.
-      await bootstrapSelfModel().catch(() => {});
+      await bootstrapSelfModel(); // Await the promise, don't swallow errors silently if we want to log them properly
     } catch (bootstrapError) {
-      // Log bootstrap failure but allow summary retrieval to proceed if possible
-      console.error("Failed to bootstrap self-model:", bootstrapError);
+      // Log bootstrap failure with context
+      console.error("Failed to bootstrap self-model during POST operation:", bootstrapError);
     }
   }
   
