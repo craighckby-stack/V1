@@ -165,33 +165,34 @@ export function readOracleEvents(afterSeq?: number): {
   seq: number;
 } {
   const s = state();
+  const currentSeq = s.seq;
   
   if (typeof afterSeq === "number") {
     if (!Number.isInteger(afterSeq) || afterSeq < 0) {
       throw new Error(`Invalid afterSeq provided: ${afterSeq}. afterSeq must be a non-negative integer.`);
     }
-    const currentSeq = s.seq;
+    
     if (afterSeq >= currentSeq) {
       s.lastReadAt = Date.now(); // Update lastReadAt even when no events
       return { events: [], seq: currentSeq };
     }
     
+    // The sequence of the event at index i is: currentSeq - buffer.length + i
+    const bufferLength = s.buffer.length;
+    
     // Find the starting index of the first event whose sequence is > afterSeq.
-    let startIndex = 0;
-    let foundStart = false;
-    for (let i = 0; i < s.buffer.length; i++) {
-      // The sequence of buffer[i] is implicitly (s.seq - s.buffer.length + i).
-      const eventSeq = s.seq - s.buffer.length + i;
+    let startIndex = -1;
+    for (let i = 0; i < bufferLength; i++) {
+      const eventSeq = currentSeq - bufferLength + i;
       if (eventSeq > afterSeq) {
         startIndex = i;
-        foundStart = true;
         break;
       }
     }
     
-    if (!foundStart) {
-      // If we looped through everything and none were > afterSeq, this contradicts afterSeq < currentSeq
-      // unless the buffer is empty or the sequence tracking is inconsistent. Return empty set.
+    if (startIndex === -1) {
+      // This should only happen if afterSeq < currentSeq but all events are <= afterSeq,
+      // which implies sequence tracking inconsistency or buffer underflow relative to seq.
       s.lastReadAt = Date.now();
       return { events: [], seq: currentSeq };
     }
