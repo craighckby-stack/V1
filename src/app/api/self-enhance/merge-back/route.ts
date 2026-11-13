@@ -45,7 +45,7 @@ export async function GET(req: Request) {
       }
       return NextResponse.json({ ok: true, plan });
     }
-    const candidates = listMergeBackCandidates();
+    const candidates = await listMergeBackCandidates();
     return NextResponse.json({ ok: true, candidates, count: candidates.length });
   } catch (err) {
     return NextResponse.json(
@@ -79,7 +79,7 @@ export async function POST(req: Request) {
         : "dry-run";
     const push = body.push === true;
 
-    const result = executeMergeBack(branch, { strategy, push });
+    const result = await executeMergeBack(branch, { strategy, push });
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(
