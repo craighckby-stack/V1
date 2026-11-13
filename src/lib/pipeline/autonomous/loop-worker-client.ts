@@ -19,6 +19,7 @@
 const WORKER_URL = process.env.LOOP_WORKER_URL ?? "http://localhost:3004";
 
 let lastSpawnAt = 0;
+let isSpawning = false;
 
 export interface WorkerResult<T = unknown> {
   ok: boolean;
@@ -32,8 +33,8 @@ export async function workerFetch<T = unknown>(
   pathname: string,
   init?: RequestInit & { timeoutMs?: number }
 ): Promise<WorkerResult<T> | null> {
-  if (!pathname) {
-    console.error("workerFetch called with empty pathname.");
+  if (!pathname || typeof pathname !== "string" || pathname.trim() === "") {
+    console.error("workerFetch called with invalid pathname.");
     return null;
   }
   const timeoutMs = init?.timeoutMs ?? 5000;
@@ -83,8 +84,9 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   // Respawn guard: at most one spawn attempt per 10s per server process.
   // Without this, a burst of polls while the worker boots would spawn a
   // fork bomb; with it, concurrent callers share one attempt.
-  if (Date.now() - lastSpawnAt < 10_000) return false;
+  if (Date.now() - lastSpawnAt < 10_000 || isSpawning) return false;
   lastSpawnAt = Date.now();
+  isSpawning = true;
 
   try {
     const { spawn } = await import("child_process");
@@ -100,7 +102,8 @@ export async function ensureWorkerRunning(): Promise<boolean> {
         path.join("mini-services", "loop-worker", "worker.log"),
         "a"
       );
-    } catch {
+    } catch (error) {
+      console.error("Failed to open worker log file:", error);
       /* fall back to ignore — narration is best-effort */
     }
     const child = spawn(
@@ -116,6 +119,8 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   } catch (error) {
     console.error("Failed to spawn loop worker:", error);
     return false;
+  } finally {
+    isSpawning = false;
   }
 
   // Wait up to ~5s for boot (pipeline import graph: Prisma + TS compiler
