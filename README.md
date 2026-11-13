@@ -507,7 +507,7 @@ Standard shadcn/ui components — accordion, alert, alert-dialog, aspect-ratio, 
 | `sandbox-test.ts` | Disposable `.loop-sandbox/verify-XXXX/`; candidate never touches live tree; isolated DB (blank when live >32MB); paranoia guard on `rmSync` |
 | `test-gate-journal.ts` | Defense-in-depth crash insurance (v1 era); 1-hour age expiry so a stale journal never reverts committed work |
 | `tree-lock.ts` | FIFO mutex serializing live-tree writers (loop vs chat-task) |
-| `siphon.ts` | Architectural pattern ingestion from 5 grafted sources; `performArchitecturalVote` by keyword threshold |
+| `siphon.ts` | Reference list of grafted sources; `performArchitecturalVote` is an honest no-op (direct LLM refactor — the classifier was de-mocked in audit 7) |
 | `binaryShield.ts` | SHA-256 helper (`computeHash`); used by the convergence stage |
 | `exclusion-patterns.ts` | Shared exclusion patterns for scan + AST + archaeology (lockfiles, generated, ledger/meta) |
 

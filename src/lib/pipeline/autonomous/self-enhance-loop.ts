@@ -545,85 +545,20 @@ class SelfEnhanceLoop {
         /* table missing — dormant, same as the seed calls */
       });
 
-    // ── HOT-SWAP STATE CONTINUITY (audit 3, B4/B11) ─────────────────
-    // Every post-enhancement swap used to reset this instance's state:
-    // cyclesCompleted → 0 (restarting the distillation cadence and the
-    // meta-tuner's 70-cycle warm-up — D8 effectively disabled in steady
-    // state), saturation lockouts → cleared (locked-out files burned
-    // quota again), cooldown streak → forgotten. The hot-swap now stashes
-    // a snapshot (see core/hot-swap.ts SELF_SNAPSHOT_SLOT) right before
-    // clearing the pins; the FIRST post-swap instance restores it here.
-    // Consumed (cleared) only when the resume actually fires — a
-    // transient instance that never arms leaves the snapshot for the
-    // one that does (same survival contract as the loop-runtime
-    // snapshot).
-    try {
-      // require, not import: mirrors loop-runtime's snapshot consume —
-      // avoids any static-import cycle at module-eval time. Audit 3 (F12):
-      // typeof-guarded like loop-runtime's own requires — an unguarded
-      // destructure over an empty interop namespace throws, and the outer
-      // catch then misdiagnoses a REAL snapshot as "first boot, none".
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const hotSwapMod = require("../core/hot-swap") as Partial<{
-        consumeSelfEnhanceSnapshot: () => import("../core/hot-swap").SelfEnhanceSnapshot | null;
-        clearSelfEnhanceSnapshot: () => void;
-      }>;
-      const consumeSnap =
-        typeof hotSwapMod.consumeSelfEnhanceSnapshot === "function"
-          ? hotSwapMod.consumeSelfEnhanceSnapshot
-          : null;
-      const clearSnap =
-        typeof hotSwapMod.clearSelfEnhanceSnapshot === "function"
-          ? hotSwapMod.clearSelfEnhanceSnapshot
-          : null;
-      const snap = consumeSnap ? consumeSnap() : null;
-      if (snap) {
-        // Audit 3 (F2 secondary): the consumed snapshot is cleared
-        // immediately, not only inside the resume timer — a
-        // continuous:false snapshot used to linger on globalThis until
-        // the next swap overwrote it.
-        if (clearSnap) clearSnap();
-        this.restoreFromSnapshot(snap);
-        // AUDIT 3 (B3): orphaned meta-tuner trials. If the OLD instance
-        // was mid-A/B-trial when the swap fired, the DB row is still
-        // provenance="trial" with the trial VALUE live — and nothing on
-        // the swap path reverted it (seedMetaParams only ran at operator
-        // START). An unvalidated value silently became permanent tuning.
-        // seedMetaParams reverts trial rows to baseline; running it here
-        // (both the resume and the stopped case) means an unfinished A/B
-        // never survives a swap. Idempotent — safe alongside runContinuous's
-        // own call on the resume path.
-        void seedMetaParams().catch(() => {
-          /* table missing — dormant, same as the runContinuous call */
-        });
-        this.log(
-          `State restored from hot-swap snapshot (${snap.stats.cyclesCompleted} cycles, ${snap.saturation.length} saturation entr(ies)) — compounding cadence preserved`,
-          "info"
-        );
-        if (snap.continuous) {
-          // The OLD instance was running continuously when the swap fired.
-          // pauseLoop() stopped it (by design — no rogue loop); the new
-          // instance resumes on the next tick so a post-enhancement swap
-          // doesn't halt the autonomy after one pipeline-file improvement.
-          // Pin-check guard: only the instance that actually pinned itself
-          // as the singleton resumes (belt-and-braces — the constructor
-          // only runs when the pin is absent, but the guard makes the
-          // contract explicit and cheap).
-          const g = globalThis as unknown as { __selfEnhanceLoop?: SelfEnhanceLoop };
-          setTimeout(() => {
-            if (g.__selfEnhanceLoop !== this) return; // a different instance won the pin
-            if (!this.continuous) {
-              this.log("Resuming continuous self-enhancement after hot-swap", "success");
-              void this.runContinuous().catch((err) => {
-                this.log(`Resumed loop crashed: ${(err as Error).message}`, "error");
-              });
-            }
-          }, 1500);
-        }
-      }
-    } catch {
-      /* hot-swap module not loaded — first boot, no snapshot (normal) */
-    }
+    // ── HOT-SWAP STATE CONTINUITY — REMOVED (cripple-check F3) ──────
+    // The constructor used to consume a hot-swap snapshot here (audit 3,
+    // B4/B11): the server's hotSwapPipeline stashed the loop's state on
+    // globalThis before a swap, and the first post-swap instance restored
+    // it (stats, saturation lockouts, cooldown streak) and resumed if the
+    // old instance was continuous. After the worker split this can never
+    // happen: the server no longer hosts the loop (so no snapshot is ever
+    // stashed — SELF_SNAPSHOT_SLOT machinery deleted from hot-swap.ts),
+    // and the worker's own pin (__selfEnhanceLoop) is set once at worker
+    // boot and never cleared, so no new instance is ever constructed
+    // mid-life. The consume/restore block was dead code that a future
+    // refactor could mistake for a live seam. State continuity across
+    // worker reboots is the armed-tier contract (boot auto-start), not a
+    // snapshot restore.
 
     // ── SELF-MODEL BOOTSTRAP (audit 7 — the cognitive core) ──────────
     // One-time: aggregate the MutationCorpus audit trail (every attempt
@@ -3457,25 +3392,11 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
     return this.continuous;
   }
 
-  /** Restore compounding state from a hot-swap snapshot. Called by the
-   *  constructor's snapshot block AND by the liveSelfEnhanceLoop() reaper
-   *  (the safety net for when the constructor never runs because Turbopack
-   *  didn't re-evaluate the module). Centralizes the private-field writes
-   *  so the reaper doesn't need direct access. */
-  restoreFromSnapshot(snap: import("../core/hot-swap").SelfEnhanceSnapshot): void {
-    this.stats = { ...this.stats, ...snap.stats };
-    this.saturation = new Map(
-      snap.saturation as Array<[string, FileSaturation]>
-    );
-    this.consecutiveCooldownCycles = snap.consecutiveCooldownCycles;
-    this.quotaExhaustedLogged = snap.quotaExhaustedLogged;
-  }
-
-  /** Public log passthrough for the reaper (which lives outside the class
-   *  and can't call the private `log` directly). */
-  logMsg(message: string, type: "info" | "success" | "warn" | "error" = "info"): void {
-    this.log(message, type);
-  }
+  // (restoreFromSnapshot was removed in the cripple-check (F3): its only
+  // callers were the constructor's and liveSelfEnhanceLoop's snapshot
+  // consume blocks — both deleted with the snapshot machinery in
+  // hot-swap.ts. If state ever needs to cross a process boundary again,
+  // model it as an explicit worker-API payload, not a globalThis stash.)
 
   getStats() {
     return { ...this.stats };
@@ -3597,72 +3518,13 @@ if (!globalForSelfEnhance.__selfEnhanceLoop) {
  * port 3004): this function is only called in the WORKER process (the
  * server proxies through the worker via loop-worker-client.ts). There's
  * no server-side hot-swap that clears `__selfEnhanceLoop` anymore —
- * the pin is set once at worker boot and stays. The "reaper" block
- * below is kept as a defensive no-op: SELF_SNAPSHOT_SLOT is never
- * populated in the worker (the server doesn't stash snapshots for
- * the worker's loop), so consumeSelfEnhanceSnapshot always returns
- * null. The live-loop indirection is still harmless — it just returns
- * the same singleton every call.
+ * the pin is set once at worker boot and stays, so the indirection
+ * just returns the same singleton every call. (The former snapshot
+ * "reaper" block was deleted in the cripple-check (F4): with the
+ * snapshot machinery gone and the pin never cleared, nothing can ever
+ * appear in the slot for it to consume.)
  */
 export function liveSelfEnhanceLoop(): SelfEnhanceLoop {
   const g = globalThis as unknown as { __selfEnhanceLoop?: SelfEnhanceLoop };
-  const loop = g.__selfEnhanceLoop ?? selfEnhanceLoop;
-  // ── HOT-SWAP SNAPSHOT REAPER (defensive no-op after worker split) ──
-  // Pre-split: the server's hot-swap stashed a snapshot on globalThis
-  // (SELF_SNAPSHOT_SLOT) and touched the module mtime, expecting
-  // Turbopack to re-evaluate the module → run the constructor → consume
-  // the snapshot → resume the loop. Turbopack uses content hashing,
-  // not mtime — touching mtime without changing content doesn't
-  // trigger re-evaluation. This reaper ran on every liveSelfEnhanceLoop()
-  // call to consume any stashed snapshot the constructor missed.
-  //
-  // Post-split: the SERVER no longer stashes self-enhance snapshots
-  // (the loop isn't in the server anymore), and the worker doesn't
-  // trigger its own hot-swap (the worker-side hotSwapPipeline call was
-  // removed because pauseLoop() would suicide the worker's loop). The
-  // slot is permanently empty in the worker; consumeSelfEnhanceSnapshot
-  // always returns null. The block is kept as a defensive guard: if a
-  // snapshot ever appears (future feature, manual injection, debug),
-  // it would be honored — but in the current architecture it's a no-op.
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const hotSwapMod = require("../core/hot-swap") as Partial<{
-      consumeSelfEnhanceSnapshot: () => import("../core/hot-swap").SelfEnhanceSnapshot | null;
-      clearSelfEnhanceSnapshot: () => void;
-    }>;
-    const consumeSnap =
-      typeof hotSwapMod.consumeSelfEnhanceSnapshot === "function"
-        ? hotSwapMod.consumeSelfEnhanceSnapshot
-        : null;
-    const clearSnap =
-      typeof hotSwapMod.clearSelfEnhanceSnapshot === "function"
-        ? hotSwapMod.clearSelfEnhanceSnapshot
-        : null;
-    const snap = consumeSnap ? consumeSnap() : null;
-    if (snap) {
-      if (clearSnap) clearSnap();
-      // Restore compounding state on the LIVE singleton via the public
-      // method (private fields aren't accessible from this scope).
-      loop.restoreFromSnapshot(snap);
-      loop.logMsg(
-        `State restored from hot-swap snapshot (reaper) (${snap.stats.cyclesCompleted} cycles, ${snap.saturation.length} saturation entr(ies)) — constructor didn't run, reaper caught it`,
-        "info"
-      );
-      // Resume if the loop was continuous before the swap and isn't already
-      // running (the 1500ms constructor resume timer is the primary path;
-      // this is the fallback when that timer never fires).
-      if (snap.continuous && !loop.isContinuous()) {
-        loop.logMsg(
-          "Resuming continuous self-enhancement after hot-swap (reaper)",
-          "success"
-        );
-        void loop.runContinuous().catch((err) => {
-          loop.logMsg(`Reaper resume crashed: ${(err as Error).message}`, "error");
-        });
-      }
-    }
-  } catch {
-    /* hot-swap module not loaded — no-op */
-  }
-  return loop;
+  return g.__selfEnhanceLoop ?? selfEnhanceLoop;
 }

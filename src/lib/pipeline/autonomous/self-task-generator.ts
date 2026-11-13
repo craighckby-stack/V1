@@ -427,6 +427,24 @@ export async function listTasks(status?: string, limit = 30) {
   });
 }
 
+/** The claim ordering/filter, in ONE place (cripple-check F18: the
+ *  scripts/test-claim.ts debug tool used to hand-duplicate this query —
+ *  if the ordering or filters changed, the script drifted silently and
+ *  misled whoever was debugging). Both claimNextTask and peekNextTask
+ *  derive from this, so they can never disagree. */
+function taskClaimQuery(onlyDeterministic: boolean) {
+  return {
+    where: onlyDeterministic
+      ? { status: "pending" as const, kind: { in: ["missing-return-type", "unused-import"] } }
+      : { status: "pending" as const },
+    orderBy: [
+      { priority: "asc" as const },
+      { deferred: "asc" as const },
+      { createdAt: "asc" as const },
+    ],
+  };
+}
+
 /** Pull the next pending task. Ordering: priority asc, then `deferred` asc,
  * then createdAt asc. The `deferred` ordering is the DEFER-ROTATION fix:
  * when a task is deferred (LLM 429), its `deferred` counter increments and
@@ -436,17 +454,19 @@ export async function listTasks(status?: string, limit = 30) {
  * `onlyDeterministic` restricts claiming to checker-inferred fix kinds — used
  * when the LLM is rate-limited so the loop still has executable work. */
 export async function claimNextTask(onlyDeterministic = false) {
-  const next = await db.selfTask.findFirst({
-    where: onlyDeterministic
-      ? { status: "pending", kind: { in: ["missing-return-type", "unused-import"] } }
-      : { status: "pending" },
-    orderBy: [{ priority: "asc" }, { deferred: "asc" }, { createdAt: "asc" }],
-  });
+  const next = await db.selfTask.findFirst(taskClaimQuery(onlyDeterministic));
   if (!next) return null;
   return db.selfTask.update({
     where: { id: next.id },
     data: { status: "in_progress", attempts: { increment: 1 } },
   });
+}
+
+/** Side-effect-free PEEK at the same winner claimNextTask would pick —
+ *  same query object (taskClaimQuery), no status mutation. Used by the
+ *  scripts/test-claim.ts debug tool. */
+export async function peekNextTask(onlyDeterministic = false) {
+  return db.selfTask.findFirst(taskClaimQuery(onlyDeterministic));
 }
 
 export function getTaskMethod(kind: string): "deterministic" | "llm" {

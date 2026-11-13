@@ -116,7 +116,7 @@ export async function listDueProphecies(asOf: Date = new Date()): Promise<Prophe
  *  because the full history could grow large; the UI paginates further. */
 export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
   // Validate limit parameter
-  if (typeof limit !== 'number' || limit < 0) {
+  if (typeof limit !== 'number' || limit < 0 || !isFinite(limit)) {
     return [];
   }
 
@@ -135,7 +135,7 @@ export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
  *  per-target path. */
 export async function getProphecy(id: string): Promise<ProphecyRow | null> {
   // Validate id parameter
-  if (!id || typeof id !== 'string' || !id.trim()) {
+  if (typeof id !== 'string' || !id.trim()) {
     return null;
   }
 
@@ -143,7 +143,7 @@ export async function getProphecy(id: string): Promise<ProphecyRow | null> {
     const prophecy = await db.prophecy.findUnique({ where: { id } });
     return prophecy || null;
   } catch (error) {
-    console.error("Failed to get prophecy in getProphecy:", error);
+    console.error(`Failed to get prophecy with ID ${id} in getProphecy:`, error);
     return null;
   }
 }
@@ -157,7 +157,7 @@ export async function judgeProphecy(
   evaluation: string,
 ): Promise<ProphecyRow | null> {
   // Validate id parameter
-  if (!id || typeof id !== 'string' || !id.trim()) {
+  if (typeof id !== 'string' || !id.trim()) {
     return null;
   }
   
@@ -167,7 +167,7 @@ export async function judgeProphecy(
   }
   
   // Validate evaluation parameter
-  if (!evaluation || typeof evaluation !== 'string' || !evaluation.trim()) {
+  if (typeof evaluation !== 'string' || !evaluation.trim()) {
     return null;
   }
 
@@ -181,7 +181,7 @@ export async function judgeProphecy(
       },
     });
   } catch (error) {
-    console.error("Failed to judge prophecy in judgeProphecy:", error);
+    console.error(`Failed to judge prophecy with ID ${id} in judgeProphecy:`, error);
     return null;
   }
 }
@@ -223,7 +223,7 @@ export async function getProphecyCounts(): Promise<{
     };
     
     // Process the groupBy results safely
-    if (result && Array.isArray(result)) {
+    if (Array.isArray(result)) {
       result.forEach(item => {
         if (item.status && item.status in counts) {
           counts[item.status as keyof typeof counts] = item._count.status;
@@ -256,7 +256,7 @@ export async function getJudgedPropheciesForCalibration(): Promise<
       select: { confidence: true, status: true },
     });
     
-    // Ensure we return an array, even if the query returns null
+    // Ensure we return an array, even if the query returns null (Prisma usually returns [] for no results)
     return prophecies || [];
   } catch (error) {
     console.error("Failed to get judged prophecies for calibration in getJudgedPropheciesForCalibration:", error);

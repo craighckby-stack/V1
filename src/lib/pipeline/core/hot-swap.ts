@@ -115,56 +115,14 @@ const GLOBAL_PINS = [
 // slot on creation.
 export const SNAPSHOT_SLOT = "__loopHotSwapSnapshot";
 
-// ── Self-enhance loop state continuity (audit 3, B4/B11) ────────────────
-// Historical slot for stashing the self-enhance loop's state across a
-// hot-swap. After the worker split (the self-enhance loop moved to
-// mini-services/loop-worker), the SERVER no longer hosts the loop and
-// never produces a snapshot to stash here. The exports are kept as
-// no-ops because the worker's self-enhance-loop.ts still imports them
-// in its constructor (defensive: if a snapshot ever appears, restore
-// it; in practice the slot is always empty now).
-export const SELF_SNAPSHOT_SLOT = "__selfEnhanceLoopSnapshot";
-
-export interface SelfEnhanceSnapshot {
-  /** True when the OLD instance was running continuously — the new
-   *  instance schedules an auto-resume so a post-enhancement swap
-   *  doesn't halt the autonomy after one pipeline-file improvement. */
-  continuous: boolean;
-  stats: {
-    totalScanned: number;
-    totalEnhanced: number;
-    totalReverted: number;
-    totalPushed: number;
-    testsWritten: number;
-    cyclesCompleted: number;
-    tasksGenerated: number;
-    lastEnhancementAt: string | null;
-  };
-  /** Per-file saturation lockouts (repo-relative path → state). */
-  saturation: Array<[string, unknown]>;
-  consecutiveCooldownCycles: number;
-  quotaExhaustedLogged: boolean;
-  stashedAt: number;
-  reason: string;
-}
-
-/** Read (not consume) the stashed self-enhance snapshot. Called by the
- *  SelfEnhanceLoop constructor in the worker. Always returns null in the
- *  current architecture — the server no longer produces self-enhance
- *  snapshots after the worker split. Kept as a defensive no-op so the
- *  worker's import doesn't break.
- *  Cleared by clearSelfEnhanceSnapshot. */
-export function consumeSelfEnhanceSnapshot(): SelfEnhanceSnapshot | null {
-  const g = globalThis as any;
-  const snap = g[SELF_SNAPSHOT_SLOT];
-  if (!snap) return null;
-  return snap as SelfEnhanceSnapshot;
-}
-
-export function clearSelfEnhanceSnapshot(): void {
-  const g = globalThis as any;
-  g[SELF_SNAPSHOT_SLOT] = undefined;
-}
+// (The self-enhance loop's snapshot machinery — SELF_SNAPSHOT_SLOT,
+// SelfEnhanceSnapshot, consumeSelfEnhanceSnapshot, clearSelfEnhanceSnapshot
+// — was REMOVED in the cripple-check (F2): the worker split made them
+// permanent no-ops (the server never hosts the loop, so nothing ever
+// stashed a snapshot), and the worker's defensive consume blocks were
+// deleted in the same coordinated edit. If a future feature needs to
+// carry self-enhance state across a process boundary, design it as an
+// explicit worker-API payload — not a globalThis slot.)
 
 export interface LoopSnapshot {
   status: string;
@@ -385,8 +343,7 @@ export async function hotSwapPipeline(opts?: {
     // 1. SNAPSHOT (before pausing — the state is most accurate now)
     const snapshot = snapshotLoop();
     // (The self-enhance loop used to be snapshotted here too — moved
-    // to the worker, so it's no longer the server's responsibility.
-    // See SELF_SNAPSHOT_SLOT comment above.)
+    // to the worker, so it's no longer the server's responsibility.)
 
     if (opts?.dryRun) {
       const pinsPresent = GLOBAL_PINS.filter(
@@ -414,8 +371,7 @@ export async function hotSwapPipeline(opts?: {
     if (snapshot) stashSnapshot(snapshot, reason);
 
     // (The self-enhance snapshot stash used to happen here — moved to
-    // the worker, so there's nothing to stash. The SELF_SNAPSHOT_SLOT
-    // is now permanently empty in the server.)
+    // the worker, so there's nothing to stash.)
 
     // 5. PROD — touch the loop-runtime mtime to nudge Turbopack into
     //    recompiling. Post-enhancement triggers already wrote the file
