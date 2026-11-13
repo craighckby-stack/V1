@@ -108,6 +108,12 @@ export function readLoopStats(): LoopStatsState | null {
     }
     const obj = parsed as Record<string, unknown>;
 
+    // Check for presence of all required fields first
+    for (const field of NUMERIC_FIELDS) {
+      if (!(field in obj)) return null;
+    }
+    if (!('lastEnhancementAt' in obj)) return null;
+
     // Every numeric field must be a finite, non-negative integer.
     for (const field of NUMERIC_FIELDS) {
       const v = obj[field];
