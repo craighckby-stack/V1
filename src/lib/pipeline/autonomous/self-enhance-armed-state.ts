@@ -42,10 +42,10 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
-const ARMED_STATE_FILE = join(
+const ARMED_STATE_FILE = PROJECT_ROOT ? join(
   PROJECT_ROOT,
   ".git/info/loop-self-enhance-armed.json"
-);
+) : undefined;
 
 export interface SelfEnhanceArmedState {
   /** The operator's intent. true = armed (auto-run on boot). */
@@ -60,8 +60,8 @@ export interface SelfEnhanceArmedState {
  *  never fail a start/stop that already succeeded in memory (the in-memory
  *  flag remains the live source; the disk file is the restart tier). */
 export function markSelfEnhanceArmed(armed: boolean, by: string): void {
-  if (!PROJECT_ROOT) {
-    console.error(`markSelfEnhanceArmed: PROJECT_ROOT is not defined. Cannot write armed state to ${ARMED_STATE_FILE}.`);
+  if (!PROJECT_ROOT || !ARMED_STATE_FILE) {
+    console.error(`markSelfEnhanceArmed: PROJECT_ROOT is not defined or ARMED_STATE_FILE could not be constructed. Cannot write armed state.`);
     return;
   }
   if (typeof armed !== "boolean") {
@@ -96,7 +96,7 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
  *  missing `armed` boolean) is ALSO null — never fabricate armed from
  *  a bad read. */
 export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
-  if (!PROJECT_ROOT) {
+  if (!PROJECT_ROOT || !ARMED_STATE_FILE) {
     console.error("readSelfEnhanceArmedState: PROJECT_ROOT is not defined, cannot check state.");
     return null;
   }
