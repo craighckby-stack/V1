@@ -118,16 +118,14 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
       typeof parsed.at === "string" &&
       typeof parsed.by === "string" &&
       parsed.by.trim() !== "" &&
-      !isNaN(Date.parse(parsed.at))
+      !isNaN(Date.parse(parsed.at)) &&
+      Object.keys(parsed).length === 3
     ) {
-      // Ensure no extra properties exist
-      if (Object.keys(parsed).length === 3) {
-        return {
-          armed: parsed.armed,
-          at: parsed.at,
-          by: parsed.by,
-        } as SelfEnhanceArmedState;
-      }
+      return {
+        armed: parsed.armed,
+        at: parsed.at,
+        by: parsed.by,
+      } as SelfEnhanceArmedState;
     }
     return null;
   } catch (error) {
