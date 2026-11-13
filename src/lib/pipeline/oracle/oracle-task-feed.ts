@@ -96,7 +96,7 @@ function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
       selfProphecy?: boolean;
       filePath?: string;
     };
-    if (meta.selfProphecy && typeof meta.filePath === "string") {
+    if (meta && meta.selfProphecy && typeof meta.filePath === "string") {
       return meta.filePath;
     }
   } catch {
