@@ -33,7 +33,7 @@ export async function workerFetch<T = unknown>(
   pathname: string,
   init?: RequestInit & { timeoutMs?: number }
 ): Promise<WorkerResult<T> | null> {
-  if (!pathname || typeof pathname !== "string" || pathname.trim() === "") {
+  if (typeof pathname !== "string" || pathname.trim() === "") {
     console.error("workerFetch called with invalid pathname: must be a non-empty string.");
     return null;
   }
@@ -58,11 +58,13 @@ export async function workerFetch<T = unknown>(
     
     // Attempt to parse JSON regardless of res.ok status, as status codes
     // (like 4xx/5xx) often return JSON error bodies.
-    try {
-      data = await res.json();
-    } catch (e) {
-      // Failed to parse JSON. Data remains null.
-      data = null;
+    if (res.ok || res.status >= 400) { // Only attempt JSON parsing if response body might contain data
+        try {
+          data = await res.json();
+        } catch (e) {
+          // Failed to parse JSON. Data remains null.
+          data = null;
+        }
     }
     
     return { ok: res.ok, status: res.status, data };
@@ -130,12 +132,9 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     child.unref();
   } catch (error) {
     console.error("Failed to spawn loop worker:", error);
-    isSpawning = false; // Ensure state is reset on spawn failure
     return false;
   } finally {
-    // Only set isSpawning to false if we successfully entered the try block 
-    // and are not waiting for boot, but since we are in finally, we reset it.
-    // The boot loop handles the final success/failure state.
+    // Reset isSpawning only if it was set to true at the start of this attempt
     if (isSpawning) {
         isSpawning = false;
     }
