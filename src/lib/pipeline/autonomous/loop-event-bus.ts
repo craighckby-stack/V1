@@ -86,6 +86,13 @@ class LoopEventBus {
       }
     }
 
+    // Additional validation for attempt property in push events
+    if (evt.kind === "push" && 'attempt' in evt && evt.attempt !== undefined) {
+      if (typeof evt.attempt !== "number" || !Number.isInteger(evt.attempt) || evt.attempt < 0) {
+        throw new Error(`LoopEventBus.emit() for kind 'push' has invalid attempt: ${evt.attempt}. Must be a non-negative integer.`);
+      }
+    }
+
     return this.emitter.emit("event", evt);
   }
 
