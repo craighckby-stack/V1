@@ -43,6 +43,8 @@ import { PROJECT_ROOT } from "../core/paths";
 const ENVELOPE_PREFIX = "enc:v1:";
 /** 32 bytes = AES-256. Hex on disk (64 chars + newline). */
 const KEY_BYTES = 32;
+/** The file mode for the vault key: read/write only by owner. */
+const KEY_FILE_MODE = 0o600;
 /**
  * Where the key lives. .git/info/ survives sandbox restarts (it holds the
  * commit history — losing it loses the repo, so the restore layer must
@@ -77,7 +79,7 @@ function ensureKey(): Buffer | null {
     let tmpCreated = false;
     try {
       mkdirSync(dirname(KEY_FILE), { recursive: true });
-      writeFileSync(tmp, key.toString("hex") + "\n", { encoding: "utf-8", mode: 0o600 });
+      writeFileSync(tmp, key.toString("hex") + "\n", { encoding: "utf-8", mode: KEY_FILE_MODE });
       tmpCreated = true;
       renameSync(tmp, KEY_FILE);
       return key;
