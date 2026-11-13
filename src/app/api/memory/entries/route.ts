@@ -32,7 +32,7 @@ export async function GET() {
     
     if (err instanceof Error) {
       // Provide context from the error message, but keep the response clean.
-      errorMessage = `Failed to retrieve memory entries: ${err.message}`;
+      errorMessage = "Failed to retrieve memory entries.";
     } else {
       // Handle non-Error objects (e.g., primitives thrown)
       errorMessage = "Failed to retrieve memory entries due to an unknown error type.";
