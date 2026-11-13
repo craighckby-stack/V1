@@ -13,7 +13,7 @@ export const runtime = "nodejs";
 export async function GET() {
   if (!emgRagInstance) {
     return NextResponse.json(
-      { error: "Memory service is not properly initialized." },
+      { error: "Memory service is not properly initialized. Check service startup logs." },
       { status: 500 }
     );
   }
