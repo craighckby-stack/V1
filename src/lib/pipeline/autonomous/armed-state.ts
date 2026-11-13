@@ -125,9 +125,7 @@ export function readArmedState(): ArmedState | null {
     }
     
     // Validate that parsed is a non-null object and has all required fields
-    if (parsed && 
-        typeof parsed === "object" && 
-        parsed !== null && 
+    if (typeof parsed === "object" && parsed !== null && 
         typeof parsed.armed === "boolean" && 
         typeof parsed.at === "string" && 
         typeof parsed.by === "string" &&
