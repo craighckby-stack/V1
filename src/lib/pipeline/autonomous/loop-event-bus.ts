@@ -43,7 +43,6 @@ type LoopEventListener = (evt: LoopEvent) => void;
 
 class LoopEventBus {
   private emitter: EventEmitter | null = null;
-  private readonly listeners = new Set<LoopEventListener>();
 
   constructor() {
     try {
@@ -86,9 +85,7 @@ class LoopEventBus {
           throw new Error(`LoopEventBus.emit() for kind 'push' has invalid attempt: ${evt.attempt}. Must be a non-negative integer.`);
         }
       }
-    } else if (["state", "log", "stage", "push"].includes(evt.kind)) {
-        // All defined kinds are handled above or are simple enough (state/log)
-    } else {
+    } else if (!["state", "log", "stage", "push"].includes(evt.kind)) {
         throw new Error(`LoopEventBus.emit() called with unknown event kind: ${evt.kind}. Must be 'state', 'log', 'stage', or 'push'.`);
     }
 
@@ -103,12 +100,10 @@ class LoopEventBus {
       throw new Error("LoopEventBus.on() called with non-function listener");
     }
     this.emitter.on("event", listener);
-    this.listeners.add(listener);
     return () => {
       if (this.emitter) {
         this.emitter.off("event", listener);
       }
-      this.listeners.delete(listener);
     };
   }
 }
