@@ -175,6 +175,11 @@ export function readOracleEvents(afterSeq?: number): {
     const bufferLength = s.buffer.length;
     let startIndex = -1;
 
+    if (bufferLength === 0) {
+        s.lastReadAt = Date.now();
+        return { events: [], seq: currentSeq };
+    }
+
     // Iterate through the buffer to find the first event whose sequence > afterSeq.
     for (let i = 0; i < bufferLength; i++) {
         // The sequence of the event at index i is: currentSeq - bufferLength + i
