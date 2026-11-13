@@ -152,7 +152,11 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
   
   const evidence = buildEvidence(prophecy);
   const taskKind = TASK_KINDS[ORACLE_FAILED_PROPHECY_KIND];
-  const priority = taskKind?.priority ?? 7;
+  if (!taskKind) {
+    console.error(`Task kind ${ORACLE_FAILED_PROPHECY_KIND} is not registered in TASK_KINDS.`);
+    return false;
+  }
+  const priority = taskKind.priority ?? 7;
 
   try {
     await db.selfTask.upsert({
@@ -183,7 +187,7 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
     // Fail-soft: the evaluator's verdict still landed in the Prophecy
     // table. Losing the task feed is a lost opportunity, not a fault.
     // Log the error context for debugging, but return false as required by fail-soft contract.
-    console.error(`Database error while queuing oracle-failed-prophecy task for file ${filePath} (ID: ${prophecy.id}):`, error);
+    console.error(`Database error while queuing oracle-failed-prophecy task for file ${filePath} (ID: ${prophecy.id}, Line: ${line}):`, error);
     return false;
   }
 }
