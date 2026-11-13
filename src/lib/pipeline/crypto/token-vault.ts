@@ -86,14 +86,10 @@ function ensureKey(): Buffer | null {
       if (tmpCreated) {
         try {
           if (existsSync(tmp)) {
-            try {
-              unlinkSync(tmp);
-            } catch (e) {
-              // Ignore cleanup failures
-            }
+            unlinkSync(tmp);
           }
         } catch (e) {
-          // Ignore errors when trying to clean up
+          // Ignore cleanup failures
         }
       }
       // Read-only .git? Sealing is impossible — callers fall back to
@@ -128,7 +124,7 @@ export function isSealedEnvelope(value: string): boolean {
  *   - key unavailable → returned unchanged (PLAINTEXT beats a bricked push)
  */
 export function sealToken(plain: string): string {
-  if (typeof plain !== "string" || !plain || /\s/.test(plain)) return plain;
+  if (typeof plain !== "string" || !plain.trim()) return plain;
   if (isSealedEnvelope(plain)) return plain;
   if (plain.length < 20) return plain;
   const key = ensureKey();

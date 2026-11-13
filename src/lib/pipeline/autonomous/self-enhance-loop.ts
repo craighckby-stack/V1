@@ -13,7 +13,7 @@
  * When you see a commit on GitHub, that's exactly what the server is running.
  */
 
-import { readFileSync, writeFileSync, readdirSync, existsSync, rmSync } from "fs";
+import { readFileSync, writeFileSync, readdirSync, existsSync, rmSync, statSync } from "fs";
 import { execSync } from "child_process";
 import { join, relative, resolve, basename, dirname } from "path";
 import { createHash } from "crypto";
@@ -2772,19 +2772,43 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
           // predictConfidence's visual-polish branch was dead code. Discover
           // the components directly from disk instead: the arm works without
           // widening the refactor scan scope.
+          // ELIGIBILITY FILTER (follow-up): the arm's first firing after the
+          // dead-arm fix targeted defense-panel.tsx (19.5KB) and was auto-
+          // skipped by enhanceFile's 12KB mutation ceiling — recorded as a
+          // "fail" for a file that never had a chance. 10 of the 12 pipeline
+          // components are over the ceiling, so most firings would burn
+          // their slot on a guaranteed skip. Filter to files under the SAME
+          // ceiling enhanceFile enforces (MAX_FILE_BYTES, see the enhance
+          // path) BEFORE rotating, so every firing targets a file the gate
+          // chain will actually run on. 11 components currently qualify.
           const uiDir = join(PROJECT_ROOT, "src", "components", "pipeline");
           const uiFiles = existsSync(uiDir)
             ? readdirSync(uiDir)
                 .filter((f) => f.endsWith(".tsx"))
                 .map((f) => join(uiDir, f))
                 .filter((f) => !isProtectedPath(relative(PROJECT_ROOT, f)))
+                .filter((f) => {
+                  try {
+                    return statSync(f).size <= 12000; // match enhanceFile's MAX_FILE_BYTES
+                  } catch {
+                    return false;
+                  }
+                })
             : [];
-          if (uiFiles.length > 0) {
+          if (uiFiles.length === 0) {
+            this.log(
+              "Visual-polish pre-pass: no eligible UI component under the 12KB mutation ceiling — skipping this cycle",
+              "info"
+            );
+          } else {
             // Rotate through the list by cycle number so we don't polish
             // the same component every time.
             const pick = uiFiles[this.stats.cyclesCompleted % uiFiles.length];
             const pickRel = relative(PROJECT_ROOT, pick);
-            this.log(`Visual-polish mode: targeting ${pickRel}`, "info");
+            this.log(
+              `Visual-polish mode: targeting ${pickRel} (${uiFiles.length} eligible component(s) under the 12KB ceiling)`,
+              "info"
+            );
             // SELF-MODEL (audit 7): open a prediction + record the outcome
             // so the calibration curve has visual-polish samples too. The
             // per-mode stats (visualPolishAttempts/Passes) feed the mode-
