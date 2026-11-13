@@ -75,7 +75,7 @@ export async function createProphecy(input: {
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Database error in createProphecy: DB operation failed. Error: ${errorMessage}`);
+    console.error(`Database error in createProphecy for claim "${input.claim.substring(0, 30)}...": DB operation failed. Error: ${errorMessage}`);
     return null;
   }
 }
@@ -130,7 +130,7 @@ export async function listDueProphecies(asOf: Date = new Date()): Promise<Prophe
 /** Recent prophecies of any status, newest first. The UI's main view —
  *  shows the system's latest predictions and their outcomes. Limited
  *  because the full history could grow large; the UI paginates further. */
-export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
+export async function listRecentProphecies(limit: number = 50): Promise<ProphecyRow[]> {
   // Validate limit parameter
   if (typeof limit !== 'number' || !Number.isInteger(limit) || limit <= 0) {
     return [];
@@ -219,7 +219,6 @@ export async function judgeProphecy(
     return updated;
   } catch (error) {
     // Prisma error often indicates record not found (P2025) or constraint violation.
-    // We check for the specific 'record not found' case to provide better context than a generic DB error.
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (errorMessage.includes('P2025') || errorMessage.includes('No record found')) {
         console.warn(`Attempted to judge non-existent prophecy with ID ${id} in judgeProphecy.`);
