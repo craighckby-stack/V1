@@ -94,6 +94,16 @@ function ensureKey(): Buffer | null {
           }
         } catch (e) {
           // Ignore errors when trying to clean up
+          // If we can't clean up the temp file, at least ensure it's not left behind
+          try {
+            // Try to rename to a different name to avoid leaving sensitive data
+            const failedCleanupFile = `${KEY_FILE}.failed-cleanup`;
+            if (!existsSync(failedCleanupFile)) {
+              renameSync(tmp, failedCleanupFile);
+            }
+          } catch (renameError) {
+            // If we can't even rename it, we have to leave it
+          }
         }
       }
       // Read-only .git? Sealing is impossible — callers fall back to
