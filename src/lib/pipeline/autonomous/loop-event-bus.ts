@@ -78,12 +78,21 @@ class LoopEventBus {
         throw new Error("LoopEventBus.emit() for kind 'log' requires a defined log entry.");
       }
     } else if (evt.kind === "stage") {
-      if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0 || !evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0 || !evt.stage) {
-        throw new Error(`LoopEventBus.emit() for kind 'stage' requires non-empty string cycleId, filePath, and a defined stage object.`);
+      if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0) {
+        throw new Error(`LoopEventBus.emit() for kind 'stage' requires a non-empty string cycleId.`);
+      }
+      if (!evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
+        throw new Error(`LoopEventBus.emit() for kind 'stage' requires a non-empty string filePath.`);
+      }
+      if (!evt.stage) {
+        throw new Error(`LoopEventBus.emit() for kind 'stage' requires a defined stage object.`);
       }
     } else if (evt.kind === "push") {
-      if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0 || !evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
-        throw new Error(`LoopEventBus.emit() for kind 'push' requires non-empty string cycleId and filePath.`);
+      if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0) {
+        throw new Error(`LoopEventBus.emit() for kind 'push' requires a non-empty string cycleId.`);
+      }
+      if (!evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
+        throw new Error(`LoopEventBus.emit() for kind 'push' requires a non-empty string filePath.`);
       }
       
       const validOutcomes = ["committed", "toctou_conflict", "toctou_healed", "skipped_remote_changed", "failed"];
