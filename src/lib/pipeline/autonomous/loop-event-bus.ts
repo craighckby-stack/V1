@@ -77,7 +77,7 @@ class LoopEventBus {
 
     if (evt.kind === "push") {
       const validOutcomes = ["committed", "toctou_conflict", "toctou_healed", "skipped_remote_changed", "failed"];
-      if (!("outcome" in evt) || typeof evt.outcome !== 'string' || !validOutcomes.includes(evt.outcome)) {
+      if (typeof evt.outcome !== 'string' || !validOutcomes.includes(evt.outcome)) {
         throw new Error(`LoopEventBus.emit() for kind 'push' has invalid or missing outcome: ${evt.outcome}. Valid outcomes are: ${validOutcomes.join(', ')}`);
       }
 
@@ -86,7 +86,9 @@ class LoopEventBus {
           throw new Error(`LoopEventBus.emit() for kind 'push' has invalid attempt: ${evt.attempt}. Must be a non-negative integer.`);
         }
       }
-    } else if (!["state", "log"].includes(evt.kind)) {
+    } else if (["state", "log", "stage", "push"].includes(evt.kind)) {
+        // All defined kinds are handled above or are simple enough (state/log)
+    } else {
         throw new Error(`LoopEventBus.emit() called with unknown event kind: ${evt.kind}. Must be 'state', 'log', 'stage', or 'push'.`);
     }
 
