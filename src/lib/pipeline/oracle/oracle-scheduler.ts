@@ -132,9 +132,9 @@ export async function oracleSchedulerTick(): Promise<{
     }
     const judged = result.judged;
     const skipped = result.skipped;
-    // Validate that judged and skipped are numbers (counts), not arrays, based on usage below.
-    if (typeof judged !== 'number' || typeof skipped !== 'number') {
-      throw new Error('evaluateDueProphecies() returned non-numeric values for judged or skipped.');
+    // Validate that judged and skipped are finite numbers (counts)
+    if (typeof judged !== 'number' || !Number.isFinite(judged) || typeof skipped !== 'number' || !Number.isFinite(skipped)) {
+      throw new Error('evaluateDueProphecies() returned non-finite numeric values for judged or skipped.');
     }
     s.lastJudgedCount = judged;
     return { ran: true, judged: judged, skipped: skipped };
