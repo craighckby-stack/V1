@@ -71,12 +71,16 @@ export function writeLoopStats(state: LoopStatsState): void {
   }
   try {
     const infoDir = join(PROJECT_ROOT, ".git/info");
-    mkdirSync(infoDir, { recursive: true });
+    // Only attempt mkdir if the file doesn't exist, though recursive handles this,
+    // checking existence first slightly clarifies intent and avoids unnecessary FS calls if structure is known missing.
+    if (!existsSync(infoDir)) {
+        mkdirSync(infoDir, { recursive: true });
+    }
     writeFileSync(STATS_FILE, JSON.stringify(state, null, 2), "utf8");
   } catch (error) {
     // Best-effort by contract: log, never throw.
     console.error(
-      `writeLoopStats: failed to persist stats to ${STATS_FILE}:`,
+      `writeLoopStats: failed to persist stats to ${STATS_FILE}. State: ${JSON.stringify(state)}. Error:`,
       error instanceof Error ? error.message : String(error)
     );
   }
