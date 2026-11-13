@@ -11,15 +11,14 @@ export const runtime = "nodejs";
  * memory entry (clean patterns, failure diagnoses, etc.).
  */
 export async function GET() {
-  try {
-    // Check if emgRagInstance is properly initialized
-    if (!emgRagInstance) {
-      return NextResponse.json(
-        { error: "Memory service is not properly initialized." },
-        { status: 500 }
-      );
-    }
+  if (!emgRagInstance) {
+    return NextResponse.json(
+      { error: "Memory service is not properly initialized." },
+      { status: 500 }
+    );
+  }
 
+  try {
     // Ensure the RAG memory store is seeded
     await emgRagInstance.ensureSeeded();
     
@@ -29,17 +28,11 @@ export async function GET() {
     // Ensure we return an array, even if getAll returns null
     return NextResponse.json({ entries: entries || [] });
   } catch (err: unknown) {
-    let errorMessage = "An internal system error occurred while fetching memory entries.";
+    let errorMessage = "Failed to retrieve memory entries due to an internal service error.";
     
     if (err instanceof Error) {
-      // Provide context but sanitize the message for external API consumption.
-      // Only expose the message if it doesn't look like an internal stack trace or path.
-      const errorMsg = err.message;
-      if (errorMsg && !errorMsg.includes("at ") && !errorMsg.includes("/node_modules/")) {
-        errorMessage = `Failed to retrieve memory entries: ${errorMsg}`;
-      } else {
-        errorMessage = "Failed to retrieve memory entries due to a service error.";
-      }
+      // Provide context from the error message, but keep the response clean.
+      errorMessage = `Failed to retrieve memory entries: ${err.message}`;
     } else {
       // Handle non-Error objects (e.g., primitives thrown)
       errorMessage = "Failed to retrieve memory entries due to an unknown error type.";
