@@ -69,7 +69,7 @@ export async function createProphecy(input: {
       },
     });
   } catch (error) {
-    console.error("Database error while creating prophecy:", error);
+    console.error(`Database error while creating prophecy: Input validation passed, but DB operation failed. Error:`, error);
     return null;
   }
 }
@@ -87,7 +87,7 @@ export async function listPendingProphecies(): Promise<ProphecyRow[]> {
       orderBy: { createdAt: "asc" },
     });
   } catch (error) {
-    console.error("Failed to list pending prophecies in listPendingProphecies:", error);
+    console.error("Failed to list pending prophecies in listPendingProphecies: DB query failed.", error);
     return [];
   }
 }
@@ -106,7 +106,7 @@ export async function listDueProphecies(asOf: Date = new Date()): Promise<Prophe
       orderBy: { evaluateBy: "asc" },
     });
   } catch (error) {
-    console.error("Failed to list due prophecies in listDueProphecies:", error);
+    console.error("Failed to list due prophecies in listDueProphecies: DB query failed.", error);
     return [];
   }
 }
@@ -116,7 +116,7 @@ export async function listDueProphecies(asOf: Date = new Date()): Promise<Prophe
  *  because the full history could grow large; the UI paginates further. */
 export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
   // Validate limit parameter
-  if (typeof limit !== 'number' || limit < 0 || !isFinite(limit)) {
+  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 0) {
     return [];
   }
 
@@ -126,7 +126,7 @@ export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
       take: limit,
     });
   } catch (error) {
-    console.error("Failed to list recent prophecies in listRecentProphecies:", error);
+    console.error("Failed to list recent prophecies in listRecentProphecies: DB query failed.", error);
     return [];
   }
 }
@@ -141,9 +141,12 @@ export async function getProphecy(id: string): Promise<ProphecyRow | null> {
 
   try {
     const prophecy = await db.prophecy.findUnique({ where: { id } });
+    if (!prophecy) {
+      console.warn(`Prophecy not found with ID: ${id}`);
+    }
     return prophecy || null;
   } catch (error) {
-    console.error(`Failed to get prophecy with ID ${id} in getProphecy:`, error);
+    console.error(`Failed to get prophecy with ID ${id} in getProphecy: DB operation failed.`, error);
     return null;
   }
 }
@@ -172,7 +175,7 @@ export async function judgeProphecy(
   }
 
   try {
-    return await db.prophecy.update({
+    const updated = await db.prophecy.update({
       where: { id },
       data: {
         status: verdict,
@@ -180,8 +183,15 @@ export async function judgeProphecy(
         evaluatedAt: new Date(),
       },
     });
+    return updated;
   } catch (error) {
-    console.error(`Failed to judge prophecy with ID ${id} in judgeProphecy:`, error);
+    // Prisma error often indicates record not found (P2025) or constraint violation.
+    // We check for the specific 'record not found' case to provide better context than a generic DB error.
+    if (error instanceof Error && (error.message.includes('P2025') || error.message.includes('No record found'))) {
+        console.warn(`Attempted to judge non-existent prophecy with ID ${id}.`);
+        return null;
+    }
+    console.error(`Failed to judge prophecy with ID ${id} in judgeProphecy: DB operation failed.`, error);
     return null;
   }
 }
@@ -225,8 +235,9 @@ export async function getProphecyCounts(): Promise<{
     // Process the groupBy results safely
     if (Array.isArray(result)) {
       result.forEach(item => {
-        if (item.status && ["pending", "fulfilled", "failed", "retired"].includes(item.status as keyof typeof counts)) {
-          counts[item.status as keyof typeof counts] = item._count.status;
+        const status = item.status;
+        if (status && ["pending", "fulfilled", "failed", "retired"].includes(status as string)) {
+          counts[status as keyof typeof counts] = item._count.status;
         }
       });
     }
@@ -236,7 +247,7 @@ export async function getProphecyCounts(): Promise<{
     
     return counts;
   } catch (error) {
-    console.error("Failed to get prophecy counts in getProphecyCounts:", error);
+    console.error("Failed to get prophecy counts in getProphecyCounts: DB query failed.", error);
     return { pending: 0, fulfilled: 0, failed: 0, retired: 0, total: 0 };
   }
 }
@@ -256,10 +267,9 @@ export async function getJudgedPropheciesForCalibration(): Promise<
       select: { confidence: true, status: true },
     });
     
-    // Prisma findMany returns an array, even if empty, so explicit null check is redundant but harmless if kept.
     return prophecies;
   } catch (error) {
-    console.error("Failed to get judged prophecies for calibration in getJudgedPropheciesForCalibration:", error);
+    console.error("Failed to get judged prophecies for calibration in getJudgedPropheciesForCalibration: DB query failed.", error);
     return [];
   }
 }

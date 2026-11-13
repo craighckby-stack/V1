@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/autonomous/armed-state.test.ts",
+  "status": "active",
+  "verificationStatus": "candidate",
+  "failureType": "WEAK_RATCHET",
+  "symptom": "Red-team attacker (weak-pin): The validation in `markArmed` for the `by` parameter only checks `typeof by !== \"string\" || by.trim() === \"\"`. It does n",
+  "evidence": "Attacker suggested fix: In `markArmed`, add a check: `const allowedBy = ['operator-start', 'operator-stop', 'config-patch']; if (!allowedBy.includes(by)) { console.error(\"markArmed: 'by' parameter must be one of: operator-start, operator-stop, config-patch.\"); return; }`",
+  "constraints": "The ratchet pin on this module has a reported weakness (weak-pin). It is a CANDIDATE finding — verify before acting. Do not weaken the pin to make it pass.",
+  "attempts": 1,
+  "parentHash": "2806cacec11905b93c13c609e8fa7e8b962017b1f67ea727ea9bf540cdc91911",
+  "hash": "389cfd546ed6038b4cce73f6ac9f4403107c0ee80025302a50079bfd474f6664",
+  "lastAttemptAt": "2026-11-13T10:17:45.133Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-13T10:17:45.134Z",
+  "updatedAt": "2026-11-13T10:17:45.134Z",
+  "schema": 2
+}
