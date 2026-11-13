@@ -60,13 +60,8 @@ class LoopEventBus {
       // This should ideally never happen if constructor succeeded, but kept for robustness.
       throw new Error("LoopEventBus.emit() called on uninitialized EventEmitter");
     }
-    if (!evt) {
-      // Added explicit check for null/undefined input event
-      throw new Error("LoopEventBus.emit() called with null or undefined event");
-    }
-    if (typeof evt !== 'object' || Array.isArray(evt) || evt === null) {
-      throw new Error("LoopEventBus.emit() called with non-object event");
-    }
+    // Type system guarantees evt is LoopEvent, so null/undefined checks are redundant here.
+    
     if (typeof evt.timestamp !== "number" || !Number.isFinite(evt.timestamp) || evt.timestamp <= 0) {
       throw new Error(`LoopEventBus.emit() called with invalid timestamp (must be a positive finite number, got: ${evt.timestamp})`);
     }
