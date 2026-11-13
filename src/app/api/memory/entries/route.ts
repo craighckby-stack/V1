@@ -33,9 +33,17 @@ export async function GET() {
     
     if (err instanceof Error) {
       // Provide context but sanitize the message for external API consumption.
-      // Do not expose raw error messages that might contain internal paths or secrets.
-      errorMessage = "Failed to retrieve memory entries due to a service error.";
-    } 
+      // Only expose the message if it doesn't look like an internal stack trace or path.
+      const errorMsg = err.message;
+      if (errorMsg && !errorMsg.includes("at ") && !errorMsg.includes("/node_modules/")) {
+        errorMessage = `Failed to retrieve memory entries: ${errorMsg}`;
+      } else {
+        errorMessage = "Failed to retrieve memory entries due to a service error.";
+      }
+    } else {
+      // Handle non-Error objects (e.g., primitives thrown)
+      errorMessage = "Failed to retrieve memory entries due to an unknown error type.";
+    }
     
     return NextResponse.json(
       { error: errorMessage },
