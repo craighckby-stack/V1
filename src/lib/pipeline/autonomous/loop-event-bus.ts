@@ -60,7 +60,6 @@ class LoopEventBus {
       // This should ideally never happen if constructor succeeded, but kept for robustness.
       throw new Error("LoopEventBus.emit() called on uninitialized EventEmitter");
     }
-    // Type system guarantees evt is LoopEvent, so null/undefined checks are redundant here.
     
     if (typeof evt.timestamp !== "number" || !Number.isFinite(evt.timestamp) || evt.timestamp <= 0) {
       throw new Error(`LoopEventBus.emit() called with invalid timestamp (must be a positive finite number, got: ${evt.timestamp})`);
@@ -69,23 +68,23 @@ class LoopEventBus {
       throw new Error("LoopEventBus.emit() called with missing or invalid kind");
     }
 
-    // Input validation for kinds requiring cycleId and filePath
-    if ((evt.kind === "stage" || evt.kind === "push") && (!evt.cycleId || typeof evt.cycleId !== "string" || !evt.filePath || typeof evt.filePath !== "string")) {
-      throw new Error(`LoopEventBus.emit() for kind '${evt.kind}' requires non-empty string cycleId and filePath.`);
-    }
-
-    // Additional validation for push event outcomes
-    if (evt.kind === "push" && 'outcome' in evt && typeof evt.outcome === 'string') {
-      const validOutcomes = ["committed", "toctou_conflict", "toctou_healed", "skipped_remote_changed", "failed"];
-      if (!validOutcomes.includes(evt.outcome)) {
-        throw new Error(`LoopEventBus.emit() for kind 'push' has invalid outcome: ${evt.outcome}. Valid outcomes are: ${validOutcomes.join(', ')}`);
+    // Input validation based on kind using type guards
+    if (evt.kind === "stage" || evt.kind === "push") {
+      if (!evt.cycleId || typeof evt.cycleId !== "string" || !evt.filePath || typeof evt.filePath !== "string") {
+        throw new Error(`LoopEventBus.emit() for kind '${evt.kind}' requires non-empty string cycleId and filePath.`);
       }
     }
 
-    // Additional validation for attempt property in push events
-    if (evt.kind === "push" && 'attempt' in evt && evt.attempt !== undefined) {
-      if (typeof evt.attempt !== "number" || !Number.isInteger(evt.attempt) || evt.attempt < 0) {
-        throw new Error(`LoopEventBus.emit() for kind 'push' has invalid attempt: ${evt.attempt}. Must be a non-negative integer.`);
+    if (evt.kind === "push") {
+      const validOutcomes = ["committed", "toctou_conflict", "toctou_healed", "skipped_remote_changed", "failed"];
+      if (!("outcome" in evt) || typeof evt.outcome !== 'string' || !validOutcomes.includes(evt.outcome)) {
+        throw new Error(`LoopEventBus.emit() for kind 'push' has invalid or missing outcome: ${evt.outcome}. Valid outcomes are: ${validOutcomes.join(', ')}`);
+      }
+
+      if (evt.attempt !== undefined) {
+        if (typeof evt.attempt !== "number" || !Number.isInteger(evt.attempt) || evt.attempt < 0) {
+          throw new Error(`LoopEventBus.emit() for kind 'push' has invalid attempt: ${evt.attempt}. Must be a non-negative integer.`);
+        }
       }
     }
 
