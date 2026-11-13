@@ -82,8 +82,9 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
     };
     writeFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2), "utf8");
   } catch (error) {
+    const infoDir = join(PROJECT_ROOT, ".git/info");
     console.error(
-      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE} at ${new Date().toISOString()}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${join(PROJECT_ROOT, ".git/info")}`,
+      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE} at ${new Date().toISOString()}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}`,
       error instanceof Error ? error.message : String(error)
     );
   }
