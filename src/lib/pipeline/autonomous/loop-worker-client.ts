@@ -108,7 +108,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
       [path.join("mini-services", "loop-worker", "index.ts")],
       {
         cwd: process.cwd(), // project root — worker resolves .env + tsconfig paths
-        stdio: ["ignore", outFd, outFd] as unknown as "ignore",
+        stdio: ["ignore", outFd, outFd],
         detached: true,
       }
     );
