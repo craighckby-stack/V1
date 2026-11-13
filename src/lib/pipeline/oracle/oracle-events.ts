@@ -166,7 +166,7 @@ export function readOracleEvents(afterSeq?: number): {
 
   if (typeof afterSeq === "number") {
     if (!Number.isInteger(afterSeq) || afterSeq < 0) {
-      throw new Error(`Invalid afterSeq provided: ${afterSeq}. afterSeq must be a non-negative integer.`);
+      throw new TypeError(`Invalid afterSeq provided: ${afterSeq}. afterSeq must be a non-negative integer.`);
     }
 
     if (afterSeq >= currentSeq) {
@@ -179,8 +179,8 @@ export function readOracleEvents(afterSeq?: number): {
     let startIndex = -1;
 
     // Iterate through the buffer to find the first event whose sequence number exceeds afterSeq.
+    // The sequence of the event at index i is: currentSeq - bufferLength + i
     for (let i = 0; i < bufferLength; i++) {
-      // Sequence of event at index i: currentSeq - bufferLength + i
       const eventSeq = currentSeq - bufferLength + i;
       if (eventSeq > afterSeq) {
         startIndex = i;
@@ -189,7 +189,10 @@ export function readOracleEvents(afterSeq?: number): {
     }
 
     if (startIndex === -1) {
-      // This should not happen if afterSeq < currentSeq, but handle defensively.
+      // This implies afterSeq was less than currentSeq, but no event in the buffer
+      // has a sequence greater than afterSeq. This should only happen if the buffer
+      // was just cleared or if sequence tracking is inconsistent, but we treat it
+      // as no new events found in the current buffer snapshot.
       s.lastReadAt = Date.now();
       return { events: [], seq: currentSeq };
     }
