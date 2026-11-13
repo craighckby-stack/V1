@@ -96,7 +96,7 @@ function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
       selfProphecy?: boolean;
       filePath?: string;
     };
-    if (meta && meta.selfProphecy && typeof meta.filePath === "string") {
+    if (meta && meta.selfProphecy === true && typeof meta.filePath === "string") {
       return meta.filePath;
     }
   } catch {
@@ -110,8 +110,9 @@ function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
  *  criterion — everything the LLM executor needs to understand WHY
  *  this task exists without re-querying the Prophecy table. */
 function buildEvidence(prophecy: Prophecy): string {
-  const confidenceStr = prophecy.confidence !== undefined && prophecy.confidence !== null
-    ? prophecy.confidence.toFixed(2)
+  const confidence = prophecy.confidence ?? null;
+  const confidenceStr = confidence !== null && confidence !== undefined
+    ? confidence.toFixed(2)
     : "N/A";
   const createdAtStr = prophecy.createdAt?.toISOString() ?? "N/A";
   const evaluateByStr = prophecy.evaluateBy?.toISOString() ?? "N/A";
