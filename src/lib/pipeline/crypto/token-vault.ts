@@ -49,6 +49,8 @@ const KEY_FILE_MODE = 0o600;
 const MIN_PLAINTEXT_LENGTH = 20;
 /** IV length for AES-256-GCM. */
 const IV_LENGTH = 12;
+/** Number of parts expected in a sealed envelope body (IV.Tag.Ciphertext). */
+const ENVELOPE_PARTS_COUNT = 3;
 /**
  * Where the key lives. .git/info/ survives sandbox restarts (it holds the
  * commit history — losing it loses the repo, so the restore layer must
@@ -167,7 +169,7 @@ export function openToken(stored: string): string {
   try {
     const body = stored.slice(ENVELOPE_PREFIX.length);
     const parts = body.split(".");
-    if (parts.length !== 3) return "";
+    if (parts.length !== ENVELOPE_PARTS_COUNT) return "";
     let iv: Buffer, tag: Buffer, ct: Buffer;
     
     try {
