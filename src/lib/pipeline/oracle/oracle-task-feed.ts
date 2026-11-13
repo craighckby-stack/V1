@@ -96,7 +96,7 @@ function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
       selfProphecy?: boolean;
       filePath?: string;
     };
-    if (meta && meta.selfProphecy === true && typeof meta.filePath === "string") {
+    if (meta?.selfProphecy === true && typeof meta.filePath === "string") {
       return meta.filePath;
     }
   } catch (e) {
@@ -117,14 +117,15 @@ function buildEvidence(prophecy: Prophecy): string {
     : "N/A";
   const createdAtStr = prophecy.createdAt?.toISOString() ?? "N/A";
   const evaluateByStr = prophecy.evaluateBy?.toISOString() ?? "N/A";
-  const claim = prophecy.claim ?? "N/A"; // Ensure claim is not undefined before using it
+  const claim = prophecy.claim ?? "N/A";
+  const criterion = prophecy.falsifiabilityCriterion ?? "N/A";
 
   return (
     `Oracle self-prophecy FAILED by deadline. ` +
     `Claim: "${claim}". ` +
     `Confidence when made: ${confidenceStr}. ` +
     `Made at ${createdAtStr}, deadline ${evaluateByStr}. ` +
-    `Criterion: ${prophecy.falsifiabilityCriterion ?? "N/A"}`
+    `Criterion: ${criterion}`
   );
 }
 
