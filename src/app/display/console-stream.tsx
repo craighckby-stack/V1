@@ -71,7 +71,7 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
       }}
     >
       {lines.map((line) => {
-        // Skip invalid line entries
+        // Skip invalid line entries (relying on type safety and initial checks)
         if (!line || typeof line !== "object" || !line.id || !line.type) {
           console.error("ConsoleStream: Invalid line object encountered", line);
           return null;
@@ -104,7 +104,7 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
             {line.type === "command" && "> "}
             {line.type === "log" && line.ts && (
               <span style={{ color: DIM_COLOR }}>
-                [{typeof line.ts === "string" ? line.ts : ""}]{" "}
+                [{line.ts}]{" "}
               </span>
             )}
             {line.text || "\u00a0"}
