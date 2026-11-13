@@ -3,42 +3,45 @@
  *
  * Usage: echo "<refactored code>" | bun run src/lib/pipeline/autonomous/verify-refactor.ts <filePath>
  *
- * Reads the file path from argv[2] and the refactored code from stdin.
- * Runs FOUR gates in order (cheap → expensive):
+ * Reads the file path from argv[2] and the refactored code from stdin,
+ * then delegates the ENTIRE gate chain to core/gate-runner.ts under
+ * SELF_PATH_POLICY (Replace ② unification):
+ *
  *   0. MUTATION GUARD — newly-introduced evil tokens (eval(, child_process,
- *      non-allowlisted fetch, path traversal). AUDIT 3: this gate ran only
- *      on the remote-repo path (unified-pipeline) while the autonomous
- *      loop — the path that mutates THIS repo — had no evil-token check
- *      at all. Now both paths share it.
+ *      non-allowlisted fetch, path traversal) + protected path + empty
+ *      content. AUDIT 3: this gate used to run only on the remote-repo
+ *      path while the autonomous loop — the path that mutates THIS repo —
+ *      had no evil-token check at all. Now both paths share it, and both
+ *      share it through the SAME runner.
  *   1. STRUCTURAL — destructive truncation, import stripping, symbol drop,
- *      test deletion, license stripping. The REAL signal beyond typecheck.
- *      Cheap (regex-based, no compiler). Catches the LLM doing things that
- *      compile but are destructive. Followed by the TS-PARSER AST gate
- *      (evaluateAstDiff) — AUDIT 3: the regex validator can't see dropped
- *      class methods or export-alias renames; the parser can. The parser
- *      gate was also remote-path-only; now both paths run it.
- *   2. SYNTAX — fast AST parse. Catches broken template literals, etc.
- *   3. TYPECHECK — full in-memory TypeScript typecheck (same as `tsc --noEmit`).
- *      Expensive (~10s). Only runs if structure + syntax pass.
+ *      test deletion, license stripping (regex, cheap).
+ *   2. AST DIFF — TS-parser symbol retention under STRICT tolerance: any
+ *      AST_SYMBOL_DROPPED / BRANDING_INJECTION violation rejects
+ *      regardless of score (the enhance prompt promises "preserve EVERY
+ *      top-level exported symbol"), and the score gate must pass too.
+ *   3. SYNTAX — fast AST parse (ScriptKind follows the real extension).
+ *   4. TYPECHECK — full in-memory TypeScript typecheck (same as
+ *      `tsc --noEmit`, ~10s).
  *
- * Prints JSON result to stdout. Exits 0 on success, 1 on any gate failure.
+ * Fail-fast (stopOnFirstFailure): a child process must not burn 10s of
+ * typecheck on a proposal the 0ms guard already rejected.
  *
- * Nothing is written to disk — Turbopack never sees the refactored code.
+ * Prints JSON result to stdout: { ok, errors }. Exits 0 on success, 1 on
+ * any gate failure. Nothing is written to disk — Turbopack never sees the
+ * refactored code.
  *
- * The structural gate reads the ORIGINAL file from disk to compare against.
- * This is the key addition: typecheck alone proves "compiles", the
- * structural gate proves "didn't break the public API / didn't drop tests /
- * didn't strip imports / wasn't truncated".
+ * The gate-runner reads the ORIGINAL file's content from the `originalCode`
+ * argument for all diff gates. This module owns the disk read and the
+ * fail-closed contract (audit 3 F12): if the original can't be read, the
+ * verification is REJECTED — a refactor with no original to diff against
+ * is meaningless, and the old skip-the-gates path could RECREATE a deleted
+ * file through the weaker syntax+typecheck-only verification.
  */
 
-import { typecheckRefactor, syntaxCheck } from "./in-memory-typecheck";
-import { validateStructure } from "./structural-validator";
-import { gateMutation } from "../core/mutation-guard";
-import { evaluateAstDiff } from "../core/ast-diff-gate";
 import { readFileSync } from "fs";
 import { resolve } from "path";
-
 import { PROJECT_ROOT } from "../core/paths";
+import { runGateChain, SELF_PATH_POLICY } from "../core/gate-runner";
 
 async function main() {
   const filePath = process.argv[2];
@@ -59,13 +62,9 @@ async function main() {
     process.exit(1);
   }
 
-  // Gate 1: STRUCTURAL — compare against the original on disk.
-  // Catches destructive refactors that would still compile.
-  // Fail-closed (audit 3 F12): if the original can't be read, BOTH the
-  // structural gate and the AST symbol-retention gate below used to be
-  // skipped (originalCode stayed ""), so the final write could RECREATE a
-  // deleted file through the weaker syntax+typecheck-only path. A refactor
-  // verification with no original to diff against is meaningless — reject.
+  // Fail-closed original read (audit 3 F12): if the original can't be
+  // read, reject — see module doc. The gate-runner's structural and AST
+  // gates are meaningless without a baseline.
   let originalCode = "";
   try {
     originalCode = readFileSync(resolve(PROJECT_ROOT, filePath), "utf-8");
@@ -79,72 +78,18 @@ async function main() {
     process.exit(1);
   }
 
-  // Gate 0: MUTATION GUARD — newly-introduced evil tokens + protected path
-  // + empty content. Fail-closed, ~0ms, and it runs BEFORE anything else
-  // so no expensive gate time is spent on an obviously-evil proposal.
-  // The loop passes an ABSOLUTE path; the guard expects repo-relative.
-  // Normalize: strip the project root if present (absolute input), else
-  // strip any leading slashes (already-relative input).
-  const relForGuard = filePath.startsWith(`${PROJECT_ROOT}/`)
-    ? filePath.slice(PROJECT_ROOT.length + 1)
-    : filePath.replace(/^\/+/, "");
-  const guard = gateMutation({
-    filePath: relForGuard,
+  // The whole chain — guard → structural → ast(strict) → syntax →
+  // typecheck, fail-fast — lives in core/gate-runner.ts under
+  // SELF_PATH_POLICY. This wrapper owns only the child-process shell:
+  // argv, stdin, the disk read, the stdout contract, the exit code.
+  const result = await runGateChain({
+    filePath,
     originalCode,
     evolvedCode: refactoredCode,
+    policy: SELF_PATH_POLICY,
   });
-  if (!guard.allowed) {
-    console.log(JSON.stringify({
-      ok: false,
-      errors: [`[mutation-guard/${guard.rejectedBy}] ${guard.reasons.join(" | ")}`],
-    }));
-    process.exit(1);
-  }
 
-  if (originalCode) {
-    const structure = validateStructure(filePath, originalCode, refactoredCode);
-    if (!structure.ok) {
-      console.log(JSON.stringify({
-        ok: false,
-        errors: structure.issues.map((i) => `[${i.code}] ${i.message}`),
-      }));
-      process.exit(1);
-    }
-
-    // Gate 1b: AST DIFF (TS parser) — the stronger symbol-retention check.
-    // The regex validator above is the fast first pass; this catches what
-    // regexes structurally cannot: dropped class methods (Foo.bar) and
-    // export-alias renames (export { X as Y } → export { X as Z }).
-    // HARD-FAIL CONTRACT: evaluateAstDiff is score-based (a single dropped
-    // method is "medium" severity and can still pass on score — right for
-    // the remote path where some drift is tolerable). The self-mutation
-    // path's contract is stricter (the enhance prompt promises "preserve
-    // EVERY top-level exported symbol"), so ANY symbol-drop or branding
-    // violation rejects here, regardless of score.
-    const ast = evaluateAstDiff(originalCode, refactoredCode, filePath);
-    const hardFail = ast.violations.filter(
-      (v) => v.code === "AST_SYMBOL_DROPPED" || v.code === "BRANDING_INJECTION"
-    );
-    if (hardFail.length > 0 || !ast.passed) {
-      console.log(JSON.stringify({
-        ok: false,
-        errors: (hardFail.length > 0 ? hardFail : ast.violations).map((v) => `[${v.code}] ${v.message}`),
-      }));
-      process.exit(1);
-    }
-  }
-
-  // Gate 2: SYNTAX — fast AST parse (ScriptKind follows the real extension,
-  // so .tsx display components parse as JSX, not as broken TypeScript).
-  const syntax = syntaxCheck(refactoredCode, filePath);
-  if (!syntax.ok) {
-    console.log(JSON.stringify({ ok: false, errors: [syntax.error ?? "Syntax error"] }));
-    process.exit(1);
-  }
-
-  // Gate 3: TYPECHECK — full in-memory tsc.
-  const result = typecheckRefactor(filePath, refactoredCode);
-  console.log(JSON.stringify(result));
+  console.log(JSON.stringify({ ok: result.ok, errors: result.errors }));
   process.exit(result.ok ? 0 : 1);
 }
 
