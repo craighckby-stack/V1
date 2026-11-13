@@ -57,8 +57,8 @@ export const runtime = "nodejs";
 
 /** Count *.json scar files under postmortems/ (recursive, sync — small tree). */
 function diskScarCount(): number {
-  if (typeof PROJECT_ROOT !== 'string') {
-    throw new Error("PROJECT_ROOT is not defined or is not a string, cannot scan for scar files.");
+  if (typeof PROJECT_ROOT !== 'string' || !PROJECT_ROOT) {
+    throw new Error("PROJECT_ROOT is not defined or is not a valid string path, cannot scan for scar files.");
   }
   const root = join(PROJECT_ROOT, "postmortems");
   let n = 0;
