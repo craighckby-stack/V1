@@ -45,6 +45,8 @@ const ENVELOPE_PREFIX = "enc:v1:";
 const KEY_BYTES = 32;
 /** The file mode for the vault key: read/write only by owner. */
 const KEY_FILE_MODE = 0o600;
+/** Minimum length required for a plaintext token before attempting sealing. */
+const MIN_PLAINTEXT_LENGTH = 20;
 /**
  * Where the key lives. .git/info/ survives sandbox restarts (it holds the
  * commit history — losing it loses the repo, so the restore layer must
@@ -128,7 +130,7 @@ export function isSealedEnvelope(value: string): boolean {
 export function sealToken(plain: string): string {
   if (typeof plain !== "string" || !plain.trim()) return plain;
   if (isSealedEnvelope(plain)) return plain;
-  if (plain.length < 20) return plain;
+  if (plain.length < MIN_PLAINTEXT_LENGTH) return plain;
   const key = ensureKey();
   if (!key) return plain;
   try {
@@ -182,7 +184,7 @@ export function openToken(stored: string): string {
     decipher.setAuthTag(tag);
     const pt = Buffer.concat([decipher.update(ct), decipher.final()]);
     const opened = pt.toString("utf-8");
-    if (!opened || opened.length < 20 || /\s/.test(opened)) return "";
+    if (!opened || opened.length < MIN_PLAINTEXT_LENGTH || /\s/.test(opened)) return "";
     return opened;
   } catch (error) {
     if (!warnedKeyMissing) {
