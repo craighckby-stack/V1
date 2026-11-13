@@ -55,6 +55,12 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
     return null;
   }
 
+  // Validate logRef
+  if (!logRef) {
+    console.error("ConsoleStream: logRef prop is required");
+    return null;
+  }
+
   return (
     <div
       ref={logRef}
