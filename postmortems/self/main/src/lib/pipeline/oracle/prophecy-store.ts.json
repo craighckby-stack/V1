@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/oracle/prophecy-store.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "TOCTOU conflict on src/lib/pipeline/oracle/prophecy-store.ts: disk content changed between read and gated write",
@@ -12,8 +12,8 @@
   "parentHash": "998e345720f6a516cd466e434cd81e53783fd6a6d10ac50e6c493ee6fd895241",
   "hash": "7cb22ba87b19bca7d3d47dd687674247de326583ca7963719ade7c5b6a4bbf5b",
   "lastAttemptAt": "2026-11-13T12:23:39.868Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-13T12:38:33.357Z",
   "createdAt": "2026-11-13T10:16:35.802Z",
-  "updatedAt": "2026-11-13T12:23:39.868Z",
+  "updatedAt": "2026-11-13T12:38:33.357Z",
   "schema": 2
 }
