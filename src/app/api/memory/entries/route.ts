@@ -23,9 +23,9 @@ export async function GET() {
     await emgRagInstance.ensureSeeded();
     
     // Get all entries
-    const entries: VectorEntry[] | null = emgRagInstance.getAll();
+    const entries: VectorEntry[] | undefined = emgRagInstance.getAll();
     
-    // Ensure we return an array, even if getAll returns null
+    // Ensure we return an array, defaulting to empty array if null or undefined
     return NextResponse.json({ entries: entries || [] });
   } catch (err: unknown) {
     let errorMessage = "Failed to retrieve memory entries due to an internal service error.";
