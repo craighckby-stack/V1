@@ -38,15 +38,17 @@ export async function workerFetch<T = unknown>(
     return null;
   }
 
+  // Input validation: Ensure init is a non-null object if provided
   if (init === null || typeof init !== 'object') {
     console.error("workerFetch called with invalid or null init object.");
     return null;
   }
   
+  // Merge defaults with provided init, ensuring provided values take precedence
   const effectiveInit: RequestInit & { timeoutMs?: number } = {
     method: (init as RequestInit & { timeoutMs?: number }).method || "GET",
     timeoutMs: 5000,
-    ...(init as RequestInit & { timeoutMs?: number }),
+    ...init, // Spread init last to override defaults
   };
   
   const timeoutMs = effectiveInit.timeoutMs ?? 5000;
@@ -138,6 +140,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     spawnSuccessful = true;
   } catch (error) {
     console.error("Failed to spawn loop worker:", error);
+    isSpawning = false; // Ensure state is reset on spawn failure
     return false;
   } finally {
     // Reset isSpawning only if it was set to true at the start of this attempt
