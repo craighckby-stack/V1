@@ -127,13 +127,13 @@ export async function oracleSchedulerTick(): Promise<{
     const result = await evaluateDueProphecies();
     // Validate the result structure
     if (typeof result !== 'object' || result === null || !('judged' in result) || !('skipped' in result)) {
-      throw new Error('evaluateDueProphecies() returned invalid result structure');
+      throw new Error('evaluateDueProphecies() returned invalid result structure: missing "judged" or "skipped" properties.');
     }
     const judged = result.judged;
     const skipped = result.skipped;
     // Validate that judged and skipped are arrays
     if (!Array.isArray(judged) || !Array.isArray(skipped)) {
-      throw new Error('evaluateDueProphecies() returned non-array for judged or skipped');
+      throw new Error('evaluateDueProphecies() returned non-array for judged or skipped.');
     }
     s.lastJudgedCount = judged.length;
     return { ran: true, judged: judged.length, skipped: skipped.length };
