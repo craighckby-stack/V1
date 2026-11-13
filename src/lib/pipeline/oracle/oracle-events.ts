@@ -176,14 +176,28 @@ export function readOracleEvents(afterSeq?: number): {
       return { events: [], seq: currentSeq };
     }
     
-    // Events to retrieve are those with sequence > afterSeq.
-    // The number of events *after* afterSeq is currentSeq - afterSeq.
-    const eventsToRetrieveCount = currentSeq - afterSeq;
-    
-    // Since the buffer holds the latest MAX_EVENTS, we need to find the starting index
-    // such that the slice includes exactly eventsToRetrieveCount elements, or fewer if the buffer is smaller.
-    // The index should be buffer.length - eventsToRetrieveCount, clamped at 0.
-    const startIndex = Math.max(0, s.buffer.length - eventsToRetrieveCount);
+    // Find the starting index of the first event whose sequence is > afterSeq.
+    // Since the buffer is ordered by sequence (due to append order), we search linearly.
+    let startIndex = 0;
+    for (let i = 0; i < s.buffer.length; i++) {
+      // Note: We rely on the fact that the buffer elements are appended sequentially
+      // and thus their implicit sequence (index + offset) corresponds to the global seq.
+      // A more robust check would require sequence numbers on OracleEvent, but based on
+      // existing logic, we check against the sequence number implied by the buffer position
+      // relative to the start of the sequence count.
+      // Since we don't store sequence in OracleEvent, we must iterate until we pass afterSeq.
+      // The sequence of buffer[i] is implicitly (s.seq - s.buffer.length + i).
+      const eventSeq = s.seq - s.buffer.length + i;
+      if (eventSeq > afterSeq) {
+        startIndex = i;
+        break;
+      }
+      // If we reach the end and haven't broken, all events are <= afterSeq, which contradicts afterSeq < currentSeq unless buffer is empty/misaligned.
+      if (i === s.buffer.length - 1) {
+        // If we looped through everything and none were > afterSeq, something is inconsistent, but we return empty set.
+        return { events: [], seq: currentSeq };
+      }
+    }
     
     // Get the events from startIndex to the end
     const events = s.buffer.slice(startIndex);
