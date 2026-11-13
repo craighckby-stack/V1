@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/autonomous/loop-stats.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 3 net new guard-lexicon line(s) (original 8 → evolved 11), no behavioral signal, 14 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "evidence": "Original: 5236 bytes, Refactored: 5547 bytes. Errors: [mutation-guard/finalAuthority] convergent-move rejected: 3 net new guard-lexicon line(s) (original 8 → evolved 11), no behavioral signal, 14 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "constraints": "The previous refactor of src/lib/pipeline/autonomous/loop-stats.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "cc04b40c07a0c685fa2f6385ef1e0aa59d863ce7502c793b40cac04e92bfa32e",
+  "hash": "b7c1dbf96d98186aabe50b022d0d7785173af06df63bd8e5c8e8f5d310242848",
+  "lastAttemptAt": "2026-11-13T11:14:36.648Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-13T11:14:36.649Z",
+  "updatedAt": "2026-11-13T11:14:36.649Z",
+  "schema": 2
+}

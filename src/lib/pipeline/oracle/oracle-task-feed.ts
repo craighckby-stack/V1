@@ -99,8 +99,9 @@ function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
     if (meta && meta.selfProphecy === true && typeof meta.filePath === "string") {
       return meta.filePath;
     }
-  } catch {
-    /* unparseable — skip */
+  } catch (e) {
+    // Log the parsing error with context instead of silently ignoring it
+    console.error(`Failed to parse historySnapshot for prophecy ID ${prophecy.id}: ${e instanceof Error ? e.message : String(e)}`);
   }
   return null;
 }
@@ -142,8 +143,8 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
     return false;
   }
 
-  if (!prophecy.id) {
-    console.error(`Prophecy ID is missing for prophecy ${JSON.stringify(prophecy)}`);
+  if (typeof prophecy.id !== 'string' || !prophecy.id) {
+    console.error(`Prophecy ID is missing or invalid for prophecy: ${JSON.stringify(prophecy)}`);
     return false;
   }
 
