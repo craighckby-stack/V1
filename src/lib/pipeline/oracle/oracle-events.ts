@@ -164,13 +164,10 @@ export function readOracleEvents(afterSeq?: number): {
   const s = state();
   const currentSeq = s.seq;
 
-  if (typeof afterSeq === "number") {
-    if (!Number.isInteger(afterSeq) || afterSeq < 0) {
-      throw new TypeError(`Invalid afterSeq provided: ${afterSeq}. afterSeq must be a non-negative integer.`);
-    }
-
+  if (typeof afterSeq === "number" && Number.isInteger(afterSeq) && afterSeq >= 0) {
     if (afterSeq >= currentSeq) {
       // No new events since the last check.
+      s.lastReadAt = Date.now();
       return { events: [], seq: currentSeq };
     }
 
