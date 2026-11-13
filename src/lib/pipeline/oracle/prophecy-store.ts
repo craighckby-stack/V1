@@ -54,6 +54,11 @@ export async function createProphecy(input: {
     return null;
   }
 
+  if (!db) {
+    console.error("Database connection (db) is not initialized.");
+    return null;
+  }
+
   try {
     return await db.prophecy.create({
       data: {
@@ -69,7 +74,8 @@ export async function createProphecy(input: {
       },
     });
   } catch (error) {
-    console.error(`Database error while creating prophecy: Input validation passed, but DB operation failed. Error:`, error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Database error while creating prophecy: Input validation passed, but DB operation failed. Error: ${errorMessage}`);
     return null;
   }
 }
@@ -81,13 +87,18 @@ export async function createProphecy(input: {
  *  the track record reflects "what we said would happen, judged when
  *  we said it would." */
 export async function listPendingProphecies(): Promise<ProphecyRow[]> {
+  if (!db) {
+    console.error("Database connection (db) is not initialized in listPendingProphecies.");
+    return [];
+  }
   try {
     return await db.prophecy.findMany({
       where: { status: "pending" },
       orderBy: { createdAt: "asc" },
     });
   } catch (error) {
-    console.error("Failed to list pending prophecies in listPendingProphecies: DB query failed.", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to list pending prophecies in listPendingProphecies: DB query failed. Error: ${errorMessage}`);
     return [];
   }
 }
@@ -97,6 +108,10 @@ export async function listPendingProphecies(): Promise<ProphecyRow[]> {
  *  backfill (e.g. evaluate as of an hour ago for testing). Defaults to
  *  now. */
 export async function listDueProphecies(asOf: Date = new Date()): Promise<ProphecyRow[]> {
+  if (!db) {
+    console.error("Database connection (db) is not initialized in listDueProphecies.");
+    return [];
+  }
   try {
     return await db.prophecy.findMany({
       where: {
@@ -106,7 +121,8 @@ export async function listDueProphecies(asOf: Date = new Date()): Promise<Prophe
       orderBy: { evaluateBy: "asc" },
     });
   } catch (error) {
-    console.error("Failed to list due prophecies in listDueProphecies: DB query failed.", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to list due prophecies in listDueProphecies: DB query failed. Error: ${errorMessage}`);
     return [];
   }
 }
@@ -120,13 +136,19 @@ export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
     return [];
   }
 
+  if (!db) {
+    console.error("Database connection (db) is not initialized in listRecentProphecies.");
+    return [];
+  }
+
   try {
     return await db.prophecy.findMany({
       orderBy: { createdAt: "desc" },
       take: limit,
     });
   } catch (error) {
-    console.error("Failed to list recent prophecies in listRecentProphecies: DB query failed.", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to list recent prophecies in listRecentProphecies: DB query failed. Error: ${errorMessage}`);
     return [];
   }
 }
@@ -139,6 +161,11 @@ export async function getProphecy(id: string): Promise<ProphecyRow | null> {
     return null;
   }
 
+  if (!db) {
+    console.error("Database connection (db) is not initialized in getProphecy.");
+    return null;
+  }
+
   try {
     const prophecy = await db.prophecy.findUnique({ where: { id } });
     if (!prophecy) {
@@ -146,7 +173,8 @@ export async function getProphecy(id: string): Promise<ProphecyRow | null> {
     }
     return prophecy || null;
   } catch (error) {
-    console.error(`Failed to get prophecy with ID ${id} in getProphecy: DB operation failed.`, error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to get prophecy with ID ${id} in getProphecy: DB operation failed. Error: ${errorMessage}`);
     return null;
   }
 }
@@ -174,6 +202,11 @@ export async function judgeProphecy(
     return null;
   }
 
+  if (!db) {
+    console.error("Database connection (db) is not initialized in judgeProphecy.");
+    return null;
+  }
+
   try {
     const updated = await db.prophecy.update({
       where: { id },
@@ -187,11 +220,12 @@ export async function judgeProphecy(
   } catch (error) {
     // Prisma error often indicates record not found (P2025) or constraint violation.
     // We check for the specific 'record not found' case to provide better context than a generic DB error.
-    if (error instanceof Error && (error.message.includes('P2025') || error.message.includes('No record found'))) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('P2025') || errorMessage.includes('No record found')) {
         console.warn(`Attempted to judge non-existent prophecy with ID ${id}.`);
         return null;
     }
-    console.error(`Failed to judge prophecy with ID ${id} in judgeProphecy: DB operation failed.`, error);
+    console.error(`Failed to judge prophecy with ID ${id} in judgeProphecy: DB operation failed. Error: ${errorMessage}`);
     return null;
   }
 }
@@ -208,6 +242,10 @@ export async function getProphecyCounts(): Promise<{
   retired: number;
   total: number;
 }> {
+  if (!db) {
+    console.error("Database connection (db) is not initialized in getProphecyCounts.");
+    return { pending: 0, fulfilled: 0, failed: 0, retired: 0, total: 0 };
+  }
   try {
     // Use a single query with groupBy for better performance
     const result = await db.prophecy.groupBy({
@@ -247,7 +285,8 @@ export async function getProphecyCounts(): Promise<{
     
     return counts;
   } catch (error) {
-    console.error("Failed to get prophecy counts in getProphecyCounts: DB query failed.", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to get prophecy counts in getProphecyCounts: DB query failed. Error: ${errorMessage}`);
     return { pending: 0, fulfilled: 0, failed: 0, retired: 0, total: 0 };
   }
 }
@@ -261,6 +300,10 @@ export async function getProphecyCounts(): Promise<{
 export async function getJudgedPropheciesForCalibration(): Promise<
   Array<{ confidence: number; status: string }>
 > {
+  if (!db) {
+    console.error("Database connection (db) is not initialized in getJudgedPropheciesForCalibration.");
+    return [];
+  }
   try {
     const prophecies = await db.prophecy.findMany({
       where: { status: { in: ["fulfilled", "failed"] } },
@@ -269,7 +312,8 @@ export async function getJudgedPropheciesForCalibration(): Promise<
     
     return prophecies;
   } catch (error) {
-    console.error("Failed to get judged prophecies for calibration in getJudgedPropheciesForCalibration: DB query failed.", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to get judged prophecies for calibration in getJudgedPropheciesForCalibration: DB query failed. Error: ${errorMessage}`);
     return [];
   }
 }
