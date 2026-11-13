@@ -101,7 +101,7 @@ export async function oracleSchedulerTick(): Promise<{
   try {
     const result = await listDueProphecies();
     // Validate that we got an array back, and handle null/undefined result from store
-    if (!Array.isArray(result)) {
+    if (result === null || result === undefined || !Array.isArray(result)) {
       throw new Error(`listDueProphecies() returned invalid data: ${typeof result}, expected array`);
     }
     due = result;
