@@ -84,17 +84,17 @@ export function emitOracleEvent(
   if (typeof message !== "string" || message.length === 0) {
     throw new TypeError("Oracle event message must be a non-empty string.");
   }
-  
+
+  // Input validation for source type
+  if (typeof source !== "string" || !["generator", "evaluator", "scheduler", "auto-adjudicator"].includes(source)) {
+    throw new TypeError(`Invalid event source: ${source}. Must be one of: generator, evaluator, scheduler, auto-adjudicator`);
+  }
+
   // Validate type parameter
   if (!["info", "success", "warn", "error"].includes(type)) {
     throw new TypeError(`Invalid event type: ${type}. Must be one of: info, success, warn, error`);
   }
-  
-  // Validate source parameter
-  if (!["generator", "evaluator", "scheduler", "auto-adjudicator"].includes(source)) {
-    throw new TypeError(`Invalid event source: ${source}. Must be one of: generator, evaluator, scheduler, auto-adjudicator`);
-  }
-  
+
   const s = state();
   const trimmed =
     message.length > 300 ? `${message.slice(0, 299)}…` : message;
@@ -124,7 +124,7 @@ export function emitOracleEvent(
   if (process.env.LOOP_WORKER === "1") {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2000);
-    
+
     fetch(
       `${process.env.LOOP_SERVER_URL ?? "http://localhost:3000"}/api/oracle/events/ingest`,
       {
@@ -163,48 +163,47 @@ export function readOracleEvents(afterSeq?: number): {
 } {
   const s = state();
   const currentSeq = s.seq;
-  
+
   if (typeof afterSeq === "number") {
     if (!Number.isInteger(afterSeq) || afterSeq < 0) {
       throw new Error(`Invalid afterSeq provided: ${afterSeq}. afterSeq must be a non-negative integer.`);
     }
-    
+
     if (afterSeq >= currentSeq) {
-      // No new events since the last check, do not update lastReadAt yet.
+      // No new events since the last check.
       return { events: [], seq: currentSeq };
     }
-    
-    // The sequence of the event at index i is: currentSeq - buffer.length + i
-    const bufferLength = s.buffer.length;
-    
+
     // Find the starting index of the first event whose sequence is > afterSeq.
+    const bufferLength = s.buffer.length;
     let startIndex = -1;
+
+    // Iterate through the buffer to find the first event whose sequence number exceeds afterSeq.
     for (let i = 0; i < bufferLength; i++) {
+      // Sequence of event at index i: currentSeq - bufferLength + i
       const eventSeq = currentSeq - bufferLength + i;
       if (eventSeq > afterSeq) {
         startIndex = i;
         break;
       }
     }
-    
+
     if (startIndex === -1) {
-      // This implies sequence tracking inconsistency or buffer underflow relative to seq.
-      // Since afterSeq < currentSeq, there MUST be events > afterSeq unless the sequence
-      // tracking is broken. We return empty but update read time to prevent immediate re-check.
+      // This should not happen if afterSeq < currentSeq, but handle defensively.
       s.lastReadAt = Date.now();
       return { events: [], seq: currentSeq };
     }
-    
+
     // Get the events from startIndex to the end
     const events = s.buffer.slice(startIndex);
-    
+
     s.lastReadAt = Date.now(); // Update lastReadAt after reading events
-    return { 
-      events, 
-      seq: currentSeq 
+    return {
+      events,
+      seq: currentSeq,
     };
   }
-  
+
   // No afterSeq provided or invalid, return all events
   s.lastReadAt = Date.now(); // Update lastReadAt when returning all events
   return { events: s.buffer, seq: s.seq };
