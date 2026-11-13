@@ -47,12 +47,17 @@ export async function GET() {
 
 export async function POST(req: Request) {
   let force = false;
+  let body: { force?: boolean } | null = null;
+
   try {
-    const body = await req.json();
+    if (!req) {
+      throw new Error("Request object is missing.");
+    }
+    body = await req.json();
     
     // Validate body is an object
     if (typeof body !== 'object' || body === null) {
-      throw new Error("Request body must be a non-null object");
+      throw new Error("Request body must be a non-null object.");
     }
     
     // Validate force parameter if present
@@ -60,7 +65,7 @@ export async function POST(req: Request) {
       if (typeof body.force === 'boolean') {
         force = body.force;
       } else {
-        throw new Error("Force parameter must be a boolean");
+        throw new Error("Force parameter must be a boolean.");
       }
     }
   } catch (e) {
@@ -72,7 +77,7 @@ export async function POST(req: Request) {
       );
     }
     
-    // Handle other validation errors (including custom Errors thrown above)
+    // Handle other validation/runtime errors
     if (e instanceof Error) {
       return NextResponse.json(
         { error: `Invalid request body: ${e.message}` },
