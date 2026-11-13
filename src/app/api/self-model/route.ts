@@ -70,7 +70,7 @@ export async function POST(req: Request) {
     }
   } catch (e) {
     // Handle JSON parsing errors specifically
-    if (e instanceof Error && e.message.includes("Failed to parse request body")) {
+    if (e instanceof SyntaxError) {
       return NextResponse.json(
         { error: `Invalid JSON in request body: ${e.message}` },
         { status: 400 }
