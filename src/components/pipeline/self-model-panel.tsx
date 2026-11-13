@@ -75,6 +75,15 @@ interface SelfModelStatus {
     visualPolish: { attempts: number; passes: number };
   };
   totals: { attempts: number; passes: number; failss: number; zeroDiffs: number };
+  skipProbes?: {
+    probes: number;
+    zeroDiffs: number;
+    fails: number;
+    passes: number;
+    savedRate: number | null;
+    missedRate: number | null;
+    verdict: string;
+  };
 }
 
 interface Props {
@@ -142,6 +151,17 @@ export function SelfModelPanel({ open, onClose }: Props) {
 
   const cal = status?.calibration;
   const totals = status?.totals;
+  const sp = status?.skipProbes;
+  // Skip-rule verdict color: green while probes confirm the skipper saves
+  // no-growth calls, warn/error once probes show it skipping live files.
+  const skipVerdictColor =
+    !sp || sp.probes === 0
+      ? DIM_COLOR
+      : (sp.missedRate ?? 0) > 0.25
+        ? ERROR_COLOR
+        : (sp.missedRate ?? 0) > 0.1
+          ? WARN_COLOR
+          : GOOD_COLOR;
 
   // Calibration verdict color
   const verdictText = cal?.verdict ?? "loading…";
@@ -258,6 +278,25 @@ export function SelfModelPanel({ open, onClose }: Props) {
               no populated buckets yet — resolved predictions: {cal?.resolvedPredictions ?? 0} (need ≥20 for a first read)
             </div>
           )}
+        </div>
+
+        {/* Skip-rule scoring — the predictor that drives skip decisions.
+            The calibration curve above scores the PASS predictor on files
+            the loop attempted; this section scores the SKIP rule on files
+            it would have skipped — measured via probes (every 4th skip
+            spends the call anyway so the claim can be checked). */}
+        <div style={{ marginBottom: "16px", padding: "8px", border: `1px solid ${DIM_COLOR}` }}>
+          <div style={{ color: DIM_COLOR, marginBottom: "4px" }}>
+            SKIP-RULE SCORING — probes of the proactive-skip predictor (the decision that saves quota)
+          </div>
+          <div style={{ color: skipVerdictColor, fontWeight: "bold" }}>
+            {sp?.verdict ?? "no skip-probe data yet"}
+          </div>
+          <div style={{ color: DIM_COLOR, marginTop: "4px", fontSize: "11px" }}>
+            probes: {sp?.probes ?? 0} · zero-diffed: {sp?.zeroDiffs ?? 0} · failed (no growth): {sp?.fails ?? 0} · passed (missed enhancement): {sp?.passes ?? 0} ·
+            saved: {sp?.savedRate === null || sp?.savedRate === undefined ? "—" : `${(sp.savedRate * 100).toFixed(0)}%`} ·
+            missed: {sp?.missedRate === null || sp?.missedRate === undefined ? "—" : `${(sp.missedRate * 100).toFixed(0)}%`}
+          </div>
         </div>
 
         {/* Mode stats + totals */}

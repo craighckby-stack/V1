@@ -38,6 +38,10 @@ import {
   classifyGrowth,
 } from "./saturation";
 import { isProtectedPath } from "./protected-files";
+// Durable banner-stats tier (.git/info/loop-stats.json, armed-state
+// pattern): the in-memory stats reset on every worker boot while the
+// self-model panel read the DB — two windows, one lying banner comment.
+import { readLoopStats, writeLoopStats } from "./loop-stats";
 // D1 (architecture context): builds a 2-hop "neighborhood map" of the
 // file being enhanced (its imports + their exports + 2-hop imports) and
 // injects it into the refactor prompt so the LLM refactors with
@@ -524,6 +528,15 @@ class SelfEnhanceLoop {
     tasksGenerated: 0,
     lastEnhancementAt: null as string | null,
   };
+  // Durable-stats hydration gate (see hydrateStats). Created in the
+  // constructor; awaited at the top of runCycle so the FIRST cycle after
+  // a boot waits for the persisted counters (or the one-time DB seed)
+  // before doing anything that could persist stats of its own. Without
+  // the gate, a fast first cycle could write zeros over a seed mid-flight.
+  private statsReady: Promise<void> = Promise.resolve();
+  // Skip-probe cadence counter: every SKIP_PROBE_INTERVALth proactive
+  // skip spends the LLM call anyway to score the skipper's claim.
+  private skipProbeCounter = 0;
   private logs: Array<{
     timestamp: string;
     message: string;
@@ -531,6 +544,12 @@ class SelfEnhanceLoop {
   }> = [];
 
   constructor() {
+    // ── DURABLE STATS HYDRATION ─────────────────────────────────
+    // Hydrate the banner counters from .git/info/loop-stats.json (or
+    // seed once from the DB on the first boot of this module). Fire-
+    // and-forget here; runCycle awaits the gate before any cycle work.
+    this.statsReady = this.hydrateStats();
+
     // ── ZOMBIE-TASK SWEEP ─────────────────────────────────────────────
     // A fresh process cannot have a legitimate in_progress SelfTask —
     // any row in that state was abandoned by a previous process death
@@ -2364,6 +2383,11 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
     // mid-cycle, the for-loop below sees `myRun !== this.runId` and breaks.
     const myRun = this.runId;
 
+    // Durable-stats gate: the first cycle after a boot waits here until
+    // the persisted counters (or the one-time DB seed) have landed, so a
+    // fast cycle can never persist zeros over a hydrate mid-flight.
+    await this.statsReady;
+
     // ── TEST-GATE CRASH RECOVERY (external audit, finding 1) ──────────
     // The test gate now runs candidates in a SANDBOX (core/sandbox-test.ts)
     // and never writes them live — so a crash can no longer strand one. But
@@ -2600,6 +2624,10 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
             if (push.pushed) {
               this.stats.totalEnhanced++;
               this.stats.totalPushed++;
+              // Durable tier: the SelfTask drain runs before the per-file
+              // loop, and a stop-aborted cycle skips the cycle-end persist —
+              // persist here so a task's counters survive an abort.
+              this.persistStats();
               await this.updateTask(task.id, {
                 status: "done",
                 fixSummary: exec.summary.slice(0, 500),
@@ -2724,6 +2752,10 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       // Same gate chain (typecheck + structural-validator + mutation-guard
       // + debate) applies; only the prompt differs.
       const VISUAL_POLISH_INTERVAL = 5;
+      // Skip-probe sampling rate: every 4th proactive skip spends the LLM
+      // call anyway (see the skip block below) — 25% sampling scores the
+      // skip rule while the other 75% still save the quota.
+      const SKIP_PROBE_INTERVAL = 4;
       const visualPolishResults: SelfEnhanceResult[] = [];
       if (
         this.stats.cyclesCompleted % VISUAL_POLISH_INTERVAL === 0 &&
@@ -2733,12 +2765,20 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       ) {
         try {
           // Pick a .tsx UI component that's not protected and not locked out.
-          const uiFiles = files.filter(
-            (f) =>
-              f.includes("/components/pipeline/") &&
-              f.endsWith(".tsx") &&
-              !isProtectedPath(relative(PROJECT_ROOT, f)),
-          );
+          // DEAD-ARM FIX: this pre-pass used to filter the SCANNED list for
+          // /components/pipeline/ — but SCAN_SCOPES covers src/lib/pipeline
+          // and src/app only, so the filter could never match, the arm never
+          // fired once (mode stats: visual-polish 0/0 forever), and
+          // predictConfidence's visual-polish branch was dead code. Discover
+          // the components directly from disk instead: the arm works without
+          // widening the refactor scan scope.
+          const uiDir = join(PROJECT_ROOT, "src", "components", "pipeline");
+          const uiFiles = existsSync(uiDir)
+            ? readdirSync(uiDir)
+                .filter((f) => f.endsWith(".tsx"))
+                .map((f) => join(uiDir, f))
+                .filter((f) => !isProtectedPath(relative(PROJECT_ROOT, f)))
+            : [];
           if (uiFiles.length > 0) {
             // Rotate through the list by cycle number so we don't polish
             // the same component every time.
@@ -2835,30 +2875,52 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         // reasoning is visible ("🧠 proactively skipping X — finished
         // 0.85, predicted 12% (will zero-diff)"). Falls back to spending
         // the call if the self-model is unavailable (honest).
+        let skipProbe = false;
         try {
           const skip = await shouldProactivelySkip(relPath);
           if (skip.skip) {
-            this.log(`🧠 ${skip.reason}`, "info");
-            const skipReason = `Skipped (self-model predicts zero-diff: finished ${skip.finishedScore.toFixed(2)}, predicted ${(skip.confidence * 100).toFixed(0)}%)`;
-            results.push({
-              filePath: relPath,
-              enhanced: false,
-              reason: skipReason,
-              oldBytes: 0,
-              newBytes: 0,
-              diffBytes: 0,
-              llmUsed: false,
-              llmLatencyMs: 0,
-              compiled: false,
-              pushed: false,
-            });
-            lockedSkipped++;
-            // Advance the saturation state for this synthetic no-growth
-            // outcome TOO — the old code continued BEFORE the saturation
-            // update, so the counter never advanced for proactive skips
-            // and the pass-complete checkpoint was unreachable.
-            await this.advanceSaturation(relPath, skipReason);
-            continue;
+            // ── SKIP-PROBE (scoring the skipper) ─────────────────────
+            // A skipped file never opened a prediction row, so the skip
+            // rule's "will zero-diff" claim was unmeasurable — the
+            // calibration curve only ever saw files the skipper did NOT
+            // skip. Every SKIP_PROBE_INTERVALth skip, spend the call
+            // anyway and tag the prediction as a probe: the outcome then
+            // scores the skipper (zero-diff/fail = the skip saved a
+            // no-growth call; pass = the skipper skipped a live file).
+            this.skipProbeCounter++;
+            skipProbe =
+              this.skipProbeCounter % SKIP_PROBE_INTERVAL === 0 &&
+              llmCooldownMs() === 0 &&
+              !isSafeMode() &&
+              myRun === this.runId;
+            if (skipProbe) {
+              this.log(`🧠 skip-probe: spending the call on ${relPath} to score the skip rule (${skip.reason})`, "info");
+            } else {
+              this.log(`🧠 ${skip.reason}`, "info");
+              const skipReason = `Skipped (self-model predicts zero-diff: finished ${skip.finishedScore.toFixed(2)}, predicted ${(skip.confidence * 100).toFixed(0)}%)`;
+              results.push({
+                filePath: relPath,
+                enhanced: false,
+                reason: skipReason,
+                oldBytes: 0,
+                newBytes: 0,
+                diffBytes: 0,
+                llmUsed: false,
+                llmLatencyMs: 0,
+                compiled: false,
+                pushed: false,
+              });
+              lockedSkipped++;
+              // Advance the saturation state for this synthetic no-growth
+              // outcome TOO — the old code continued BEFORE the saturation
+              // update, so the counter never advanced for proactive skips
+              // and the pass-complete checkpoint was unreachable.
+              await this.advanceSaturation(relPath, skipReason);
+              continue;
+            }
+            // Probe path: fall through to the real attempt below with
+            // skipProbe=true, so the prediction row is tagged for the
+            // audit's skip-rule scoring section.
           }
         } catch {
           /* self-model unavailable — proceed to LLM call (honest) */
@@ -2876,7 +2938,8 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         const predId = await openSelfPrediction(
           relPath,
           "refactor",
-          this.stats.cyclesCompleted + 1
+          this.stats.cyclesCompleted + 1,
+          skipProbe
         ).catch(() => null);
 
         // ── SELF-PROPHECY (audit 7 — the Oracle's public track record)
@@ -2910,6 +2973,9 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         if (result.enhanced) enhanced++;
         if (result.reason.startsWith("Rejected")) this.stats.totalReverted++;
         if (result.reason.startsWith("Deferred")) deferredThisCycle++;
+        // Durable tier: persist after every per-file verdict so a crash
+        // mid-cycle loses at most one file's counters, not the boot's.
+        this.persistStats();
 
         // ── SELF-MODEL OUTCOME (audit 7 — feeds the bandit + the
         //    calibration curve) ─────────────────────────────────────────
@@ -3071,6 +3137,7 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       // one per stop.
       if (myRun === this.runId) {
         this.stats.cyclesCompleted++;
+        this.persistStats();
       }
       this.currentFile = null;
       // Same honest counting: locked-among-scanned, not whole-map.
@@ -3400,6 +3467,70 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
 
   getStats() {
     return { ...this.stats };
+  }
+
+  /** Snapshot the in-memory stats into the durable restart tier
+   *  (.git/info/loop-stats.json — the armed-state pattern). Best-effort:
+   *  writeLoopStats never throws, so telemetry can never fail a cycle. */
+  private persistStats(): void {
+    writeLoopStats({
+      totalScanned: this.stats.totalScanned,
+      totalEnhanced: this.stats.totalEnhanced,
+      totalReverted: this.stats.totalReverted,
+      totalPushed: this.stats.totalPushed,
+      testsWritten: this.stats.testsWritten,
+      cyclesCompleted: this.stats.cyclesCompleted,
+      tasksGenerated: this.stats.tasksGenerated,
+      lastEnhancementAt: this.stats.lastEnhancementAt,
+    });
+  }
+
+  /** One-time-per-boot hydration of the banner counters. Priority:
+   *    1. .git/info/loop-stats.json — the durable tier (normal path).
+   *    2. First boot of this module (no file): seed ONCE from the DB
+   *       self-model aggregates so the banner and the self-model panel
+   *       start from the same window — enhanced ← passes, reverted ←
+   *       fails, pushed ← passes (pushes are 1:1 with enhancements in
+   *       practice), cycles ← the corpus's max cycleNumber. From then on
+   *       the file is the source and survives even DB rolls.
+   *    3. DB unavailable too: stay at zeros (old behavior — never block
+   *       the loop on its own telemetry).
+   *  Never rejects: the statsReady gate must always resolve. */
+  private async hydrateStats(): Promise<void> {
+    try {
+      const persisted = readLoopStats();
+      if (persisted) {
+        this.stats = { ...persisted };
+        console.log(
+          `[SELF-ENHANCE] stats hydrated from restart tier: ${persisted.cyclesCompleted} cycles, ${persisted.totalEnhanced} enhanced, ${persisted.totalPushed} pushed`
+        );
+        return;
+      }
+      // First boot of the durable tier — seed from the self-model (the
+      // same window the panel shows), then write the file so this seed
+      // never runs again.
+      try {
+        const [agg, cyc] = await Promise.all([
+          db.selfModelFile.aggregate({ _sum: { passes: true, fails: true } }),
+          db.mutationCorpus.aggregate({ _max: { cycleNumber: true } }),
+        ]);
+        const passes = agg._sum.passes ?? 0;
+        const fails = agg._sum.fails ?? 0;
+        this.stats.totalEnhanced = passes;
+        this.stats.totalReverted = fails;
+        this.stats.totalPushed = passes;
+        this.stats.cyclesCompleted = Math.max(0, cyc._max.cycleNumber ?? 0);
+        this.persistStats();
+        console.log(
+          `[SELF-ENHANCE] stats seeded from self-model DB epoch: ${this.stats.cyclesCompleted} cycles, ${passes} enhanced, ${fails} reverted`
+        );
+      } catch {
+        /* DB unavailable — stay at zeros; the file gets written by the
+           first persistStats call with whatever the loop has done. */
+      }
+    } catch {
+      /* never reject — stats are telemetry, not a gate */
+    }
   }
 
   /** Snapshot of per-file saturation state for the status API + UI.

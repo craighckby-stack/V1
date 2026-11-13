@@ -296,11 +296,15 @@ export async function predictConfidence(
 
 /** Open a prediction row before an attempt. Returns the row id so the
  *  caller can resolve it whatever happens next. Fail-soft: null means
- *  "no prediction recorded" (calibration just loses one sample). */
+ *  "no prediction recorded" (calibration just loses one sample).
+ *  skipProbe=true tags the row as a PROBED proactive-skip (the loop spent
+ *  the call specifically to score the skip rule) — the audit's skip-rule
+ *  section reads the tag; the calibration curve ignores it. */
 export async function openSelfPrediction(
   filePath: string,
   mode: "refactor" | "visual-polish",
-  cycleNumber: number
+  cycleNumber: number,
+  skipProbe = false
 ): Promise<string | null> {
   try {
     const pred = await predictConfidence(filePath, mode);
@@ -311,6 +315,7 @@ export async function openSelfPrediction(
         confidence: pred.confidence,
         cycleNumber,
         reason: pred.reason,
+        skipProbe,
       },
     });
     return row.id;
@@ -513,6 +518,23 @@ export interface SelfModelSummary {
     visualPolish: { attempts: number; passes: number };
   };
   totals: { attempts: number; passes: number; failss: number; zeroDiffs: number };
+  /** Skip-rule scoring: the proactive-skip predictor ("finished + low
+   *  confidence → will zero-diff, don't spend the call") measured via
+   *  probes — skipped files never open prediction rows, so the ONLY
+   *  data on whether the skipper is right comes from probed skips. */
+  skipProbes: {
+    probes: number;
+    zeroDiffs: number;
+    fails: number;
+    passes: number;
+    /** (zeroDiffs + fails) / probes — fraction where the skip would have
+     *  saved a no-growth call (the skipper was right to save it). */
+    savedRate: number | null;
+    /** passes / probes — fraction where the file was LIVE (the skipper
+     *  would have discarded a real enhancement — the costly error). */
+    missedRate: number | null;
+    verdict: string;
+  };
 }
 
 /** Compute the full self-awareness summary for the API/UI: per-file
@@ -530,6 +552,15 @@ export async function getSelfModelSummary(): Promise<SelfModelSummary> {
     },
     modeStats: { refactor: { attempts: 0, passes: 0 }, visualPolish: { attempts: 0, passes: 0 } },
     totals: { attempts: 0, passes: 0, failss: 0, zeroDiffs: 0 },
+    skipProbes: {
+      probes: 0,
+      zeroDiffs: 0,
+      fails: 0,
+      passes: 0,
+      savedRate: null,
+      missedRate: null,
+      verdict: "no skip-probes resolved yet — the skip rule is unmeasured until probes land",
+    },
   };
   try {
     const files = await db.selfModelFile.findMany({
@@ -604,6 +635,31 @@ export async function getSelfModelSummary(): Promise<SelfModelSummary> {
       { attempts: 0, passes: 0, failss: 0, zeroDiffs: 0 }
     );
 
+    // ── SKIP-RULE SCORING (the measured half of the proactive skip) ──
+    // The skip rule ("finished ≥ 0.7 AND predicted pass < 0.2 → will
+    // zero-diff, save the call") is only measurable on PROBED skips:
+    // every 4th skip spends the call anyway with its prediction row
+    // tagged skipProbe=true. Outcomes score the skipper — zero-diff or
+    // fail = no growth, the skip would have saved a wasted call (right);
+    // pass = the file was live and the skipper would have discarded a
+    // real enhancement (wrong, and the costly kind of wrong).
+    const probeRows = resolved.filter((p) => p.skipProbe === true);
+    const pZero = probeRows.filter((p) => p.outcome === "zero-diff").length;
+    const pFail = probeRows.filter((p) => p.outcome === "fail").length;
+    const pPass = probeRows.filter((p) => p.outcome === "pass").length;
+    const savedRate = probeRows.length > 0 ? round2((pZero + pFail) / probeRows.length) : null;
+    const missedRate = probeRows.length > 0 ? round2(pPass / probeRows.length) : null;
+    let skipVerdict: string;
+    if (probeRows.length === 0) {
+      skipVerdict = "no skip-probes resolved yet — the skip rule is unmeasured until probes land";
+    } else if ((missedRate ?? 0) <= 0.1) {
+      skipVerdict =
+        `skip rule looks safe — ${probeRows.length} probe(s): ${pZero} zero-diffed, ${pFail} failed (no growth either way — the skip saved them), ${pPass} passed (missed enhancement)`;
+    } else {
+      skipVerdict =
+        `skip rule is skipping LIVE files — ${pPass}/${probeRows.length} probes PASSED (real enhancements the skipper would have discarded); consider raising the finished-score threshold or lowering the confidence ceiling`;
+    }
+
     return {
       files: files.map((f) => ({
         filePath: f.filePath,
@@ -637,6 +693,15 @@ export async function getSelfModelSummary(): Promise<SelfModelSummary> {
         },
       },
       totals,
+      skipProbes: {
+        probes: probeRows.length,
+        zeroDiffs: pZero,
+        fails: pFail,
+        passes: pPass,
+        savedRate,
+        missedRate,
+        verdict: skipVerdict,
+      },
     };
   } catch {
     return empty;

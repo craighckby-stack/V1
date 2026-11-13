@@ -562,6 +562,14 @@ model SelfPrediction {
   /// Self-explanation: WHY this confidence (empirical rate, recency,
   /// exhaustion). The loop's reasoning, in its own record.
   reason      String?
+  /// Skip-probe marker: true when this prediction recorded a PROBED
+  /// proactive-skip — the loop spent the LLM call anyway specifically to
+  /// score the skip rule's "will zero-diff" claim (skipped files never
+  /// open rows, so without probes the skip decision is unmeasurable).
+  /// Only probe rows feed the skip-rule scoring section of the audit;
+  /// the pass-calibration curve ignores the flag (a probe is an ordinary
+  /// attempt from the predictor's perspective).
+  skipProbe   Boolean  @default(false)
   createdAt   DateTime @default(now())
   resolvedAt  DateTime?
 }
