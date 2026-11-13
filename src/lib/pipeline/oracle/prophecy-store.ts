@@ -225,7 +225,7 @@ export async function getProphecyCounts(): Promise<{
     // Process the groupBy results safely
     if (Array.isArray(result)) {
       result.forEach(item => {
-        if (item.status && item.status in counts) {
+        if (item.status && ["pending", "fulfilled", "failed", "retired"].includes(item.status)) {
           counts[item.status as keyof typeof counts] = item._count.status;
         }
       });
@@ -256,8 +256,8 @@ export async function getJudgedPropheciesForCalibration(): Promise<
       select: { confidence: true, status: true },
     });
     
-    // Ensure we return an array, even if the query returns null (Prisma usually returns [] for no results)
-    return prophecies || [];
+    // Prisma findMany returns an array, even if empty, so explicit null check is redundant but harmless if kept.
+    return prophecies;
   } catch (error) {
     console.error("Failed to get judged prophecies for calibration in getJudgedPropheciesForCalibration:", error);
     return [];
