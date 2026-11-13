@@ -49,6 +49,8 @@ const KEY_FILE_MODE = 0o600;
 const MIN_PLAINTEXT_LENGTH = 20;
 /** IV length for AES-256-GCM. */
 const IV_LENGTH = 12;
+/** GCM tag length. */
+const GCM_TAG_LENGTH = 16;
 /** Number of parts expected in a sealed envelope body (IV.Tag.Ciphertext). */
 const ENVELOPE_PARTS_COUNT = 3;
 /**
@@ -182,7 +184,7 @@ export function openToken(stored: string): string {
     }
     
     // Validate IV and tag lengths
-    if (!iv || iv.length !== IV_LENGTH || !tag || tag.length !== 16) return "";
+    if (!iv || iv.length !== IV_LENGTH || !tag || tag.length !== GCM_TAG_LENGTH) return "";
     
     const decipher = createDecipheriv("aes-256-gcm", key, iv);
     decipher.setAuthTag(tag);
