@@ -48,11 +48,6 @@ export async function GET() {
 export async function POST(req: Request) {
   let force = false;
   try {
-    // Input validation: Ensure req is a valid Request object before proceeding
-    if (!(req instanceof Request)) {
-        throw new Error("Invalid Request object provided to POST handler: req is not a valid Request instance.");
-    }
-    
     const body = await req.json();
     
     // Validate body is an object
