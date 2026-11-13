@@ -58,7 +58,7 @@ export const runtime = "nodejs";
 /** Count *.json scar files under postmortems/ (recursive, sync — small tree). */
 function diskScarCount(): number {
   if (typeof PROJECT_ROOT !== 'string' || !PROJECT_ROOT) {
-    throw new Error("PROJECT_ROOT is not defined or is not a valid string path, cannot scan for scar files.");
+    return 0; // Honesty rule: return 0 if path is invalid, do not throw.
   }
   const root = join(PROJECT_ROOT, "postmortems");
   let n = 0;
@@ -72,7 +72,7 @@ function diskScarCount(): number {
       } else {
         console.error(`Unknown error reading directory ${dir}:`, e);
       }
-      return;
+      return; // Stop walking this branch on read error
     }
     for (const e of entries) {
       const p = join(dir, e);
@@ -85,13 +85,23 @@ function diskScarCount(): number {
         } else {
           console.warn(`Unknown error statting path ${p}:`, e);
         }
-        continue;
+        continue; // Skip this entry if stat fails
       }
       if (st.isDirectory()) walk(p);
       else if (e.endsWith(".json")) n++;
     }
   };
-  walk(root);
+  try {
+    walk(root);
+  } catch (e) {
+    // Catch any unexpected errors during the initial walk call
+    if (e instanceof Error) {
+      console.error(`Fatal error during scar file traversal starting at ${root}: ${e.message}`);
+    } else {
+      console.error(`Unknown fatal error during scar file traversal starting at ${root}:`, e);
+    }
+    return 0; // Return 0 on fatal traversal error
+  }
   return n;
 }
 
@@ -100,7 +110,7 @@ async function checkGitHubAuth(
   token: string
 ): Promise<{ ok: true; login: string } | { ok: false; error: string }> {
   // Input validation
-  if (!token || typeof token !== 'string' || token.trim().length === 0) {
+  if (typeof token !== 'string' || token.trim().length === 0) {
     return { ok: false, error: "Invalid token: must be a non-empty string" };
   }
 
