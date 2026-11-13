@@ -69,7 +69,7 @@ export async function createProphecy(input: {
       },
     });
   } catch (error) {
-    console.error("Failed to create prophecy in createProphecy:", error);
+    console.error("Database error while creating prophecy:", error);
     return null;
   }
 }
@@ -225,7 +225,7 @@ export async function getProphecyCounts(): Promise<{
     // Process the groupBy results safely
     if (Array.isArray(result)) {
       result.forEach(item => {
-        if (item.status && ["pending", "fulfilled", "failed", "retired"].includes(item.status)) {
+        if (item.status && ["pending", "fulfilled", "failed", "retired"].includes(item.status as keyof typeof counts)) {
           counts[item.status as keyof typeof counts] = item._count.status;
         }
       });
