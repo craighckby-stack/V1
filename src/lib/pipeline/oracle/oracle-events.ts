@@ -125,7 +125,10 @@ export function emitOracleEvent(
   // The ingest route validates the shared token — this is display-stream
   // tamper resistance, not a security boundary.
   if (process.env.LOOP_WORKER === "1") {
-    void fetch(
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    
+    fetch(
       `${process.env.LOOP_SERVER_URL ?? "http://localhost:3000"}/api/oracle/events/ingest`,
       {
         method: "POST",
@@ -135,9 +138,11 @@ export function emitOracleEvent(
             process.env.LOOP_WORKER_TOKEN ?? "loop-worker-ingest-v1",
         },
         body: JSON.stringify(event),
-        signal: AbortSignal.timeout(2000),
+        signal: controller.signal,
       }
-    ).catch((error) => {
+    )
+    .then(() => clearTimeout(timeoutId))
+    .catch((error) => {
       // Log the error for debugging but don't block the main flow
       console.error(`Failed to send oracle event to server (source: ${source}, type: ${type}, message: ${message}):`, error);
     });
