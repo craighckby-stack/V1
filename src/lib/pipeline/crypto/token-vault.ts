@@ -94,16 +94,6 @@ function ensureKey(): Buffer | null {
           }
         } catch (e) {
           // Ignore errors when trying to clean up
-          // If we can't clean up the temp file, at least ensure it's not left behind
-          try {
-            // Try to rename to a different name to avoid leaving sensitive data
-            const failedCleanupFile = `${KEY_FILE}.failed-cleanup`;
-            if (!existsSync(failedCleanupFile)) {
-              renameSync(tmp, failedCleanupFile);
-            }
-          } catch (renameError) {
-            // If we can't even rename it, we have to leave it
-          }
         }
       }
       // Read-only .git? Sealing is impossible — callers fall back to
@@ -201,7 +191,7 @@ export function openToken(stored: string): string {
       warnedKeyMissing = true;
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(
-        `[TOKEN-VAULT] failed to open a sealed token (key missing/tampered?) — treating as no-token; re-enter the PAT in [CONFIG] if this persists. Error: ${errorMessage}`
+        `[TOKEN-VAULT] failed to open a sealed token. This indicates a key mismatch, corrupted data, or tampering. Please verify key integrity at ${KEY_FILE}. Error: ${errorMessage}`
       );
     }
     return "";
