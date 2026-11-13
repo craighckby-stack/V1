@@ -55,7 +55,7 @@ export async function createProphecy(input: {
   }
 
   if (!db) {
-    console.error("Database connection (db) is not initialized.");
+    console.error("Database connection (db) is not initialized in createProphecy.");
     return null;
   }
 
@@ -75,7 +75,7 @@ export async function createProphecy(input: {
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Database error while creating prophecy: Input validation passed, but DB operation failed. Error: ${errorMessage}`);
+    console.error(`Database error in createProphecy: DB operation failed. Error: ${errorMessage}`);
     return null;
   }
 }
