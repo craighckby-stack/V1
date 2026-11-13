@@ -25,25 +25,8 @@ describe("memory entries route", () => {
     expect(Array.isArray(body.entries)).toBe(true);
   });
 
-  test("GET returns 500 error when emgRagInstance operations fail", async () => {
-    // This test simulates the error path in the implementation
-    // We can't directly test the error case without mocking emgRagInstance
-    // But we can verify the error response structure matches the implementation
-    
-    // In a real scenario, we would mock emgRagInstance.ensureSeeded() to throw
-    // For this characterization, we'll verify the error response structure
-    // which is: NextResponse.json({ error: string }, { status: 500 })
-    
-    // Since we can't force the error in this test without mocking,
-    // we'll document the expected error response structure
-    // In practice, this would be tested with mocked dependencies
-    const errorResponse = {
-      status: 500,
-      body: { error: "Some error message" }
-    };
-    
-    expect(errorResponse.status).toBe(500);
-    expect(errorResponse.body).toHaveProperty("error");
-    expect(typeof errorResponse.body.error).toBe("string");
-  });
+  // (Cripple-check F17: the former "GET returns 500 error" test was
+  // VACUOUS — it constructed a local {status:500, body:{...}} literal and
+  // asserted on it, never executing the route's error path. Deleted; the
+  // error path needs real dependency mocking to test honestly.)
 });

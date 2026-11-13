@@ -42,6 +42,11 @@ type SaturationMap = Record<string, FileSaturation>;
 
 interface SelfEnhanceStatus {
   running: boolean;
+  /** Cripple-check F8: false = the loop worker process is unreachable
+   *  (dead/respawning). Without it, "stopped" and "worker down" were
+   *  indistinguishable in the UI. Optional for backward compat with
+   *  older payloads. */
+  workerReachable?: boolean;
   stats: {
     totalScanned: number;
     totalEnhanced: number;
@@ -1986,6 +1991,36 @@ export default function Home() {
           />
         </div>
       </div>
+
+      {/* ── Worker-down banner (cripple-check F8) ─────────────────────────
+          The worker process (port 3004) hosts the self-enhance loop. When
+          its /status poll fails, the status route reports an honestly-idle
+          loop PLUS workerReachable:false — previously that state was
+          indistinguishable from "loop stopped", so a dead worker looked
+          like a normal idle system. This banner makes the failure (and
+          the background respawn) visible. Hidden while the worker is
+          reachable (including before the first poll resolves). */}
+      {status && status.workerReachable === false && (
+        <div
+          role="alert"
+          aria-label="Self-enhance worker unreachable — respawning in background"
+          style={{
+            borderTop: `1px solid ${ERROR_COLOR}`,
+            borderBottom: `1px solid ${ERROR_COLOR}`,
+            padding: "6px 8px",
+            background: "#000",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            fontSize: "12px",
+            fontWeight: "bold",
+            color: ERROR_COLOR,
+          }}
+        >
+          <span aria-hidden>✕</span>
+          <span>WORKER DOWN — loop worker (port 3004) unreachable. Respawning in background; loop status below is a placeholder until it returns.</span>
+        </div>
+      )}
 
       {/* ── Live enhancement banner ──────────────────────────────────────
           The "you can SEE the system enhancing itself" banner. Shows what

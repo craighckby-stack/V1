@@ -13,14 +13,14 @@
 import { SIPHON_SOURCES, performArchitecturalVote, ArchitecturalVote } from "./siphon";
 import { sanitizeAndGovern, SecuritySanitizerResult } from "../emg/sanitizer";
 import { executeCleanRoomEngine, EngineExecutionResult } from "../engines/clean-room-runtime";
-import { evaluateAstDiff, AstDiffResult } from "./ast-diff-gate";
+import { AstDiffResult } from "./ast-diff-gate";
+import { runGateChain, REMOTE_PATH_POLICY } from "./gate-runner";
 import { DebateVerdict } from "../emg/debate";
 import { conductLlmDebate } from "../llm/debate-llm";
 import { SelfStoppingGovernor, HaltEvaluationState } from "../emg/halt";
 import { emgRagInstance } from "../emg/emg-rag";
 import { binaryShieldInstance } from "./binaryShield";
 import { postmortemStore } from "../postmortem/postmortem-store";
-import { gateMutation } from "./mutation-guard";
 
 export type PipelineStageId =
   | "stage0_ingestion"
@@ -327,7 +327,24 @@ export class UnifiedPipelineRunner {
     // SANITIZED base (the refactor stage's actual input), not the raw
     // original. (The old baseline attributed sanitizer redaction deltas
     // — [REDACTED_*] injections — to the "LLM refactor".)
-    const astDiffResult = evaluateAstDiff(sanitizedBaseCode, evolvedCode, config.filePath);
+    // Replace ②: the gate invocation itself lives in core/gate-runner.ts.
+    // This stage-local slice runs ONLY the AST gate (score tolerance,
+    // REMOTE_PATH_POLICY) — the guard runs at stage 4 because the 0-diff
+    // short-circuit below must sit between them (an identical-code cycle
+    // spends no guard or tribunal time at all).
+    const astChain = await runGateChain({
+      filePath: config.filePath,
+      originalCode: config.code,
+      astBaselineCode: sanitizedBaseCode,
+      evolvedCode,
+      policy: { ...REMOTE_PATH_POLICY, guard: false },
+    });
+    const astDiffResult = astChain.ast;
+    if (!astDiffResult) {
+      // Unreachable under REMOTE_PATH_POLICY (ast: true) — this guards
+      // the type, not the runtime.
+      throw new Error("gate-runner returned no AST result under policy.ast=true");
+    }
     const dur3 = Math.round(performance.now() - t3);
 
     if (astDiffResult.passed) {
@@ -451,11 +468,22 @@ export class UnifiedPipelineRunner {
     // scaffolding path) is rejected here without spending an LLM review
     // call. The guard is fail-CLOSED: triage evil → reject; unsure/good →
     // finalAuthority (protected paths + non-empty). See mutation-guard.ts.
-    const gateResult = gateMutation({
+    // Replace ②: invoked through core/gate-runner.ts (stage-local slice:
+    // guard only — the AST gate already ran at stage 3). The runner
+    // normalizes the guard path centrally, so an absolute-path caller can
+    // no longer bypass the protected-path check.
+    const guardChain = await runGateChain({
       filePath: config.filePath,
       originalCode: config.code,
       evolvedCode,
+      policy: { ...REMOTE_PATH_POLICY, ast: false },
     });
+    const gateResult = guardChain.guard;
+    if (!gateResult) {
+      // Unreachable under REMOTE_PATH_POLICY (guard: true) — guards the
+      // type, not the runtime.
+      throw new Error("gate-runner returned no guard result under policy.guard=true");
+    }
     if (!gateResult.allowed) {
       const dur4guard = Math.round(performance.now() - t4);
       const rejectMsg = `Mutation guard REJECTED (${gateResult.rejectedBy}): ${gateResult.reasons.join("; ")}`;

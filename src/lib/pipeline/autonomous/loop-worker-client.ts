@@ -60,7 +60,11 @@ export async function workerFetch<T = unknown>(
   } catch (error) {
     // Catch specific network/timeout errors, but still return null as per contract
     if (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
-        // Timeout/Abort handled gracefully, return null
+        // Cripple-check F9: a chronically slow worker (always timing out)
+        // used to produce ZERO log output anywhere — every route caller
+        // silently mapped null to its fallback. Warn once per call site
+        // pattern so the degradation is visible in the server log.
+        console.warn(`workerFetch timeout/abort: ${WORKER_URL}${pathname} (${timeoutMs}ms)`);
     } else {
         console.error(`Error fetching ${WORKER_URL}${pathname}:`, error);
     }

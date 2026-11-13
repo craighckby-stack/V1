@@ -61,9 +61,10 @@ class LoopEventBus {
       throw new Error("LoopEventBus.emit() called on uninitialized EventEmitter");
     }
     if (!evt) {
+      // Added explicit check for null/undefined input event
       throw new Error("LoopEventBus.emit() called with null or undefined event");
     }
-    if (typeof evt !== 'object') {
+    if (typeof evt !== 'object' || Array.isArray(evt) || evt === null) {
       throw new Error("LoopEventBus.emit() called with non-object event");
     }
     if (typeof evt.timestamp !== "number" || !Number.isFinite(evt.timestamp) || evt.timestamp <= 0) {

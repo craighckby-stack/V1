@@ -404,33 +404,36 @@ export async function DELETE(req: Request) {
   }
   const kind = body.kind ?? "gemini";
 
-  if (kind === "nvidia") {
-    // Clear the NVIDIA fields but leave the Gemini key untouched.
-    await db.llmConfig
-      .update({
-        where: { id: SINGLETON_ID },
-        data: {
-          nvidiaApiKey: "",
-          nvidiaModel: "nvidia/nemotron-3.5-bolt-e4b",
-          nvidiaLastUsedAt: null,
-          nvidiaLastError: null,
-        },
-      })
-      .catch(() => {});
-    return NextResponse.json({ ok: true, kind: "nvidia" });
-  }
-
-  // Clear the Gemini fields but leave the NVIDIA key untouched.
-  await db.llmConfig
-    .update({
-      where: { id: SINGLETON_ID },
-      data: {
+  // Cripple-check F11: this handler used to swallow ALL update errors
+  // (`.catch(() => {})`) and then unconditionally return ok:true — the
+  // exact fake-success pattern the codebase otherwise purged. An operator
+  // "clearing" a key with a broken DB was told it succeeded when nothing
+  // happened. The update result is now reported honestly.
+  const clearFields = kind === "nvidia"
+    ? // Clear the NVIDIA fields but leave the Gemini key untouched.
+      {
+        nvidiaApiKey: "",
+        nvidiaModel: "nvidia/nemotron-3.5-bolt-e4b",
+        nvidiaLastUsedAt: null,
+        nvidiaLastError: null,
+      }
+    : // Clear the Gemini fields but leave the NVIDIA key untouched.
+      {
         geminiApiKey: "",
         geminiModel: "gemini-2.5-flash",
         lastUsedAt: null,
         lastError: null,
-      },
-    })
-    .catch(() => {});
-  return NextResponse.json({ ok: true, kind: "gemini" });
+      };
+
+  try {
+    await db.llmConfig.update({ where: { id: SINGLETON_ID }, data: clearFields });
+  } catch (err) {
+    const msg = (err as Error).message ?? "unknown db error";
+    console.error(`llm-config DELETE (${kind}) failed:`, msg);
+    return NextResponse.json(
+      { ok: false, kind, error: `Failed to clear ${kind} config: ${msg.slice(0, 200)}` },
+      { status: 500 }
+    );
+  }
+  return NextResponse.json({ ok: true, kind });
 }

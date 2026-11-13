@@ -25,16 +25,22 @@ export async function GET() {
   // second singleton whose boot auto-start honors the armed tier.
   const r = await workerFetch("/status", { timeoutMs: 4000 });
   if (r?.ok && r.data) {
-    return NextResponse.json(r.data);
+    // Cripple-check F8: surface worker reachability explicitly. Without
+    // this flag, "loop stopped" and "worker process dead/respawning"
+    // were indistinguishable to the UI — both rendered the same idle
+    // panel while the actual cause was invisible.
+    return NextResponse.json({ ...r.data, workerReachable: true });
   }
 
   // Worker down — self-heal in the background (never block the poll; the
   // next 2s poll finds the respawned worker) and report an honestly idle
-  // loop in the exact shape the UI expects. llmGate falls back to THIS
-  // process's gate — still accurate for the autonomous loop's LLM calls.
+  // loop in the exact shape the UI expects, PLUS the honest cause: the
+  // worker is unreachable. llmGate falls back to THIS process's gate —
+  // still accurate for the autonomous loop's LLM calls.
   healWorkerInBackground();
   return NextResponse.json({
     running: false,
+    workerReachable: false,
     stats: IDLE_STATS,
     logs: [],
     currentFile: null,

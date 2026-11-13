@@ -146,6 +146,17 @@ export async function oracleSchedulerTick(): Promise<{
 function bootOracleScheduler(): void {
   const s = sched();
   if (s.booted) return;
+
+  // Cripple-check F14: the loop-worker sets ORACLE_SCHEDULER_DISABLED=1
+  // ("belt-and-suspenders for any future transitive import") — but nothing
+  // read the flag, so it was a placebo: an import chain that pulled this
+  // module into the worker would have booted a SECOND scheduler despite
+  // the env var. The flag is now honored here, at the only place a
+  // scheduler timer can come to life.
+  if (process.env.ORACLE_SCHEDULER_DISABLED === "1") {
+    s.booted = true; // mark handled so retry-imports don't re-check forever
+    return;
+  }
   
   // Clean up ANY previous process-wide timer — first the dedicated slot
   // (survives pin clears), then the state's own handle if it somehow

@@ -77,6 +77,9 @@ export async function GET() {
     tasksGenerated: 0,
     lastEnhancementAt: null,
   };
+  // Cripple-check F8: distinguish "loop stopped" from "worker process
+  // unreachable" — same honesty contract as /api/self-enhance/status.
+  const workerReachable = workerStatus?.ok === true;
   const websocketStatus = await probeWebSocketService();
 
   const gov = unifiedPipelineRunnerInstance.getGovernorStats();
@@ -105,6 +108,7 @@ export async function GET() {
       governor: governorStatus,
       remoteLoop: loopState.status,
       selfEnhanceLoop: workerStatus?.data?.running ? "running" : "idle",
+      selfEnhanceWorkerReachable: workerReachable,
       websocket: websocketStatus,
     },
     selfEnhanceStats: selfStats,
