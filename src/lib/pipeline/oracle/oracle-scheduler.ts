@@ -126,7 +126,7 @@ export async function oracleSchedulerTick(): Promise<{
   try {
     const result = await evaluateDueProphecies();
     // Validate the result structure
-    if (!result || typeof result !== 'object' || !('judged' in result) || !('skipped' in result)) {
+    if (typeof result !== 'object' || result === null || !('judged' in result) || !('skipped' in result)) {
       throw new Error('evaluateDueProphecies() returned invalid result structure');
     }
     const judged = result.judged;
