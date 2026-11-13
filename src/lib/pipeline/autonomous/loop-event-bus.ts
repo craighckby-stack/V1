@@ -73,8 +73,16 @@ class LoopEventBus {
     }
 
     // Input validation based on kind using type guards
-    if (evt.kind === "stage" || evt.kind === "push") {
-      if (!evt.cycleId || typeof evt.cycleId !== "string" || !evt.filePath || typeof evt.filePath !== "string") {
+    if (evt.kind === "state") {
+      if (!evt.state) {
+        throw new Error("LoopEventBus.emit() for kind 'state' requires a defined state object.");
+      }
+    } else if (evt.kind === "log") {
+      if (!evt.log) {
+        throw new Error("LoopEventBus.emit() for kind 'log' requires a defined log entry.");
+      }
+    } else if (evt.kind === "stage" || evt.kind === "push") {
+      if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0 || !evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
         throw new Error(`LoopEventBus.emit() for kind '${evt.kind}' requires non-empty string cycleId and filePath.`);
       }
     }
