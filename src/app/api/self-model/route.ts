@@ -100,10 +100,14 @@ export async function POST(req: Request) {
       // a fresh module scope, so force works after a server-side re-eval.
       // In a long-running process without re-eval, force is a no-op
       // (the model already has rows). Both are safe.
-      await bootstrapSelfModel(); // Await the promise, don't swallow errors silently if we want to log them properly
+      await bootstrapSelfModel(); 
     } catch (bootstrapError) {
-      // Log bootstrap failure with context
+      // Log bootstrap failure with context and return an error response
       console.error("Failed to bootstrap self-model during POST operation:", bootstrapError);
+      return NextResponse.json(
+        { error: `Failed to bootstrap self-model: ${(bootstrapError as Error).message || "Unknown bootstrap error"}` },
+        { status: 500 }
+      );
     }
   }
   
