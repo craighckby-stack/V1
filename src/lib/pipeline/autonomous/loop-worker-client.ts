@@ -34,20 +34,23 @@ export async function workerFetch<T = unknown>(
   init?: RequestInit & { timeoutMs?: number }
 ): Promise<WorkerResult<T> | null> {
   if (!pathname || typeof pathname !== "string" || pathname.trim() === "") {
-    console.error("workerFetch called with invalid pathname.");
+    console.error("workerFetch called with invalid pathname: must be a non-empty string.");
     return null;
   }
-  if (!init) {
-    // If init is missing, default to GET with 5000ms timeout
-    init = { method: "GET", timeoutMs: 5000 };
-  }
   
-  const timeoutMs = init.timeoutMs ?? 5000;
+  const effectiveInit: RequestInit & { timeoutMs?: number } = {
+    method: "GET",
+    timeoutMs: 5000,
+    ...(init || {}),
+  };
+  
+  const timeoutMs = effectiveInit.timeoutMs ?? 5000;
+  
   try {
     const res = await fetch(`${WORKER_URL}${pathname}`, {
-      method: init.method,
-      headers: init.headers,
-      body: init.body,
+      method: effectiveInit.method,
+      headers: effectiveInit.headers,
+      body: effectiveInit.body,
       signal: AbortSignal.timeout(timeoutMs),
     });
 
@@ -92,9 +95,8 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   }
 
   // Respawn guard: at most one spawn attempt per 10s per server process.
-  // Without this, a burst of polls while the worker boots would spawn a
-  // fork bomb; with it, concurrent callers share one attempt.
   if (Date.now() - lastSpawnAt < 10_000 || isSpawning) return false;
+  
   lastSpawnAt = Date.now();
   isSpawning = true;
 
@@ -128,9 +130,15 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     child.unref();
   } catch (error) {
     console.error("Failed to spawn loop worker:", error);
+    isSpawning = false; // Ensure state is reset on spawn failure
     return false;
   } finally {
-    isSpawning = false;
+    // Only set isSpawning to false if we successfully entered the try block 
+    // and are not waiting for boot, but since we are in finally, we reset it.
+    // The boot loop handles the final success/failure state.
+    if (isSpawning) {
+        isSpawning = false;
+    }
   }
 
   // Wait up to ~5s for boot (pipeline import graph: Prisma + TS compiler
