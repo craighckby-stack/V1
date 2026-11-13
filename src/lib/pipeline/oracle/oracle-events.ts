@@ -175,21 +175,31 @@ export function readOracleEvents(afterSeq?: number): {
     const bufferLength = s.buffer.length;
     let startIndex = -1;
 
-    // Iterate through the buffer to find the first event whose sequence number exceeds afterSeq.
     // The sequence of the event at index i is: currentSeq - bufferLength + i
-    for (let i = 0; i < bufferLength; i++) {
-      const eventSeq = currentSeq - bufferLength + i;
-      if (eventSeq > afterSeq) {
-        startIndex = i;
-        break;
-      }
+    // We need the first i such that currentSeq - bufferLength + i > afterSeq
+    // i > afterSeq - currentSeq + bufferLength
+    // Since i must be an integer, i >= floor(afterSeq - currentSeq + bufferLength) + 1
+    const requiredMinIndex = Math.floor(afterSeq - currentSeq + bufferLength) + 1;
+
+    if (requiredMinIndex < 0) {
+        startIndex = 0;
+    } else if (requiredMinIndex >= bufferLength) {
+        // All events in the buffer are <= afterSeq
+        startIndex = -1;
+    } else {
+        // Search from requiredMinIndex up to bufferLength - 1
+        for (let i = requiredMinIndex; i < bufferLength; i++) {
+            const eventSeq = currentSeq - bufferLength + i;
+            if (eventSeq > afterSeq) {
+                startIndex = i;
+                break;
+            }
+        }
     }
 
+
     if (startIndex === -1) {
-      // This implies afterSeq was less than currentSeq, but no event in the buffer
-      // has a sequence greater than afterSeq. This should only happen if the buffer
-      // was just cleared or if sequence tracking is inconsistent, but we treat it
-      // as no new events found in the current buffer snapshot.
+      // No new events found in the current buffer snapshot greater than afterSeq.
       s.lastReadAt = Date.now();
       return { events: [], seq: currentSeq };
     }
