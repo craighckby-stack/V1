@@ -38,17 +38,22 @@ export async function workerFetch<T = unknown>(
     return null;
   }
 
-  // Input validation: Ensure init is a non-null object if provided
+  // Input validation: Ensure init is an object if provided, not null
   if (init === null || typeof init !== 'object') {
     console.error("workerFetch called with invalid or null init object.");
     return null;
   }
   
   // Merge defaults with provided init, ensuring provided values take precedence
-  const effectiveInit: RequestInit & { timeoutMs?: number } = {
-    method: (init as RequestInit & { timeoutMs?: number }).method || "GET",
+  const defaultInit: RequestInit & { timeoutMs?: number } = {
+    method: "GET",
     timeoutMs: 5000,
-    ...init, // Spread init last to override defaults
+  };
+  
+  // Merge defaults with provided init. Spread init last to override defaults.
+  const effectiveInit: RequestInit & { timeoutMs?: number } = {
+    ...defaultInit,
+    ...init,
   };
   
   const timeoutMs = effectiveInit.timeoutMs ?? 5000;
