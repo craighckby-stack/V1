@@ -42,7 +42,7 @@ export type LoopEvent =
 type LoopEventListener = (evt: LoopEvent) => void;
 
 class LoopEventBus {
-  private emitter: EventEmitter | null = null;
+  private emitter: EventEmitter;
 
   constructor() {
     try {
@@ -55,10 +55,6 @@ class LoopEventBus {
   }
 
   public emit(evt: LoopEvent): boolean {
-    if (!this.emitter) {
-      // This should ideally never happen if constructor succeeded, but kept for robustness.
-      throw new Error("LoopEventBus.emit() called on uninitialized EventEmitter");
-    }
     
     if (typeof evt.timestamp !== "number" || !Number.isFinite(evt.timestamp) || evt.timestamp <= 0) {
       throw new Error(`LoopEventBus.emit() called with invalid timestamp (must be a positive finite number, got: ${evt.timestamp})`);
@@ -104,17 +100,12 @@ class LoopEventBus {
   }
 
   public on(listener: LoopEventListener): () => void {
-    if (!this.emitter) {
-      throw new Error("LoopEventBus.on() called on uninitialized EventEmitter");
-    }
     if (typeof listener !== "function") {
       throw new Error("LoopEventBus.on() called with non-function listener");
     }
     this.emitter.on("event", listener);
     return () => {
-      if (this.emitter) {
-        this.emitter.off("event", listener);
-      }
+      this.emitter.off("event", listener);
     };
   }
 }
