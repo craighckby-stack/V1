@@ -77,13 +77,15 @@ class LoopEventBus {
       if (!evt.log) {
         throw new Error("LoopEventBus.emit() for kind 'log' requires a defined log entry.");
       }
-    } else if (evt.kind === "stage" || evt.kind === "push") {
-      if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0 || !evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
-        throw new Error(`LoopEventBus.emit() for kind '${evt.kind}' requires non-empty string cycleId and filePath.`);
+    } else if (evt.kind === "stage") {
+      if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0 || !evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0 || !evt.stage) {
+        throw new Error(`LoopEventBus.emit() for kind 'stage' requires non-empty string cycleId, filePath, and a defined stage object.`);
       }
-    }
-
-    if (evt.kind === "push") {
+    } else if (evt.kind === "push") {
+      if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0 || !evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
+        throw new Error(`LoopEventBus.emit() for kind 'push' requires non-empty string cycleId and filePath.`);
+      }
+      
       const validOutcomes = ["committed", "toctou_conflict", "toctou_healed", "skipped_remote_changed", "failed"];
       if (typeof evt.outcome !== 'string' || !validOutcomes.includes(evt.outcome)) {
         throw new Error(`LoopEventBus.emit() for kind 'push' has invalid or missing outcome: ${evt.outcome}. Valid outcomes are: ${validOutcomes.join(', ')}`);
