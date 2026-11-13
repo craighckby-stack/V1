@@ -26,17 +26,17 @@ export async function GET() {
     // Get all entries
     const entries: VectorEntry[] | null = emgRagInstance.getAll();
     
-    // Empty entries array is a valid response, not an error
+    // Ensure we return an array, even if getAll returns null
     return NextResponse.json({ entries: entries || [] });
   } catch (err: unknown) {
-    let errorMessage = "An unknown error occurred while fetching memory entries.";
+    let errorMessage = "An internal system error occurred while fetching memory entries.";
+    
     if (err instanceof Error) {
-      // Provide context but sanitize the message for external API consumption
-      errorMessage = `Failed to retrieve memory entries: ${err.message}`;
-    } else {
-      // Handle non-Error objects gracefully, providing a generic, safe message
-      errorMessage = "An internal system error occurred while fetching memory entries.";
-    }
+      // Provide context but sanitize the message for external API consumption.
+      // Do not expose raw error messages that might contain internal paths or secrets.
+      errorMessage = "Failed to retrieve memory entries due to a service error.";
+    } 
+    
     return NextResponse.json(
       { error: errorMessage },
       { status: 500 }
