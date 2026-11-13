@@ -37,23 +37,29 @@ export async function workerFetch<T = unknown>(
     console.error("workerFetch called with invalid pathname.");
     return null;
   }
-  const timeoutMs = init?.timeoutMs ?? 5000;
+  if (!init) {
+    // If init is missing, default to GET with 5000ms timeout
+    init = { method: "GET", timeoutMs: 5000 };
+  }
+  
+  const timeoutMs = init.timeoutMs ?? 5000;
   try {
     const res = await fetch(`${WORKER_URL}${pathname}`, {
-      method: init?.method ?? "GET",
-      headers: init?.headers,
-      body: init?.body,
+      method: init.method,
+      headers: init.headers,
+      body: init.body,
       signal: AbortSignal.timeout(timeoutMs),
     });
 
     let data: T | null = null;
-    if (res.ok || res.status >= 400) {
-      try {
-        data = await res.json();
-      } catch (e) {
-        // Failed to parse JSON, treat as null data but respect HTTP status
-        data = null;
-      }
+    
+    // Attempt to parse JSON regardless of res.ok status, as status codes
+    // (like 4xx/5xx) often return JSON error bodies.
+    try {
+      data = await res.json();
+    } catch (e) {
+      // Failed to parse JSON. Data remains null.
+      data = null;
     }
     
     return { ok: res.ok, status: res.status, data };
