@@ -69,7 +69,13 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
     console.error("markOperatorTouch: 'by' parameter must be a non-empty string. Persistence skipped.");
     return;
   }
-  
+
+  if (!(now instanceof Date) || isNaN(now.getTime())) {
+    // Input validation failure: 'now' must be a valid Date object. Must not throw per contract.
+    console.error("markOperatorTouch: 'now' parameter must be a valid Date object. Persistence skipped.");
+    return;
+  }
+
   try {
     const dirPath = dirname(OPERATOR_TOUCH_FILE);
     mkdirSync(dirPath, { recursive: true });
@@ -92,29 +98,29 @@ export function readOperatorTouch(): OperatorTouchState | null {
   try {
     const raw = readFileSync(OPERATOR_TOUCH_FILE, "utf8");
     let parsed: unknown;
-    
+
     try {
       parsed = JSON.parse(raw);
     } catch (jsonError) {
       console.error(`Failed to parse operator touch JSON at ${OPERATOR_TOUCH_FILE}: ${jsonError instanceof Error ? jsonError.message : 'Unknown error'}`);
       return null;
     }
-    
+
     // Validate the parsed object strictly against the required structure
-    if (!parsed || typeof parsed !== "object" || parsed === null || 
+    if (!parsed || typeof parsed !== "object" || parsed === null ||
         !("at" in parsed) || !("by" in parsed) ||
         typeof parsed.at !== "string" || typeof parsed.by !== "string") {
       console.error(`Invalid operator touch file format at ${OPERATOR_TOUCH_FILE}: missing required 'at' or 'by' fields or wrong types`);
       return null;
     }
-    
+
     // Validate timestamp format before returning
     const timestamp = Date.parse(parsed.at);
     if (isNaN(timestamp)) {
       console.error(`Invalid timestamp in operator touch file at ${OPERATOR_TOUCH_FILE}: '${parsed.at}' is not a valid ISO date`);
       return null;
     }
-    
+
     return {
       at: parsed.at,
       by: parsed.by,
@@ -140,18 +146,18 @@ export function isDeadMansTripped(
   if (typeof thresholdMs !== "number" || thresholdMs < 0) {
     throw new Error("isDeadMansTripped: 'thresholdMs' must be a non-negative number");
   }
-  
+
   if (!(now instanceof Date) || isNaN(now.getTime())) {
     // Handle invalid 'now' input gracefully, treating it as if time cannot be determined (tripped)
     console.error("isDeadMansTripped: 'now' parameter must be a valid Date object");
     return true;
   }
-  
+
   const state = readOperatorTouch();
   if (!state) return true; // never touched, unreadable, or malformed → tripped
-  
+
   const lastTouch = Date.parse(state.at);
   if (isNaN(lastTouch)) return true; // bad timestamp → tripped
-  
+
   return now.getTime() - lastTouch > thresholdMs;
 }
