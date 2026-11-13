@@ -39,7 +39,7 @@ export async function workerFetch<T = unknown>(
   }
 
   // Input validation: Ensure init is an object if provided, not null
-  if (init === null || typeof init !== 'object') {
+  if (init === null || (typeof init !== 'object' && typeof init !== 'undefined')) {
     console.error("workerFetch called with invalid or null init object.");
     return null;
   }
@@ -53,7 +53,7 @@ export async function workerFetch<T = unknown>(
   // Merge defaults with provided init. Spread init last to override defaults.
   const effectiveInit: RequestInit & { timeoutMs?: number } = {
     ...defaultInit,
-    ...init,
+    ...(init as RequestInit & { timeoutMs?: number }),
   };
   
   const timeoutMs = effectiveInit.timeoutMs ?? 5000;
