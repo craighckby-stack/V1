@@ -144,7 +144,9 @@ export function isDeadMansTripped(
   now: Date = new Date()
 ): boolean {
   if (typeof thresholdMs !== "number" || thresholdMs < 0) {
-    throw new Error("isDeadMansTripped: 'thresholdMs' must be a non-negative number");
+    // Fail-closed: if threshold is invalid, treat as tripped to prevent runaway loop
+    console.error("isDeadMansTripped: 'thresholdMs' must be a non-negative number. Treating as tripped.");
+    return true;
   }
 
   if (!(now instanceof Date) || isNaN(now.getTime())) {
