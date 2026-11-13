@@ -108,6 +108,9 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
     if (
       parsed &&
       typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      Object.getPrototypeOf(parsed) === Object.prototype &&
       'armed' in parsed &&
       'at' in parsed &&
       'by' in parsed &&
