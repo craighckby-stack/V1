@@ -12,7 +12,18 @@ export const runtime = "nodejs";
  */
 export async function GET() {
   try {
+    // Check if emgRagInstance is properly initialized
+    if (!emgRagInstance) {
+      return NextResponse.json(
+        { error: "Memory service is not properly initialized." },
+        { status: 500 }
+      );
+    }
+
+    // Ensure the RAG memory store is seeded
     await emgRagInstance.ensureSeeded();
+    
+    // Get all entries
     const entries: VectorEntry[] | null = emgRagInstance.getAll();
     
     // Empty entries array is a valid response, not an error
