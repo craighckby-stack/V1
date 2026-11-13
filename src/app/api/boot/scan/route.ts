@@ -100,7 +100,7 @@ async function checkGitHubAuth(
   token: string
 ): Promise<{ ok: true; login: string } | { ok: false; error: string }> {
   // Input validation
-  if (!token || typeof token !== 'string') {
+  if (!token || typeof token !== 'string' || token.trim().length === 0) {
     return { ok: false, error: "Invalid token: must be a non-empty string" };
   }
 
