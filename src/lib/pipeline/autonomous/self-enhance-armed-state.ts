@@ -68,7 +68,7 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
     console.error("markSelfEnhanceArmed: 'armed' must be a boolean");
     return;
   }
-  if (!by || typeof by !== "string" || by.trim().length === 0) {
+  if (typeof by !== "string" || by.trim().length === 0) {
     console.error("markSelfEnhanceArmed: 'by' must be a non-empty string");
     return;
   }
