@@ -82,7 +82,13 @@ function hashProphecyIdToLine(prophecyId: string): number {
   }
   // Mask to 2^31 - 1 (positive int32) — Prisma Int field is 32-bit signed,
   // and SelfTask.line is a 1-based line number, so positive only.
-  return h & 0x7fffffff;
+  const line = h & 0x7fffffff;
+  if (line === 0) {
+    // Although the mask should prevent 0 if the hash calculation is correct,
+    // we enforce the positive constraint explicitly for robustness.
+    throw new Error(`Hashing resulted in a non-positive line number (0) for prophecy ID ${prophecyId}.`);
+  }
+  return line;
 }
 
 /** Extract the file path a self-prophecy was about, from its stashed
@@ -164,7 +170,7 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
   const evidence = buildEvidence(prophecy);
   const taskKind = TASK_KINDS[ORACLE_FAILED_PROPHECY_KIND];
   if (!taskKind) {
-    console.error(`Task kind ${ORACLE_FAILED_PROPHECY_KIND} is not registered in TASK_KINDS.`);
+    console.error(`Task kind ${ORACLE_FAILED_PROPHECY_KIND} is not registered in TASK_KINDS. Cannot queue task.`);
     return false;
   }
   const priority = taskKind.priority ?? 7;
