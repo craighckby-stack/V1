@@ -67,6 +67,11 @@ class LoopEventBus {
       throw new Error("LoopEventBus.emit() called with missing or invalid kind");
     }
 
+    const validKinds = ["state", "log", "stage", "push"];
+    if (!validKinds.includes(evt.kind)) {
+        throw new Error(`LoopEventBus.emit() called with unknown event kind: ${evt.kind}. Must be one of: ${validKinds.join(', ')}.`);
+    }
+
     // Input validation based on kind using type guards
     if (evt.kind === "stage" || evt.kind === "push") {
       if (!evt.cycleId || typeof evt.cycleId !== "string" || !evt.filePath || typeof evt.filePath !== "string") {
@@ -85,8 +90,6 @@ class LoopEventBus {
           throw new Error(`LoopEventBus.emit() for kind 'push' has invalid attempt: ${evt.attempt}. Must be a non-negative integer.`);
         }
       }
-    } else if (!["state", "log", "stage", "push"].includes(evt.kind)) {
-        throw new Error(`LoopEventBus.emit() called with unknown event kind: ${evt.kind}. Must be 'state', 'log', 'stage', or 'push'.`);
     }
 
     return this.emitter.emit("event", evt);
