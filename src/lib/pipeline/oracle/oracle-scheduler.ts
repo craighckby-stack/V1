@@ -106,9 +106,9 @@ export async function oracleSchedulerTick(): Promise<{
     }
     due = result;
   } catch (err) {
-    const error = err instanceof Error ? err : new Error(`Failed to list due prophecies: ${String(err)}`);
+    const errorMessage = err instanceof Error ? err.message : `Unknown error: ${String(err)}`;
     emitOracleEvent(
-      `Oracle scheduler tick error: ${error.message}\n${error.stack || ''}`,
+      `Oracle scheduler tick error: ${errorMessage}\n${(err instanceof Error ? err.stack : 'No stack trace available')}`,
       "error",
       "scheduler",
     );
