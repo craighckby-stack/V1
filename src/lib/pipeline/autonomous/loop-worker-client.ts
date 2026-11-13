@@ -37,11 +37,16 @@ export async function workerFetch<T = unknown>(
     console.error("workerFetch called with invalid pathname: must be a non-empty string.");
     return null;
   }
+
+  if (init === null || typeof init !== 'object') {
+    console.error("workerFetch called with invalid or null init object.");
+    return null;
+  }
   
   const effectiveInit: RequestInit & { timeoutMs?: number } = {
     method: "GET",
     timeoutMs: 5000,
-    ...(init || {}),
+    ...(init as RequestInit & { timeoutMs?: number }),
   };
   
   const timeoutMs = effectiveInit.timeoutMs ?? 5000;
