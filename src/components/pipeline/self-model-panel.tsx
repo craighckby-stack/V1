@@ -69,6 +69,16 @@ interface SelfModelStatus {
     brierScore: number | null;
     reliability: number | null;
     verdict: string;
+    /** Self-correcting confidence — the measured bias currently being
+     *  applied to predictions (see self-model.ts getConfidenceCorrection). */
+    correction?: {
+      active: boolean;
+      shift: number;
+      n: number;
+      meanConfidence: number;
+      meanActual: number;
+      reason: string;
+    };
   };
   modeStats: {
     refactor: { attempts: number; passes: number };
@@ -239,6 +249,17 @@ export function SelfModelPanel({ open, onClose }: Props) {
           <div style={{ color: DIM_COLOR, marginTop: "4px", fontSize: "11px" }}>
             brier: {cal?.brierScore ?? "—"} · reliability: {cal?.reliability ?? "—"} ·
             resolved: {cal?.resolvedPredictions ?? 0} · pending: {cal?.pendingPredictions ?? 0}
+          </div>
+          {/* Self-correcting confidence — the loop acting on its own measured
+              miscalibration, not just reporting it. Accent color when active. */}
+          <div
+            style={{
+              color: cal?.correction?.active ? ACCENT_COLOR : DIM_COLOR,
+              marginTop: "4px",
+              fontSize: "11px",
+            }}
+          >
+            self-correction: {cal?.correction?.reason ?? "—"}
           </div>
         </div>
 

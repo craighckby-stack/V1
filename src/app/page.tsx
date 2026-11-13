@@ -1042,7 +1042,7 @@ export default function Home() {
             `  Files scanned:    ${stats?.totalScanned ?? 0} (cumulative across cycles)`,
             `  Files enhanced:   ${stats?.totalEnhanced ?? 0}`,
             `  Tests pinned:     ${stats?.testsWritten ?? 0} (ratchet)`,
-            `  Reverted by gate: ${stats?.totalReverted ?? 0}`,
+            `  Rejected by gate: ${stats?.totalReverted ?? 0} (proposals the gate chain stopped pre-push)`,
             `  Pushed to git:    ${stats?.totalPushed ?? 0}`,
             `  Current file:     ${st?.currentFile ?? "(starting first cycle...)"}`,
             `  Task queue:        ${q ? `${q.pending} pending / ${q.done} done / ${q.failed} failed / ${q.skipped} skipped` : "?"}`,
@@ -1097,7 +1097,7 @@ export default function Home() {
           `Running:       ${s.running ? "YES" : "NO"}`,
           `Files scanned: ${s.stats.totalScanned}`,
           `Files enhanced: ${s.stats.totalEnhanced}`,
-          `Files reverted: ${s.stats.totalReverted}`,
+          `Rejected by gate: ${s.stats.totalReverted}`,
           `Tests pinned:   ${s.stats.testsWritten}`,
           `Pushes to git:  ${s.stats.totalPushed}`,
           `Last enhanced:  ${s.stats.lastEnhancementAt ?? "never"}`,
@@ -2046,7 +2046,10 @@ export default function Home() {
 
           Stats line (always visible when running): shows the cumulative
           counters so you can watch the system's progress at a glance —
-          enhanced / reverted / pushed / cycles. */}
+          enhanced / rejected (gate rejections, pre-push) / pushed / cycles. The
+          "rejected" label is deliberate: these are proposals the gate chain
+          stopped BEFORE a push ever happened — never mutations that landed
+          and were rolled back. */}
       {(() => {
         const isRunning = status?.running ?? false;
         if (!isRunning) return null;
@@ -2057,7 +2060,7 @@ export default function Home() {
         const statsLine = stats
           ? [
               `enhanced:${stats.totalEnhanced ?? 0}`,
-              `reverted:${stats.totalReverted ?? 0}`,
+              `rejected:${stats.totalReverted ?? 0}`,
               `pushed:${stats.totalPushed ?? 0}`,
               `cycles:${stats.cyclesCompleted ?? 0}`,
             ].join(" · ")

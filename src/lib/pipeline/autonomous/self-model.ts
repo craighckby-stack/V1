@@ -65,6 +65,14 @@ export function classifyOutcome(enhanced: boolean, reason: string): SelfOutcome 
   if (enhanced) return "pass";
   const r = reason.toLowerCase();
   if (r.startsWith("deferred")) return "excluded"; // no verdict — LLM gate closed
+  // CEILING-SKIP EXCLUSION: "Skipped (file too large: ...)" means the
+  // attempt never ran — no prompt, no gates, no verdict. Before this, it
+  // fell through to "fail", so an over-ceiling visual-polish firing (the
+  // pre-pass discovered the file, enhanceFile's 12KB guard auto-skipped
+  // it) was recorded as a gate rejection for that file: a fake fail in
+  // the bandit's empirical rate AND the calibration curve. No-verdict
+  // outcomes belong with "deferred" — excluded, not knowledge.
+  if (r.startsWith("skipped (file too large")) return "excluded";
   if (
     r.includes("cosmetic") ||
     r.includes("no issues found") ||
@@ -232,6 +240,86 @@ export async function noteOutcome(
   }
 }
 
+// ── Self-correcting confidence (calibration feedback) ──────────────────
+
+export interface ConfidenceCorrection {
+  active: boolean;
+  /** Additive shift applied to raw confidence: corrected = clamp(raw + shift). */
+  shift: number;
+  /** Resolved predictions the shift was measured over. */
+  n: number;
+  meanConfidence: number;
+  meanActual: number;
+  reason: string;
+}
+
+/** The measured-bias correction, TTL-cached (5 min) so per-attempt calls
+ *  don't re-query. Dormant until the bias is clearly systematic. */
+let _correctionCache: { at: number; value: ConfidenceCorrection } | null = null;
+const CORRECTION_TTL_MS = 5 * 60_000;
+const CORRECTION_MIN_N = 40;
+const CORRECTION_TRIGGER_GAP = 0.05;
+const CORRECTION_MAX_SHIFT = 0.15;
+
+function dormantCorrection(reason: string): ConfidenceCorrection {
+  return { active: false, shift: 0, n: 0, meanConfidence: 0, meanActual: 0, reason };
+}
+
+/** Measure the systematic bias of recent predictions: mean predicted
+ *  confidence vs mean actual pass rate over the last 100 resolved
+ *  predictions. If the gap exceeds CORRECTION_TRIGGER_GAP with at least
+ *  CORRECTION_MIN_N samples, the corrective shift (gap clamped to
+ *  ±CORRECTION_MAX_SHIFT) becomes active and predictConfidence applies
+ *  it. As corrected predictions land, the measured gap shrinks and the
+ *  correction converges toward zero — the calibration curve feeding
+ *  back into the predictor. Dormant otherwise: never chase noise. */
+export async function getConfidenceCorrection(): Promise<ConfidenceCorrection> {
+  const now = Date.now();
+  if (_correctionCache && now - _correctionCache.at < CORRECTION_TTL_MS) {
+    return _correctionCache.value;
+  }
+  let value: ConfidenceCorrection;
+  try {
+    const rows = await db.selfPrediction.findMany({
+      where: { outcome: { in: ["pass", "fail", "zero-diff"] } },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: { confidence: true, outcome: true },
+    });
+    if (rows.length < CORRECTION_MIN_N) {
+      value = dormantCorrection(
+        `dormant — ${rows.length}/${CORRECTION_MIN_N} recent resolved predictions (need ${CORRECTION_MIN_N} before acting on a measured bias)`
+      );
+    } else {
+      const meanConf = rows.reduce((a, r) => a + r.confidence, 0) / rows.length;
+      const meanActual = rows.filter((r) => r.outcome === "pass").length / rows.length;
+      const gap = meanActual - meanConf; // < 0 = over-confident, > 0 = under-confident
+      if (Math.abs(gap) < CORRECTION_TRIGGER_GAP) {
+        value = dormantCorrection(
+          `dormant — measured bias ${gap >= 0 ? "+" : ""}${gap.toFixed(3)} within ±${CORRECTION_TRIGGER_GAP} (calibrated within noise; not chasing it)`
+        );
+      } else {
+        const shift = Math.max(-CORRECTION_MAX_SHIFT, Math.min(CORRECTION_MAX_SHIFT, gap));
+        value = {
+          active: true,
+          shift,
+          n: rows.length,
+          meanConfidence: round3(meanConf),
+          meanActual: round3(meanActual),
+          reason:
+            gap < 0
+              ? `ACTIVE — over-confident: I predict ${(meanConf * 100).toFixed(0)}% but pass ${(meanActual * 100).toFixed(0)}% (n=${rows.length}); shifting future predictions ${shift >= 0 ? "+" : ""}${shift.toFixed(2)}`
+              : `ACTIVE — under-confident: I predict ${(meanConf * 100).toFixed(0)}% but pass ${(meanActual * 100).toFixed(0)}% (n=${rows.length}); shifting future predictions +${shift.toFixed(2)}`,
+        };
+      }
+    }
+  } catch {
+    value = dormantCorrection("dormant — self-model unavailable");
+  }
+  _correctionCache = { at: now, value };
+  return value;
+}
+
 // ── Self-prediction (the calibration engine) ──────────────────────────
 
 export interface SelfPredictionInput {
@@ -282,12 +370,23 @@ export async function predictConfidence(
     if (file.finishedScore > 0.4) {
       confidence *= (1 - 0.4 * (file.finishedScore - 0.4));
     }
+    // SELF-CORRECTION (calibration feedback): apply the measured
+    // systematic bias so the calibration verdict becomes action, not
+    // just text on the panel. Dormant (shift 0) while calibrated within
+    // noise — see getConfidenceCorrection.
+    const correction = await getConfidenceCorrection();
+    if (correction.active && correction.shift !== 0) {
+      confidence += correction.shift;
+    }
     return {
       confidence: clamp(confidence),
       reason:
         `empirical ${(empirical * 100).toFixed(0)}% over ${file.attempts} attempt(s)` +
         modeNote +
-        `, global ${(globalRate * 100).toFixed(0)}%, exhaustion ${file.finishedScore.toFixed(2)}`,
+        `, global ${(globalRate * 100).toFixed(0)}%, exhaustion ${file.finishedScore.toFixed(2)}` +
+        (correction.active && correction.shift !== 0
+          ? `, calib ${correction.shift >= 0 ? "+" : ""}${correction.shift.toFixed(2)} (measured-bias correction)`
+          : ""),
     };
   } catch {
     return { confidence: 0.45, reason: "self-model unavailable — modest prior" };
@@ -512,6 +611,10 @@ export interface SelfModelSummary {
     brierScore: number | null; // mean (confidence - outcome)² — lower is better
     reliability: number | null; // mean |gap| across populated buckets
     verdict: string; // plain-language self-assessment
+    /** The self-correcting confidence: the measured systematic bias,
+     *  currently being APPLIED to predictConfidence's output. Closes the
+     *  loop the calibration curve opened — the verdict becomes action. */
+    correction: ConfidenceCorrection;
   };
   modeStats: {
     refactor: { attempts: number; passes: number };
@@ -549,6 +652,14 @@ export async function getSelfModelSummary(): Promise<SelfModelSummary> {
       brierScore: null,
       reliability: null,
       verdict: "no predictions resolved yet — calibration begins with the next cycles",
+      correction: {
+        active: false,
+        shift: 0,
+        n: 0,
+        meanConfidence: 0,
+        meanActual: 0,
+        reason: "correction dormant — no measurement yet",
+      },
     },
     modeStats: { refactor: { attempts: 0, passes: 0 }, visualPolish: { attempts: 0, passes: 0 } },
     totals: { attempts: 0, passes: 0, failss: 0, zeroDiffs: 0 },
@@ -625,6 +736,15 @@ export async function getSelfModelSummary(): Promise<SelfModelSummary> {
             : `miscalibrated (Brier ${brier}) but directionally honest`;
     }
 
+    // ── SELF-CORRECTION (calibration feedback) ──
+    // The measured-bias shift that is CURRENTLY being applied to every
+    // predictConfidence output. Surfaced so the panel can show the loop
+    // acting on its own measured miscalibration, not just reporting it.
+    const correction = await getConfidenceCorrection();
+    if (correction.active) {
+      verdict += ` Self-correction now applied to predictions (${correction.shift >= 0 ? "+" : ""}${correction.shift.toFixed(2)}).`;
+    }
+
     const totals = files.reduce(
       (a, f) => ({
         attempts: a.attempts + f.attempts,
@@ -681,6 +801,7 @@ export async function getSelfModelSummary(): Promise<SelfModelSummary> {
         brierScore: brier,
         reliability,
         verdict,
+        correction,
       },
       modeStats: {
         refactor: {

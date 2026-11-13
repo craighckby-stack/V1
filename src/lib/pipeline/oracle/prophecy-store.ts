@@ -132,7 +132,7 @@ export async function listDueProphecies(asOf: Date = new Date()): Promise<Prophe
  *  because the full history could grow large; the UI paginates further. */
 export async function listRecentProphecies(limit = 50): Promise<ProphecyRow[]> {
   // Validate limit parameter
-  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 0) {
+  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit <= 0) {
     return [];
   }
 
@@ -222,7 +222,7 @@ export async function judgeProphecy(
     // We check for the specific 'record not found' case to provide better context than a generic DB error.
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (errorMessage.includes('P2025') || errorMessage.includes('No record found')) {
-        console.warn(`Attempted to judge non-existent prophecy with ID ${id}.`);
+        console.warn(`Attempted to judge non-existent prophecy with ID ${id} in judgeProphecy.`);
         return null;
     }
     console.error(`Failed to judge prophecy with ID ${id} in judgeProphecy: DB operation failed. Error: ${errorMessage}`);
