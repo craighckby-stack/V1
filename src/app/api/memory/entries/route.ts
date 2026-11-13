@@ -34,8 +34,8 @@ export async function GET() {
       // Provide context but sanitize the message for external API consumption
       errorMessage = `Failed to retrieve memory entries: ${err.message}`;
     } else {
-      // Handle non-Error objects gracefully
-      errorMessage = "An unknown, non-Error object was encountered while fetching memory entries.";
+      // Handle non-Error objects gracefully, providing a generic, safe message
+      errorMessage = "An internal system error occurred while fetching memory entries.";
     }
     return NextResponse.json(
       { error: errorMessage },
