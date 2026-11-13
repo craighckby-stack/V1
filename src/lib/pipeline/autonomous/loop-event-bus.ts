@@ -86,6 +86,8 @@ class LoopEventBus {
           throw new Error(`LoopEventBus.emit() for kind 'push' has invalid attempt: ${evt.attempt}. Must be a non-negative integer.`);
         }
       }
+    } else if (!["state", "log"].includes(evt.kind)) {
+        throw new Error(`LoopEventBus.emit() called with unknown event kind: ${evt.kind}. Must be 'state', 'log', 'stage', or 'push'.`);
     }
 
     return this.emitter.emit("event", evt);
