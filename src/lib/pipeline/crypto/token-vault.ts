@@ -47,6 +47,8 @@ const KEY_BYTES = 32;
 const KEY_FILE_MODE = 0o600;
 /** Minimum length required for a plaintext token before attempting sealing. */
 const MIN_PLAINTEXT_LENGTH = 20;
+/** IV length for AES-256-GCM. */
+const IV_LENGTH = 12;
 /**
  * Where the key lives. .git/info/ survives sandbox restarts (it holds the
  * commit history — losing it loses the repo, so the restore layer must
@@ -134,7 +136,7 @@ export function sealToken(plain: string): string {
   const key = ensureKey();
   if (!key) return plain;
   try {
-    const iv = randomBytes(12);
+    const iv = randomBytes(IV_LENGTH);
     const cipher = createCipheriv("aes-256-gcm", key, iv);
     const ct = Buffer.concat([cipher.update(plain, "utf-8"), cipher.final()]);
     const tag = cipher.getAuthTag();
@@ -178,7 +180,7 @@ export function openToken(stored: string): string {
     }
     
     // Validate IV and tag lengths
-    if (!iv || iv.length !== 12 || !tag || tag.length !== 16) return "";
+    if (!iv || iv.length !== IV_LENGTH || !tag || tag.length !== 16) return "";
     
     const decipher = createDecipheriv("aes-256-gcm", key, iv);
     decipher.setAuthTag(tag);
