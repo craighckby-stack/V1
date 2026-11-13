@@ -81,11 +81,8 @@ export function emitOracleEvent(
   type: OracleEvent["type"] = "info",
   source: OracleEvent["source"] = "scheduler",
 ): OracleEvent {
-  if (message == null) {
-    throw new TypeError("Oracle event message cannot be null or undefined");
-  }
-  if (typeof message !== "string") {
-    throw new TypeError("Oracle event message must be a string");
+  if (typeof message !== "string" || message.length === 0) {
+    throw new TypeError("Oracle event message must be a non-empty string.");
   }
   
   // Validate type parameter
@@ -173,7 +170,7 @@ export function readOracleEvents(afterSeq?: number): {
     }
     
     if (afterSeq >= currentSeq) {
-      s.lastReadAt = Date.now(); // Update lastReadAt even when no events
+      // No new events since the last check, do not update lastReadAt yet.
       return { events: [], seq: currentSeq };
     }
     
@@ -191,8 +188,9 @@ export function readOracleEvents(afterSeq?: number): {
     }
     
     if (startIndex === -1) {
-      // This should only happen if afterSeq < currentSeq but all events are <= afterSeq,
-      // which implies sequence tracking inconsistency or buffer underflow relative to seq.
+      // This implies sequence tracking inconsistency or buffer underflow relative to seq.
+      // Since afterSeq < currentSeq, there MUST be events > afterSeq unless the sequence
+      // tracking is broken. We return empty but update read time to prevent immediate re-check.
       s.lastReadAt = Date.now();
       return { events: [], seq: currentSeq };
     }
