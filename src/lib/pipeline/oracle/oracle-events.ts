@@ -141,10 +141,16 @@ export function emitOracleEvent(
         signal: controller.signal,
       }
     )
-    .then(() => clearTimeout(timeoutId))
+    .then(() => {
+      clearTimeout(timeoutId);
+    })
     .catch((error) => {
       // Log the error for debugging but don't block the main flow
       console.error(`Failed to send oracle event to server (source: ${source}, type: ${type}, message: ${message}):`, error);
+    })
+    .finally(() => {
+      // Ensure the timeout is cleared even if the request was aborted
+      clearTimeout(timeoutId);
     });
   }
 
