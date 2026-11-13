@@ -61,7 +61,7 @@ export interface SelfEnhanceArmedState {
  *  flag remains the live source; the disk file is the restart tier). */
 export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   if (!PROJECT_ROOT) {
-    console.error(`markSelfEnhanceArmed: PROJECT_ROOT is not defined, cannot write to ${ARMED_STATE_FILE}`);
+    console.error(`markSelfEnhanceArmed: PROJECT_ROOT is not defined. Cannot write armed state to ${ARMED_STATE_FILE}.`);
     return;
   }
   if (typeof armed !== "boolean") {
