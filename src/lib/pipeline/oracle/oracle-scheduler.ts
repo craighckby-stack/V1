@@ -101,14 +101,15 @@ export async function oracleSchedulerTick(): Promise<{
   try {
     const result = await listDueProphecies();
     // Validate that we got an array back, and handle null/undefined result from store
-    if (!result || !Array.isArray(result)) {
+    if (!Array.isArray(result)) {
       throw new Error(`listDueProphecies() returned invalid data: ${typeof result}, expected array`);
     }
     due = result;
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : `Unknown error: ${String(err)}`;
+    const stackTrace = err instanceof Error ? err.stack : 'No stack trace available';
     emitOracleEvent(
-      `Oracle scheduler tick error: ${errorMessage}\n${(err instanceof Error ? err.stack : 'No stack trace available')}`,
+      `Oracle scheduler tick error: ${errorMessage}\n${stackTrace}`,
       "error",
       "scheduler",
     );
@@ -131,12 +132,12 @@ export async function oracleSchedulerTick(): Promise<{
     }
     const judged = result.judged;
     const skipped = result.skipped;
-    // Validate that judged and skipped are arrays
-    if (!Array.isArray(judged) || !Array.isArray(skipped)) {
-      throw new Error('evaluateDueProphecies() returned non-array for judged or skipped.');
+    // Validate that judged and skipped are numbers (counts), not arrays, based on usage below.
+    if (typeof judged !== 'number' || typeof skipped !== 'number') {
+      throw new Error('evaluateDueProphecies() returned non-numeric values for judged or skipped.');
     }
-    s.lastJudgedCount = judged.length;
-    return { ran: true, judged: judged.length, skipped: skipped.length };
+    s.lastJudgedCount = judged;
+    return { ran: true, judged: judged, skipped: skipped };
   } finally {
     s.running = false;
   }
