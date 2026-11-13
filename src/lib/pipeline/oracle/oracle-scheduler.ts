@@ -106,7 +106,7 @@ export async function oracleSchedulerTick(): Promise<{
     }
     due = result;
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : `Unknown error: ${String(err)}`;
+    const errorMessage = err instanceof Error ? err.message : `Unknown error during prophecy listing: ${String(err)}`;
     const stackTrace = err instanceof Error ? err.stack : 'No stack trace available';
     emitOracleEvent(
       `Oracle scheduler tick error: ${errorMessage}\n${stackTrace}`,
