@@ -44,7 +44,7 @@ export async function workerFetch<T = unknown>(
   }
   
   const effectiveInit: RequestInit & { timeoutMs?: number } = {
-    method: "GET",
+    method: (init as RequestInit & { timeoutMs?: number }).method || "GET",
     timeoutMs: 5000,
     ...(init as RequestInit & { timeoutMs?: number }),
   };
