@@ -67,7 +67,8 @@ export async function parseBody<T>(
   let raw: unknown;
   try {
     raw = await req.json();
-  } catch {
+  } catch (e) {
+    // Handle JSON parsing errors specifically
     return {
       ok: false,
       response: apiError(400, "BAD_BODY", "request body is not valid JSON"),
@@ -129,6 +130,7 @@ export const REPO_REGEX = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 /** Reject paths that escape the repo root. Used by chat-task/apply and
  *  pipeline/run — both write files to disk. */
 export function isRepoRelativePath(p: string): boolean {
+  if (typeof p !== 'string') return false;
   if (p.length === 0) return false;
   if (p.startsWith("/")) return false;          // POSIX absolute
   if (p.startsWith("\\")) return false;         // Windows UNC
