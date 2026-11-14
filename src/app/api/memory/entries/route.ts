@@ -29,14 +29,13 @@ export async function GET() {
     return NextResponse.json({ entries: entries || [] });
   } catch (err: unknown) {
     // Log the actual error for debugging purposes before sending a generic response
-    console.error("Error retrieving memory entries:", err);
+    if (err instanceof Error) {
+      console.error("Error retrieving memory entries:", err.message, err.stack);
+    } else {
+      console.error("Error retrieving memory entries:", err);
+    }
 
     let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
-    
-    // If it's an Error instance, we can log its message internally, but still return the generic message externally.
-    if (err instanceof Error) {
-      // Contextual logging done above; external response remains generic for security.
-    }
     
     return NextResponse.json(
       { error: errorMessage },
