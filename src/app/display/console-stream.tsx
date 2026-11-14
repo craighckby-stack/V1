@@ -148,11 +148,11 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
   let buf: ConsoleLine[] = [];
 
   const flush = () => {
-    if (buf.length <= 1) {
-      if (buf.length === 1) result.push(buf[0]);
+    if (buf.length === 0) {
       buf = [];
       return;
     }
+    
     // Stable sort: key = parsed epoch (NaN → +∞ so unparseable log
     // lines sink to the bottom of their run, preserving arrival order
     // among themselves via the index tiebreak).
