@@ -126,18 +126,28 @@ export async function oracleSchedulerTick(): Promise<{
   s.running = true;
   try {
     const result = await evaluateDueProphecies();
-    // Validate the result structure
+    // Validate the result structure. CONTRACT: evaluateDueProphecies()
+    // returns per-prophecy outcome ARRAYS —
+    //   { judged: Array<{id, claim, verdict}>, skipped: Array<{id, claim, reason, error}> }
+    // (see prophecy-evaluator.ts). The tick's job is to reduce them to
+    // COUNTS for the status surface (lastJudgedCount) and the tick return
+    // type below. The old validation demanded `typeof judged === "number"`
+    // — an array is never a number, so EVERY tick with due prophecies
+    // threw "returned non-finite numeric values" and no prophecy was ever
+    // adjudicated by the background scheduler (the manual /api/oracle/
+    // evaluate route worked because it consumes the arrays directly).
     if (typeof result !== 'object' || result === null || !('judged' in result) || !('skipped' in result)) {
       throw new Error('evaluateDueProphecies() returned invalid result structure: missing "judged" or "skipped" properties.');
     }
     const judged = result.judged;
     const skipped = result.skipped;
-    // Validate that judged and skipped are finite numbers (counts)
-    if (typeof judged !== 'number' || !Number.isFinite(judged) || typeof skipped !== 'number' || !Number.isFinite(skipped)) {
-      throw new Error('evaluateDueProphecies() returned non-finite numeric values for judged or skipped.');
+    if (!Array.isArray(judged) || !Array.isArray(skipped)) {
+      throw new Error('evaluateDueProphecies() returned invalid result structure: judged/skipped must be arrays.');
     }
-    s.lastJudgedCount = judged;
-    return { ran: true, judged: judged, skipped: skipped };
+    // Array.length is always a finite non-negative integer — store the
+    // COUNT the status surface expects, not the array itself.
+    s.lastJudgedCount = judged.length;
+    return { ran: true, judged: judged.length, skipped: skipped.length };
   } finally {
     s.running = false;
   }
