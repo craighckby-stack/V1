@@ -35,3 +35,6 @@ tool-results/
 upload/
 loop-ws.log
 mini-services/loop-worker/worker.log
+
+# ws-service runtime log (same policy as dev.log — audit 2)
+dev-ws.log

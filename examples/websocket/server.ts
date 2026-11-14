@@ -3,14 +3,31 @@ import { Server, type Socket } from 'socket.io'
 
 const httpServer = createServer()
 // CORS: the old `origin: "*` let ANY website open a socket to this demo
-// chat server. Restrict to the same-origin dashboard URL (override via
-// env if you want to test from a different origin).
-const ALLOWED_ORIGIN = process.env.LOOP_WS_ALLOWED_ORIGIN ?? 'http://localhost:3000'
+// chat server. Restrict to the configured origin(s).
+//
+// `LOOP_WS_ALLOWED_ORIGIN` may be a comma-separated list. In dev it
+// defaults to the two local origins a browser actually uses: the Next.js
+// dev server (:3000) and the Caddy gateway (:81) — the browser loads the
+// page from the gateway and sends `Origin: http://localhost:81`. In
+// production `LOOP_WS_ALLOWED_ORIGIN` MUST be set (fail-closed if unset),
+// mirroring the F-1 middleware policy.
+const ALLOWED_ORIGINS = (() => {
+  const raw = process.env.LOOP_WS_ALLOWED_ORIGIN?.trim()
+  if (raw) {
+    return raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
+  }
+  if (process.env.NODE_ENV === 'production') return []
+  return ['http://localhost:3000', 'http://localhost:81']
+})()
 const io = new Server(httpServer, {
   // DO NOT change the path, it is used by Caddy to forward the request to the correct port
   path: '/',
   cors: {
-    origin: ALLOWED_ORIGIN,
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true)
+      if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true)
+      cb(new Error(`origin ${origin} not allowed by CORS`), false)
+    },
     methods: ["GET", "POST"]
   },
   pingTimeout: 60000,

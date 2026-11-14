@@ -32,12 +32,50 @@ const httpServer = createServer();
 // CORS: the dashboard is served by the Next.js gateway. The old `origin: "*`
 // let ANY website open a socket to the live loop-state stream — combined
 // with the Caddy SSRF this was a cross-origin state-exfil vector. Restrict
-// to the configured origin (or fall back to same-origin localhost for dev).
-// Set LOOP_WS_ALLOWED_ORIGIN to the deployed URL in production.
-const ALLOWED_ORIGIN = process.env.LOOP_WS_ALLOWED_ORIGIN ?? "http://localhost:3000";
+// to the configured origin(s).
+//
+// `LOOP_WS_ALLOWED_ORIGIN` may be a comma-separated list (e.g.
+// "https://app.example.com,https://staging.example.com"). In dev
+// (NODE_ENV !== "production") it defaults to the two origins a local
+// browser actually uses: the Next.js dev server (:3000) AND the Caddy
+// gateway (:81). The browser loads the page from the gateway and sends
+// `Origin: http://localhost:81` on the socket handshake — a single-origin
+// default of `:3000` rejected that, which is why the dashboard always
+// fell back to polling with a `[LoopSocket] WS unavailable` warning.
+//
+// In production `LOOP_WS_ALLOWED_ORIGIN` MUST be set. Unset + production =
+// fail-closed (no origin matches → socket never connects → the polling
+// fallback in use-loop-socket.ts keeps the dashboard live). This mirrors
+// the F-1 middleware fail-closed policy.
+const ALLOWED_ORIGINS = (() => {
+  const raw = process.env.LOOP_WS_ALLOWED_ORIGIN?.trim();
+  if (raw) {
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+  if (process.env.NODE_ENV === "production") {
+    // Fail-closed: no default in production.
+    return [];
+  }
+  // Dev defaults: the two local origins the browser actually uses.
+  return ["http://localhost:3000", "http://localhost:81"];
+})();
 const io = new Server(httpServer, {
   path: "/",
-  cors: { origin: ALLOWED_ORIGIN, methods: ["GET", "POST"] },
+  cors: {
+    origin: (origin, cb) => {
+      // No Origin header = same-origin / non-browser client (curl, the
+      // gateway's health check). Allow — the gateway's own auth (F-1
+      // middleware) is the real gate, and socket.io still requires a
+      // successful handshake.
+      if (!origin) return cb(null, true);
+      if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      cb(new Error(`origin ${origin} not allowed by CORS`), false);
+    },
+    methods: ["GET", "POST"],
+  },
   pingTimeout: 60000,
   pingInterval: 25000,
 });
