@@ -76,7 +76,7 @@ export async function createProphecy(input: {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const claimSnippet = input.claim.substring(0, 30) + (input.claim.length > 30 ? '...' : '');
-    console.error(`Database error in createProphecy for claim "${claimSnippet}": DB operation failed. Input details: {claim: "${input.claim.substring(0, 30)}...", confidence: ${input.confidence}, evaluateBy: ${input.evaluateBy.toISOString()}}. Error: ${errorMessage}`);
+    console.error(`Database error in createProphecy for claim "${claimSnippet}": DB operation failed. Full input context: ${JSON.stringify(input)}. Error: ${errorMessage}`);
     return null;
   }
 }

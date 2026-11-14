@@ -2879,20 +2879,6 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
           continue;
         }
 
-        // Mid-cycle gate escalation: a previous file's ratchet 429'd and set
-        // the gate. DON'T wait per-file then call enhanceFile (that re-escalated
-        // 2→5→15→30min within one cycle — the churn). Instead BREAK the for-loop:
-        // the cycle ends early (honest "X/N files"), runContinuous waits 5s,
-        // and the NEXT cycle's start-of-cycle pause handles the cooldown.
-        // Net: one 429 per cooldown window, not 17.
-        // Manual one-shot cycles (continuous=false) skip this — they defer
-        // fast at the enhanceFile checkpoint and return quickly.
-        const cdBefore = llmCooldownMs();
-        if (cdBefore > 0 && this.continuous) {
-          this.log(`LLM cooldown escalated mid-cycle — ending cycle (will pause ${Math.round(cdBefore / 1000)}s before next cycle)`, "warn");
-          break;
-        }
-
         // ── PROACTIVE SATURATION SKIP (audit 7 — "predict files that
         //    will zero-diff", the cognitive core) ──────────────────────
         // Ask the self-model BEFORE the LLM call: is this file "finished"
@@ -2904,6 +2890,17 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         // reasoning is visible ("🧠 proactively skipping X — finished
         // 0.85, predicted 12% (will zero-diff)"). Falls back to spending
         // the call if the self-model is unavailable (honest).
+        //
+        // ORDERING: this check runs BEFORE the mid-cycle cooldown break
+        // below. The proactive-skip is a DB-only lookup (no LLM call), so
+        // it can run during cooldown. More importantly, without this
+        // ordering the cooldown break (which fires when a fresh file's
+        // enhanceFile 429s) would END THE CYCLE before the bandit's bottom-
+        // ranked exhausted files ever reach this check — starving the
+        // proactive-skip of any candidates and leaving the skip-probe
+        // calibration at 0 forever. With the skip BEFORE the break, the
+        // exhausted files are skipped for free regardless of cooldown
+        // state; only files that NEED the LLM (enhanceFile) honor the break.
         let skipProbe = false;
         try {
           const skip = await shouldProactivelySkip(relPath);
@@ -2953,6 +2950,24 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
           }
         } catch {
           /* self-model unavailable — proceed to LLM call (honest) */
+        }
+
+        // Mid-cycle gate escalation: a previous file's ratchet 429'd and set
+        // the gate. DON'T wait per-file then call enhanceFile (that re-escalated
+        // 2→5→15→30min within one cycle — the churn). Instead BREAK the for-loop:
+        // the cycle ends early (honest "X/N files"), runContinuous waits 5s,
+        // and the NEXT cycle's start-of-cycle pause handles the cooldown.
+        // Net: one 429 per cooldown window, not 17.
+        // Manual one-shot cycles (continuous=false) skip this — they defer
+        // fast at the enhanceFile checkpoint and return quickly.
+        // ORDERING: this runs AFTER the proactive-skip (which is a DB-only
+        // lookup and doesn't need the LLM) so exhausted files are still
+        // skipped for free during cooldown — only files that actually need
+        // an LLM call (enhanceFile below) honor the break.
+        const cdBefore = llmCooldownMs();
+        if (cdBefore > 0 && this.continuous) {
+          this.log(`LLM cooldown escalated mid-cycle — ending cycle (will pause ${Math.round(cdBefore / 1000)}s before next cycle)`, "warn");
+          break;
         }
 
         // ── SELF-PREDICTION (audit 7 — the calibration engine) ────────
