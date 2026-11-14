@@ -77,17 +77,17 @@ export function LogStream() {
                   }
                   
                   // Safely access type with fallback
-                  const typeKey = (entry.type && typeof entry.type === 'string' && Object.keys(TYPE_ICON).includes(entry.type))
-                    ? entry.type as keyof typeof TYPE_ICON
+                  const typeKey = (entry.type && typeof entry.type === 'string' && TYPE_ICON[entry.type])
+                    ? entry.type
                     : 'info';
-                  const Icon = TYPE_ICON[typeKey] || Info;
-                  const color = TYPE_COLOR[typeKey] || "text-slate-400";
+                  const Icon = TYPE_ICON[typeKey as keyof typeof TYPE_ICON] || Info;
+                  const color = TYPE_COLOR[typeKey as keyof typeof TYPE_COLOR] || "text-slate-400";
                   
                   // Safely access source with fallback
-                  const sourceKey = (entry.source && typeof entry.source === 'string' && Object.keys(SOURCE_COLOR).includes(entry.source))
-                    ? entry.source as keyof typeof SOURCE_COLOR
+                  const sourceKey = (entry.source && typeof entry.source === 'string' && SOURCE_COLOR[entry.source])
+                    ? entry.source
                     : 'pipeline';
-                  const sourceColor = SOURCE_COLOR[sourceKey] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
+                  const sourceColor = SOURCE_COLOR[sourceKey as keyof typeof SOURCE_COLOR] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
                   
                   // Validate timestamp and provide fallback
                   const timestamp = (entry.timestamp && typeof entry.timestamp === 'string')
