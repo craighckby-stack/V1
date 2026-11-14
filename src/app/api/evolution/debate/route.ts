@@ -39,7 +39,7 @@ export async function POST(req: Request) {
       llmError,
     });
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during debate execution.";
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during debate execution. Please check server logs for details.";
     console.error("Error during LLM debate execution:", err);
     return NextResponse.json(
       { error: errorMessage },
