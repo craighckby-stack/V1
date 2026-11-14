@@ -77,6 +77,7 @@ const DIM_COLOR = "#777777";
 function parseTs(ts: string): number {
   if (!ts) return NaN;
   const s = ts.trim();
+  if (s.length === 0) return NaN;
 
   // Full ISO-8601 with a date component, e.g. "2026-11-14T00:03:48.099Z"
   // or "2026-11-14T00:03:48.099+00:00". Date handles these natively.
@@ -185,13 +186,13 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
 export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
   // Validate input lines
   if (!lines || !Array.isArray(lines)) {
-    console.error("ConsoleStream: lines prop must be an array");
+    // Return null instead of logging to console to prevent side effects in rendering context
     return null;
   }
 
   // Validate logRef
   if (!logRef) {
-    console.error("ConsoleStream: logRef prop is required");
+    // Return null instead of logging to console to prevent side effects in rendering context
     return null;
   }
 
@@ -221,6 +222,7 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
       {ordered.map((line) => {
         // Skip invalid line entries (relying on type safety and initial checks)
         if (!line || typeof line !== "object" || !line.id || !line.type) {
+          // Log error but return null to skip rendering this specific invalid item
           console.error("ConsoleStream: Invalid line object encountered", line);
           return null;
         }
