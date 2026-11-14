@@ -84,7 +84,7 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   } catch (error) {
     const infoDir = join(PROJECT_ROOT, ".git/info");
     console.error(
-      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE} at ${new Date().toISOString()}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}`,
+      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}`,
       error instanceof Error ? error.message : String(error)
     );
   }
@@ -105,28 +105,22 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
     const parsed: unknown = JSON.parse(raw);
 
-    // Validate the parsed object structure strictly
+    const state = parsed as SelfEnhanceArmedState;
+
+    // Validate the parsed object structure strictly against the interface
     if (
-      parsed &&
-      typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed) &&
-      Object.getPrototypeOf(parsed) === Object.prototype &&
-      'armed' in parsed &&
-      'at' in parsed &&
-      'by' in parsed &&
-      typeof parsed.armed === "boolean" &&
-      typeof parsed.at === "string" &&
-      typeof parsed.by === "string" &&
-      parsed.by.trim() !== "" &&
-      !isNaN(Date.parse(parsed.at)) &&
-      Object.keys(parsed).length === 3
+      typeof state === 'object' &&
+      state !== null &&
+      'armed' in state &&
+      'at' in state &&
+      'by' in state &&
+      typeof state.armed === "boolean" &&
+      typeof state.at === "string" &&
+      typeof state.by === "string" &&
+      state.by.trim() !== "" &&
+      !isNaN(Date.parse(state.at))
     ) {
-      return {
-        armed: parsed.armed,
-        at: parsed.at,
-        by: parsed.by,
-      } as SelfEnhanceArmedState;
+      return state;
     }
     return null;
   } catch (error) {
