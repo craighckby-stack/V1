@@ -35,7 +35,7 @@ export function RecentCycles() {
       }
       setFetched(apiResponse.cycles);
     } catch (error) {
-      console.error("Error refreshing recent cycles from API:", error instanceof Error ? error.message : "Unknown error during API fetch.");
+      console.error("Error refreshing recent cycles from API:", error);
       setFetched([]);
     } finally {
       setLoading(false);
