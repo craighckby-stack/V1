@@ -194,7 +194,7 @@ function buildSandbox(): { root: string; dbOverride?: string } | null {
     }
 
     return { root, dbOverride };
-  } catch (err) {
+  } catch {
     // Setup failure must not leak a half-built sandbox.
     safeRemoveSandbox(root);
     return null;

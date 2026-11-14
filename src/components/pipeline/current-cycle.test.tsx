@@ -1,5 +1,4 @@
 import { describe, test, expect } from "bun:test";
-import { CurrentCycle } from "./current-cycle";
 
 // Mock dependencies to isolate CurrentCycle logic
 // In a real test setup, we would mock usePipelineStore and framer-motion/lucide-react,

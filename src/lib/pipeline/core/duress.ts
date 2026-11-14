@@ -323,7 +323,7 @@ export async function duressPurgePat(opts: {
     if (!keysOk) {
       // Forbidden end state caught. Raise safe-mode anyway (belt-and-
       // suspenders — the runtime flag is set in-memory next), then halt.
-      try { await raiseSafeMode(setBy, `${opts.reason} (Phase 1 KEYS failed)`); } catch (e) { /* best-effort */ }
+      try { await raiseSafeMode(setBy, `${opts.reason} (Phase 1 KEYS failed)`); } catch { /* best-effort */ }
       return {
         outcome: "FAILED",
         keysPurged,

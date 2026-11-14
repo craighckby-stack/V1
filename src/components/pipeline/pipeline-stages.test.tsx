@@ -1,5 +1,4 @@
 import { describe, test, expect } from "bun:test";
-import { PipelineStages } from "./pipeline-stages";
 // Mock dependencies since this is a characterization test focusing on observable output
 // In a real setup, we would mock usePipelineStore to control state.
 // For this test, we must simulate the two primary paths: no report (emptyStages) and report present.

@@ -29,14 +29,19 @@ export async function POST(req: Request) {
     const body = (await req.json()) as CoherenceGateRequest;
     if (typeof body.originalCode !== "string" || typeof body.proposedCode !== "string") {
       return NextResponse.json(
-        { error: "originalCode and proposedCode are required" },
+        { error: "originalCode and proposedCode must be provided as strings" },
         { status: 400 }
       );
     }
 
-    const origLen = body.originalCode.length || 1;
+    const origLen = body.originalCode.length;
     const propLen = body.proposedCode.length;
-    const structuralDriftRatio = Math.abs(propLen - origLen) / origLen;
+    
+    // Guard against division by zero if original code is empty
+    const structuralDriftRatio = origLen === 0 
+      ? propLen === 0 ? 0 : Infinity // If orig is 0 and prop is not, drift is infinite (fails coherence)
+      : Math.abs(propLen - origLen) / origLen;
+      
     const passed = structuralDriftRatio < 0.7;
     const saturationScore = Math.max(0, 1 - structuralDriftRatio);
     const status: CoherenceStatus = passed ? "COHERENT" : "EXCESSIVE_DRIFT";
@@ -49,8 +54,10 @@ export async function POST(req: Request) {
     };
     return NextResponse.json(response);
   } catch (err) {
+    // Provide a generic, safe error message for 500 responses
+    console.error("Coherence Gate POST error:", err);
     return NextResponse.json(
-      { error: (err as Error).message },
+      { error: "Internal server error while processing coherence gate request." },
       { status: 500 }
     );
   }

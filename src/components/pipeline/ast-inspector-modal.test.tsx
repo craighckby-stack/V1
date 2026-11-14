@@ -1,15 +1,7 @@
 import { describe, test, expect } from "bun:test";
-import { AstInspectorModal } from "./ast-inspector-modal";
 
 // Mock dependencies required for AstInspectorModal to render without actual environment
 // Since this is a characterization test, we mock the hooks/context to control state.
-const mockUsePipelineStore = (initialState: any) => {
-  let state = initialState;
-  return (selector: (s: any) => any) => selector(state);
-};
-const mockUseToast = () => ({
-  toast: (options: { title: string; description: string }) => {},
-});
 
 // Mock the component environment by replacing dependencies globally for testing context
 // In a real setup, this would use React Testing Library/Jest mocks, but for bun:test
@@ -21,7 +13,7 @@ const mockUseToast = () => ({
 // Helper function to simulate rendering based on state (since we can't run React)
 // We test the *logic* that determines the output structure, not the DOM rendering itself,
 // as the component returns null if inspectorFile is falsy.
-const renderModal = (inspectorFile: any | null) => {
+const renderModal = (inspectorFile: unknown) => {
     // In a real test, we'd wrap AstInspectorModal in a Provider that sets the state.
     // Here, we assert based on the conditional return: `if (!inspectorFile) return null;`
     if (!inspectorFile) return null;

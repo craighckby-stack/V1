@@ -547,7 +547,6 @@ export class UnifiedPipelineRunner {
       // Fall through to STAGE 5 with the synthesized REJECTED verdict so
       // the normal "review rejected → no commit" path handles it.
       const reviewVerdict = rejectedVerdict;
-      const isReviewApproved = false;
 
       updateStage(
         "stage4_review",

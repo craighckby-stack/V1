@@ -83,7 +83,7 @@ function ensureKey(): Buffer | null {
     // First use: generate. Atomic write (tmp + rename), 0600, and mkdir
     // .git/info (it normally exists; don't assume).
     const key = randomBytes(KEY_BYTES);
-    let tmp = `${KEY_FILE}.tmp`;
+    const tmp = `${KEY_FILE}.tmp`;
     let tmpCreated = false;
     try {
       mkdirSync(dirname(KEY_FILE), { recursive: true });
@@ -96,7 +96,7 @@ function ensureKey(): Buffer | null {
       if (tmpCreated && existsSync(tmp)) {
         try {
           unlinkSync(tmp);
-        } catch (e) {
+        } catch {
           // Ignore cleanup failures
         }
       }
@@ -176,7 +176,7 @@ export function openToken(stored: string): string {
       iv = Buffer.from(parts[0], "base64url");
       tag = Buffer.from(parts[1], "base64url");
       ct = Buffer.from(parts[2], "base64url");
-    } catch (error) {
+    } catch {
       // Invalid base64url encoding
       return "";
     }
