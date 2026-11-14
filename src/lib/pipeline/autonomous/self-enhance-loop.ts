@@ -533,6 +533,11 @@ class SelfEnhanceLoop {
   // a boot waits for the persisted counters (or the one-time DB seed)
   // before doing anything that could persist stats of its own. Without
   // the gate, a fast first cycle could write zeros over a seed mid-flight.
+  // Exposed via whenStatsReady() so the status endpoints can await it
+  // too — without that, the first poll after a boot returns
+  // cyclesCompleted:0 (the pre-hydration default) while the self-model
+  // (which reads the durable corpus directly) already has historical
+  // attempts, producing a "cycles:0 vs attempts:29" mismatch in the UI.
   private statsReady: Promise<void> = Promise.resolve();
   // Skip-probe cadence counter: every SKIP_PROBE_INTERVALth proactive
   // skip spends the LLM call anyway to score the skipper's claim.
@@ -3491,6 +3496,14 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
 
   getStats() {
     return { ...this.stats };
+  }
+
+  /** Public gate for the hydration promise. Status endpoints await this
+   *  before snapshotting getStats() so the UI never sees the
+   *  pre-hydration zeros (cycles:0 vs the self-model's historical
+   *  attempts). The promise never rejects (hydrateStats catches all). */
+  whenStatsReady(): Promise<void> {
+    return this.statsReady;
   }
 
   /** Snapshot the in-memory stats into the durable restart tier

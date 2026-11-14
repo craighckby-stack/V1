@@ -86,7 +86,7 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
     if (error instanceof Error) {
       console.error(`Failed to write operator touch file to ${OPERATOR_TOUCH_FILE}: ${error.message}`);
     } else {
-      console.error(`Failed to write operator touch file to ${OPERATOR_TOUCH_FILE}: Unknown error`);
+      console.error(`Failed to write operator touch file to ${OPERATOR_TOUCH_FILE}: Unknown error during file system operation`);
     }
   }
 }
@@ -129,6 +129,8 @@ export function readOperatorTouch(): OperatorTouchState | null {
     // Catches file not found, read errors, JSON parsing errors
     if (error instanceof Error) {
       console.error(`Failed to read operator touch file at ${OPERATOR_TOUCH_FILE}: ${error.message}`);
+    } else {
+      console.error(`Failed to read operator touch file at ${OPERATOR_TOUCH_FILE}: Unknown error during file system operation`);
     }
     return null;
   }

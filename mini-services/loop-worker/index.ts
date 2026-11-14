@@ -107,6 +107,14 @@ async function main() {
 
         // Mirror of GET /api/self-enhance/status — identical shape.
         if (url === "/status") {
+          // Await the durable-stats hydration gate before snapshotting so
+          // the first poll after a boot returns the real persisted
+          // counters, not the pre-hydration zeros (which would show as
+          // cycles:0 while the self-model panel already has historical
+          // attempts bootstrapped from the corpus). The promise never
+          // rejects and resolves in <1s on a warm boot (file read), so
+          // the added latency is negligible after the first poll.
+          await loop.whenStatsReady();
           return json({
             running: loop.isRunning(),
             stats: loop.getStats(),
