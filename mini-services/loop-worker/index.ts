@@ -188,7 +188,7 @@ async function main() {
 
         // Mirror of POST /api/self-enhance/unlock  body: { filePath }
         if (url === "/unlock") {
-          let body: { filePath?: string };
+          let body: { filePath?: string } | null = null;
           try {
             body = (await req.json()) as { filePath?: string };
           } catch (e) {
