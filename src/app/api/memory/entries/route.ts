@@ -33,13 +33,9 @@ export async function GET() {
 
     let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
     
-    // Simplified error handling: if it's an Error instance, we know it has a message, 
-    // but we still return the generic message to prevent leaking internal stack traces.
+    // If it's an Error instance, we can log its message internally, but still return the generic message externally.
     if (err instanceof Error) {
-      // Use the generic message as intended by the original logic's intent (hiding details)
-    } else if (typeof err === 'object' && err !== null && 'message' in err) {
-      // Handle objects that might resemble errors but aren't instances of Error
-      // Still use the generic message for security/stability.
+      // Contextual logging done above; external response remains generic for security.
     }
     
     return NextResponse.json(
