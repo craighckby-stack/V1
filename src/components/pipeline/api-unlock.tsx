@@ -78,10 +78,12 @@ export function ApiUnlock() {
           cache: "no-store",
           signal: abortController.signal 
         });
+        
         if (!response.ok) {
           // Non-2xx response means we cannot confirm configuration, keep it null (fail-safe)
           return;
         }
+        
         const data = await response.json();
         if (cancelled) return;
         
@@ -112,7 +114,7 @@ export function ApiUnlock() {
       }
       window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     };
-  }, [mutationGateConfigured]); // Added mutationGateConfigured to dependency array
+  }, []); // Removed mutationGateConfigured from dependency array as it's read internally and state updates trigger re-renders, not effect re-runs based on its value.
 
   // Escape dismisses the panel until the next 401.
   useEffect(() => {
