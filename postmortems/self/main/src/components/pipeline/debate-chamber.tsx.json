@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/debate-chamber.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 7 → evolved 9), no behavioral signal, 12 changed lines — mutations must change observable behavior, not add guards to code that already works",
@@ -12,8 +12,8 @@
   "parentHash": "eb00d2071c9243986c6cd657ce0fab36ff00f861a503960f5f4d03d788733e43",
   "hash": "fa85fbc5bfc542c4b9c6814290a2fcbee1f1cca2a0c47e2082f951fe157e4e71",
   "lastAttemptAt": "2026-11-14T12:49:27.700Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-14T13:10:29.833Z",
   "createdAt": "2026-11-14T08:00:27.799Z",
-  "updatedAt": "2026-11-14T12:49:27.700Z",
+  "updatedAt": "2026-11-14T13:10:29.833Z",
   "schema": 2
 }

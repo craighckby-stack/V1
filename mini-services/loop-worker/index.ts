@@ -195,7 +195,7 @@ async function main() {
             return json({ ok: false, error: "Invalid JSON body provided: Could not parse request body" }, 400);
           }
 
-          if (typeof body !== 'object' || body === null || !body.filePath || typeof body.filePath !== 'string' || body.filePath.trim() === '') {
+          if (typeof body !== 'object' || body === null || typeof body.filePath !== 'string' || body.filePath.trim() === '') {
             return json({ ok: false, error: "filePath must be a non-empty string in the request body" }, 400);
           }
           
@@ -212,7 +212,7 @@ async function main() {
         return json({ error: "not found" }, 404);
       } catch (err) {
         // Catch errors from loop operations or unexpected runtime issues
-        const errorMessage = (err as Error).message || "An unknown internal error occurred during request processing";
+        const errorMessage = (err instanceof Error) ? err.message : "An unknown internal error occurred during request processing";
         console.error("[LOOP-WORKER] Request handling error:", err);
         return json({ error: errorMessage }, 500);
       }
