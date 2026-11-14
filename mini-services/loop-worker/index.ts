@@ -192,7 +192,7 @@ async function main() {
           try {
             body = (await req.json()) as { filePath?: string };
           } catch (e) {
-            return json({ ok: false, error: "Invalid JSON body provided" }, 400);
+            return json({ ok: false, error: "Invalid JSON body provided: Could not parse request body" }, 400);
           }
 
           if (!body.filePath || typeof body.filePath !== 'string' || body.filePath.trim() === '') {
@@ -212,7 +212,8 @@ async function main() {
         return json({ error: "not found" }, 404);
       } catch (err) {
         // Catch errors from loop operations or unexpected runtime issues
-        const errorMessage = (err as Error).message || "An unknown internal error occurred";
+        const errorMessage = (err as Error).message || "An unknown internal error occurred during request processing";
+        console.error("[LOOP-WORKER] Request handling error:", err);
         return json({ error: errorMessage }, 500);
       }
     },
