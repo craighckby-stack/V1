@@ -55,7 +55,7 @@ export function OracleTaskFeedPanel() {
         throw new Error(`Failed to fetch tasks: HTTP ${response.status}. Details: ${errorDetail}`);
       }
       
-      if (typeof responseBody !== 'object' || responseBody === null || !('tasks' in responseBody) || !Array.isArray(responseBody.tasks)) {
+      if (typeof responseBody !== 'object' || responseBody === null || !('tasks' in responseBody) || !Array.isArray((responseBody as { tasks: SelfTask[] }).tasks)) {
         throw new Error("Invalid API response structure: Expected { tasks: SelfTask[] }, but received malformed data.");
       }
 
