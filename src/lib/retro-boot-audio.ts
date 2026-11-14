@@ -14,21 +14,30 @@ let ctx: AudioContext | null = null;
 const live: Array<{ stop: (when?: number) => void }> = [];
 
 export function ensureAudio(): AudioContext | null {
-  try {
-    if (!ctx) {
-      const AC =
-        window.AudioContext ??
-        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AC) {
-        console.error("AudioContext not available in the browser environment.");
+  if (ctx) {
+    if (ctx.state === "suspended") {
+      try {
+        ctx.resume();
+      } catch (e) {
+        console.error("Failed to resume AudioContext:", e instanceof Error ? e.message : String(e));
         return null;
       }
-      ctx = new AC();
     }
-    if (ctx.state === "suspended") void ctx.resume();
+    return ctx;
+  }
+
+  try {
+    const AC =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AC) {
+      console.error("AudioContext not available in the browser environment. Check browser compatibility.");
+      return null;
+    }
+    ctx = new AC();
     return ctx;
   } catch (e) {
-    console.error("Failed to ensure AudioContext:", e instanceof Error ? e.message : String(e));
+    console.error("Failed to initialize AudioContext:", e instanceof Error ? e.message : String(e));
     return null;
   }
 }
@@ -103,25 +112,17 @@ function noise(c: AudioContext, t: number, dur: number, peak: number, freq: numb
 export function powerOnThunk() {
   const c = ensureAudio();
   if (!c) return;
-  try {
-    const t = c.currentTime + 0.02;
-    tone(c, t, 130, 0.42, { type: "sine", peak: 0.8, slideTo: 32 });
-    noise(c, t, 0.06, 0.5, 1100);
-    tone(c, t + 0.09, 58, 0.5, { type: "triangle", peak: 0.4 });
-  } catch (e) {
-    /* visuals carry the prank even if audio fails */
-  }
+  const t = c.currentTime + 0.02;
+  tone(c, t, 130, 0.42, { type: "sine", peak: 0.8, slideTo: 32 });
+  noise(c, t, 0.06, 0.5, 1100);
+  tone(c, t + 0.09, 58, 0.5, { type: "triangle", peak: 0.4 });
 }
 
 /** Happy POST beep when the system finally loads. */
 export function postBeep() {
   const c = ensureAudio();
   if (!c) return;
-  try {
-    const t = c.currentTime + 0.02;
-    tone(c, t, 987.77, 0.14, { type: "square", peak: 0.28 });
-    tone(c, t + 0.18, 1318.5, 0.2, { type: "square", peak: 0.24 });
-  } catch (e) {
-    /* noop */
-  }
+  const t = c.currentTime + 0.02;
+  tone(c, t, 987.77, 0.14, { type: "square", peak: 0.28 });
+  tone(c, t + 0.18, 1318.5, 0.2, { type: "square", peak: 0.24 });
 }
