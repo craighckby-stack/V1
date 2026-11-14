@@ -50,6 +50,12 @@ interface FileRow {
   lastOutcome: string | null;
   visualPolishAttempts: number;
   visualPolishPasses: number;
+  /** Consecutive successful mutations — rises +1 per pass, resets to 0
+   *  on any fail or zero-diff. Older payloads may omit it. */
+  streak?: number;
+  /** The momentum selection bonus as a percentage (0-15): +5% per
+   *  streak step, capped at +15%. Older payloads may omit it. */
+  momentumPct?: number;
 }
 
 interface CalibrationBucket {
@@ -356,6 +362,12 @@ export function SelfModelPanel({ open, onClose }: Props) {
                     <th style={{ padding: "4px 6px" }}>pass/attempts</th>
                     <th style={{ padding: "4px 6px" }}>zero-diff</th>
                     <th style={{ padding: "4px 6px" }}>finished</th>
+                    <th
+                      style={{ padding: "4px 6px" }}
+                      title="Momentum — mutability percentage that rises with each successful mutation (+5% per consecutive pass, capped +15% at 3 in a row; any fail or zero-diff resets it to 0%)"
+                    >
+                      momentum
+                    </th>
                     <th style={{ padding: "4px 6px" }}>last</th>
                   </tr>
                 </thead>
@@ -363,12 +375,26 @@ export function SelfModelPanel({ open, onClose }: Props) {
                   {status.files.map((f) => {
                     const finishedColor = f.finishedScore >= 0.7 ? WARN_COLOR : f.finishedScore >= 0.4 ? ACCENT_COLOR : DIM_COLOR;
                     const lastColor = f.lastOutcome === "pass" ? GOOD_COLOR : f.lastOutcome === "fail" ? ERROR_COLOR : f.lastOutcome === "zero-diff" ? DIM_COLOR : PROMPT_COLOR;
+                    const momentumPct = f.momentumPct ?? 0;
+                    const streak = f.streak ?? 0;
+                    // Momentum color: cold (0%) = dim, warming (+5/+10%) =
+                    // accent, maxed (+15%) = good — the file is hot and
+                    // the bandit is favoring it at the cap.
+                    const momentumColor =
+                      momentumPct <= 0 ? DIM_COLOR : momentumPct >= 15 ? GOOD_COLOR : ACCENT_COLOR;
                     return (
                       <tr key={f.filePath} style={{ borderBottom: `1px solid #222` }}>
                         <td style={{ padding: "3px 6px", color: PROMPT_COLOR }}>{f.filePath}</td>
                         <td style={{ padding: "3px 6px", color: PROMPT_COLOR }}>{f.passes}/{f.attempts}</td>
                         <td style={{ padding: "3px 6px", color: DIM_COLOR }}>{f.zeroDiffs}</td>
                         <td style={{ padding: "3px 6px", color: finishedColor }}>{f.finishedScore.toFixed(2)}</td>
+                        <td
+                          style={{ padding: "3px 6px", color: momentumColor }}
+                          title={`streak ${streak} — consecutive successful mutations (resets on fail/zero-diff)`}
+                        >
+                          {momentumPct > 0 ? `+${momentumPct}%` : "0%"}
+                          {streak > 0 ? ` (${streak})` : ""}
+                        </td>
                         <td style={{ padding: "3px 6px", color: lastColor }}>{f.lastOutcome ?? "—"}</td>
                       </tr>
                     );

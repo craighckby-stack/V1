@@ -207,6 +207,10 @@ export async function noteOutcome(
           lastOutcome: outcome,
           finishedScore:
             outcome === "zero-diff" ? 0.25 : outcome === "pass" ? 0.1 : 0,
+          // Momentum: only a successful mutation opens a streak — a fail
+          // or zero-diff records 0 (nothing is "hot" without a landed
+          // enhancement).
+          streak: outcome === "pass" ? 1 : 0,
         },
       });
       return;
@@ -220,6 +224,12 @@ export async function noteOutcome(
         : outcome === "pass"
           ? Math.max(0, existing.finishedScore - 0.15)
           : existing.finishedScore;
+    // Momentum dynamics: a pass EXTENDS the success streak (+1 — the file
+    // just proved, again, that it can absorb a clean enhancement); a fail
+    // or zero-diff RESETS it (streaks measure consecutive landed work —
+    // one no-growth cycle and the file is no longer "hot"). The bandit
+    // turns streak into a capped selection bonus (MOMENTUM_STEP/CAP).
+    const streak = outcome === "pass" ? existing.streak + 1 : 0;
     await db.selfModelFile.update({
       where: { filePath },
       data: {
@@ -233,6 +243,7 @@ export async function noteOutcome(
         lastTouchedAt: new Date(),
         lastOutcome: outcome,
         finishedScore: finished,
+        streak,
       },
     });
   } catch {
@@ -452,6 +463,24 @@ export interface TargetScore {
   reason: string;
 }
 
+/** MOMENTUM — the "mutability percentage" that rises with each successful
+ *  mutation of a file. Consecutive pushed enhancements build a streak;
+ *  every streak step adds MOMENTUM_STEP of selection weight, up to
+ *  MOMENTUM_CAP (the limit: +15% at 3 consecutive passes — beyond that,
+ *  more successes do NOT stack further, so one hot streak can never
+ *  dominate the empirical rate + exploration terms). Any fail or
+ *  zero-diff resets the streak to 0 (momentum is earned by LANDED work,
+ *  and lost the moment a cycle yields nothing). The lifetime empirical
+ *  pass rate already rewards sustained quality; momentum rewards CURRENT
+ *  form — a file that just landed 3 clean enhancements in a row is the
+ *  best bet for a 4th. */
+export const MOMENTUM_STEP = 0.05; // +5% of selection weight per success
+export const MOMENTUM_CAP = 0.15; // hard limit: maxes at 3 consecutive passes
+
+export function momentumFromStreak(streak: number): number {
+  return Math.min(MOMENTUM_CAP, Math.max(0, streak) * MOMENTUM_STEP);
+}
+
 /** Score every candidate file with the UCB1-style bandit and return them
  *  sorted best-first. The loop iterates THIS order instead of tree order
  *  — its choice of what to work on becomes a decision, self-explained. */
@@ -488,10 +517,14 @@ export async function orderTargetsByBandit(
       const recency = Math.min(1, daysSince / 14) * 0.2;
       // Exhaustion: finished files sink (max -0.35).
       const exhaustion = finished * 0.35;
-      const score = empirical + exploration + recency - exhaustion;
+      // Momentum: consecutive-success bonus (+5%/pass, capped +15%).
+      // Hot files rise; the cap keeps a streak from stacking past the
+      // point where it drowns out exploration of everything else.
+      const momentum = momentumFromStreak(m?.streak ?? 0);
+      const score = empirical + exploration + recency + momentum - exhaustion;
       const reason =
         attempts > 0
-          ? `${passes}/${attempts} passed, ${daysSince < 1 ? "touched today" : `${Math.round(daysSince)}d untouched`}, exhaustion ${finished.toFixed(2)}`
+          ? `${passes}/${attempts} passed, ${daysSince < 1 ? "touched today" : `${Math.round(daysSince)}d untouched`}, exhaustion ${finished.toFixed(2)}, momentum +${(momentum * 100).toFixed(0)}% (streak ${m?.streak ?? 0})`
           : "no history — exploring";
       return { abs: candidateAbsPaths[i], s: { filePath: r, score, reason } };
     });
@@ -603,6 +636,13 @@ export interface SelfModelSummary {
     lastOutcome: string | null;
     visualPolishAttempts: number;
     visualPolishPasses: number;
+    /** Consecutive successful mutations (pass streak). Resets on any
+     *  fail or zero-diff. Drives the momentum bonus. */
+    streak: number;
+    /** The momentum selection bonus as a percentage (0-15): +5% per
+     *  streak step, capped at MOMENTUM_CAP. Surfaced so the panel can
+     *  show WHICH files the bandit currently favors and why. */
+    momentumPct: number;
   }>;
   calibration: {
     buckets: CalibrationBucket[];
@@ -793,6 +833,8 @@ export async function getSelfModelSummary(): Promise<SelfModelSummary> {
         lastOutcome: f.lastOutcome,
         visualPolishAttempts: f.visualPolishAttempts,
         visualPolishPasses: f.visualPolishPasses,
+        streak: f.streak,
+        momentumPct: Math.round(momentumFromStreak(f.streak) * 100),
       })),
       calibration: {
         buckets,

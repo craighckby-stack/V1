@@ -103,9 +103,10 @@ export async function POST(req: Request) {
       await bootstrapSelfModel(); 
     } catch (bootstrapError) {
       // Log bootstrap failure with context and return an error response
-      console.error("Failed to bootstrap self-model during POST operation:", bootstrapError instanceof Error ? bootstrapError : bootstrapError);
+      const errorToLog = bootstrapError instanceof Error ? bootstrapError : new Error(String(bootstrapError));
+      console.error("Failed to bootstrap self-model during POST operation:", errorToLog);
       return NextResponse.json(
-        { error: `Failed to bootstrap self-model: ${(bootstrapError instanceof Error ? bootstrapError.message : "Unknown bootstrap error")}` },
+        { error: `Failed to bootstrap self-model: ${errorToLog.message}` },
         { status: 500 }
       );
     }

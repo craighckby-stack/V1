@@ -546,6 +546,14 @@ model SelfModelFile {
   /// Empirical exhaustion 0..1 — consecutive zero-diffs push toward 1,
   /// a pass pulls back down. Feeds the bandit's exploration penalty.
   finishedScore Float  @default(0)
+  /// Consecutive successful (pushed) mutations. Each pass +1, any fail
+  /// or zero-diff resets to 0. Feeds the bandit's MOMENTUM bonus: a file
+  /// that keeps landing clean enhancements earns rising mutability
+  /// priority (+5% of selection weight per streak step, capped +15%),
+  /// while a stale or zero-diffing file loses it. The explicit "this
+  /// file is hot right now" signal the empirical pass rate (lifetime)
+  /// alone can't express.
+  streak      Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
