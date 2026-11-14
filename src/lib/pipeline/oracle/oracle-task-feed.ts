@@ -97,6 +97,7 @@ function hashProphecyIdToLine(prophecyId: string): number {
 function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
   if (prophecy.domain !== "self-prediction") return null;
   if (!prophecy.historySnapshot) return null;
+  if (typeof prophecy.historySnapshot !== 'string') return null; // Guard against non-string snapshot
   try {
     const meta = JSON.parse(prophecy.historySnapshot) as {
       selfProphecy?: boolean;
@@ -151,14 +152,14 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
     return false;
   }
 
-  if (prophecy.domain !== "self-prediction") {
-    console.error(`Skipping task queue for prophecy ID ${prophecy.id}: Domain is not 'self-prediction' (Domain: ${prophecy.domain}). Only self-prophecies feed tasks.`);
-    return false; // not a self-prophecy — not actionable
-  }
-
   if (typeof prophecy.id !== 'string' || !prophecy.id) {
     console.error(`Prophecy ID is missing or invalid for prophecy: ${JSON.stringify(prophecy)}`);
     return false;
+  }
+
+  if (prophecy.domain !== "self-prediction") {
+    console.error(`Skipping task queue for prophecy ID ${prophecy.id}: Domain is not 'self-prediction' (Domain: ${prophecy.domain}). Only self-prophecies feed tasks.`);
+    return false; // not a self-prophecy — not actionable
   }
 
   const filePath = filePathFromSelfProphecy(prophecy);
