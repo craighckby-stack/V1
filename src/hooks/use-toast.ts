@@ -141,6 +141,9 @@ function dispatch(action: Action) {
 type Toast = Omit<ToasterToast, "id">
 
 function toast({ ...props }: Toast) {
+  if (!props.title || !props.description) {
+    throw new Error("Toast must provide both 'title' and 'description' to be displayed.")
+  }
   const id = genId()
 
   const update = (props: ToasterToast) =>
@@ -180,7 +183,7 @@ function useToast() {
         listeners.splice(index, 1)
       }
     }
-  }, [state])
+  }, [])
 
   return {
     ...state,
