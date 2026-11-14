@@ -59,7 +59,7 @@ export function LogStream() {
               {wsConnected ? "ws live" : "ws idle"}
             </Badge>
             <span className="text-[10px] text-slate-500 font-mono">:3003</span>
-          </div>
+          </div >
         </div>
       </CardHeader>
       <CardContent className="flex-1 overflow-hidden p-0">
@@ -76,27 +76,28 @@ export function LogStream() {
                     return null; // Skip non-object entries safely
                   }
                   
+                  const logEntry = entry as { type?: string; source?: string; timestamp?: string; message?: string; id?: string };
+
                   // Safely access type with fallback
-                  const typeKey = (entry.type && typeof entry.type === 'string' && TYPE_ICON[entry.type])
-                    ? entry.type
+                  const typeKey = (logEntry.type && typeof logEntry.type === 'string' && TYPE_ICON[logEntry.type])
+                    ? logEntry.type
                     : 'info';
                   const Icon = TYPE_ICON[typeKey as keyof typeof TYPE_ICON] || Info;
                   const color = TYPE_COLOR[typeKey as keyof typeof TYPE_COLOR] || "text-slate-400";
                   
                   // Safely access source with fallback
-                  const sourceKey = (entry.source && typeof entry.source === 'string' && SOURCE_COLOR[entry.source])
-                    ? entry.source
+                  const sourceKey = (logEntry.source && typeof logEntry.source === 'string' && SOURCE_COLOR[logEntry.source])
+                    ? logEntry.source
                     : 'pipeline';
                   const sourceColor = SOURCE_COLOR[sourceKey as keyof typeof SOURCE_COLOR] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
                   
                   // Validate timestamp and provide fallback
-                  const timestamp = (entry.timestamp && typeof entry.timestamp === 'string')
-                    ? entry.timestamp
+                  const timestamp = (logEntry.timestamp && typeof logEntry.timestamp === 'string')
+                    ? logEntry.timestamp
                     : 'unknown';
                   
-                  // Use a stable identifier. If an ID exists, use it. Otherwise, combine timestamp and message for uniqueness.
-                  const message = entry.message || '';
-                  const key = (entry as any).id || `${timestamp}-${message}-${Math.random()}`; 
+                  // Use a stable identifier. Prioritize 'id', then combine stable fields.
+                  const key = logEntry.id || `${timestamp}-${sourceKey}-${logEntry.message || ''}`; 
                   
                   return (
                     <motion.div
@@ -116,7 +117,7 @@ export function LogStream() {
                       >
                         {sourceKey}
                       </span>
-                      <span className="text-slate-200 leading-relaxed break-all flex-1">{message}</span>
+                      <span className="text-slate-200 leading-relaxed break-all flex-1">{logEntry.message || ''}</span>
                     </motion.div>
                   );
                 })}
