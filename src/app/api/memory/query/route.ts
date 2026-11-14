@@ -90,11 +90,12 @@ export async function GET(req: Request) {
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during memory query.";
-    // Add more context to the error message
+    // Include the full error object for better debugging context in 500 responses
     return NextResponse.json(
       { 
         error: `Memory query failed: ${errorMessage}`,
-        operation: "ensureSeeded or query"
+        operation: "ensureSeeded or query",
+        details: err instanceof Error ? { name: err.name, stack: err.stack } : { message: "Unknown error object" }
       }, 
       { status: 500 }
     );
