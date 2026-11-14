@@ -80,8 +80,7 @@ export function writeLoopStats(state: LoopStatsState): void {
   } catch (error) {
     // Best-effort by contract: log, never throw.
     console.error(
-      `writeLoopStats: failed to persist stats to ${STATS_FILE}. State provided: ${JSON.stringify(state)}. Error details:`,
-      error instanceof Error ? error.message : String(error)
+      `writeLoopStats: failed to persist stats to ${STATS_FILE}. State provided: ${JSON.stringify(state)}. Error details: ${(error instanceof Error ? error.message : String(error))}`
     );
   }
 }
@@ -148,7 +147,7 @@ export function readLoopStats(): LoopStatsState | null {
     };
   } catch (error) {
     // Missing, unreadable, or torn — first-boot semantics. Log the error for debugging persistence issues.
-    console.error(`readLoopStats: failed to read or parse stats from ${STATS_FILE}. Treating as first boot. Error:`, error instanceof Error ? error.message : String(error));
+    console.error(`readLoopStats: failed to read or parse stats from ${STATS_FILE}. Treating as first boot. Error: ${(error instanceof Error ? error.message : String(error))}`);
     return null;
   }
 }
