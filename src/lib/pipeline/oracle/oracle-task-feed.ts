@@ -170,7 +170,7 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
   const evidence = buildEvidence(prophecy);
   const taskKind = TASK_KINDS[ORACLE_FAILED_PROPHECY_KIND];
   if (!taskKind) {
-    console.error(`Task kind ${ORACLE_FAILED_PROPHECY_KIND} is not registered in TASK_KINDS. Cannot queue task.`);
+    console.error(`Task kind ${ORACLE_FAILED_PROPHECY_KIND} is not registered in TASK_KINDS. Cannot queue task for prophecy ID ${prophecy.id}.`);
     return false;
   }
   const priority = taskKind.priority ?? 7;
