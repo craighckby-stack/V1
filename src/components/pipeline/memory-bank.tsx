@@ -28,6 +28,7 @@ export function MemoryBank() {
           throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
         const data = await res.json();
+        
         if (!cancelled && typeof data === 'object' && data !== null && Array.isArray(data.entries)) {
           setEntries(data.entries);
         } else if (!cancelled && !Array.isArray(data?.entries)) {
@@ -35,7 +36,7 @@ export function MemoryBank() {
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred during memory fetch.";
-        console.error(`Error loading memory entries from API: ${errorMessage}`, error);
+        console.error(`Error loading memory entries from API: ${errorMessage}. Check network connectivity or API endpoint configuration.`, error);
       }
     })();
     return () => {
