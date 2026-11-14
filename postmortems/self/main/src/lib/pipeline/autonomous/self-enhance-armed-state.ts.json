@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/autonomous/self-enhance-armed-state.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 8 → evolved 10), no behavioral signal, 10 changed lines — mutations must change observable behavior, not add guards to code that already works",
@@ -12,8 +12,8 @@
   "parentHash": "7f56257ab2cbf0a170441c88ebe1ca9ac8fbe8f0fc071c11d256ec0c9f2dce0a",
   "hash": "a65714398919fdf63460997a2d72596e4bd88e17279372de7791c076d0a88c28",
   "lastAttemptAt": "2026-11-14T10:14:15.658Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-14T10:53:31.955Z",
   "createdAt": "2026-11-14T08:00:27.790Z",
-  "updatedAt": "2026-11-14T10:14:15.658Z",
+  "updatedAt": "2026-11-14T10:53:31.955Z",
   "schema": 2
 }
