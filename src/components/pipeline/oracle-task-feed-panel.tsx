@@ -56,7 +56,7 @@ export function OracleTaskFeedPanel() {
       const oracleTasks = allTasks.filter((t) => t.kind === "oracle-failed-prophecy");
       setTasks(oracleTasks);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "An unknown error occurred during task fetching.";
+      const msg = err instanceof Error ? err.message : "An unknown error occurred during task fetching. Check network connectivity or API endpoint.";
       setError(`Task feed fetch failed: ${msg}`);
       // Keep existing tasks on error — don't wipe the list on a transient failure
     } finally {
