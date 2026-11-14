@@ -16,7 +16,7 @@ const GLYPHS = "█▓▒░■<>/\\|=+*#%";
 export function Scramble({ text, start, ms, className }: { text: string; start: boolean; ms: number; className?: string }) {
   const [out, setOut] = useState(text);
   useEffect(() => {
-    if (!start) return;
+    if (!start || text.length === 0 || ms <= 0) return;
     const total = text.length;
     const t0 = performance.now();
     let raf = 0;
@@ -36,4 +36,3 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
   }, [start, text, ms]);
   return <span className={className}>{out}</span>;
 }
-
