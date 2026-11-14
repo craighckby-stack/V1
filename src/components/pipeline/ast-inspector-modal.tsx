@@ -91,7 +91,7 @@ export function AstInspectorModal() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  if (evolved) {
+                  if (typeof evolved === 'string') {
                     navigator.clipboard.writeText(evolved)
                       .then(() => {
                         toast({ title: "Copied evolved code", description: `${evolved.length} bytes to clipboard` });
