@@ -151,7 +151,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     return false;
   } finally {
     // Reset isSpawning only if we were the ones who set it to true in this attempt
-    if (isSpawning && wasSpawning === false) {
+    if (wasSpawning === false && isSpawning) {
         isSpawning = false;
     }
   }
