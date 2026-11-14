@@ -21,8 +21,8 @@ type ToasterToast = ToastProps & {
 
 let count = 0
 
-function genId() {
-  count = (count + 1)
+function genId(): string {
+  count += 1
   return count.toString()
 }
 
@@ -106,11 +106,19 @@ export const reducer = (state: State, action: Action): State => {
         })
       }
 
-      return {
-        ...state,
-        toasts: state.toasts.map((t) =>
-          toastId ? (t.id === toastId ? { ...t, open: false } : t) : { ...t, open: false }
-        ),
+      if (toastId) {
+        return {
+          ...state,
+          toasts: state.toasts.map((t) =>
+            t.id === toastId ? { ...t, open: false } : t
+          ),
+        }
+      } else {
+        // If no specific ID, dismiss all toasts
+        return {
+          ...state,
+          toasts: state.toasts.map((t) => ({ ...t, open: false })),
+        }
       }
     }
     case "REMOVE_TOAST":
@@ -140,7 +148,10 @@ function dispatch(action: Action) {
 type Toast = Omit<ToasterToast, "id">
 
 function toast({ ...props }: Toast) {
-  if (!props || !props.title || !props.description) {
+  if (!props) {
+    throw new Error("Toast configuration object cannot be null or undefined.")
+  }
+  if (!props.title || !props.description) {
     throw new Error("Toast must provide both 'title' and 'description' to be displayed.")
   }
   const id = genId()
