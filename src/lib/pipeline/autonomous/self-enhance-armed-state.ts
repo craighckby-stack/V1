@@ -61,7 +61,7 @@ export interface SelfEnhanceArmedState {
  *  flag remains the live source; the disk file is the restart tier). */
 export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   if (!PROJECT_ROOT || !ARMED_STATE_FILE) {
-    console.error(`markSelfEnhanceArmed: PROJECT_ROOT is not defined or ARMED_STATE_FILE could not be constructed. Cannot write armed state.`);
+    console.error(`markSelfEnhanceArmed: PROJECT_ROOT is not defined or ARMED_STATE_FILE could not be constructed. Cannot write armed state. PROJECT_ROOT: ${PROJECT_ROOT}`);
     return;
   }
   if (typeof armed !== "boolean") {
@@ -118,7 +118,8 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
       typeof state.at === "string" &&
       typeof state.by === "string" &&
       state.by.trim() !== "" &&
-      !isNaN(Date.parse(state.at))
+      !isNaN(Date.parse(state.at)) && // Check if date string is valid
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(state.at) // Stricter ISO 8601 check
     ) {
       return state;
     }
