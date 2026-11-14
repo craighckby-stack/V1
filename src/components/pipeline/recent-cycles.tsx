@@ -55,11 +55,11 @@ export function RecentCycles() {
   });
 
   return (
-    <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-slate-100 flex items-center gap-2 text-base">
-            <History className="h-4 w-4 text-violet-300" />
+    <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur shadow-xl">
+      <CardHeader className="pb-4">
+        <div className="flex items-center justify-between flex-col sm:flex-row gap-3">
+          <CardTitle className="text-slate-100 flex items-center gap-2 text-lg font-semibold">
+            <History className="h-5 w-5 text-violet-300" aria-hidden="true" />
             Recent Autonomous Cycles
           </CardTitle>
           <Button
@@ -67,56 +67,57 @@ export function RecentCycles() {
             size="sm"
             onClick={refresh}
             disabled={loading}
-            className="h-7 text-xs bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-300"
+            className="h-10 px-4 text-sm bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-300 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-violet-500"
+            aria-label={loading ? "Refreshing cycles..." : "Refresh recent cycles"}
           >
-            <RefreshCw className={cn("h-3 w-3 mr-1.5", loading && "animate-spin")} />
+            <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
             Refresh
           </Button>
         </div>
       </CardHeader>
       <CardContent>
         {merged.length === 0 ? (
-          <p className="text-xs text-slate-500 italic py-6 text-center">
+          <p className="text-sm text-slate-500 italic py-8 text-center">
             No cycles yet. Start the autonomous loop or trigger one to see history.
           </p>
         ) : (
-          <ScrollArea className="h-[280px] pr-3">
-            <div className="space-y-1.5">
+          <ScrollArea className="h-[300px] pr-4">
+            <div className="space-y-2">
               {merged.map((c) => (
                 <div
                   key={c.id}
-                  className="rounded-md border border-slate-800/60 bg-slate-900/40 px-3 py-2 hover:bg-slate-900/70 transition-colors"
+                  className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3 hover:bg-slate-900/70 transition-all duration-150 focus-visible:ring-1 focus-visible:ring-violet-500"
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono text-amber-300">#{c.cycleNumber}</span>
+                  <div className="flex items-center gap-3 mb-1">
+                    <span className="text-sm font-mono text-amber-300 shrink-0">#{c.cycleNumber}</span>
                     <Badge
                       variant="outline"
-                      className="text-[9px] uppercase tracking-widest bg-slate-700/40 text-slate-300 border-slate-600/40"
+                      className="text-[10px] uppercase tracking-wider bg-slate-700/40 text-slate-300 border-slate-600/40"
                     >
                       {c.mode}
                     </Badge>
                     <Badge
                       variant="outline"
                       className={cn(
-                        "text-[9px] uppercase tracking-widest",
+                        "text-[10px] uppercase tracking-wider",
                         STATUS_COLOR[c.status] ?? "bg-slate-500/15 text-slate-300 border-slate-500/40"
                       )}
                     >
                       {c.status}
                     </Badge>
-                    <span className="ml-auto text-[10px] text-slate-500 font-mono">
+                    <span className="ml-auto text-xs text-slate-400 font-mono shrink-0">
                       {c.startedAt ? new Date(c.startedAt).toLocaleString() : "Invalid date"}
                     </span>
                   </div>
-                  <div className="flex items-center gap-3 mt-1.5 text-[11px] text-slate-400 font-mono">
+                  <div className="flex items-center gap-3 text-sm text-slate-400 font-mono mt-1">
                     <span className="truncate flex-1" title={c.targetRepo}>
                       {c.targetRepo}:{c.branch}
                     </span>
-                    <span className="text-cyan-300">scanned {c.filesScanned}</span>
-                    <span className="text-emerald-300">committed {c.filesCommitted}</span>
+                    <span className="text-cyan-300 shrink-0">scanned {c.filesScanned}</span>
+                    <span className="text-emerald-300 shrink-0">committed {c.filesCommitted}</span>
                     {c.proofHash && (
-                      <span className="inline-flex items-center gap-1 text-fuchsia-300">
-                        <GitCommit className="h-3 w-3" />
+                      <span className="inline-flex items-center gap-1 text-fuchsia-300 shrink-0">
+                        <GitCommit className="h-3 w-3" aria-hidden="true" />
                         {c.proofHash}
                       </span>
                     )}

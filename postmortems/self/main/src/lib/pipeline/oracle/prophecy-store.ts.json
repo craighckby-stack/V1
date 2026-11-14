@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/oracle/prophecy-store.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "Test gate failed: test failed (sandboxed): src/lib/pipeline/oracle/oracle-task-feed.test.ts — \nsrc/lib/pipeline/oracle/oracle-task-feed.test.ts:\n(pass) oracle-task-feed > the new kind is registered at priority 7 (lowest, advisory) [0.23ms]\n62 |         cycleNumber: 100,\n63 |         mode: \"ref",
@@ -12,8 +12,8 @@
   "parentHash": "efc07d7687a8d08e646695367582234ef1a2adc5dfc51b089a88c1c6cb778032",
   "hash": "8762f07a290b7450c70fffaac3f30f6c48e9ffe9104a20b92b1054e9017de533",
   "lastAttemptAt": "2026-11-14T01:39:16.829Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-14T01:55:49.704Z",
   "createdAt": "2026-11-14T00:02:58.085Z",
-  "updatedAt": "2026-11-14T01:39:16.829Z",
+  "updatedAt": "2026-11-14T01:55:49.704Z",
   "schema": 2
 }
