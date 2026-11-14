@@ -24,11 +24,11 @@ export function AstInspectorModal() {
   if (!inspectorFile) return null;
   const { path, original, evolved, report } = inspectorFile;
 
-  if (!path || !original || !evolved) return null;
+  if (!path || !original || !evolved || !report) return null;
 
   // Add null checks for nested properties
-  const ast = report?.astDiffResult;
-  const sanitizer = report?.sanitizerResult;
+  const ast = report.astDiffResult;
+  const sanitizer = report.sanitizerResult;
 
   // Add input validation for violation severity
   const violationIcon: Record<string, typeof CheckCircle2> = {
@@ -65,7 +65,7 @@ export function AstInspectorModal() {
               </div>
               <div className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="inline-flex items-center gap-1">
-                  <GitCommit className="h-3 w-3" /> proof {report?.proofCommitHash}
+                  <GitCommit className="h-3 w-3" /> proof {report.proofCommitHash}
                 </span>
                 <span className="text-slate-300">AST {ast?.astScore}/100</span>
                 <span className="inline-flex items-center gap-1">
@@ -74,14 +74,14 @@ export function AstInspectorModal() {
                     variant="outline"
                     className={cn(
                       "ml-1 text-[10px] uppercase tracking-widest",
-                      report?.status === "COMPLETED"
+                      report.status === "COMPLETED"
                         ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-                        : report?.status === "REJECTED"
+                        : report.status === "REJECTED"
                         ? "bg-rose-500/15 text-rose-300 border-rose-500/40"
                         : "bg-amber-500/15 text-amber-300 border-amber-500/40"
                     )}
                   >
-                    {report?.status}
+                    {report.status}
                   </Badge>
                 </span>
               </div>
