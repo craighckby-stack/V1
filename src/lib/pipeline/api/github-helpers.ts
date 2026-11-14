@@ -6,7 +6,8 @@ const INVALID_TOKEN_PREFIXES = ["MY_"] as const;
 const INVALID_TOKEN_VALUES = ["undefined", "[REDACTED]"] as const;
 
 function isInvalidToken(token: string): boolean {
-  if (typeof token !== 'string' || !token) {
+  // Input validation is now guaranteed to be a string by callers, but we keep the check robust.
+  if (!token) {
     return true;
   }
   
