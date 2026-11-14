@@ -24,7 +24,9 @@ export function ensureAudio(): AudioContext | null {
     }
     if (ctx.state === "suspended") void ctx.resume();
     return ctx;
-  } catch {
+  } catch (e) {
+    // Log error context instead of swallowing silently
+    console.error("Failed to ensure AudioContext:", e);
     return null;
   }
 }
@@ -35,10 +37,12 @@ function track(node: { stop: (when?: number) => void }) {
 
 /** Stop everything currently sounding (mercy-escape / unmount). */
 export function stopAllAudio() {
-  for (const s of live.splice(0)) {
+  // Splice returns the removed elements, iterate over that array.
+  const stoppedNodes = live.splice(0);
+  for (const s of stoppedNodes) {
     try {
       s.stop();
-    } catch {
+    } catch (e) {
       /* already stopped */
     }
   }
@@ -51,6 +55,7 @@ function tone(
   dur: number,
   opts?: { type?: OscillatorType; peak?: number; slideTo?: number },
 ) {
+  if (dur <= 0) return; // Input validation
   const osc = c.createOscillator();
   const g = c.createGain();
   osc.type = opts?.type ?? "square";
@@ -71,6 +76,7 @@ function tone(
 let noiseBuf: AudioBuffer | null = null;
 
 function noise(c: AudioContext, t: number, dur: number, peak: number, freq: number) {
+  if (dur <= 0) return; // Input validation
   if (!noiseBuf || noiseBuf.sampleRate !== c.sampleRate) {
     noiseBuf = c.createBuffer(1, Math.floor(c.sampleRate * 0.5), c.sampleRate);
     const d = noiseBuf.getChannelData(0);
@@ -104,7 +110,7 @@ export function powerOnThunk() {
     tone(c, t, 130, 0.42, { type: "sine", peak: 0.8, slideTo: 32 });
     noise(c, t, 0.06, 0.5, 1100);
     tone(c, t + 0.09, 58, 0.5, { type: "triangle", peak: 0.4 });
-  } catch {
+  } catch (e) {
     /* visuals carry the prank even if audio fails */
   }
 }
@@ -117,7 +123,7 @@ export function postBeep() {
     const t = c.currentTime + 0.02;
     tone(c, t, 987.77, 0.14, { type: "square", peak: 0.28 });
     tone(c, t + 0.18, 1318.5, 0.2, { type: "square", peak: 0.24 });
-  } catch {
+  } catch (e) {
     /* noop */
   }
 }
