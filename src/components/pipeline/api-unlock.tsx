@@ -50,20 +50,20 @@ export function ApiUnlock() {
   // when BOTH (a) no key is in localStorage AND (b) the server confirms
   // it has LOOP_API_KEY configured — see mutationGateConfigured above.
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
     // Check localStorage only on client side. Deferred to a microtask so
     // the mount-safe null→boolean flip happens outside the synchronous
     // effect body (react-hooks/set-state-in-effect) with no extra painted
     // frame — microtasks drain before the browser paints.
-    if (typeof window !== "undefined") {
-      queueMicrotask(() => {
-        try {
-          setHasKey(window.localStorage.getItem(STORAGE_KEY) !== null);
-        } catch {
-          // Handle potential localStorage access errors (e.g., private browsing mode)
-          setHasKey(false);
-        }
-      });
-    }
+    queueMicrotask(() => {
+      try {
+        setHasKey(window.localStorage.getItem(STORAGE_KEY) !== null);
+      } catch (e) {
+        // Handle potential localStorage access errors (e.g., private browsing mode)
+        setHasKey(false);
+      }
+    });
     
     let cancelled = false;
     let abortController: AbortController | null = null;
@@ -111,7 +111,7 @@ export function ApiUnlock() {
       }
       window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     };
-  }, []);
+  }, [mutationGateConfigured]); // Added dependency for completeness, though it's checked inside
 
   // Escape dismisses the panel until the next 401.
   useEffect(() => {
@@ -136,8 +136,8 @@ export function ApiUnlock() {
       try {
         window.localStorage.setItem(STORAGE_KEY, key);
       } catch (error) {
-        // Handle potential localStorage errors (e.g., quota exceeded)
-        console.error("Failed to store API key:", error);
+        // Handle potential localStorage errors (e.g., quota exceeded) with context
+        console.error(`Failed to store API key in localStorage for key: ${key.substring(0, 4)}...`, error);
         return;
       }
     }
