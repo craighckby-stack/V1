@@ -70,11 +70,7 @@ function diskScarCount(): number {
     }
   } catch (e) {
     // If statSync fails (e.g., directory doesn't exist or permissions denied)
-    if (e instanceof Error) {
-      console.error(`Error accessing directory ${root}: ${e.message}`);
-    } else {
-      console.error(`Unknown error accessing directory ${root}:`, e);
-    }
+    console.error(`Error accessing directory ${root}:`, e instanceof Error ? e.message : String(e));
     return 0; // Honesty rule: return 0 if path is inaccessible
   }
 
@@ -83,11 +79,7 @@ function diskScarCount(): number {
     try {
       entries = readdirSync(dir);
     } catch (e) {
-      if (e instanceof Error) {
-        console.error(`Error reading directory ${dir}: ${e.message}`);
-      } else {
-        console.error(`Unknown error reading directory ${dir}:`, e);
-      }
+      console.error(`Error reading directory ${dir}:`, e instanceof Error ? e.message : String(e));
       return; // Stop walking this branch on read error
     }
     for (const e of entries) {
@@ -96,11 +88,7 @@ function diskScarCount(): number {
       try {
         st = statSync(p);
       } catch (e) {
-        if (e instanceof Error) {
-          console.warn(`Could not stat path ${p}: ${e.message}`);
-        } else {
-          console.warn(`Unknown error statting path ${p}:`, e);
-        }
+        console.warn(`Could not stat path ${p}:`, e instanceof Error ? e.message : String(e));
         continue; // Skip this entry if stat fails
       }
       if (st.isDirectory()) walk(p);
@@ -141,7 +129,7 @@ async function checkGitHubAuth(
         return { ok: false, error: "No login found in /user response body" };
       }
       return { ok: true, login: user.login };
-    } catch {
+    } catch (e) {
       return { ok: false, error: "Failed to parse JSON response from GitHub API" };
     }
   } catch (e) {
@@ -171,11 +159,7 @@ export async function GET() {
     }
   } catch (e) {
     // Catching errors from getStoredTarget (e.g., vault read failure)
-    if (e instanceof Error) {
-      console.error("Error retrieving stored target for GitHub auth:", e.message);
-    } else {
-      console.error("Unknown error retrieving stored target for GitHub auth:", e);
-    }
+    console.error("Error retrieving stored target for GitHub auth:", e instanceof Error ? e.message : String(e));
     auth = null;
   }
 
