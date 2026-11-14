@@ -127,49 +127,56 @@ export function DebateChamber() {
         <div className="space-y-4">
           <AnimatePresence>
             {verdict.arguments?.length > 0 ? (
-              verdict.arguments.map((arg, idx) => (
-                <motion.div
-                  key={`${arg.speaker}-${idx}`}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 12 }}
-                  transition={{ delay: idx * 0.08, duration: 0.3 }}
-                  className={cn(
-                    "rounded-xl border p-4 bg-gradient-to-br transition-shadow duration-200 hover:shadow-md",
-                    SPEAKER_COLOR[arg.speaker] ?? SPEAKER_COLOR.lead,
-                    "border-slate-700/60"
-                  )}
-                >
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className="text-2xl">{arg.avatar}</span>
-                    <span className="text-base font-semibold text-slate-100">{arg.speakerName}</span>
-                    <Badge
-                      variant="outline"
-                      className={cn("text-[10px] uppercase tracking-widest transition-colors duration-150", STANCE_COLOR[arg.stance] ?? "")}
-                      aria-label={`Stance: ${arg.stance}`}
-                    >
-                      {arg.stance}
-                    </Badge>
-                    <span className="ml-auto text-sm text-slate-400 font-mono">
-                      {typeof arg.cognitiveFriction === 'number' && !isNaN(arg.cognitiveFriction) ? (arg.cognitiveFriction * 100).toFixed(0) : '0'}%
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-200 leading-relaxed">{arg.statement}</p>
-                  {arg.citations && arg.citations.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {arg.citations.map((c) => (
-                        <span
-                          key={c}
-                          className="text-[10px] text-slate-400 font-mono px-2 py-0.5 rounded bg-slate-950/40 border border-slate-800/60 focus-visible:ring-1 focus-visible:ring-cyan-500"
-                          role="listitem"
-                        >
-                          {c}
-                        </span>
-                      ))}
+              verdict.arguments.map((arg, idx) => {
+                // Ensure required fields exist before rendering the argument card
+                if (!arg.speakerName || !arg.stance || !arg.statement) {
+                  console.error(`Skipping argument at index ${idx} due to missing required fields (speakerName, stance, or statement).`, arg);
+                  return null;
+                }
+                return (
+                  <motion.div
+                    key={`${arg.speaker}-${idx}`}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 12 }}
+                    transition={{ delay: idx * 0.08, duration: 0.3 }}
+                    className={cn(
+                      "rounded-xl border p-4 bg-gradient-to-br transition-shadow duration-200 hover:shadow-md",
+                      SPEAKER_COLOR[arg.speaker] ?? SPEAKER_COLOR.lead,
+                      "border-slate-700/60"
+                    )}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-2xl">{arg.avatar}</span>
+                      <span className="text-base font-semibold text-slate-100">{arg.speakerName}</span>
+                      <Badge
+                        variant="outline"
+                        className={cn("text-[10px] uppercase tracking-widest transition-colors duration-150", STANCE_COLOR[arg.stance] ?? "")}
+                        aria-label={`Stance: ${arg.stance}`}
+                      >
+                        {arg.stance}
+                      </Badge>
+                      <span className="ml-auto text-sm text-slate-400 font-mono">
+                        {typeof arg.cognitiveFriction === 'number' && !isNaN(arg.cognitiveFriction) ? (arg.cognitiveFriction * 100).toFixed(0) : '0'}%
+                      </span>
                     </div>
-                  )}
-                </motion.div>
-              ))
+                    <p className="text-sm text-slate-200 leading-relaxed">{arg.statement}</p>
+                    {arg.citations && arg.citations.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {arg.citations.map((c) => (
+                          <span
+                            key={c}
+                            className="text-[10px] text-slate-400 font-mono px-2 py-0.5 rounded bg-slate-950/40 border border-slate-800/60 focus-visible:ring-1 focus-visible:ring-cyan-500"
+                            role="listitem"
+                          >
+                            {c}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })
             ) : (
               <p className="text-sm text-slate-500 italic p-4">No arguments recorded for this review.</p>
             )}
