@@ -60,7 +60,7 @@ export async function POST(req: Request) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during debate execution.";
     console.error("Error during LLM debate execution:", err);
     return NextResponse.json(
-      { error: "Internal server error during debate execution. Please check server logs for details." },
+      { error: "Internal server error during debate execution. Please ensure input parameters are valid and check server logs for details." },
       { status: 500 }
     );
   }
