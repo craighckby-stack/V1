@@ -120,6 +120,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   isSpawning = true;
 
   let spawnSuccessful = false;
+  let child: any | undefined; // Use 'any' as child type is not strictly defined here
   try {
     const { spawn } = await import("child_process");
     const path = await import("path");
@@ -138,7 +139,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
       console.error("Failed to open worker log file:", error);
       /* fall back to ignore — narration is best-effort */
     }
-    const child = spawn(
+    child = spawn(
       "bun",
       [path.join("mini-services", "loop-worker", "index.ts")],
       {
