@@ -108,7 +108,7 @@ function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
   } catch (e) {
     // Log the parsing error with context instead of silently ignoring it
     const errorMsg = e instanceof Error ? e.message : String(e);
-    console.error(`Failed to parse historySnapshot for prophecy ID ${prophecy.id}: ${errorMsg}`);
+    console.error(`Failed to parse historySnapshot for prophecy ID ${prophecy.id} (Domain: ${prophecy.domain}): ${errorMsg}`);
   }
   return null;
 }
@@ -167,14 +167,14 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
     line = hashProphecyIdToLine(prophecy.id);
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
-    console.error(`Failed to hash prophecy ID ${prophecy.id} for task creation: ${errorMessage}`);
+    console.error(`Failed to hash prophecy ID ${prophecy.id} for task creation (File: ${filePath}): ${errorMessage}`);
     return false;
   }
   
   const evidence = buildEvidence(prophecy);
   const taskKind = TASK_KINDS[ORACLE_FAILED_PROPHECY_KIND];
   if (!taskKind) {
-    console.error(`Task kind ${ORACLE_FAILED_PROPHECY_KIND} is not registered in TASK_KINDS. Cannot queue task for prophecy ID ${prophecy.id}.`);
+    console.error(`Task kind ${ORACLE_FAILED_PROPHECY_KIND} is not registered in TASK_KINDS. Cannot queue task for prophecy ID ${prophecy.id} on file ${filePath}.`);
     return false;
   }
   const priority = taskKind.priority ?? 7;
