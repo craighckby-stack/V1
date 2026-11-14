@@ -27,7 +27,7 @@ export async function GET() {
 
     const sources: CatalogEntry[] = SIPHON_SOURCES
       .map((source) => {
-        if (!source || !Array.isArray((source as any).patterns)) {
+        if (typeof source !== 'object' || source === null || !Array.isArray((source as any).patterns)) {
           // Log the issue but skip the invalid source instead of throwing and failing the whole request
           console.warn(`Invalid siphon source found and skipped: source object is missing required or invalid 'patterns' property. Source data: ${JSON.stringify(source)}`);
           return null;
