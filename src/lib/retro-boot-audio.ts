@@ -19,14 +19,16 @@ export function ensureAudio(): AudioContext | null {
       const AC =
         window.AudioContext ??
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AC) return null;
+      if (!AC) {
+        console.error("AudioContext not available in the browser environment.");
+        return null;
+      }
       ctx = new AC();
     }
     if (ctx.state === "suspended") void ctx.resume();
     return ctx;
   } catch (e) {
-    // Log error context instead of swallowing silently
-    console.error("Failed to ensure AudioContext:", e);
+    console.error("Failed to ensure AudioContext:", e instanceof Error ? e.message : String(e));
     return null;
   }
 }
@@ -40,11 +42,7 @@ export function stopAllAudio() {
   // Splice returns the removed elements, iterate over that array.
   const stoppedNodes = live.splice(0);
   for (const s of stoppedNodes) {
-    try {
-      s.stop();
-    } catch (e) {
-      /* already stopped */
-    }
+    s.stop();
   }
 }
 
@@ -55,7 +53,7 @@ function tone(
   dur: number,
   opts?: { type?: OscillatorType; peak?: number; slideTo?: number },
 ) {
-  if (dur <= 0) return; // Input validation
+  if (dur <= 0 || freq <= 0) return; // Input validation
   const osc = c.createOscillator();
   const g = c.createGain();
   osc.type = opts?.type ?? "square";
@@ -76,7 +74,7 @@ function tone(
 let noiseBuf: AudioBuffer | null = null;
 
 function noise(c: AudioContext, t: number, dur: number, peak: number, freq: number) {
-  if (dur <= 0) return; // Input validation
+  if (dur <= 0 || freq <= 0) return; // Input validation
   if (!noiseBuf || noiseBuf.sampleRate !== c.sampleRate) {
     noiseBuf = c.createBuffer(1, Math.floor(c.sampleRate * 0.5), c.sampleRate);
     const d = noiseBuf.getChannelData(0);
