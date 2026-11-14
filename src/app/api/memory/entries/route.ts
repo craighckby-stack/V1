@@ -35,7 +35,7 @@ export async function GET() {
       console.error("Error retrieving memory entries:", err);
     }
 
-    let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
+    let errorMessage = "An error occurred while accessing the memory store.";
     
     return NextResponse.json(
       { error: errorMessage },
