@@ -70,7 +70,7 @@ export const ORACLE_FAILED_PROPHECY_KIND = "oracle-failed-prophecy";
  *  task is created (the old one's verdict may still be pending). */
 function hashProphecyIdToLine(prophecyId: string): number {
   if (typeof prophecyId !== 'string' || !prophecyId) {
-    throw new Error("Prophecy ID must be a non-empty string for hashing.");
+    throw new Error(`Prophecy ID must be a non-empty string for hashing. Received: ${prophecyId}`);
   }
   // FNV-1a 32-bit, then mask to positive int. Stable across runs and
   // platforms (no BigInt, no platform-dependent hash).
