@@ -26,16 +26,18 @@ interface CoherenceGateResponse {
  */
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as CoherenceGateRequest;
-    if (typeof body.originalCode !== "string" || typeof body.proposedCode !== "string") {
+    const body = await req.json();
+    const typedBody = body as CoherenceGateRequest;
+
+    if (typeof typedBody.originalCode !== "string" || typeof typedBody.proposedCode !== "string") {
       return NextResponse.json(
         { error: "originalCode and proposedCode must be provided as strings" },
         { status: 400 }
       );
     }
 
-    const origLen = body.originalCode.length;
-    const propLen = body.proposedCode.length;
+    const origLen = typedBody.originalCode.length;
+    const propLen = typedBody.proposedCode.length;
     
     // Guard against division by zero if original code is empty
     const structuralDriftRatio = origLen === 0 
@@ -54,18 +56,17 @@ export async function POST(req: Request) {
     };
     return NextResponse.json(response);
   } catch (err) {
-    if (err instanceof Error) {
-      console.error("Coherence Gate POST error:", err.message);
-    } else {
-      console.error("Coherence Gate POST error: Unknown error during request processing.");
-    }
-    
-    // Attempt to distinguish JSON parsing error from other internal errors
     if (err instanceof SyntaxError) {
         return NextResponse.json(
             { error: "Invalid JSON format in request body." },
             { status: 400 }
         );
+    }
+    
+    if (err instanceof Error) {
+      console.error("Coherence Gate POST error:", err.message);
+    } else {
+      console.error("Coherence Gate POST error: Unknown error during request processing.");
     }
 
     return NextResponse.json(
