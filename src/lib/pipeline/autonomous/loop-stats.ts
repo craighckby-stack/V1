@@ -66,7 +66,7 @@ const NUMERIC_FIELDS: Array<keyof LoopStatsState> = [
  *  object remains the live source; the file is the restart tier). */
 export function writeLoopStats(state: LoopStatsState): void {
   if (!PROJECT_ROOT || !STATS_FILE) {
-    console.error("writeLoopStats: PROJECT_ROOT is undefined — cannot persist stats.");
+    console.error("writeLoopStats: PROJECT_ROOT is undefined or STATS_FILE is not resolvable — cannot persist stats.");
     return;
   }
   try {
@@ -94,7 +94,7 @@ export function writeLoopStats(state: LoopStatsState): void {
  *  or null). */
 export function readLoopStats(): LoopStatsState | null {
   if (!PROJECT_ROOT || !STATS_FILE) {
-    console.error("readLoopStats: PROJECT_ROOT is undefined — cannot read stats.");
+    console.error("readLoopStats: PROJECT_ROOT is undefined or STATS_FILE is not resolvable — cannot read stats.");
     return null;
   }
   try {
@@ -146,8 +146,9 @@ export function readLoopStats(): LoopStatsState | null {
       tasksGenerated: obj.tasksGenerated as number,
       lastEnhancementAt: (ts as string | null) ?? null,
     };
-  } catch {
-    // Missing, unreadable, or torn — first-boot semantics.
+  } catch (error) {
+    // Missing, unreadable, or torn — first-boot semantics. Log the error for debugging persistence issues.
+    console.error(`readLoopStats: failed to read or parse stats from ${STATS_FILE}. Treating as first boot. Error:`, error instanceof Error ? error.message : String(error));
     return null;
   }
 }
