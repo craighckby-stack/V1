@@ -130,7 +130,7 @@ export function DebateChamber() {
               verdict.arguments.map((arg, idx) => {
                 // Ensure arg is defined and required fields exist before rendering the argument card
                 if (!arg || !arg.speakerName || !arg.stance || !arg.statement) {
-                  console.error(`DebateChamber: Skipping argument at index ${idx} due to missing required fields. Received object:`, arg);
+                  console.error(`DebateChamber: Skipping argument at index ${idx}. Missing required fields (speakerName, stance, or statement). Received object structure:`, arg);
                   return null;
                 }
                 return (
