@@ -31,14 +31,11 @@ export async function GET() {
     let errorMessage = "Failed to retrieve memory entries due to an internal service error.";
     
     if (err instanceof Error) {
-      // Provide context from the error message if it's helpful, otherwise use a generic message.
-      errorMessage = `Failed to retrieve memory entries: ${err.message}`;
+      // Use a contextual message but avoid exposing raw internal error details in the public response body
+      errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
     } else if (typeof err === 'object' && err !== null && 'message' in err) {
       // Handle objects that might resemble errors but aren't instances of Error
-      errorMessage = `Failed to retrieve memory entries: ${(err as { message: string }).message}`;
-    } else {
-      // Handle non-Error objects (e.g., primitives thrown)
-      errorMessage = "Failed to retrieve memory entries due to an unknown error type.";
+      errorMessage = "An unknown error occurred while accessing the memory store. Please check server logs for details.";
     }
     
     return NextResponse.json(

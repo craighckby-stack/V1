@@ -143,13 +143,6 @@ function renderPlan(p: ChatTaskPlan): string[] {
 //   red   = errors only
 //   white = everything else (all logs, boot, commands, output, header, buttons)
 // No green, no yellow. Red is the single alarm color.
-const COLOR_MAP: Record<LogEntry["type"], string> = {
-  info: "#e0e0e0",
-  success: "#e0e0e0",
-  warn: "#e0e0e0",
-  error: "#ff4444",
-};
-
 const PROMPT_COLOR = "#e0e0e0";
 const TEXT_COLOR = "#e0e0e0";
 const DIM_COLOR = "#777777";
@@ -324,11 +317,8 @@ export default function Home() {
   // Live-enhancement banner: track the last file the loop was working on so
   // the banner stays visible between files (currentFile goes null briefly
   // between enhanceFile calls — without this, the banner would flash
-  // "idle" for ~50ms between every file and look broken). Also tracks the
-  // last enhancement timestamp so we can show "✓ committed <file> 3s ago"
-  // briefly after a file completes, before the next one starts.
+  // "idle" for ~50ms between every file and look broken).
   const [lastSeenFile, setLastSeenFile] = useState<string | null>(null);
-  const [lastFileAt, setLastFileAt] = useState<number | null>(null);
   // Spinner frame — rotates every 200ms while the loop is actively
   // enhancing. Cheap state, only ticks when running && currentFile.
   const [spinnerFrame, setSpinnerFrame] = useState(0);
@@ -341,7 +331,6 @@ export default function Home() {
   useEffect(() => {
     if (status?.currentFile) {
       setLastSeenFile(status.currentFile);
-      setLastFileAt(Date.now());
     }
   }, [status?.currentFile]);
   // Hot-swap indicator — shows the running pipeline fingerprint + swap

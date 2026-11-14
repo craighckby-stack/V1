@@ -52,7 +52,7 @@ describe("ConsoleStream", () => {
 
   test("skips invalid line entries", () => {
     const mockRef = { current: null };
-    const lines: any[] = [
+    const lines: unknown[] = [
       null,
       undefined,
       "not an object",
@@ -62,14 +62,15 @@ describe("ConsoleStream", () => {
     ];
     
     // Test that the component doesn't throw with mixed valid/invalid input
-    expect(() => ConsoleStream({ lines, logRef: mockRef })).not.toThrow();
+    // (cast: we are intentionally feeding malformed entries to the guard)
+    expect(() => ConsoleStream({ lines: lines as ConsoleLine[], logRef: mockRef })).not.toThrow();
   });
 
   test("handles non-array lines prop", () => {
     const mockRef = { current: null };
     
     // Test that the component returns null when lines is not an array
-    const result = ConsoleStream({ lines: null as any, logRef: mockRef });
+    const result = ConsoleStream({ lines: null as unknown as ConsoleLine[], logRef: mockRef });
     expect(result).toBeNull();
   });
 
@@ -96,7 +97,7 @@ describe("ConsoleStream", () => {
   test("uses default color for unknown log type", () => {
     const mockRef = { current: null };
     const lines: ConsoleLine[] = [
-      { id: "1", type: "log", text: "unknown log type", logType: "unknown" as any },
+      { id: "1", type: "log", text: "unknown log type", logType: "unknown" as unknown as ConsoleLine["logType"] },
     ];
     
     // Test that the component doesn't throw with unknown log type
