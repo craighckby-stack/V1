@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/display/console-stream.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "Test gate failed: test failed (sandboxed): src/app/display/console-stream.test.tsx — \nsrc/app/display/console-stream.test.tsx:\n(pass) ConsoleStream > renders empty lines array [0.55ms]\n(pass) ConsoleStream > renders valid console lines [1.14ms]\n61 |       { id: \"2\", type: \"command\" },",
@@ -12,8 +12,8 @@
   "parentHash": "ac4306bc755fe47f8d1e03893a0d463d9d01127ed972c03d03c524cb7d27345f",
   "hash": "f8c62041386e31099dae01ce59c6a74896f875f2ee1aaea477e50702848de95c",
   "lastAttemptAt": "2026-11-14T09:07:24.571Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-14T09:55:50.824Z",
   "createdAt": "2026-11-14T08:00:27.859Z",
-  "updatedAt": "2026-11-14T09:07:24.571Z",
+  "updatedAt": "2026-11-14T09:55:50.824Z",
   "schema": 2
 }
