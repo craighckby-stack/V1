@@ -17,23 +17,17 @@ interface CatalogEntry {
  */
 export async function GET() {
   try {
-    if (!SIPHON_SOURCES) {
+    if (!SIPHON_SOURCES || !Array.isArray(SIPHON_SOURCES)) {
+      const errorMessage = SIPHON_SOURCES === undefined ? "Catalog sources not available: SIPHON_SOURCES is undefined." : "SIPHON_SOURCES must be an array.";
       return NextResponse.json(
-        { error: "Catalog sources not available: SIPHON_SOURCES is undefined." },
-        { status: 500 }
-      );
-    }
-
-    if (!Array.isArray(SIPHON_SOURCES)) {
-      return NextResponse.json(
-        { error: "SIPHON_SOURCES must be an array." },
+        { error: errorMessage },
         { status: 500 }
       );
     }
 
     const sources: CatalogEntry[] = SIPHON_SOURCES
       .map((source) => {
-        if (!source || !Array.isArray(source.patterns)) {
+        if (!source || !Array.isArray((source as any).patterns)) {
           // Log the issue but skip the invalid source instead of throwing and failing the whole request
           console.warn(`Invalid siphon source found and skipped: source object is missing required or invalid 'patterns' property. Source data: ${JSON.stringify(source)}`);
           return null;
@@ -41,7 +35,7 @@ export async function GET() {
         
         return {
           source,
-          count: source.patterns.length,
+          count: (source as any).patterns.length,
           complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
           // Honest label: these are CONFIGURED siphon sources (declarative
           // config), not verified-live remote repositories. No liveness probe
@@ -53,7 +47,16 @@ export async function GET() {
     
     return NextResponse.json({ sources });
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
+    let errorMessage = "An unknown server error occurred while retrieving the catalog.";
+    if (err instanceof Error) {
+      errorMessage = err.message;
+    } else if (typeof err === 'object' && err !== null && 'message' in err) {
+      // Handle cases where err is an object but not an Error instance (e.g., { message: "..." })
+      errorMessage = String((err as { message: string }).message);
+    } else {
+      errorMessage = String(err);
+    }
+
     // Log the detailed error internally for debugging, providing context about the operation.
     console.error("Error retrieving siphon catalog: Operation failed. Details:", errorMessage, err);
     
