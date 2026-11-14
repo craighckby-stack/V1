@@ -61,8 +61,8 @@ export function PostmortemPanel() {
         throw new Error(`Failed to fetch postmortems: ${res.statusText}`);
       }
       const data = await res.json();
-      if (data && Array.isArray(data.postmortems)) {
-        setPostmortems(data.postmortems);
+      if (data && typeof data === 'object' && Array.isArray((data as any).postmortems)) {
+        setPostmortems((data as any).postmortems);
       } else {
         console.error("API response structure invalid: expected { postmortems: [...] }", data);
         toast({
@@ -253,25 +253,25 @@ export function PostmortemPanel() {
                           <div className="text-[10px] uppercase tracking-widest text-rose-400 mb-1 flex items-center gap-1">
                             <History className="h-3 w-3" />
                             Evidence
-                          </div>
+                          </div >
                           <pre className="text-[10px] font-mono text-slate-400 bg-slate-950/60 border border-slate-800/60 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap max-h-32 overflow-y-auto">
                             {pm.evidence}
                           </pre>
-                        </div>
+                        </div >
                         <div>
                           <div className="text-[10px] uppercase tracking-widest text-amber-400 mb-1">
                             Constraints (injected into next LLM attempt)
-                          </div>
+                          </div >
                           <pre className="text-[10px] font-mono text-amber-200/90 bg-slate-950/60 border border-amber-900/40 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap max-h-32 overflow-y-auto">
                             {pm.constraints}
                           </pre>
-                        </div>
+                        </div >
                       </motion.div>
                     )}
                   </motion.div>
                 ))}
               </AnimatePresence>
-            </div>
+            </div >
           </ScrollArea>
         )}
       </CardContent>
