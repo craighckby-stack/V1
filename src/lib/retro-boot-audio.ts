@@ -19,7 +19,8 @@ export function ensureAudio(): AudioContext | null {
       try {
         ctx.resume();
       } catch (e) {
-        console.error("Failed to resume AudioContext:", e instanceof Error ? e.message : String(e), "Check if user interaction has occurred or if context is already terminated.");
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.error("Failed to resume AudioContext:", errorMessage, "Check if user interaction has occurred or if context is already terminated.");
         return null;
       }
     }
@@ -37,7 +38,8 @@ export function ensureAudio(): AudioContext | null {
     ctx = new AC();
     return ctx;
   } catch (e) {
-    console.error("Failed to initialize AudioContext:", e instanceof Error ? e.message : String(e), "Ensure the environment supports WebAudio API.");
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    console.error("Failed to initialize AudioContext:", errorMessage, "Ensure the environment supports WebAudio API.");
     return null;
   }
 }
