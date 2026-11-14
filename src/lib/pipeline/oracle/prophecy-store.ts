@@ -111,6 +111,10 @@ export async function listDueProphecies(asOf: Date = new Date()): Promise<Prophe
     console.error("Database connection (db) is not initialized in listDueProphecies.");
     return [];
   }
+  if (!(asOf instanceof Date) || isNaN(asOf.getTime())) {
+    console.error("Invalid 'asOf' date provided to listDueProphecies.");
+    return [];
+  }
   try {
     return await db.prophecy.findMany({
       where: {
