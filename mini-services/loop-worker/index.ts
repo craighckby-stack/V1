@@ -188,10 +188,17 @@ async function main() {
 
         // Mirror of POST /api/self-enhance/unlock  body: { filePath }
         if (url === "/unlock") {
-          const body = (await req.json().catch(() => ({}))) as { filePath?: string };
-          if (!body.filePath) {
-            return json({ ok: false, error: "filePath is required" }, 400);
+          let body: { filePath?: string };
+          try {
+            body = (await req.json()) as { filePath?: string };
+          } catch (e) {
+            return json({ ok: false, error: "Invalid JSON body provided" }, 400);
           }
+
+          if (!body.filePath || typeof body.filePath !== 'string' || body.filePath.trim() === '') {
+            return json({ ok: false, error: "filePath must be a non-empty string" }, 400);
+          }
+          
           const result = loop.unlockFile(body.filePath);
           return json({ ok: result.unlocked, ...result });
         }
@@ -204,7 +211,9 @@ async function main() {
 
         return json({ error: "not found" }, 404);
       } catch (err) {
-        return json({ error: (err as Error).message }, 500);
+        // Catch errors from loop operations or unexpected runtime issues
+        const errorMessage = (err as Error).message || "An unknown internal error occurred";
+        return json({ error: errorMessage }, 500);
       }
     },
   });
