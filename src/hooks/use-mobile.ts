@@ -10,6 +10,12 @@ export function useIsMobile() {
       return
     }
     const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`)
+    
+    if (!mql) {
+        // Should not happen with standard browser APIs, but guards against unexpected environment issues.
+        return;
+    }
+
     const onChange = (event: MediaQueryListEvent) => {
       setIsMobile(event.matches)
     }
