@@ -155,7 +155,7 @@ export function CurrentCycle() {
         <div className="flex items-center gap-3 pt-4 mt-3 border-t border-slate-800/60 text-xs text-slate-500">
           <Cpu className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
           <span className="text-sm">
-            {fileResults?.length || 0} file(s) processed · {fileResults?.filter((r) => r.pushed).length || 0} pushed
+            {(fileResults?.length || 0)} file(s) processed · {(fileResults?.filter((r) => r.pushed).length || 0)} pushed
             · proof {fileResults && fileResults.length > 0 ? fileResults[0].proofHash.substring(0, 8) + '...' : "—"}
           </span>
         </div>
