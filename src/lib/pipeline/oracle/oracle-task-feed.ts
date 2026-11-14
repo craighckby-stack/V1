@@ -107,7 +107,8 @@ function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
     }
   } catch (e) {
     // Log the parsing error with context instead of silently ignoring it
-    console.error(`Failed to parse historySnapshot for prophecy ID ${prophecy.id}: ${e instanceof Error ? e.message : String(e)}`);
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    console.error(`Failed to parse historySnapshot for prophecy ID ${prophecy.id}: ${errorMsg}`);
   }
   return null;
 }
@@ -156,7 +157,10 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
   }
 
   const filePath = filePathFromSelfProphecy(prophecy);
-  if (!filePath) return false; // not a self-prophecy — not actionable
+  if (!filePath) {
+    console.error(`Skipping task queue for prophecy ID ${prophecy.id}: Not a self-prediction or historySnapshot was unparseable.`);
+    return false; // not a self-prophecy — not actionable
+  }
   
   let line: number;
   try {
