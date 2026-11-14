@@ -78,7 +78,7 @@ export async function POST(req: Request) {
     
     if (err instanceof Error) {
       console.error("Coherence Gate POST error:", err.message, err.stack);
-      errorMessage = `Internal server error: ${err.message}. Please check request format and try again.`;
+      errorMessage = `Internal server error processing request.`;
     } else {
       console.error("Coherence Gate POST error: Unknown non-Error object during request processing.", err);
       errorMessage = "Internal server error due to unexpected data during request processing.";
