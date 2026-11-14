@@ -25,15 +25,17 @@ export function MemoryBank() {
       try {
         const res = await fetch("/api/memory/entries");
         if (!res.ok) {
-          throw new Error(`Failed to fetch memory entries: HTTP status ${res.status}`);
+          throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
         const data = await res.json();
         if (!cancelled && data && Array.isArray(data.entries)) {
           setEntries(data.entries);
+        } else if (!cancelled && !Array.isArray(data.entries)) {
+          console.error("API response validation failed: 'entries' field is not an array.", data);
         }
       } catch (error) {
-        // Log the error with context instead of silently ignoring it
-        console.error("Error loading memory entries from API:", error);
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred during memory fetch.";
+        console.error(`Error loading memory entries from API: ${errorMessage}`);
       }
     })();
     return () => {
