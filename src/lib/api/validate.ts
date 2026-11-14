@@ -71,7 +71,7 @@ export async function parseBody<T>(
     // Handle JSON parsing errors specifically
     return {
       ok: false,
-      response: apiError(400, "BAD_BODY", "request body is not valid JSON"),
+      response: apiError(400, "BAD_BODY", "Request body could not be parsed as valid JSON."),
     };
   }
   const result = schema.safeParse(raw);
