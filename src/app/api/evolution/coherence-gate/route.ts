@@ -27,6 +27,14 @@ interface CoherenceGateResponse {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+    
+    if (typeof body !== 'object' || body === null) {
+        return NextResponse.json(
+            { error: "Request body must be a valid JSON object." },
+            { status: 400 }
+        );
+    }
+
     const typedBody = body as CoherenceGateRequest;
 
     if (typeof typedBody.originalCode !== "string" || typeof typedBody.proposedCode !== "string") {
@@ -64,9 +72,9 @@ export async function POST(req: Request) {
     }
     
     if (err instanceof Error) {
-      console.error("Coherence Gate POST error:", err.message);
+      console.error("Coherence Gate POST error:", err.message, err.stack);
     } else {
-      console.error("Coherence Gate POST error: Unknown error during request processing.");
+      console.error("Coherence Gate POST error: Unknown non-Error object during request processing.", err);
     }
 
     return NextResponse.json(
