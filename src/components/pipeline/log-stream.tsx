@@ -92,7 +92,7 @@ export function LogStream() {
                   
                   // Use a stable identifier. If an ID exists, use it. Otherwise, combine timestamp and message for uniqueness.
                   const message = entry.message || '';
-                  const key = (entry as any).id || timestamp + message; 
+                  const key = (entry as any).id || `${timestamp}-${message}`; 
                   
                   return (
                     <motion.div
@@ -118,7 +118,7 @@ export function LogStream() {
                 })}
               </AnimatePresence>
             )}
-          </div>
+          </div >
         </ScrollArea>
       </CardContent>
     </Card>
