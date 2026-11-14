@@ -23,7 +23,7 @@ export async function GET() {
     await emgRagInstance.ensureSeeded();
     
     // Get all entries
-    const entries: VectorEntry[] | undefined = emgRagInstance.getAll();
+    const entries: VectorEntry[] | null | undefined = emgRagInstance.getAll();
     
     // Ensure we return an array, defaulting to empty array if null or undefined
     return NextResponse.json({ entries: entries || [] });

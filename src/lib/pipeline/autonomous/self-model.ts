@@ -566,10 +566,22 @@ export interface ProactiveSkipDecision {
  *  zero-diff (which the old design only discovered AFTER burning quota) into
  *  a free, predicted skip.
  *
- *  The threshold is deliberately conservative: a file must have
- *    - enough history that the verdict is trustworthy (attempts >= 4),
- *    - a high finished-score (>= 0.7 — three+ consecutive zero-diffs),
- *    - AND a low predicted confidence (< 0.2 — the model expects failure).
+ *  The threshold is deliberately conservative but fires BEFORE the 3-strike
+ *  lockout (which needs consecutiveNoGrowth >= 3, producing finishedScore
+ *  0.75 — exactly the OLD >= 0.7 threshold). At 0.7, the proactive-skip was
+ *  starved: any file reaching it was already locked out by the saturation
+ *  lockout (which checks first in the cycle), so the proactive path NEVER
+ *  fired and the skip-probe calibration stayed at 0. Lowering to 0.5
+ *  (2 consecutive zero-diffs) fires on the cycle BEFORE the 3rd would
+ *  trigger the lockout — saving the call AND feeding the skip-probe
+ *  verdict with real samples.
+ *
+ *  A file must have:
+ *    - enough history for a Laplace-smoothed rate (attempts >= 3),
+ *    - a meaningful zero-diff pattern (finishedScore >= 0.5 — two+
+ *      consecutive zero-diffs with no pass to pull it back down),
+ *    - AND a low predicted confidence (< 0.2 — the pass predictor agrees
+ *      this file is cold).
  *  A file that FAILS a lot (not zero-diffs) has a low confidence but a low
  *  finished-score → NOT skipped (failures are still learning signal for the
  *  debate tribunal and the corpus). Only files the model has CONVERGED on
@@ -582,7 +594,7 @@ export async function shouldProactivelySkip(
 ): Promise<ProactiveSkipDecision> {
   try {
     const file = await db.selfModelFile.findUnique({ where: { filePath } });
-    if (!file || file.attempts < 4) {
+    if (!file || file.attempts < 3) {
       return {
         skip: false,
         reason: file ? `only ${file.attempts} attempt(s) — too few to trust` : "no history yet",
@@ -592,7 +604,14 @@ export async function shouldProactivelySkip(
       };
     }
     const pred = await predictConfidence(filePath, "refactor");
-    const skip = file.finishedScore >= 0.7 && pred.confidence < 0.2;
+    // 0.5 threshold (lowered from 0.7) — fires after 2 consecutive zero-diffs,
+    // BEFORE the 3rd triggers the saturation lockout. The lockout and the
+    // proactive-skip were racing for the same evidence at 0.7 (3 zero-diffs =
+    // 0.75), and the lockout always won because it checks first in the cycle.
+    // At 0.5, the proactive-skip gets one cycle of priority to predict the
+    // 3rd zero-diff and save the call, and the skip-probe mechanism finally
+    // accumulates resolved samples for its calibration verdict.
+    const skip = file.finishedScore >= 0.5 && pred.confidence < 0.2;
     return {
       skip,
       reason: skip
