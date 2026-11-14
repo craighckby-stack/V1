@@ -57,9 +57,18 @@ export function useLoopSocket() {
 export async function fetchLoopState(): Promise<LoopState | null> {
   try {
     const res = await fetch("/api/autonomous/status");
-    if (!res.ok) return null;
-    return (await res.json()) as LoopState;
-  } catch {
+    if (!res.ok) {
+      console.error(`Failed to fetch loop state. Status: ${res.status} ${res.statusText}`);
+      return null;
+    }
+    const text = await res.text();
+    if (!text) {
+      console.warn("API returned success status but an empty body.");
+      return null;
+    }
+    return JSON.parse(text) as LoopState;
+  } catch (error) {
+    console.error("Error fetching or parsing loop state from /api/autonomous/status:", error);
     return null;
   }
 }
