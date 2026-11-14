@@ -164,8 +164,9 @@ async function pollNextJsState() {
     }
   } catch (err) {
     nextJsReachable = false;
+    const errorMessage = err instanceof Error ? err.message : String(err);
     if (pollFailureCount % 10 === 0) {
-      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}): ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}): ${errorMessage}`);
     }
     pollFailureCount++;
   }
