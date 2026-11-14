@@ -35,7 +35,7 @@ export function RecentCycles() {
       }
       setFetched(apiResponse.cycles);
     } catch (error) {
-      console.error("Error refreshing recent cycles from API:", error instanceof Error ? error.message : String(error));
+      console.error("Error refreshing recent cycles from API:", error instanceof Error ? error.message : "Unknown error during API fetch.");
       setFetched([]);
     } finally {
       setLoading(false);
@@ -48,7 +48,7 @@ export function RecentCycles() {
 
   // Merge: in-memory recent from WS (most recent first) + DB fetch (dedup by id).
   const seen = new Set<string>();
-  const merged = [...cyclesFromStore, ...fetched].filter((c) => {
+  const merged = [...cyclesFromStore, ...fetched].filter((c): c is AutonomousCycleSummary => {
     if (!c || !c.id) return false;
     if (seen.has(c.id)) return false;
     seen.add(c.id);
