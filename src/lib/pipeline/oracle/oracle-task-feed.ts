@@ -151,6 +151,11 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
     return false;
   }
 
+  if (prophecy.domain !== "self-prediction") {
+    console.error(`Skipping task queue for prophecy ID ${prophecy.id}: Domain is not 'self-prediction' (Domain: ${prophecy.domain}). Only self-prophecies feed tasks.`);
+    return false; // not a self-prophecy — not actionable
+  }
+
   if (typeof prophecy.id !== 'string' || !prophecy.id) {
     console.error(`Prophecy ID is missing or invalid for prophecy: ${JSON.stringify(prophecy)}`);
     return false;
