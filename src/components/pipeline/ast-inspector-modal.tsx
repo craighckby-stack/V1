@@ -23,7 +23,9 @@ export function AstInspectorModal() {
 
   if (!inspectorFile) return null;
   const { path, original, evolved, report } = inspectorFile;
-  
+
+  if (!path || !original || !evolved) return null;
+
   // Add null checks for nested properties
   const ast = report?.astDiffResult;
   const sanitizer = report?.sanitizerResult;
@@ -89,13 +91,15 @@ export function AstInspectorModal() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  navigator.clipboard.writeText(evolved)
-                    .then(() => {
-                      toast({ title: "Copied evolved code", description: `${evolved.length} bytes to clipboard` });
-                    })
-                    .catch(() => {
-                      toast({ title: "Failed to copy code", description: "Please try copying manually" });
-                    });
+                  if (evolved) {
+                    navigator.clipboard.writeText(evolved)
+                      .then(() => {
+                        toast({ title: "Copied evolved code", description: `${evolved.length} bytes to clipboard` });
+                      })
+                      .catch(() => {
+                        toast({ title: "Failed to copy code", description: "Please try copying manually" });
+                      });
+                  }
                 }}
                 className="bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-cyan-500 h-9 px-3"
                 aria-label="Copy evolved code to clipboard"
