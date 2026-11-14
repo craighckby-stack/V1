@@ -1,5 +1,4 @@
 import { describe, test, expect } from "bun:test";
-import { ApiUnlock } from "./api-unlock"; // Assuming the test file is adjacent to the module
 
 // Mocking necessary browser/global APIs for testing React component logic in a non-browser environment
 // Since we cannot run React/DOM rendering here, we must test the *logic* that determines the output based on state/props,

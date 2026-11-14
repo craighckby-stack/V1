@@ -168,6 +168,10 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
   };
 
   for (const l of lines) {
+    // Skip invalid entries BEFORE dereferencing .type — a null/undefined/
+    // non-object entry would throw here, before the render-path guard
+    // (below) ever runs. Same validity contract as the render guard.
+    if (!l || typeof l !== "object" || !l.id || !l.type) continue;
     if (l.type === "log") buf.push(l);
     else {
       flush();
