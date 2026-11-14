@@ -53,7 +53,7 @@ export async function GET() {
     
     return NextResponse.json({ sources });
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during catalog retrieval.";
+    const errorMessage = err instanceof Error ? err.message : String(err);
     // Log the detailed error internally for debugging, providing context about the operation.
     console.error("Error retrieving siphon catalog: Operation failed. Details:", errorMessage, err);
     
