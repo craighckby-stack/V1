@@ -54,8 +54,20 @@ export async function POST(req: Request) {
     };
     return NextResponse.json(response);
   } catch (err) {
-    // Provide a generic, safe error message for 500 responses
-    console.error("Coherence Gate POST error:", err);
+    if (err instanceof Error) {
+      console.error("Coherence Gate POST error:", err.message);
+    } else {
+      console.error("Coherence Gate POST error: Unknown error during request processing.");
+    }
+    
+    // Attempt to distinguish JSON parsing error from other internal errors
+    if (err instanceof SyntaxError) {
+        return NextResponse.json(
+            { error: "Invalid JSON format in request body." },
+            { status: 400 }
+        );
+    }
+
     return NextResponse.json(
       { error: "Internal server error while processing coherence gate request." },
       { status: 500 }
