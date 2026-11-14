@@ -27,9 +27,18 @@ export async function POST(req: Request) {
       );
     }
 
-    const topic = body.topic ?? `Code Review for ${body.filePath}`;
+    const topic = body.topic;
+    if (topic !== undefined && (typeof topic !== "string" || topic.length === 0)) {
+        return NextResponse.json(
+            { error: "If provided, topic must be a non-empty string." },
+            { status: 400 }
+        );
+    }
+    
+    const finalTopic = topic ?? `Code Review for ${body.filePath}`;
+
     const { verdict, usedLlm, llmError } = await conductLlmDebate(
-      topic,
+      finalTopic,
       body.candidateCode,
       body.filePath
     );
@@ -42,7 +51,7 @@ export async function POST(req: Request) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during debate execution. Please check server logs for details.";
     console.error("Error during LLM debate execution:", err);
     return NextResponse.json(
-      { error: errorMessage },
+      { error: "Internal server error during debate execution. Please try again or check server logs." },
       { status: 500 }
     );
   }
