@@ -69,8 +69,11 @@ function diskScarCount(): number {
       return 0; // Path exists but is not a directory
     }
   } catch (e) {
-    // If statSync fails (e.g., directory doesn't exist or permissions denied)
-    console.error(`Error accessing directory ${root}:`, e instanceof Error ? e.message : String(e));
+    if (e instanceof Error) {
+      console.error(`Error accessing directory ${root}:`, e.message);
+    } else {
+      console.error(`Error accessing directory ${root}:`, String(e));
+    }
     return 0; // Honesty rule: return 0 if path is inaccessible
   }
 
@@ -79,7 +82,11 @@ function diskScarCount(): number {
     try {
       entries = readdirSync(dir);
     } catch (e) {
-      console.error(`Error reading directory ${dir}:`, e instanceof Error ? e.message : String(e));
+      if (e instanceof Error) {
+        console.error(`Error reading directory ${dir}:`, e.message);
+      } else {
+        console.error(`Error reading directory ${dir}:`, String(e));
+      }
       return; // Stop walking this branch on read error
     }
     for (const e of entries) {
@@ -88,7 +95,11 @@ function diskScarCount(): number {
       try {
         st = statSync(p);
       } catch (e) {
-        console.warn(`Could not stat path ${p}:`, e instanceof Error ? e.message : String(e));
+        if (e instanceof Error) {
+          console.warn(`Could not stat path ${p}:`, e.message);
+        } else {
+          console.warn(`Could not stat path ${p}:`, String(e));
+        }
         continue; // Skip this entry if stat fails
       }
       if (st.isDirectory()) walk(p);
@@ -159,7 +170,11 @@ export async function GET() {
     }
   } catch (e) {
     // Catching errors from getStoredTarget (e.g., vault read failure)
-    console.error("Error retrieving stored target for GitHub auth:", e instanceof Error ? e.message : String(e));
+    if (e instanceof Error) {
+      console.error("Error retrieving stored target for GitHub auth:", e.message);
+    } else {
+      console.error("Error retrieving stored target for GitHub auth:", String(e));
+    }
     auth = null;
   }
 
@@ -176,7 +191,7 @@ export async function GET() {
     if (e instanceof Error) {
       console.error("Error querying mutation corpus from DB:", e.message);
     } else {
-      console.error("Unknown error querying mutation corpus from DB:", e);
+      console.error("Unknown error querying mutation corpus from DB:", String(e));
     }
     corpus = null;
   }
@@ -205,7 +220,7 @@ export async function GET() {
     if (e instanceof Error) {
       console.error("Error fetching pass rate trend:", e.message);
     } else {
-      console.error("Unknown error fetching pass rate trend:", e);
+      console.error("Unknown error fetching pass rate trend:", String(e));
     }
     passRate = null;
   }
@@ -218,7 +233,7 @@ export async function GET() {
     if (e instanceof Error) {
       console.error("Error counting disk scars:", e.message);
     } else {
-      console.error("Unknown error counting disk scars:", e);
+      console.error("Unknown error counting disk scars:", String(e));
     }
     scars = null;
   }
@@ -231,7 +246,7 @@ export async function GET() {
     if (e instanceof Error) {
       console.error("Error retrieving hot-swap counts:", e.message);
     } else {
-      console.error("Unknown error retrieving hot-swap counts:", e);
+      console.error("Unknown error retrieving hot-swap counts:", String(e));
     }
     hotSwap = null;
   }
@@ -260,7 +275,7 @@ export async function GET() {
     if (e instanceof Error) {
       console.error("Error getting autonomous loop state:", e.message);
     } else {
-      console.error("Unknown error getting autonomous loop state:", e);
+      console.error("Unknown error getting autonomous loop state:", String(e));
     }
     autonomy = null;
   }
@@ -280,7 +295,7 @@ export async function GET() {
     if (e instanceof Error) {
       console.error("Error warming or checking Zai Cortex status:", e.message);
     } else {
-      console.error("Unknown error warming or checking Zai Cortex status:", e);
+      console.error("Unknown error warming or checking Zai Cortex status:", String(e));
     }
     zai = null;
   }
