@@ -20,9 +20,9 @@ interface DebateRequest {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as DebateRequest;
-    if (!body.filePath || typeof body.candidateCode !== "string") {
+    if (!body.filePath || typeof body.candidateCode !== "string" || body.candidateCode.length === 0) {
       return NextResponse.json(
-        { error: "filePath and candidateCode are required" },
+        { error: "filePath and candidateCode are required, and candidateCode cannot be empty" },
         { status: 400 }
       );
     }
@@ -39,10 +39,10 @@ export async function POST(req: Request) {
       llmError,
     });
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during debate execution.";
     return NextResponse.json(
-      { error: (err as Error).message },
+      { error: errorMessage },
       { status: 500 }
     );
   }
 }
-

@@ -704,7 +704,12 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
       vitals.quotaState === "cooling" ||
       (v.livePhase === "ARMED-RECOVERING" && v.recoveryEndsAtMs > 0);
     if (!needsTick) return;
-    setNowMs(Date.now());
+    // Resync the clock to "now" the moment a countdown activates. Deferred
+    // to a microtask so it is not a synchronous setState in the effect
+    // body (react-hooks/set-state-in-effect); microtasks (and React's
+    // follow-up re-render) still drain before the browser paints, so the
+    // first countdown frame stays exact.
+    queueMicrotask(() => setNowMs(Date.now()));
     const iv = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(iv);
   }, [vitals.quotaState, v.livePhase, v.recoveryEndsAtMs]);
