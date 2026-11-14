@@ -62,6 +62,22 @@ function diskScarCount(): number {
   }
   const root = join(PROJECT_ROOT, "postmortems");
   let n = 0;
+
+  try {
+    const stats = statSync(root);
+    if (!stats.isDirectory()) {
+      return 0; // Path exists but is not a directory
+    }
+  } catch (e) {
+    // If statSync fails (e.g., directory doesn't exist or permissions denied)
+    if (e instanceof Error) {
+      console.error(`Error accessing directory ${root}: ${e.message}`);
+    } else {
+      console.error(`Unknown error accessing directory ${root}:`, e);
+    }
+    return 0; // Honesty rule: return 0 if path is inaccessible
+  }
+
   const walk = (dir: string): void => {
     let entries: string[];
     try {
@@ -91,17 +107,8 @@ function diskScarCount(): number {
       else if (e.endsWith(".json")) n++;
     }
   };
-  try {
-    walk(root);
-  } catch (e) {
-    // Catch any unexpected errors during the initial walk call
-    if (e instanceof Error) {
-      console.error(`Fatal error during scar file traversal starting at ${root}: ${e.message}`);
-    } else {
-      console.error(`Unknown fatal error during scar file traversal starting at ${root}:`, e);
-    }
-    return 0; // Return 0 on fatal traversal error
-  }
+
+  walk(root);
   return n;
 }
 
