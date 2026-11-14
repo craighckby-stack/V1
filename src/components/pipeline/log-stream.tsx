@@ -91,7 +91,8 @@ export function LogStream() {
                     : 'unknown';
                   
                   // Use a stable identifier. If an ID exists, use it. Otherwise, combine timestamp and message for uniqueness.
-                  const key = (entry as any).id || timestamp + (entry.message || ''); 
+                  const message = entry.message || '';
+                  const key = (entry as any).id || timestamp + message; 
                   
                   return (
                     <motion.div
@@ -111,7 +112,7 @@ export function LogStream() {
                       >
                         {sourceKey}
                       </span>
-                      <span className="text-slate-200 leading-relaxed break-all flex-1">{entry.message || ''}</span>
+                      <span className="text-slate-200 leading-relaxed break-all flex-1">{message}</span>
                     </motion.div>
                   );
                 })}
