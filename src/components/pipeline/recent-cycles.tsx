@@ -29,12 +29,12 @@ export function RecentCycles() {
         throw new Error(`Failed to fetch recent cycles: HTTP status ${res.status} ${res.statusText}`);
       }
       const data = await res.json();
-      if (!data || typeof data !== 'object' || !Array.isArray(data.cycles)) {
-        throw new Error("Invalid API response: expected { cycles: [...] }");
+      if (!data || typeof data !== 'object' || !Array.isArray((data as { cycles: AutonomousCycleSummary[] }).cycles)) {
+        throw new Error("Invalid API response: expected object containing a 'cycles' array.");
       }
-      setFetched(data.cycles);
+      setFetched((data as { cycles: AutonomousCycleSummary[] }).cycles);
     } catch (error) {
-      console.error("Error refreshing recent cycles:", error instanceof Error ? error.message : "Unknown error during fetch or parsing");
+      console.error("Error refreshing recent cycles from API:", error instanceof Error ? error.message : "Unknown error during fetch or parsing.");
       setFetched([]);
     } finally {
       setLoading(false);
