@@ -113,7 +113,7 @@ export async function parseOptionalBody<T extends object>(
     // no body / bad JSON — caller's defaults win
     return defaults;
   }
-  if (raw === null || raw === undefined || typeof raw !== "object") {
+  if (raw === null || typeof raw !== "object") {
     return defaults;
   }
   const result = schema.safeParse(raw);
