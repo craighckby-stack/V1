@@ -103,7 +103,7 @@ export function DebateChamber() {
               </div>
             </div>
           </div>
-        </div>
+        </div >
         <div className="space-y-3 mt-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
             <div className="text-[10px] text-slate-500 mb-1 sm:mb-0">Consensus Coefficient</div>
@@ -126,10 +126,10 @@ export function DebateChamber() {
       <CardContent>
         <div className="space-y-4">
           <AnimatePresence>
-            {verdict.arguments?.length > 0 ? (
+            {Array.isArray(verdict.arguments) && verdict.arguments.length > 0 ? (
               verdict.arguments.map((arg, idx) => {
-                // Ensure required fields exist before rendering the argument card
-                if (!arg.speakerName || !arg.stance || !arg.statement) {
+                // Ensure arg is defined and required fields exist before rendering the argument card
+                if (!arg || !arg.speakerName || !arg.stance || !arg.statement) {
                   console.error(`Skipping argument at index ${idx} due to missing required fields (speakerName, stance, or statement).`, arg);
                   return null;
                 }
@@ -181,7 +181,7 @@ export function DebateChamber() {
               <p className="text-sm text-slate-500 italic p-4">No arguments recorded for this review.</p>
             )}
           </AnimatePresence>
-        </div>
+        </div >
 
         <div className="mt-6 pt-4 border-t border-slate-800/60 space-y-3">
           <div className="flex items-start gap-3">
@@ -221,7 +221,7 @@ export function DebateChamber() {
               <p className="text-sm text-slate-200 mt-1">{verdict.leadSummary || "No summary available"}</p>
             </div>
           </div>
-        </div>
+        </div >
       </CardContent>
     </Card>
   );
