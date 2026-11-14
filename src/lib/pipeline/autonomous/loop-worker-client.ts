@@ -164,6 +164,10 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   // Wait up to ~5s for boot (pipeline import graph: Prisma + TS compiler
   // + SDK — a cold boot takes a moment; the constructor then honors the
   // armed tier on its own).
+  if (!spawnSuccessful || !child) {
+      return false;
+  }
+  
   for (let i = 0; i < 10; i++) {
     await new Promise((r) => setTimeout(r, 500));
     try {
