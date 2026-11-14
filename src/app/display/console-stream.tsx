@@ -16,6 +16,23 @@
  *
  * Boundary: this component receives data (lines) and renders it. It
  * owns no state that affects the user's ability to oversee the system.
+ *
+ * Timestamp normalization: the unified stream blends two log sources
+ * with INCOMPATIBLE timestamp conventions:
+ *   - oracle events → "2026-11-14T00:03:48.099Z" (full ISO-8601 UTC,
+ *     buffer ordered oldest→newest, so appends chronologically).
+ *   - loop status logs → "12:12:59 AM" (time-only 12-hour, server is
+ *     UTC, buffer ordered newest→oldest via unshift, so appends in
+ *     REVERSE chronological order).
+ * Left raw, those two streams interleave by arrival time and look
+ * jumbled — a 12:11:39 AM oracle line can sit above a 12:11:37 AM
+ * status line that actually happened earlier. This layer fixes it by
+ * parsing both formats to a comparable epoch and stable-sorting each
+ * run of consecutive log lines by event time (oldest at top, newest
+ * at bottom — the console convention), while non-log lines (commands,
+ * their output, system banners) act as immovable anchors so a command
+ * and its reply never separate. Timestamps are then rendered in one
+ * consistent HH:MM:SS 24-hour UTC form.
  */
 
 import { RefObject } from "react";
@@ -48,6 +65,119 @@ const TEXT_COLOR = "#e0e0e0";
 const USER_INPUT_COLOR = "#ffffff";
 const DIM_COLOR = "#777777";
 
+/**
+ * Parse a log timestamp into a comparable epoch-ms value. Handles:
+ *   - full ISO-8601 with date + Z/offset (oracle events)
+ *   - 12-hour AM/PM time-only (loop status logs; server is UTC, so the
+ *     date is inferred as "today UTC")
+ *   - 24-hour time-only (defensive fallback)
+ * Returns NaN when the string cannot be parsed — callers treat NaN
+ * as "no sort key" and leave the line in its original position.
+ */
+function parseTs(ts: string): number {
+  if (!ts) return NaN;
+  const s = ts.trim();
+
+  // Full ISO-8601 with a date component, e.g. "2026-11-14T00:03:48.099Z"
+  // or "2026-11-14T00:03:48.099+00:00". Date handles these natively.
+  if (/\d{4}-\d{2}-\d{2}T/.test(s) || /Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
+    const t = new Date(s).getTime();
+    return Number.isNaN(t) ? NaN : t;
+  }
+
+  // 12-hour AM/PM, time only — server is UTC, infer today (UTC).
+  const m12 = s.match(/^(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i);
+  if (m12) {
+    let h = parseInt(m12[1], 10);
+    const min = parseInt(m12[2], 10);
+    const sec = parseInt(m12[3], 10);
+    if (m12[4].toUpperCase() === "AM") {
+      if (h === 12) h = 0;
+    } else {
+      if (h !== 12) h += 12;
+    }
+    const now = new Date();
+    return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, min, sec);
+  }
+
+  // 24-hour time only — defensive fallback, infer today (UTC).
+  const m24 = s.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+  if (m24) {
+    const now = new Date();
+    return Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      parseInt(m24[1], 10),
+      parseInt(m24[2], 10),
+      parseInt(m24[3], 10),
+    );
+  }
+
+  return NaN;
+}
+
+/**
+ * Render a timestamp in one consistent HH:MM:SS 24-hour UTC form so the
+ * two source formats stop visually clashing. Falls back to the raw
+ * string when parsing fails (so the line is never blanked).
+ */
+function formatTs(ts: string): string {
+  const ms = parseTs(ts);
+  if (Number.isNaN(ms)) return ts;
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
+/**
+ * Reorder runs of consecutive "log" lines so they read oldest→newest
+ * (top→bottom), while "system"/"command"/"output" lines stay exactly
+ * where they are as immovable anchors. This is what keeps a command
+ * and its output together — the sort only touches log lines between
+ * two anchors. The sort is stable: log lines that share a timestamp
+ * (or have no parseable one) keep their arrival order relative to
+ * each other.
+ *
+ * This exists because the two log sources have opposite buffer
+ * conventions (oracle oldest-first, loop-status newest-first) and
+ * would otherwise interleave by arrival time, not event time.
+ */
+function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
+  const result: ConsoleLine[] = [];
+  let buf: ConsoleLine[] = [];
+
+  const flush = () => {
+    if (buf.length <= 1) {
+      if (buf.length === 1) result.push(buf[0]);
+      buf = [];
+      return;
+    }
+    // Stable sort: key = parsed epoch (NaN → +∞ so unparseable log
+    // lines sink to the bottom of their run, preserving arrival order
+    // among themselves via the index tiebreak).
+    const keyed = buf.map((l, i) => ({ l, k: parseTs(l.ts ?? ""), i }));
+    keyed.sort((a, b) => {
+      const ka = Number.isNaN(a.k) ? Infinity : a.k;
+      const kb = Number.isNaN(b.k) ? Infinity : b.k;
+      if (ka !== kb) return ka - kb;
+      return a.i - b.i;
+    });
+    for (const x of keyed) result.push(x.l);
+    buf = [];
+  };
+
+  for (const l of lines) {
+    if (l.type === "log") buf.push(l);
+    else {
+      flush();
+      result.push(l);
+    }
+  }
+  flush();
+  return result;
+}
+
 export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
   // Validate input lines
   if (!lines || !Array.isArray(lines)) {
@@ -61,6 +191,12 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
     return null;
   }
 
+  // Order runs of log lines by event time (oldest→newest) so the two
+  // differently-ordered, differently-formatted sources read as a single
+  // coherent timeline. Pure display-layer transform; non-log lines are
+  // immovable so commands and their output stay paired.
+  const ordered = orderLogRuns(lines);
+
   return (
     <div
       ref={logRef}
@@ -70,7 +206,7 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
         paddingRight: "4px",
       }}
     >
-      {lines.map((line) => {
+      {ordered.map((line) => {
         // Skip invalid line entries (relying on type safety and initial checks)
         if (!line || typeof line !== "object" || !line.id || !line.type) {
           console.error("ConsoleStream: Invalid line object encountered", line);
@@ -100,12 +236,23 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
         }
 
         return (
-          <div key={line.id} style={{ color, whiteSpace: "pre-wrap" }}>
+          <div
+            key={line.id}
+            style={{
+              color,
+              whiteSpace: "pre-wrap",
+              // Long quoted file paths ("...oracle-events.ts w") would
+              // otherwise break mid-token with no break opportunity and
+              // leave ugly orphan fragments on the next line. Letting
+              // the browser break anywhere only when a word would
+              // overflow keeps normal prose intact while paths wrap
+              // cleanly at any character.
+              overflowWrap: "anywhere",
+            }}
+          >
             {line.type === "command" && "> "}
             {line.type === "log" && line.ts && (
-              <span style={{ color: DIM_COLOR }}>
-                [{line.ts}]{" "}
-              </span>
+              <span style={{ color: DIM_COLOR }}>[{formatTs(line.ts)}]{" "}</span>
             )}
             {line.text || "\u00a0"}
           </div>
