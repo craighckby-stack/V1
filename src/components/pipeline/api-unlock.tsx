@@ -137,13 +137,14 @@ export function ApiUnlock() {
     return (
       <div
         role="dialog"
+        aria-modal="true"
         aria-label="API locked — enter API key"
-        className="fixed bottom-4 right-4 z-50 w-[min(380px,92vw)] border border-amber-500/70 bg-black/95 p-4 font-mono text-xs leading-relaxed text-emerald-400 shadow-[0_0_32px_rgba(0,0,0,0.9)]"
+        className="fixed bottom-3 sm:bottom-4 right-3 sm:right-4 z-50 w-[min(380px,92vw)] max-w-full border border-amber-500/70 bg-black/95 p-4 font-mono text-xs leading-relaxed text-emerald-400 shadow-[0_0_32px_rgba(0,0,0,0.9)] transition-opacity duration-200"
       >
-        <div className="mb-2 border-b border-amber-500/40 pb-1 font-bold tracking-[0.2em] text-amber-400">
+        <div className="mb-2 border-b border-amber-500/40 pb-1 font-bold tracking-[0.2em] text-amber-400 text-sm">
           API LOCKED
         </div>
-        <p className="mb-3 text-emerald-300/90">
+        <p className="mb-3 text-emerald-300/90 text-sm">
           A mutating request was rejected (401). Enter the API key to unlock
           this terminal.
         </p>
@@ -155,7 +156,7 @@ export function ApiUnlock() {
         >
           <label
             htmlFor="api-unlock-key"
-            className="mb-1 block tracking-widest text-emerald-400"
+            className="mb-1 block tracking-widest text-emerald-400 text-xs"
           >
             ENTER API KEY
           </label>
@@ -169,12 +170,14 @@ export function ApiUnlock() {
               autoComplete="off"
               spellCheck={false}
               placeholder="••••••••••••"
-              className="min-w-0 flex-1 border border-emerald-800 bg-black px-2 py-1 font-mono text-emerald-300 caret-emerald-400 outline-none placeholder:text-emerald-900 focus:border-emerald-400"
+              aria-label="API Unlock Key Input"
+              className="min-w-0 flex-1 border border-emerald-800 bg-black px-2 py-1.5 font-mono text-emerald-300 caret-emerald-400 outline-none placeholder:text-emerald-900 focus:border-emerald-400 focus-visible:ring-1 focus-visible:ring-emerald-400 transition-colors duration-150"
             />
             <button
               type="submit"
               disabled={!value.trim()}
-              className="cursor-pointer border border-amber-500/70 bg-black px-3 py-1 font-mono tracking-widest text-amber-400 hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Unlock API using entered key"
+              className="cursor-pointer border border-amber-500/70 bg-black px-3 py-1.5 font-mono tracking-widest text-amber-400 hover:bg-amber-500/10 active:scale-[0.98] transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-amber-500"
             >
               UNLOCK
             </button>
@@ -200,7 +203,7 @@ export function ApiUnlock() {
   // server ever rejects a mutation.
   if (hasKey === false && mutationGateConfigured === true) {
     return (
-      <div className="pointer-events-none fixed bottom-1.5 right-2 z-50 font-mono text-[10px] tracking-widest text-amber-600/50">
+      <div className="pointer-events-none fixed bottom-1.5 right-2 z-50 font-mono text-[10px] tracking-widest text-amber-600/50 sm:bottom-3 sm:right-4">
         API KEY NOT SET — MUTATIONS LOCKED
       </div>
     );
