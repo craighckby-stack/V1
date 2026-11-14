@@ -19,7 +19,7 @@ export async function GET() {
   try {
     if (!SIPHON_SOURCES) {
       return NextResponse.json(
-        { error: "Catalog sources not available - SIPHON_SOURCES is undefined" },
+        { error: "Catalog sources not available: SIPHON_SOURCES is undefined." },
         { status: 500 }
       );
     }
@@ -34,7 +34,7 @@ export async function GET() {
     const sources: CatalogEntry[] = SIPHON_SOURCES.map((source) => {
       if (!source || !source.patterns) {
         // Throwing here will be caught by the outer try/catch
-        throw new Error(`Invalid siphon source found: missing required 'patterns' property in source object.`);
+        throw new Error(`Invalid siphon source found: source object is missing required 'patterns' property.`);
       }
       
       return {
@@ -52,7 +52,7 @@ export async function GET() {
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during catalog retrieval.";
     return NextResponse.json(
-      { error: `Failed to retrieve catalog from /api/engines/catalog: ${errorMessage}` },
+      { error: `Failed to retrieve catalog from /api/engines/catalog. Check server logs for details. Reason: ${errorMessage}` },
       { status: 500 }
     );
   }
