@@ -109,8 +109,9 @@ export async function parseOptionalBody<T extends object>(
   let raw: unknown;
   try {
     raw = await req.json();
-  } catch {
-    return defaults; // no body / bad JSON — caller's defaults win
+  } catch (e) {
+    // no body / bad JSON — caller's defaults win
+    return defaults;
   }
   if (raw === null || raw === undefined || typeof raw !== "object") {
     return defaults;
@@ -130,8 +131,7 @@ export const REPO_REGEX = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 /** Reject paths that escape the repo root. Used by chat-task/apply and
  *  pipeline/run — both write files to disk. */
 export function isRepoRelativePath(p: string): boolean {
-  if (typeof p !== 'string') return false;
-  if (p.length === 0) return false;
+  if (typeof p !== 'string' || p.length === 0) return false;
   if (p.startsWith("/")) return false;          // POSIX absolute
   if (p.startsWith("\\")) return false;         // Windows UNC
   if (/^[A-Za-z]:[\\/]/.test(p)) return false;  // Windows drive-letter
