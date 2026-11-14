@@ -9,7 +9,7 @@ export function useIsMobile() {
     if (typeof window === 'undefined') {
       return
     }
-    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
+    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`)
     const onChange = (event: MediaQueryListEvent) => {
       setIsMobile(event.matches)
     }
