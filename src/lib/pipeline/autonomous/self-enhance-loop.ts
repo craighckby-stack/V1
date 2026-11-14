@@ -2746,6 +2746,83 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
           /* self-model unavailable — tree order */
         }
       }
+
+      // Skip-probe sampling rate: every 4th proactive skip spends the LLM
+      // call anyway — 25% sampling scores the skip rule while the other
+      // 75% still save the quota. Declared here (before the pre-pass) so
+      // both the pre-pass and the main-loop skip block can reference it.
+      const SKIP_PROBE_INTERVAL = 4;
+
+      // ── PROACTIVE-SKIP PRE-PASS (unblocks the starved skip mechanism) ──
+      // The main for-loop's proactive-skip check was starved: the bandit
+      // puts exhausted files at the BOTTOM of its ordering (exhaustion
+      // penalty), while fresh files at the TOP burn LLM calls and trigger
+      // the mid-cycle cooldown break. By the time the loop reaches the
+      // exhausted files, it has already broken out — so the proactive-skip
+      // never fires and the skip-probe calibration stays at 0.
+      // This pre-pass checks EVERY file UPFRONT (no LLM, just DB lookups)
+      // and removes the skip-eligible ones from the `files` list BEFORE the
+      // main iteration. Skip-probes (every Nth skip) are LEFT IN the list
+      // so the main loop can spend the call and score the rule. The pre-pass
+      // is itself O(N) DB reads — cheap vs even one LLM call.
+      const proactiveSkipResults: SelfEnhanceResult[] = [];
+      const proactiveSkipped = new Set<string>();
+      // Files the pre-pass flagged as skip-PROBES (every Nth skip). These
+      // stay in the `files` list so the main loop can spend the LLM call
+      // and open a tagged prediction row — but the main loop must NOT
+      // re-run shouldProactivelySkip or re-increment skipProbeCounter
+      // (the pre-pass already did both). This set is the handoff.
+      const proactiveProbes = new Set<string>();
+      for (const file of files) {
+        const relPath = relative(PROJECT_ROOT, file);
+        // Locked-out files are handled by the main loop's lockout check.
+        const sat = this.saturation.get(relPath);
+        if (sat?.lockedOut) continue;
+        try {
+          const skip = await shouldProactivelySkip(relPath);
+          if (!skip.skip) continue;
+          this.skipProbeCounter++;
+          const isProbe =
+            this.skipProbeCounter % SKIP_PROBE_INTERVAL === 0 &&
+            llmCooldownMs() === 0 &&
+            !isSafeMode() &&
+            myRun === this.runId;
+          if (isProbe) {
+            // Leave probe-skips for the main loop (it spends the call +
+            // opens the tagged prediction row). Mark in proactiveProbes
+            // so the main loop knows the counter was already bumped.
+            this.log(`🧠 skip-probe deferred to main loop: ${relPath} (${skip.reason})`, "info");
+            proactiveProbes.add(file);
+            continue;
+          }
+          // Non-probe skip: resolve here, remove from the main loop's list.
+          this.log(`🧠 ${skip.reason}`, "info");
+          const skipReason = `Skipped (self-model predicts zero-diff: finished ${skip.finishedScore.toFixed(2)}, predicted ${(skip.confidence * 100).toFixed(0)}%)`;
+          proactiveSkipResults.push({
+            filePath: relPath,
+            enhanced: false,
+            reason: skipReason,
+            oldBytes: 0,
+            newBytes: 0,
+            diffBytes: 0,
+            llmUsed: false,
+            llmLatencyMs: 0,
+            compiled: false,
+            pushed: false,
+          });
+          proactiveSkipped.add(file);
+          // Advance the saturation state for this synthetic no-growth
+          // outcome so the 3-strike lockout can still fire if the model
+          // is wrong and the file keeps getting skipped.
+          await this.advanceSaturation(relPath, skipReason);
+        } catch {
+          /* self-model unavailable — leave for the main loop (honest) */
+        }
+      }
+      if (proactiveSkipped.size > 0) {
+        files = files.filter((f) => !proactiveSkipped.has(f));
+      }
+
       // ── VISUAL-POLISH PRE-PASS (audit 6 — "still not enhancing its own
       //    ui look") ────────────────────────────────────────────────────
       // Every VISUAL_POLISH_INTERVAL cycles, pick one .tsx UI component
@@ -2757,10 +2834,6 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       // Same gate chain (typecheck + structural-validator + mutation-guard
       // + debate) applies; only the prompt differs.
       const VISUAL_POLISH_INTERVAL = 5;
-      // Skip-probe sampling rate: every 4th proactive skip spends the LLM
-      // call anyway (see the skip block below) — 25% sampling scores the
-      // skip rule while the other 75% still save the quota.
-      const SKIP_PROBE_INTERVAL = 4;
       const visualPolishResults: SelfEnhanceResult[] = [];
       if (
         this.stats.cyclesCompleted % VISUAL_POLISH_INTERVAL === 0 &&
@@ -2842,6 +2915,14 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       let deferredThisCycle = 0;
       let lockedSkipped = 0;
 
+      // Merge proactive-skip pre-pass results (these files were removed
+      // from the `files` list, so they never enter the main for-loop —
+      // their results must be seeded here for honest cycle accounting).
+      if (proactiveSkipResults.length > 0) {
+        results.push(...proactiveSkipResults);
+        lockedSkipped += proactiveSkipResults.length;
+      }
+
       // Merge visual-polish results into the cycle's result list.
       if (visualPolishResults.length > 0) {
         results.push(...visualPolishResults);
@@ -2901,50 +2982,59 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         // calibration at 0 forever. With the skip BEFORE the break, the
         // exhausted files are skipped for free regardless of cooldown
         // state; only files that NEED the LLM (enhanceFile) honor the break.
+        //
+        // PRE-PASS HANDOFF: the proactive-skip pre-pass (above the visual-
+        // polish block) already resolved non-probe skips and removed them
+        // from `files`. Files that reach this point in the main loop are
+        // either (a) not skip-eligible, or (b) pre-pass-deferred PROBES
+        // (in the `proactiveProbes` set). For (b), the pre-pass already
+        // incremented skipProbeCounter and decided this is a probe — we
+        // must NOT re-increment or re-check (double-counting would shift
+        // the modulo and the probe would never fire). Just set the flag.
         let skipProbe = false;
-        try {
-          const skip = await shouldProactivelySkip(relPath);
-          if (skip.skip) {
-            // ── SKIP-PROBE (scoring the skipper) ─────────────────────
-            // A skipped file never opened a prediction row, so the skip
-            // rule's "will zero-diff" claim was unmeasurable — the
-            // calibration curve only ever saw files the skipper did NOT
-            // skip. Every SKIP_PROBE_INTERVALth skip, spend the call
-            // anyway and tag the prediction as a probe: the outcome then
-            // scores the skipper (zero-diff/fail = the skip saved a
-            // no-growth call; pass = the skipper skipped a live file).
-            this.skipProbeCounter++;
-            skipProbe =
-              this.skipProbeCounter % SKIP_PROBE_INTERVAL === 0 &&
-              llmCooldownMs() === 0 &&
-              !isSafeMode() &&
-              myRun === this.runId;
-            if (skipProbe) {
-              this.log(`🧠 skip-probe: spending the call on ${relPath} to score the skip rule (${skip.reason})`, "info");
-            } else {
-              this.log(`🧠 ${skip.reason}`, "info");
-              const skipReason = `Skipped (self-model predicts zero-diff: finished ${skip.finishedScore.toFixed(2)}, predicted ${(skip.confidence * 100).toFixed(0)}%)`;
-              results.push({
-                filePath: relPath,
-                enhanced: false,
-                reason: skipReason,
-                oldBytes: 0,
-                newBytes: 0,
-                diffBytes: 0,
-                llmUsed: false,
-                llmLatencyMs: 0,
-                compiled: false,
-                pushed: false,
-              });
-              lockedSkipped++;
-              // Advance the saturation state for this synthetic no-growth
-              // outcome TOO — the old code continued BEFORE the saturation
-              // update, so the counter never advanced for proactive skips
-              // and the pass-complete checkpoint was unreachable.
-              await this.advanceSaturation(relPath, skipReason);
-              continue;
-            }
-            // Probe path: fall through to the real attempt below with
+        if (proactiveProbes.has(file)) {
+          skipProbe = true;
+          this.log(`🧠 skip-probe: spending the call on ${relPath} (pre-pass deferred)`, "info");
+        } else {
+          try {
+            const skip = await shouldProactivelySkip(relPath);
+            if (skip.skip) {
+              // Defensive: the pre-pass should have removed non-probe skips,
+              // but the self-model can update between the pre-pass and here
+              // (a new file crossed the threshold). Handle it the same way
+              // the pre-pass would — resolve or defer.
+              this.skipProbeCounter++;
+              skipProbe =
+                this.skipProbeCounter % SKIP_PROBE_INTERVAL === 0 &&
+                llmCooldownMs() === 0 &&
+                !isSafeMode() &&
+                myRun === this.runId;
+              if (skipProbe) {
+                this.log(`🧠 skip-probe: spending the call on ${relPath} to score the skip rule (${skip.reason})`, "info");
+              } else {
+                this.log(`🧠 ${skip.reason}`, "info");
+                const skipReason = `Skipped (self-model predicts zero-diff: finished ${skip.finishedScore.toFixed(2)}, predicted ${(skip.confidence * 100).toFixed(0)}%)`;
+                results.push({
+                  filePath: relPath,
+                  enhanced: false,
+                  reason: skipReason,
+                  oldBytes: 0,
+                  newBytes: 0,
+                  diffBytes: 0,
+                  llmUsed: false,
+                  llmLatencyMs: 0,
+                  compiled: false,
+                  pushed: false,
+                });
+                lockedSkipped++;
+                // Advance the saturation state for this synthetic no-growth
+                // outcome TOO — the old code continued BEFORE the saturation
+                // update, so the counter never advanced for proactive skips
+                // and the pass-complete checkpoint was unreachable.
+                await this.advanceSaturation(relPath, skipReason);
+                continue;
+              }
+              // Probe path: fall through to the real attempt below with
             // skipProbe=true, so the prediction row is tagged for the
             // audit's skip-rule scoring section.
           }

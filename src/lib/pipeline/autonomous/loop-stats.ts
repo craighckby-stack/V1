@@ -80,7 +80,7 @@ export function writeLoopStats(state: LoopStatsState): void {
   } catch (error) {
     // Best-effort by contract: log, never throw.
     console.error(
-      `writeLoopStats: failed to persist stats to ${STATS_FILE}. State: ${JSON.stringify(state)}. Error:`,
+      `writeLoopStats: failed to persist stats to ${STATS_FILE}. State provided: ${JSON.stringify(state)}. Error details:`,
       error instanceof Error ? error.message : String(error)
     );
   }
