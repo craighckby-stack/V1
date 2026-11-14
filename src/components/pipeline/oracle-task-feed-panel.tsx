@@ -46,7 +46,7 @@ export function OracleTaskFeedPanel() {
       const data = await response.json();
       
       if (typeof data !== 'object' || data === null || !Array.isArray(data.tasks)) {
-        throw new Error("Invalid API response structure: 'tasks' array missing or malformed in response body.");
+        throw new Error("Invalid API response structure: Expected { tasks: SelfTask[] }, but received malformed data.");
       }
 
       // The API returns { tasks: [...], queue: {...} } — filter for the
@@ -57,7 +57,7 @@ export function OracleTaskFeedPanel() {
       setTasks(oracleTasks);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "An unknown error occurred during task fetching.";
-      setError(msg);
+      setError(`Task feed fetch failed: ${msg}`);
       // Keep existing tasks on error — don't wipe the list on a transient failure
     } finally {
       setLoading(false);
