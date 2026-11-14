@@ -69,12 +69,52 @@ export function writeLoopStats(state: LoopStatsState): void {
     console.error("writeLoopStats: PROJECT_ROOT is undefined or STATS_FILE is not resolvable — cannot persist stats.");
     return;
   }
+  
+  // Validate input state before attempting to write
+  if (!state || typeof state !== "object" || state === null) {
+    console.error("writeLoopStats: invalid state object provided");
+    return;
+  }
+  
+  // Check for presence of all required fields
+  for (const field of NUMERIC_FIELDS) {
+    if (!(field in state)) {
+      console.error(`writeLoopStats: missing required field ${field} in state object`);
+      return;
+    }
+  }
+  
+  if (!('lastEnhancementAt' in state)) {
+    console.error("writeLoopStats: missing required field lastEnhancementAt in state object");
+    return;
+  }
+  
+  // Validate numeric fields
+  for (const field of NUMERIC_FIELDS) {
+    const v = state[field];
+    if (
+      typeof v !== "number" ||
+      !Number.isFinite(v) ||
+      v < 0 ||
+      !Number.isInteger(v)
+    ) {
+      console.error(`writeLoopStats: invalid value for field ${field}: ${v}`);
+      return;
+    }
+  }
+  
+  // Validate lastEnhancementAt
+  const ts = state.lastEnhancementAt;
+  if (ts !== null && (typeof ts !== "string" || isNaN(Date.parse(ts)))) {
+    console.error(`writeLoopStats: invalid lastEnhancementAt value: ${ts}`);
+    return;
+  }
+  
   try {
     const infoDir = join(PROJECT_ROOT, ".git/info");
-    // Only attempt mkdir if the file doesn't exist, though recursive handles this,
-    // checking existence first slightly clarifies intent and avoids unnecessary FS calls if structure is known missing.
+    // Ensure directory exists before attempting to write
     if (!existsSync(infoDir)) {
-        mkdirSync(infoDir, { recursive: true });
+      mkdirSync(infoDir, { recursive: true });
     }
     writeFileSync(STATS_FILE, JSON.stringify(state, null, 2), "utf8");
   } catch (error) {
