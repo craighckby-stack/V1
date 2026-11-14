@@ -28,14 +28,14 @@ export function MemoryBank() {
           throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
         const data = await res.json();
-        if (!cancelled && data && Array.isArray(data.entries)) {
+        if (!cancelled && typeof data === 'object' && data !== null && Array.isArray(data.entries)) {
           setEntries(data.entries);
-        } else if (!cancelled && !Array.isArray(data.entries)) {
-          console.error("API response validation failed: 'entries' field is not an array.", data);
+        } else if (!cancelled && !Array.isArray(data?.entries)) {
+          console.error("API response validation failed: 'entries' field is not an array or data is malformed.", data);
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred during memory fetch.";
-        console.error(`Error loading memory entries from API: ${errorMessage}`);
+        console.error(`Error loading memory entries from API: ${errorMessage}`, error);
       }
     })();
     return () => {
