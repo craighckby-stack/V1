@@ -69,7 +69,7 @@ function ensureKey(): Buffer | null {
   try {
     if (existsSync(KEY_FILE)) {
       const hex = readFileSync(KEY_FILE, "utf-8")?.trim();
-      if (!hex || !/^[0-9a-f]{64}$/i.test(hex)) {
+      if (typeof hex !== 'string' || !/^[0-9a-f]{64}$/i.test(hex)) {
         if (!warnedKeyMissing) {
           warnedKeyMissing = true;
           console.error(
