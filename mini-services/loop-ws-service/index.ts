@@ -149,7 +149,7 @@ async function pollNextJsState() {
     lastPollAt = new Date().toISOString();
     if (!res.ok) {
       nextJsReachable = false;
-      console.warn(`[LOOP-WS] /api/autonomous/status returned ${res.status} status code.`);
+      console.warn(`[LOOP-WS] /api/autonomous/status returned ${res.status} status code. Next.js unreachable.`);
       return;
     }
     const newState = await res.json();
