@@ -82,14 +82,19 @@ export async function workerFetch<T = unknown>(
     return { ok: res.ok, status: res.status, data };
   } catch (error) {
     // Catch specific network/timeout errors, but still return null as per contract
-    if (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
-        // Cripple-check F9: a chronically slow worker (always timing out)
-        // used to produce ZERO log output anywhere — every route caller
-        // silently mapped null to its fallback. Warn once per call site
-        // pattern so the degradation is visible in the server log.
-        console.warn(`workerFetch timeout/abort: ${WORKER_URL}${pathname} (${timeoutMs}ms)`);
+    if (error instanceof Error) {
+        if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+            // Cripple-check F9: a chronically slow worker (always timing out)
+            // used to produce ZERO log output anywhere — every route caller
+            // silently mapped null to its fallback. Warn once per call site
+            // pattern so the degradation is visible in the server log.
+            console.warn(`workerFetch timeout/abort: ${WORKER_URL}${pathname} (${timeoutMs}ms)`);
+        } else {
+            console.error(`Error fetching ${WORKER_URL}${pathname}:`, error);
+        }
     } else {
-        console.error(`Error fetching ${WORKER_URL}${pathname}:`, error);
+        // Handle non-Error objects that might be thrown by fetch implementation
+        console.error(`Unknown error fetching ${WORKER_URL}${pathname}:`, error);
     }
     return null;
   }
