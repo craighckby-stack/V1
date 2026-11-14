@@ -16,6 +16,7 @@ type ToasterToast = ToastProps & {
   title?: React.ReactNode
   description?: React.ReactNode
   action?: ToastActionElement
+  open?: boolean // Added open state for correct dismissal logic
 }
 
 let count = 0
@@ -104,12 +105,7 @@ export const reducer = (state: State, action: Action): State => {
       return {
         ...state,
         toasts: state.toasts.map((t) =>
-          t.id === toastId || toastId === undefined
-            ? {
-              ...t,
-              open: false,
-            }
-            : t
+          toastId ? (t.id === toastId ? { ...t, open: false } : t) : { ...t, open: false }
         ),
       }
     }
