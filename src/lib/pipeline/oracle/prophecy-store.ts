@@ -73,8 +73,18 @@ export async function createProphecy(input: {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const claimSnippet = input.claim.substring(0, 30) + (input.claim.length > 30 ? '...' : '');
-    const inputContext = JSON.stringify(input).length < 2048 ? JSON.stringify(input) : '[Input too large to log]';
-    console.error(`Database error in createProphecy for claim "${claimSnippet}": DB operation failed. Full input context: ${inputContext}. Error: ${errorMessage}`);
+    // Safely log input context without relying on arbitrary size limits for error reporting
+    const inputContext = JSON.stringify({
+        claim: input.claim,
+        confidence: input.confidence,
+        rationale: input.rationale,
+        falsifiabilityCriterion: input.falsifiabilityCriterion,
+        evaluateBy: input.evaluateBy.toISOString(),
+        contextSha: input.contextSha,
+        historySnapshot: input.historySnapshot,
+        domain: input.domain
+    });
+    console.error(`Database error in createProphecy for claim "${claimSnippet}": DB operation failed. Input context: ${inputContext}. Error: ${errorMessage}`);
     return null;
   }
 }
