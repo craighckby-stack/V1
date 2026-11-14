@@ -73,6 +73,16 @@ export function classifyOutcome(enhanced: boolean, reason: string): SelfOutcome 
   // the bandit's empirical rate AND the calibration curve. No-verdict
   // outcomes belong with "deferred" — excluded, not knowledge.
   if (r.startsWith("skipped (file too large")) return "excluded";
+  // PROACTIVE-SKIP EXCLUSION (audit 8): "Skipped (self-model predicts
+  // zero-diff: ...)" is the SAME no-verdict class — the loop never ran a
+  // prompt or a gate; it ACTED on a prediction. Before this, every
+  // non-probe proactive skip fell through to "fail": a fake gate
+  // rejection that dragged the file's empirical pass rate down, which
+  // then fed predictConfidence — the very predictor the skip rule
+  // trusts — with fabricated evidence (predicted-dead files looked even
+  // deader). Skips carry no outcome knowledge; probes exist precisely to
+  // measure skip decisions with real verdicts.
+  if (r.startsWith("skipped (self-model predicts")) return "excluded";
   if (
     r.includes("cosmetic") ||
     r.includes("no issues found") ||
@@ -253,82 +263,174 @@ export async function noteOutcome(
 
 // ── Self-correcting confidence (calibration feedback) ──────────────────
 
+export interface BucketCorrection {
+  /** The decile range [lo, hi) this correction applies to. */
+  lo: number;
+  hi: number;
+  /** Resolved predictions measured in this range. */
+  n: number;
+  /** Mean predicted confidence in the range. */
+  meanPredicted: number;
+  /** Fraction that actually passed in the range. */
+  meanActual: number;
+  /** The applied shift: (actual − predicted), clamped to ±CORRECTION_MAX_SHIFT. */
+  shift: number;
+}
+
 export interface ConfidenceCorrection {
   active: boolean;
-  /** Additive shift applied to raw confidence: corrected = clamp(raw + shift). */
+  /** Additive shift applied to raw confidence: corrected = clamp(raw + shift).
+   *  For the summary headline this is the WORST active range's shift; for
+   *  getCorrectionForRange it is the queried range's shift. */
   shift: number;
   /** Resolved predictions the shift was measured over. */
   n: number;
   meanConfidence: number;
   meanActual: number;
   reason: string;
+  /** Audit 8: the full per-decile correction table. The loop's bias is
+   *  directional by range — this is the picture a single scalar can't show. */
+  buckets: BucketCorrection[];
 }
 
-/** The measured-bias correction, TTL-cached (5 min) so per-attempt calls
- *  don't re-query. Dormant until the bias is clearly systematic. */
-let _correctionCache: { at: number; value: ConfidenceCorrection } | null = null;
+/** The per-decile measured-bias table, TTL-cached (5 min) so per-attempt
+ *  calls don't re-query. Dormant per-range until that range's bias is
+ *  clearly systematic. */
+let _correctionTableCache: { at: number; table: BucketCorrection[] } | null = null;
 const CORRECTION_TTL_MS = 5 * 60_000;
-const CORRECTION_MIN_N = 40;
+/** Samples a decile needs before its measured bias is trusted. */
+const BUCKET_MIN_N = 8;
 const CORRECTION_TRIGGER_GAP = 0.05;
 const CORRECTION_MAX_SHIFT = 0.15;
 
 function dormantCorrection(reason: string): ConfidenceCorrection {
-  return { active: false, shift: 0, n: 0, meanConfidence: 0, meanActual: 0, reason };
+  return {
+    active: false,
+    shift: 0,
+    n: 0,
+    meanConfidence: 0,
+    meanActual: 0,
+    reason,
+    buckets: [],
+  };
 }
 
-/** Measure the systematic bias of recent predictions: mean predicted
- *  confidence vs mean actual pass rate over the last 100 resolved
- *  predictions. If the gap exceeds CORRECTION_TRIGGER_GAP with at least
- *  CORRECTION_MIN_N samples, the corrective shift (gap clamped to
- *  ±CORRECTION_MAX_SHIFT) becomes active and predictConfidence applies
- *  it. As corrected predictions land, the measured gap shrinks and the
- *  correction converges toward zero — the calibration curve feeding
- *  back into the predictor. Dormant otherwise: never chase noise. */
-export async function getConfidenceCorrection(): Promise<ConfidenceCorrection> {
-  const now = Date.now();
-  if (_correctionCache && now - _correctionCache.at < CORRECTION_TTL_MS) {
-    return _correctionCache.value;
+/** WHY PER-DECILE (audit 8 — the dormant-scalar smell): the old single
+ *  correction compared MEAN predicted vs MEAN actual over recent
+ *  predictions. The loop's miscalibration is DIRECTIONAL BY RANGE: it is
+ *  slightly underconfident at 0.1-0.2 (predicts 17%, passes 23%) and
+ *  sharply overconfident at 0.4-0.6 (predicts 43-53%, passes 25-33%).
+ *  The two errors CANCEL in the aggregate — the scalar read "bias
+ *  −0.004, within noise" and stayed dormant forever while every
+ *  mid-range prediction kept overshooting by ~0.18 (the post-gate
+ *  regret the bucket curve exposed). Fix: measure the bias PER DECILE
+ *  and apply the shift of the range the raw prediction falls in. As
+ *  corrected predictions land, each range's gap shrinks and its shift
+ *  converges to zero — the calibration curve feeding back into the
+ *  predictor, per range instead of on average. */
+async function buildCorrectionTable(): Promise<BucketCorrection[]> {
+  if (_correctionTableCache && Date.now() - _correctionTableCache.at < CORRECTION_TTL_MS) {
+    return _correctionTableCache.table;
   }
-  let value: ConfidenceCorrection;
+  let table: BucketCorrection[] = [];
   try {
     const rows = await db.selfPrediction.findMany({
       where: { outcome: { in: ["pass", "fail", "zero-diff"] } },
       orderBy: { createdAt: "desc" },
-      take: 100,
+      take: 200,
       select: { confidence: true, outcome: true },
     });
-    if (rows.length < CORRECTION_MIN_N) {
-      value = dormantCorrection(
-        `dormant — ${rows.length}/${CORRECTION_MIN_N} recent resolved predictions (need ${CORRECTION_MIN_N} before acting on a measured bias)`
+    for (let i = 0; i < 10; i++) {
+      const lo = i / 10;
+      const hi = (i + 1) / 10;
+      const inBucket = rows.filter(
+        (p) => p.confidence >= lo && (i === 9 ? p.confidence <= hi : p.confidence < hi)
       );
-    } else {
-      const meanConf = rows.reduce((a, r) => a + r.confidence, 0) / rows.length;
-      const meanActual = rows.filter((r) => r.outcome === "pass").length / rows.length;
-      const gap = meanActual - meanConf; // < 0 = over-confident, > 0 = under-confident
-      if (Math.abs(gap) < CORRECTION_TRIGGER_GAP) {
-        value = dormantCorrection(
-          `dormant — measured bias ${gap >= 0 ? "+" : ""}${gap.toFixed(3)} within ±${CORRECTION_TRIGGER_GAP} (calibrated within noise; not chasing it)`
-        );
-      } else {
-        const shift = Math.max(-CORRECTION_MAX_SHIFT, Math.min(CORRECTION_MAX_SHIFT, gap));
-        value = {
-          active: true,
-          shift,
-          n: rows.length,
-          meanConfidence: round3(meanConf),
-          meanActual: round3(meanActual),
-          reason:
-            gap < 0
-              ? `ACTIVE — over-confident: I predict ${(meanConf * 100).toFixed(0)}% but pass ${(meanActual * 100).toFixed(0)}% (n=${rows.length}); shifting future predictions ${shift >= 0 ? "+" : ""}${shift.toFixed(2)}`
-              : `ACTIVE — under-confident: I predict ${(meanConf * 100).toFixed(0)}% but pass ${(meanActual * 100).toFixed(0)}% (n=${rows.length}); shifting future predictions +${shift.toFixed(2)}`,
-        };
-      }
+      if (inBucket.length < BUCKET_MIN_N) continue;
+      const meanPred = inBucket.reduce((a, p) => a + p.confidence, 0) / inBucket.length;
+      const meanAct = inBucket.filter((p) => p.outcome === "pass").length / inBucket.length;
+      const gap = meanAct - meanPred; // < 0 = over-confident, > 0 = under-confident
+      if (Math.abs(gap) < CORRECTION_TRIGGER_GAP) continue;
+      const shift = Math.max(-CORRECTION_MAX_SHIFT, Math.min(CORRECTION_MAX_SHIFT, gap));
+      table.push({
+        lo,
+        hi,
+        n: inBucket.length,
+        meanPredicted: round3(meanPred),
+        meanActual: round3(meanAct),
+        shift: round3(shift),
+      });
     }
   } catch {
-    value = dormantCorrection("dormant — self-model unavailable");
+    table = [];
   }
-  _correctionCache = { at: now, value };
-  return value;
+  _correctionTableCache = { at: Date.now(), table };
+  return table;
+}
+
+function rangeLabel(b: BucketCorrection): string {
+  return `${(b.lo * 100).toFixed(0)}-${(b.hi * 100).toFixed(0)}%`;
+}
+
+/** The range-aware correction for ONE raw confidence value: the measured
+ *  bias of the decile it lands in, or dormant when that decile has no
+ *  significant measured bias. This is what predictConfidence applies —
+ *  a 0.45 prediction gets the 0.4-0.5 shift, not a global average. */
+export async function getCorrectionForRange(raw: number): Promise<ConfidenceCorrection> {
+  const table = await buildCorrectionTable();
+  const b = table.find(
+    (x) => raw >= x.lo && (x.lo >= 0.9 ? raw <= x.hi : raw < x.hi)
+  );
+  if (!b) {
+    return dormantCorrection(
+      table.length > 0
+        ? `dormant at ${(raw * 100).toFixed(0)}% — this range is calibrated within noise (${table.length} other range(s) corrected)`
+        : "dormant — no confidence range has a significant measured bias yet"
+    );
+  }
+  const dir = b.shift < 0 ? "over-confident" : "under-confident";
+  return {
+    active: true,
+    shift: b.shift,
+    n: b.n,
+    meanConfidence: b.meanPredicted,
+    meanActual: b.meanActual,
+    reason:
+      `ACTIVE ${rangeLabel(b)} — ${dir} here: I predict ${(b.meanPredicted * 100).toFixed(0)}% but pass ` +
+      `${(b.meanActual * 100).toFixed(0)}% (n=${b.n}); shifting predictions in this range ` +
+      `${b.shift >= 0 ? "+" : ""}${b.shift.toFixed(2)}`,
+    buckets: table,
+  };
+}
+
+/** The headline correction for the summary/UI: the WORST active range
+ *  (largest |shift|) with the full per-decile table attached, so the
+ *  panel can show WHICH ranges are being corrected — not just a number
+ *  that hides the low/high cancellation. */
+export async function getConfidenceCorrection(): Promise<ConfidenceCorrection> {
+  const table = await buildCorrectionTable();
+  if (table.length === 0) {
+    return dormantCorrection(
+      "dormant — no confidence range has a significant measured bias (per-decile, audit 8)"
+    );
+  }
+  const worst = [...table].sort((a, b) => Math.abs(b.shift) - Math.abs(a.shift))[0];
+  const ranges = table
+    .map(
+      (b) =>
+        `${rangeLabel(b)} (predict ${(b.meanPredicted * 100).toFixed(0)}% → actual ` +
+        `${(b.meanActual * 100).toFixed(0)}%, shift ${b.shift >= 0 ? "+" : ""}${b.shift.toFixed(2)}, n=${b.n})`
+    )
+    .join(" · ");
+  return {
+    active: true,
+    shift: worst.shift,
+    n: worst.n,
+    meanConfidence: worst.meanPredicted,
+    meanActual: worst.meanActual,
+    reason: `ACTIVE in ${table.length} range(s): ${ranges}`,
+    buckets: table,
+  };
 }
 
 // ── Self-prediction (the calibration engine) ──────────────────────────
@@ -381,11 +483,15 @@ export async function predictConfidence(
     if (file.finishedScore > 0.4) {
       confidence *= (1 - 0.4 * (file.finishedScore - 0.4));
     }
-    // SELF-CORRECTION (calibration feedback): apply the measured
-    // systematic bias so the calibration verdict becomes action, not
-    // just text on the panel. Dormant (shift 0) while calibrated within
-    // noise — see getConfidenceCorrection.
-    const correction = await getConfidenceCorrection();
+    // SELF-CORRECTION (calibration feedback, audit 8 — range-aware): apply
+    // the measured bias OF THE DECILE this prediction lands in. The old
+    // single scalar stayed dormant because low-range underconfidence
+    // canceled high-range overconfidence in the aggregate; per-decile
+    // shifts actually correct the mid-range overshoot the bucket curve
+    // exposed. Dormant (shift 0) while this range is calibrated within
+    // noise — see getCorrectionForRange.
+    const rawConfidence = confidence;
+    const correction = await getCorrectionForRange(rawConfidence);
     if (correction.active && correction.shift !== 0) {
       confidence += correction.shift;
     }
@@ -396,7 +502,7 @@ export async function predictConfidence(
         modeNote +
         `, global ${(globalRate * 100).toFixed(0)}%, exhaustion ${file.finishedScore.toFixed(2)}` +
         (correction.active && correction.shift !== 0
-          ? `, calib ${correction.shift >= 0 ? "+" : ""}${correction.shift.toFixed(2)} (measured-bias correction)`
+          ? `, calib ${correction.shift >= 0 ? "+" : ""}${correction.shift.toFixed(2)} (range-aware correction)`
           : ""),
     };
   } catch {
@@ -611,12 +717,39 @@ export async function shouldProactivelySkip(
     // At 0.5, the proactive-skip gets one cycle of priority to predict the
     // 3rd zero-diff and save the call, and the skip-probe mechanism finally
     // accumulates resolved samples for its calibration verdict.
-    const skip = file.finishedScore >= 0.5 && pred.confidence < 0.2;
+    //
+    // PROBE-FEEDBACK CEILING (audit 8): the skip rule is scored by its own
+    // probes (every 4th skip spends the call anyway). When probes show the
+    // skipper DISCARDING live files (miss rate > 0.1 with n ≥ 3), tighten
+    // the confidence ceiling from 0.20 to 0.10 — the 0.0-0.1 bucket
+    // measures ~4% actual passes, so a sub-10% prediction is the only
+    // "dead" signal still trusted at that evidence level. As probes
+    // accumulate and the miss rate falls back to ≤ 0.1, the ceiling
+    // relaxes to 0.20 again. The rule tunes itself on its own scored
+    // evidence instead of waiting for an operator to read the verdict.
+    const probeRows = await db.selfPrediction.findMany({
+      where: { skipProbe: true, outcome: { in: ["pass", "fail", "zero-diff"] } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: { outcome: true },
+    });
+    const probeN = probeRows.length;
+    const probeMiss = probeRows.filter((p) => p.outcome === "pass").length;
+    const missRate = probeN > 0 ? probeMiss / probeN : 0;
+    const ceiling = probeN >= 3 && missRate > 0.1 ? 0.1 : 0.2;
+
+    const skip = file.finishedScore >= 0.5 && pred.confidence < ceiling;
     return {
       skip,
       reason: skip
-        ? `proactively skipping — finished ${file.finishedScore.toFixed(2)}, predicted ${(pred.confidence * 100).toFixed(0)}% (will zero-diff); ${file.zeroDiffs}/${file.attempts} zero-diffs`
-        : `not skipping — finished ${file.finishedScore.toFixed(2)}, predicted ${(pred.confidence * 100).toFixed(0)}%`,
+        ? `proactively skipping — finished ${file.finishedScore.toFixed(2)}, predicted ${(pred.confidence * 100).toFixed(0)}% < ${(ceiling * 100).toFixed(0)}% ceiling (will zero-diff); ${file.zeroDiffs}/${file.attempts} zero-diffs` +
+          (probeN >= 3
+            ? `; probe miss-rate ${(missRate * 100).toFixed(0)}% (n=${probeN}) → ceiling ${(ceiling * 100).toFixed(0)}%`
+            : "")
+        : `not skipping — finished ${file.finishedScore.toFixed(2)}, predicted ${(pred.confidence * 100).toFixed(0)}%` +
+          (ceiling < 0.2
+            ? ` vs tightened ${(ceiling * 100).toFixed(0)}% ceiling (probe miss-rate ${(missRate * 100).toFixed(0)}%, n=${probeN})`
+            : ""),
       finishedScore: file.finishedScore,
       confidence: pred.confidence,
       attempts: file.attempts,
@@ -718,6 +851,7 @@ export async function getSelfModelSummary(): Promise<SelfModelSummary> {
         meanConfidence: 0,
         meanActual: 0,
         reason: "correction dormant — no measurement yet",
+        buckets: [],
       },
     },
     modeStats: { refactor: { attempts: 0, passes: 0 }, visualPolish: { attempts: 0, passes: 0 } },
@@ -801,7 +935,7 @@ export async function getSelfModelSummary(): Promise<SelfModelSummary> {
     // acting on its own measured miscalibration, not just reporting it.
     const correction = await getConfidenceCorrection();
     if (correction.active) {
-      verdict += ` Self-correction now applied to predictions (${correction.shift >= 0 ? "+" : ""}${correction.shift.toFixed(2)}).`;
+      verdict += ` Self-correction ACTIVE in ${correction.buckets.length} confidence range(s) — per-decile shifts now applied to predictions (worst: ${correction.shift >= 0 ? "+" : ""}${correction.shift.toFixed(2)}).`;
     }
 
     const totals = files.reduce(

@@ -84,6 +84,17 @@ interface SelfModelStatus {
       meanConfidence: number;
       meanActual: number;
       reason: string;
+      /** Audit 8: per-decile corrections — the loop's bias is directional
+       *  by range (underconfident low, overconfident mid), so the single
+       *  scalar headline hides the real picture. Older payloads omit it. */
+      buckets?: Array<{
+        lo: number;
+        hi: number;
+        n: number;
+        meanPredicted: number;
+        meanActual: number;
+        shift: number;
+      }>;
     };
   };
   modeStats: {
@@ -257,7 +268,10 @@ export function SelfModelPanel({ open, onClose }: Props) {
             resolved: {cal?.resolvedPredictions ?? 0} · pending: {cal?.pendingPredictions ?? 0}
           </div>
           {/* Self-correcting confidence — the loop acting on its own measured
-              miscalibration, not just reporting it. Accent color when active. */}
+              miscalibration, not just reporting it. Accent color when active.
+              Audit 8: per-decile ranges — the aggregate scalar stayed dormant
+              because low-range underconfidence canceled mid-range
+              overconfidence; the ranges show WHERE the bias lives. */}
           <div
             style={{
               color: cal?.correction?.active ? ACCENT_COLOR : DIM_COLOR,
@@ -267,6 +281,33 @@ export function SelfModelPanel({ open, onClose }: Props) {
           >
             self-correction: {cal?.correction?.reason ?? "—"}
           </div>
+          {cal?.correction?.active && (cal.correction.buckets?.length ?? 0) > 0 && (
+            <div style={{ marginTop: "4px" }}>
+              {cal.correction.buckets!.map((b) => {
+                // Range color: over-confident (negative shift) warns — the
+                // loop regretted trusting this range; under-confident
+                // (positive) accent — the loop undersold itself here.
+                const bColor = b.shift < 0 ? WARN_COLOR : ACCENT_COLOR;
+                return (
+                  <div key={`${b.lo}`} style={{ display: "flex", alignItems: "center", gap: "4px", marginBottom: "2px" }}>
+                    <span style={{ color: DIM_COLOR, width: "56px", fontSize: "10px" }}>
+                      {(b.lo * 100).toFixed(0)}-{(b.hi * 100).toFixed(0)}%
+                    </span>
+                    <div
+                      style={{
+                        background: bColor,
+                        height: "8px",
+                        width: `${Math.min(60, Math.round(Math.abs(b.shift) * 200))}px`,
+                      }}
+                    />
+                    <span style={{ color: bColor, fontSize: "10px" }}>
+                      {`predict ${(b.meanPredicted * 100).toFixed(0)}% → actual ${(b.meanActual * 100).toFixed(0)}% · shift ${b.shift >= 0 ? "+" : ""}${b.shift.toFixed(2)} (n=${b.n})`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Calibration curve */}

@@ -115,24 +115,25 @@ export function readArmedState(): ArmedState | null {
     }
     
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
-    let parsed: ArmedState;
+    let parsed: unknown;
     
     try {
-      parsed = JSON.parse(raw) as ArmedState;
+      parsed = JSON.parse(raw);
     } catch (jsonError) {
       console.error(`readArmedState: Failed to parse armed state JSON from ${ARMED_STATE_FILE}. File content is invalid JSON. Error: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}`);
       return null;
     }
     
-    // Validate that parsed is a non-null object and has all required fields
+    // Validate that parsed is an object and matches ArmedState structure
     if (typeof parsed === "object" && parsed !== null && 
-        typeof parsed.armed === "boolean" && 
-        typeof parsed.at === "string" && 
-        typeof parsed.by === "string" &&
-        parsed.by.trim() !== "" &&
+        'armed' in parsed && 'at' in parsed && 'by' in parsed &&
+        typeof (parsed as ArmedState).armed === "boolean" && 
+        typeof (parsed as ArmedState).at === "string" && 
+        typeof (parsed as ArmedState).by === "string" &&
+        (parsed as ArmedState).by.trim() !== "" &&
         // Validate ISO timestamp format (basic check)
-        !isNaN(Date.parse(parsed.at))) {
-      return parsed;
+        !isNaN(Date.parse((parsed as ArmedState).at))) {
+      return parsed as ArmedState;
     }
     
     console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure.`);
