@@ -217,7 +217,7 @@ export function warmZaiCortex(): void {
       const createWithOptions = zai.chat.completions.create as unknown as (
         body: Parameters<typeof zai.chat.completions.create>[0],
         options?: { signal?: AbortSignal }
-      ) => Promise<any>;
+      ) => Promise<{ model?: string }>;
       const signal = AbortSignal.timeout(CORTEX_PING_TIMEOUT_MS);
       const completion = await Promise.race([
         createWithOptions(
@@ -541,7 +541,10 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
       const createWithOptions = zai.chat.completions.create as unknown as (
         body: Parameters<typeof zai.chat.completions.create>[0],
         options?: { signal?: AbortSignal }
-      ) => Promise<any>;
+      ) => Promise<{
+        choices?: Array<{ message?: { content?: string } }>;
+        model?: string;
+      }>;
       const callPromise = createWithOptions(
         createParams,
         // Not in the SDK's type surface (v0.0.18): standard fetch request

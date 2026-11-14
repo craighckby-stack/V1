@@ -245,7 +245,7 @@ export function SelfModelPanel({ open, onClose }: Props) {
           <div>
             <span style={{ color: PROMPT_COLOR, fontWeight: "bold" }}>🧠 SELF-MODEL</span>
             <span style={{ color: DIM_COLOR, marginLeft: "8px" }}>
-              — the loop's measured self-knowledge (audit 7)
+              — the loop&apos;s measured self-knowledge (audit 7)
             </span>
           </div>
           <button type="button" onClick={onClose} style={btnStyle} aria-label="Close self-model panel">

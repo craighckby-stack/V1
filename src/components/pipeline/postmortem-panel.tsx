@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   AlertOctagon,
@@ -50,7 +50,10 @@ export function PostmortemPanel() {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  async function refresh() {
+  // Stable across renders: `toast` is a module-level function and the
+  // setters are React state setters, so this keeps the 10s poll interval
+  // from being torn down/re-created on every render.
+  const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/postmortems");
@@ -78,7 +81,7 @@ export function PostmortemPanel() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [toast]);
 
   async function dismiss(id: string, filePath: string) {
     if (!id || typeof id !== 'string' || id.length === 0) {
@@ -122,7 +125,7 @@ export function PostmortemPanel() {
     // Refresh every 10s — postmortems are created/resolved by the loop
     const interval = setInterval(refresh, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [refresh]);
 
   return (
     <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur">

@@ -2,19 +2,12 @@ import { describe, test, expect } from "bun:test";
 import {
   DropdownMenu,
   DropdownMenuPortal,
-  DropdownMenuTrigger,
   DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
   DropdownMenuItem,
   DropdownMenuCheckboxItem,
-  DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuSub,
   DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
 } from "./dropdown-menu";
 
 describe("Dropdown Menu Components", () => {

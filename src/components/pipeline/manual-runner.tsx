@@ -23,13 +23,6 @@ import { useToast } from "@/hooks/use-toast";
 import { usePipelineStore, PipelineReport } from "@/lib/pipeline-store";
 import { cn } from "@/lib/utils";
 
-interface RepoFile {
-  path: string;
-  size: number;
-  sha: string;
-  isCodeFile: boolean;
-}
-
 export function ManualPipelineRunner() {
   const { toast } = useToast();
   const setPipelineReport = usePipelineStore((s) => s.setPipelineReport);
@@ -51,7 +44,6 @@ export function ManualPipelineRunner() {
   const [selectedPath, setSelectedPath] = useState<string>("");
   const [code, setCode] = useState<string>("");
   const [fetchingFiles, setFetchingFiles] = useState(false);
-  const [fetchingFile, setFetchingFile] = useState(false);
   const [validatingToken, setValidatingToken] = useState(false);
 
   async function validateToken() {
@@ -107,7 +99,6 @@ export function ManualPipelineRunner() {
   }
 
   async function fetchFile(path: string) {
-    setFetchingFile(true);
     setSelectedPath(path);
     try {
       const res = await fetch("/api/github/fetch-file", {
@@ -121,8 +112,6 @@ export function ManualPipelineRunner() {
       toast({ title: "File loaded", description: `${path} (${(data.content ?? "").length} bytes)` });
     } catch (e) {
       toast({ title: "Fetch failed", description: (e as Error).message, variant: "destructive" });
-    } finally {
-      setFetchingFile(false);
     }
   }
 
@@ -224,6 +213,7 @@ export function ManualPipelineRunner() {
         {/* Token status */}
         {githubUser && (
           <div className="flex items-center gap-2 text-xs text-emerald-300">
+            {/* eslint-disable-next-line @next/next/no-img-element -- inline avatar glyph, intentional raw img to avoid next/image sizing/optimization side effects */}
             <img
               src={githubUser.avatarUrl}
               alt=""

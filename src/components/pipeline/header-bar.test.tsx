@@ -1,16 +1,9 @@
 import { describe, test, expect } from "bun:test";
-import { HeaderBar } from "./header-bar";
 
 // --- MOCKING DEPENDENCIES ---
 // Since HeaderBar uses React hooks (usePipelineStore) and external components (Badge, lucide icons),
 // we must mock the environment to test the logic paths deterministically.
 // In a real Bun/Jest setup, we'd mock the module, but here we simulate the state dependency.
-
-// Mock usePipelineStore to control state inputs
-const mockUsePipelineStore = (selector: (s: any) => any) => {
-  // This mock will be overridden in specific tests
-  return null;
-};
 
 // Mock the component rendering environment to capture output structure/props
 // Since we cannot run React rendering in bun:test directly, we must assert on the *logic*

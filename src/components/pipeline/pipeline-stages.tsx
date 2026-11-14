@@ -90,7 +90,12 @@ function StageCard({ stage }: { stage: PipelineStageState }) {
     return null;
   }
 
-  const meta = STAGE_META[stage.id] ?? STAGE_META.stage0_ingestion;
+  const meta = STAGE_META[stage.id] ?? {
+    icon: Layers,
+    color: "text-slate-400",
+    bg: "bg-slate-700/10",
+    ring: "ring-slate-500/40",
+  };
   const Icon = meta.icon;
   const StatusIcon = STATUS_ICON[stage.status] ?? Circle;
   const color = STATUS_COLOR[stage.status] ?? "text-slate-500";

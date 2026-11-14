@@ -23,6 +23,7 @@ export function HeaderBar() {
       <div className="mx-auto max-w-[1600px] px-4 lg:px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
           <div className="relative h-9 w-9 shrink-0 rounded-lg overflow-hidden ring-1 ring-amber-500/40 bg-slate-900">
+            {/* eslint-disable-next-line @next/next/no-img-element -- small inline brand glyph in a 9x9 box, intentional raw img to avoid next/image sizing/optimization side effects */}
             <img
               src="/pipeline-hero.png"
               alt="Pipeline"

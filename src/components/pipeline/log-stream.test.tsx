@@ -1,13 +1,4 @@
 import { describe, test, expect } from "bun:test";
-import { LogStream } from "./log-stream";
-
-// Mock dependencies required for LogStream to render without actual environment setup
-// Since LogStream relies heavily on hooks (usePipelineStore), we must mock them
-// to test the rendering logic based on mocked state.
-const mockUsePipelineStore = (selector: (s: any) => any) => {
-  // This mock function will be overridden in specific tests
-  return null;
-};
 
 // Mock the entire module structure to inject controlled state for testing
 // In a real setup, we would mock the dependency module (@/lib/pipeline-store)
@@ -33,15 +24,9 @@ const mockUsePipelineStore = (selector: (s: any) => any) => {
 // structure/text that *should* appear based on the state logic, acknowledging this is
 // a limitation of testing a React component purely with a runtime test runner.
 
-// Mocking the store to control state for testing logic branches
-const mockStore = {
-  loopState: { logs: [] },
-  wsConnected: false,
-};
-
 // Helper function to simulate rendering based on state (Conceptual, as actual rendering is impossible here)
-// In a real scenario, we'd use RTL and render(<LogStream />)
-const renderLogStream = (logs: any[], wsConnected: boolean) => {
+// In a real scenario, we'd use RTL and render the component
+const renderLogStream = (logs: { type: string }[], wsConnected: boolean) => {
     // This function conceptually returns the rendered output structure/props
     // For this test, we return the state that the component *reads*
     return { logs, wsConnected };

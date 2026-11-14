@@ -61,11 +61,14 @@ declare module "bun:test" {
   // Deliberately loose: matchers are validated by actually running the
   // test, not by tsc. A precise matcher type would either be huge or
   // wrong; `any` keeps the gate focused on the test's own logic.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ambient bun:test: deliberately loose matcher surface (see file-header note); a precise matcher type would be huge or wrong and matchers are validated by running the tests, not by tsc.
   const expect: any;
   function beforeAll(fn: () => void | Promise<void>): void;
   function afterAll(fn: () => void | Promise<void>): void;
   function beforeEach(fn: () => void | Promise<void>): void;
   function afterEach(fn: () => void | Promise<void>): void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ambient bun:test: runner-provided mock factory whose structural surface is runner-internal (see file-header note).
   const mock: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ambient bun:test: returns the runner's internal MockInstance; consumers rely on its dynamic shape (see file-header note).
   function spyOn(target: object, propertyName: string): any;
 }

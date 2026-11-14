@@ -4,8 +4,6 @@ import React from "react";
 
 // Mocking dependencies used in the source file for isolated testing
 // In a real setup, these would be mocked via jest/vitest, but for bun:test isolation, we simulate the environment.
-// Since we cannot import '@/lib/utils', we assume 'cn' merges strings correctly.
-const cn = (...classes: string[]) => classes.filter(Boolean).join(" ");
 
 // Mocking React environment for JSX rendering simulation (though bun:test doesn't run React, we test prop passing)
 // We will test prop passing and structure, not actual DOM rendering, as bun:test is not a browser test runner.

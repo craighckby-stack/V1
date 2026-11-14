@@ -206,7 +206,18 @@ function getHotSwapState(): HotSwapState {
 /** Capture the current loop runtime's public state via the global pin. */
 function snapshotLoop(): LoopSnapshot | null {
   try {
-    const g = globalThis as unknown as { __autonomousLoopRuntime?: any };
+    const g = globalThis as unknown as {
+      __autonomousLoopRuntime?: {
+        getState?: () => {
+          status?: string;
+          config?: Partial<LoopSnapshot["config"]>;
+          stats?: Partial<LoopSnapshot["stats"]>;
+        };
+        previouslyCommittedPaths?: unknown;
+        previouslyFailedPaths?: unknown;
+        previouslyStablePaths?: unknown;
+      };
+    };
     const rt = g.__autonomousLoopRuntime;
     if (!rt) return null;
     const state = rt.getState?.();
@@ -255,7 +266,7 @@ function snapshotLoop(): LoopSnapshot | null {
 function pauseLoop(): void {
   try {
     const g = globalThis as unknown as {
-      __autonomousLoopRuntime?: any;
+      __autonomousLoopRuntime?: { stop?: () => void };
       __oracleScheduler?: { timer?: ReturnType<typeof setInterval> | null };
       __oracleSchedulerTimer?: ReturnType<typeof setInterval> | null;
     };
@@ -298,7 +309,7 @@ function pauseLoop(): void {
  *  next import of each module will see no pin and create a fresh instance. */
 function clearPins(): string[] {
   const cleared: string[] = [];
-  const g = globalThis as any;
+  const g = globalThis as unknown as Record<string, unknown>;
   for (const pin of GLOBAL_PINS) {
     if (g[pin] !== undefined) {
       g[pin] = undefined;
@@ -311,7 +322,7 @@ function clearPins(): string[] {
 /** Stash the snapshot where the new loop-runtime constructor can find it.
  *  The constructor reads SNAPSHOT_SLOT on creation and restores. */
 function stashSnapshot(snap: LoopSnapshot, reason: string): void {
-  const g = globalThis as any;
+  const g = globalThis as unknown as Record<string, unknown>;
   g[SNAPSHOT_SLOT] = { ...snap, swappableReason: reason, stashedAt: Date.now() };
 }
 
@@ -347,7 +358,7 @@ export async function hotSwapPipeline(opts?: {
 
     if (opts?.dryRun) {
       const pinsPresent = GLOBAL_PINS.filter(
-        (p) => (globalThis as any)[p] !== undefined
+        (p) => (globalThis as unknown as Record<string, unknown>)[p] !== undefined
       );
       return {
         ok: true,
@@ -588,7 +599,7 @@ export async function getHotSwapSuccessCount(): Promise<number> {
  *  clear → "1111" again after re-pin, so the value the swap panel polls
  *  every 2s NEVER actually changed across a completed swap.) */
 export function runningPipelineFingerprint(): string {
-  const g = globalThis as any;
+  const g = globalThis as unknown as Record<string, unknown>;
   const pins = GLOBAL_PINS.map((p) => (g[p] !== undefined ? "1" : "0")).join("");
   const swapCount = getSwapCount();
   const mixed = `${pins}:${swapCount}`;
@@ -609,7 +620,7 @@ export function runningPipelineFingerprint(): string {
  *  the snapshot must survive all of them so the instance that finally
  *  arms gets the state. Returns null if no swap is pending. */
 export function consumeStashedSnapshot(): LoopSnapshot | null {
-  const g = globalThis as any;
+  const g = globalThis as unknown as Record<string, unknown>;
   const snap = g[SNAPSHOT_SLOT];
   if (!snap) return null;
   return snap as LoopSnapshot;
@@ -620,6 +631,6 @@ export function consumeStashedSnapshot(): LoopSnapshot | null {
  *  snapshot survives transient instances and is only taken by the
  *  one that persists. */
 export function clearStashedSnapshot(): void {
-  const g = globalThis as any;
+  const g = globalThis as unknown as Record<string, unknown>;
   g[SNAPSHOT_SLOT] = undefined;
 }

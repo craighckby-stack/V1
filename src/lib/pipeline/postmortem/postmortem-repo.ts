@@ -125,19 +125,6 @@ function postmortemFileCandidates(repo: string, branch: string, filePath: string
   return legacy === current ? [current] : [current, legacy];
 }
 
-/** Reverse: turn a postmortem filename back into a source filePath for
- *  listActive / enumeration (walkAndCollect). Current-form filenames
- *  embed the full basename, so the extension is derived from the JSON
- *  filename itself; legacy extension-less files lost that information
- *  when they were written and keep the pre-F14 ".ts" default. See
- *  walkAndCollect. */
-interface DiscoveredRecord {
-  repo: string;
-  branch: string;
-  filePath: string;
-  record: PostmortemRecord;
-}
-
 /** Shape written to disk. Stable, hand-readable, git-diff-friendly.
  *  Matches PostmortemRecord but with ISO timestamp strings (no Date
  *  objects in JSON) and no `id` field (the path IS the id).
