@@ -75,11 +75,20 @@ export function ApiUnlock() {
           cache: "no-store",
           signal: abortController.signal 
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+          setMutationGateConfigured(null);
+          return;
+        }
         const data = await response.json();
         if (cancelled) return;
+        
         const cfg = (data as { mutationGate?: { configured?: unknown } } | null)?.mutationGate?.configured;
-        setMutationGateConfigured(typeof cfg === "boolean" ? cfg : null);
+        
+        if (typeof cfg === "boolean") {
+          setMutationGateConfigured(cfg);
+        } else {
+          setMutationGateConfigured(null);
+        }
       } catch (error) {
         if (!cancelled && error instanceof Error && error.name !== "AbortError") {
           setMutationGateConfigured(null);
@@ -122,6 +131,7 @@ export function ApiUnlock() {
   const unlock = useCallback(() => {
     const key = value.trim();
     if (!key) {
+      // Input validation: do not proceed if key is empty or only whitespace
       return;
     }
     if (typeof window !== "undefined") {
