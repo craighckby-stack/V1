@@ -28,14 +28,18 @@ export async function GET() {
     // Ensure we return an array, defaulting to empty array if null or undefined
     return NextResponse.json({ entries: entries || [] });
   } catch (err: unknown) {
-    let errorMessage = "Failed to retrieve memory entries due to an internal service error.";
+    // Log the actual error for debugging purposes before sending a generic response
+    console.error("Error retrieving memory entries:", err);
+
+    let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
     
+    // Simplified error handling: if it's an Error instance, we know it has a message, 
+    // but we still return the generic message to prevent leaking internal stack traces.
     if (err instanceof Error) {
-      // Use a contextual message but avoid exposing raw internal error details in the public response body
-      errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
+      // Use the generic message as intended by the original logic's intent (hiding details)
     } else if (typeof err === 'object' && err !== null && 'message' in err) {
       // Handle objects that might resemble errors but aren't instances of Error
-      errorMessage = "An unknown error occurred while accessing the memory store. Please check server logs for details.";
+      // Still use the generic message for security/stability.
     }
     
     return NextResponse.json(
