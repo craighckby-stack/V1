@@ -93,11 +93,9 @@ function ensureKey(): Buffer | null {
       return key;
     } catch (error) {
       // Clean up temp file if it was created but rename failed
-      if (tmpCreated) {
+      if (tmpCreated && existsSync(tmp)) {
         try {
-          if (existsSync(tmp)) {
-            unlinkSync(tmp);
-          }
+          unlinkSync(tmp);
         } catch (e) {
           // Ignore cleanup failures
         }
