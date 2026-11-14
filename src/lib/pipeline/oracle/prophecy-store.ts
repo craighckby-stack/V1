@@ -41,10 +41,7 @@ export async function createProphecy(input: {
   domain?: string | null;
 }): Promise<ProphecyRow | null> {
   // Input validation - check required fields and confidence range
-  if (!input.claim || !input.rationale || !input.falsifiabilityCriterion) {
-    return null;
-  }
-  if (input.claim.trim() === '' || input.rationale.trim() === '' || input.falsifiabilityCriterion.trim() === '') {
+  if (!input.claim || input.claim.trim() === '' || !input.rationale || input.rationale.trim() === '' || !input.falsifiabilityCriterion || input.falsifiabilityCriterion.trim() === '') {
     return null;
   }
   if (typeof input.confidence !== 'number' || input.confidence < 0 || input.confidence > 1) {
@@ -76,7 +73,8 @@ export async function createProphecy(input: {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const claimSnippet = input.claim.substring(0, 30) + (input.claim.length > 30 ? '...' : '');
-    console.error(`Database error in createProphecy for claim "${claimSnippet}": DB operation failed. Full input context: ${JSON.stringify(input)}. Error: ${errorMessage}`);
+    const inputContext = JSON.stringify(input).length < 2048 ? JSON.stringify(input) : '[Input too large to log]';
+    console.error(`Database error in createProphecy for claim "${claimSnippet}": DB operation failed. Full input context: ${inputContext}. Error: ${errorMessage}`);
     return null;
   }
 }
@@ -273,10 +271,12 @@ export async function getProphecyCounts(): Promise<{
     // Process the groupBy results safely
     if (Array.isArray(result)) {
       result.forEach(item => {
-        const status = item.status;
-        if (status && ["pending", "fulfilled", "failed", "retired"].includes(status)) {
-          const key = status as keyof typeof counts;
-          counts[key] = item._count.status;
+        if (item && item.status && item._count && typeof item._count.status === 'number') {
+          const status = item.status;
+          if (["pending", "fulfilled", "failed", "retired"].includes(status)) {
+            const key = status as keyof typeof counts;
+            counts[key] = item._count.status;
+          }
         }
       });
     } else {
