@@ -40,19 +40,27 @@ export function OracleTaskFeedPanel() {
     setError(null);
     try {
       const response = await fetch("/api/self-enhance/tasks?limit=50");
-      if (!response.ok) {
-        throw new Error(`Failed to fetch tasks: HTTP ${response.status} ${response.statusText || ''}`);
-      }
-      const data = await response.json();
       
-      if (typeof data !== 'object' || data === null || !Array.isArray(data.tasks)) {
+      let responseBody: any = null;
+      try {
+        responseBody = await response.json();
+      } catch (e) {
+        // Ignore JSON parsing error if response is not JSON (e.g., 500 text error)
+      }
+
+      if (!response.ok) {
+        const errorDetail = responseBody?.message || response.statusText || 'No detailed error message provided.';
+        throw new Error(`Failed to fetch tasks: HTTP ${response.status}. Details: ${errorDetail}`);
+      }
+      
+      if (typeof responseBody !== 'object' || responseBody === null || !Array.isArray(responseBody.tasks)) {
         throw new Error("Invalid API response structure: Expected { tasks: SelfTask[] }, but received malformed data.");
       }
 
       // The API returns { tasks: [...], queue: {...} } — filter for the
       // oracle-failed-prophecy kind (the audit-8 closure: failed
       // prophecies that queued SelfTasks on the same file).
-      const allTasks: SelfTask[] = data.tasks;
+      const allTasks: SelfTask[] = responseBody.tasks;
       const oracleTasks = allTasks.filter((t) => t.kind === "oracle-failed-prophecy");
       setTasks(oracleTasks);
     } catch (err) {
