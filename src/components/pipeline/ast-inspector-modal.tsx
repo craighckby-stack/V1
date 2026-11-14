@@ -61,7 +61,7 @@ export function AstInspectorModal() {
                   {path}
                 </span>
               </div>
-              <div className="text-xs text-slate-400 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <div className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="inline-flex items-center gap-1">
                   <GitCommit className="h-3 w-3" /> proof {report?.proofCommitHash}
                 </span>
@@ -97,7 +97,7 @@ export function AstInspectorModal() {
                       toast({ title: "Failed to copy code", description: "Please try copying manually" });
                     });
                 }}
-                className="bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-cyan-500"
+                className="bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-cyan-500 h-9 px-3"
                 aria-label="Copy evolved code to clipboard"
               >
                 <Copy className="h-3.5 w-3.5 mr-1.5" />
@@ -107,7 +107,7 @@ export function AstInspectorModal() {
                 variant="ghost"
                 size="sm"
                 onClick={() => setInspectorFile(null)}
-                className="text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-slate-500"
+                className="text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-slate-500 h-9 w-9 p-0"
                 aria-label="Close inspector modal"
               >
                 <X className="h-4 w-4" />
@@ -120,7 +120,7 @@ export function AstInspectorModal() {
             <div className="bg-slate-950/60 overflow-y-auto p-4">
               <div className="text-xs uppercase tracking-widest text-slate-500 mb-2 flex items-center justify-between">
                 <span>Original</span>
-                <span className="font-mono text-slate-400">{original.length} bytes</span>
+                <span className="font-mono text-slate-300">{original.length} bytes</span>
               </div>
               <pre className="text-[11px] font-mono text-slate-300 whitespace-pre-wrap leading-relaxed">
                 {original}
@@ -129,7 +129,7 @@ export function AstInspectorModal() {
             <div className="bg-slate-950/60 overflow-y-auto p-4 border-l border-slate-800/60">
               <div className="text-xs uppercase tracking-widest text-slate-500 mb-2 flex items-center justify-between">
                 <span className="text-emerald-300">Evolved</span>
-                <span className="font-mono text-slate-400">{evolved.length} bytes</span>
+                <span className="font-mono text-slate-300">{evolved.length} bytes</span>
               </div>
               <pre className="text-[11px] font-mono text-emerald-200/90 whitespace-pre-wrap leading-relaxed">
                 {evolved}
@@ -143,15 +143,15 @@ export function AstInspectorModal() {
               <div className="text-[10px] uppercase tracking-widest text-slate-500">AST Symbol Map</div>
               <div className="text-xs text-slate-300 font-mono space-y-1">
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Original:</span>
+                  <span className="text-slate-300">Original:</span>
                   <span className="text-amber-300 font-medium">{ast?.symbolMap?.originalCount}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Proposed:</span>
+                  <span className="text-slate-300">Proposed:</span>
                   <span className="text-cyan-300 font-medium">{ast?.symbolMap?.proposedCount}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Retained:</span>
+                  <span className="text-slate-300">Retained:</span>
                   <span className="text-emerald-300 font-medium">{ast?.symbolMap?.retainedCount}</span>
                 </div>
               </div>
@@ -162,24 +162,24 @@ export function AstInspectorModal() {
             <div className="space-y-3">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Sanitizer</div>
               <div className="text-xs text-slate-300 flex justify-between items-center">
-                <span className="text-slate-400">Clean:</span>
+                <span className="text-slate-300">Clean:</span>
                 <span className={sanitizer?.clean ? "text-emerald-300 font-medium" : "text-rose-300 font-medium"}>
                   {sanitizer?.clean ? "YES" : "NO"}
                 </span>
               </div>
               <div className="text-xs text-slate-300 flex justify-between items-center">
-                <span className="text-slate-400">Violations:</span>
+                <span className="text-slate-300">Violations:</span>
                 <span className="font-mono text-amber-300">{sanitizer?.violations?.length || 0}</span>
               </div>
               <div className="text-xs text-slate-300 flex justify-between items-center">
-                <span className="text-slate-400">High-entropy:</span>
+                <span className="text-slate-300">High-entropy:</span>
                 <span className="font-mono text-amber-300">{sanitizer?.highEntropyTokensFound || 0}</span>
               </div>
             </div>
             <div className="space-y-3">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">AST Violations</div>
               {ast?.violations?.length === 0 ? (
-                <div className="text-xs text-emerald-300 flex items-center gap-1.5 p-2 bg-slate-800/30 rounded">
+                <div className="text-xs text-emerald-300 flex items-center gap-1.5 p-2 bg-slate-800/30 rounded transition-colors duration-150 hover:bg-slate-800/50">
                   <CheckCircle2 className="h-3 w-3" /> None — passed all gates
                 </div>
               ) : (

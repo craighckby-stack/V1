@@ -39,8 +39,8 @@ export async function workerFetch<T = unknown>(
   }
 
   // Input validation: Ensure init is an object if provided, not null
-  if (init === null || (typeof init !== 'object' && typeof init !== 'undefined')) {
-    console.error("workerFetch called with invalid or null init object.");
+  if (init !== undefined && (init === null || typeof init !== 'object')) {
+    console.error("workerFetch called with invalid init object: must be an object or undefined.");
     return null;
   }
   
@@ -111,6 +111,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   if (Date.now() - lastSpawnAt < 10_000 || isSpawning) return false;
   
   lastSpawnAt = Date.now();
+  const wasSpawning = isSpawning;
   isSpawning = true;
 
   let spawnSuccessful = false;
@@ -145,11 +146,10 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     spawnSuccessful = true;
   } catch (error) {
     console.error("Failed to spawn loop worker:", error);
-    // isSpawning will be reset in finally block
     return false;
   } finally {
-    // Reset isSpawning only if it was set to true at the start of this attempt
-    if (isSpawning) {
+    // Reset isSpawning only if we set it to true in this attempt
+    if (isSpawning && wasSpawning === false) {
         isSpawning = false;
     }
   }

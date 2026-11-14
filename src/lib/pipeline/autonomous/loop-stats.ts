@@ -116,7 +116,7 @@ export function readLoopStats(): LoopStatsState | null {
     for (const field of NUMERIC_FIELDS) {
       if (!(field in obj)) return null;
     }
-    if (!obj || !('lastEnhancementAt' in obj)) return null;
+    if (!('lastEnhancementAt' in obj)) return null;
 
     // Every numeric field must be a finite, non-negative integer.
     for (const field of NUMERIC_FIELDS) {
