@@ -72,8 +72,9 @@ export async function workerFetch<T = unknown>(
     if (res.ok) {
         try {
           data = await res.json();
-        } catch {
+        } catch (e) {
           // Failed to parse JSON on a successful response. Data remains null.
+          console.error(`Failed to parse JSON response from ${WORKER_URL}${pathname}:`, e);
           data = null;
         }
     }
@@ -148,7 +149,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     // If spawning fails, isSpawning will be reset in finally block
     return false;
   } finally {
-    // Reset isSpawning if it was set to true at the start of this attempt.
+    // Reset isSpawning only if it was set to true by this invocation.
     if (isSpawning) {
         isSpawning = false;
     }
