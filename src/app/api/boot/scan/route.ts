@@ -128,11 +128,15 @@ async function checkGitHubAuth(
     if (!res.ok) {
       return { ok: false, error: `HTTP ${res.status}: ${res.statusText || 'Unknown Error'}` };
     }
-    const user = (await res.json()) as { login?: string };
-    if (!user?.login) {
-      return { ok: false, error: "No login found in /user response body" };
+    try {
+      const user = (await res.json()) as { login?: string };
+      if (!user?.login) {
+        return { ok: false, error: "No login found in /user response body" };
+      }
+      return { ok: true, login: user.login };
+    } catch (e) {
+      return { ok: false, error: "Failed to parse JSON response from GitHub API" };
     }
-    return { ok: true, login: user.login };
   } catch (e) {
     if (e instanceof Error) {
       if (e.name === "AbortError") {

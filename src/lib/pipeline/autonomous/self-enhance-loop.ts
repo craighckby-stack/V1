@@ -2822,6 +2822,23 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       if (proactiveSkipped.size > 0) {
         files = files.filter((f) => !proactiveSkipped.has(f));
       }
+      // Move probe-deferred files to the FRONT of the list so the main
+      // loop reaches them FIRST — before any fresh file's enhanceFile
+      // 429s and triggers the cooldown break. Without this reordering,
+      // the probe files sit at their bandit position (bottom, near the
+      // exhausted files) and the cooldown break fires on a non-probe
+      // file before the probe is ever reached — the probe exemption
+      // (!proactiveProbes.has(file)) only helps when the probe IS the
+      // current file, not when non-probe files sit before it. By front-
+      // loading probes, the main loop processes them while the LLM is
+      // still cool (pre-pass ran no LLM calls), maximizing the chance
+      // the probe actually opens + resolves in one cycle.
+      if (proactiveProbes.size > 0) {
+        files = [
+          ...files.filter((f) => proactiveProbes.has(f)),
+          ...files.filter((f) => !proactiveProbes.has(f)),
+        ];
+      }
 
       // ── VISUAL-POLISH PRE-PASS (audit 6 — "still not enhancing its own
       //    ui look") ────────────────────────────────────────────────────
@@ -3035,11 +3052,12 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
                 continue;
               }
               // Probe path: fall through to the real attempt below with
-            // skipProbe=true, so the prediction row is tagged for the
-            // audit's skip-rule scoring section.
+              // skipProbe=true, so the prediction row is tagged for the
+              // audit's skip-rule scoring section.
+            }
+          } catch {
+            /* self-model unavailable — proceed to LLM call (honest) */
           }
-        } catch {
-          /* self-model unavailable — proceed to LLM call (honest) */
         }
 
         // Mid-cycle gate escalation: a previous file's ratchet 429'd and set
@@ -3054,8 +3072,18 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         // lookup and doesn't need the LLM) so exhausted files are still
         // skipped for free during cooldown — only files that actually need
         // an LLM call (enhanceFile below) honor the break.
+        // PROBE EXCEPTION: a pre-pass-deferred skip-probe (proactiveProbes)
+        // must NOT be blocked by the cooldown break — the whole point of
+        // the probe is to spend the LLM call to score the skip rule, and
+        // breaking here would leave the probe prediction unopened forever.
+        // The probe file falls through to openSelfPrediction (opens the
+        // tagged row) + enhanceFile (which has its own cooldown checkpoint
+        // and will defer cleanly if the gate is still closed). The
+        // prediction row stays pending until a future cycle retries and
+        // resolves it — the skip-probe calibration counts resolved probes,
+        // so it populates once the attempt eventually completes.
         const cdBefore = llmCooldownMs();
-        if (cdBefore > 0 && this.continuous) {
+        if (cdBefore > 0 && this.continuous && !proactiveProbes.has(file)) {
           this.log(`LLM cooldown escalated mid-cycle — ending cycle (will pause ${Math.round(cdBefore / 1000)}s before next cycle)`, "warn");
           break;
         }

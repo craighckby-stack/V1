@@ -8,12 +8,12 @@
   "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/triage] newly-introduced dangerous token: import child_process (occurrences 0 → 1)",
   "evidence": "Original: 6522 bytes, Refactored: 6491 bytes. Errors: [mutation-guard/triage] newly-introduced dangerous token: import child_process (occurrences 0 → 1)",
   "constraints": "The previous refactor of src/lib/pipeline/autonomous/loop-worker-client.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
-  "attempts": 9,
-  "parentHash": "6de479e0dd950cfdd7e2c7b04057d6244c21dbe2e65baace692745eebf886d82",
-  "hash": "39308b38a6b028cd5185cdf7dd817348bb2157a0ad024910609d8b6afb16d5a8",
-  "lastAttemptAt": "2026-11-14T00:42:06.832Z",
+  "attempts": 10,
+  "parentHash": "cf7eba9d1823d707011c0cd1a28388773cbf24d12498f3d77720cdbffa742ea0",
+  "hash": "e501432b2b2d1a9907afcd840da8315907e610f044bc14a625a204e7a8c5e5cc",
+  "lastAttemptAt": "2026-11-14T01:18:58.751Z",
   "resolvedAt": null,
   "createdAt": "2026-11-14T00:02:58.098Z",
-  "updatedAt": "2026-11-14T00:42:06.832Z",
+  "updatedAt": "2026-11-14T01:18:58.751Z",
   "schema": 2
 }
