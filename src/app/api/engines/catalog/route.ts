@@ -34,7 +34,7 @@ export async function GET() {
     const sources: CatalogEntry[] = SIPHON_SOURCES.map((source) => {
       if (!source || !source.patterns) {
         // Throwing here will be caught by the outer try/catch
-        throw new Error(`Invalid siphon source found: source object is missing required 'patterns' property.`);
+        throw new Error(`Invalid siphon source found: source object is missing required 'patterns' property. Source data: ${JSON.stringify(source)}`);
       }
       
       return {
@@ -51,8 +51,9 @@ export async function GET() {
     return NextResponse.json({ sources });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during catalog retrieval.";
+    // Do not expose detailed internal error messages in the public API response.
     return NextResponse.json(
-      { error: `Failed to retrieve catalog from /api/engines/catalog. Check server logs for details. Reason: ${errorMessage}` },
+      { error: "Failed to retrieve catalog. Please check server logs for specific details." },
       { status: 500 }
     );
   }
