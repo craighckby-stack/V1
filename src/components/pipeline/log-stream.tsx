@@ -97,7 +97,8 @@ export function LogStream() {
                     : 'unknown';
                   
                   // Use a stable identifier. Prioritize 'id', then combine stable fields.
-                  const key = logEntry.id || `${timestamp}-${sourceKey}-${logEntry.message || ''}`; 
+                  const messageString = logEntry.message ? String(logEntry.message) : '';
+                  const key = logEntry.id || `${timestamp}-${sourceKey}-${messageString}`; 
                   
                   return (
                     <motion.div
@@ -117,7 +118,7 @@ export function LogStream() {
                       >
                         {sourceKey}
                       </span>
-                      <span className="text-slate-200 leading-relaxed break-all flex-1">{logEntry.message || ''}</span>
+                      <span className="text-slate-200 leading-relaxed break-all flex-1">{messageString}</span>
                     </motion.div>
                   );
                 })}
