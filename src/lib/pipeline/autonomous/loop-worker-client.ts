@@ -153,6 +153,9 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     // Reset isSpawning only if we were the ones who set it to true in this attempt
     if (wasSpawning === false && isSpawning) {
         isSpawning = false;
+    } else if (wasSpawning === false && !isSpawning) {
+        // This branch should ideally not be hit if logic is perfect, but ensures reset if try block completed without setting isSpawning=true
+        isSpawning = false;
     }
   }
 
