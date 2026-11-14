@@ -75,9 +75,8 @@ const DIM_COLOR = "#777777";
  * as "no sort key" and leave the line in its original position.
  */
 function parseTs(ts: string): number {
-  if (!ts) return NaN;
+  if (typeof ts !== 'string' || ts.trim().length === 0) return NaN;
   const s = ts.trim();
-  if (s.length === 0) return NaN;
 
   // Full ISO-8601 with a date component, e.g. "2026-11-14T00:03:48.099Z"
   // or "2026-11-14T00:03:48.099+00:00". Date handles these natively.
@@ -157,7 +156,7 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
     // Stable sort: key = parsed epoch (NaN → +∞ so unparseable log
     // lines sink to the bottom of their run, preserving arrival order
     // among themselves via the index tiebreak).
-    const keyed = buf.map((l, i) => ({ l, k: parseTs(l.ts ?? ""), i }));
+    const keyed = buf.map((l, i) => ({ l, k: l.ts ? parseTs(l.ts) : NaN, i }));
     keyed.sort((a, b) => {
       const ka = Number.isNaN(a.k) ? Infinity : a.k;
       const kb = Number.isNaN(b.k) ? Infinity : b.k;
