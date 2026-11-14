@@ -61,7 +61,7 @@ export interface SelfEnhanceArmedState {
  *  flag remains the live source; the disk file is the restart tier). */
 export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   if (!PROJECT_ROOT || !ARMED_STATE_FILE) {
-    console.error(`markSelfEnhanceArmed: PROJECT_ROOT is not defined or ARMED_STATE_FILE could not be constructed. Cannot write armed state. PROJECT_ROOT: ${PROJECT_ROOT}`);
+    console.error(`markSelfEnhanceArmed: Cannot write armed state because PROJECT_ROOT is not defined. PROJECT_ROOT: ${PROJECT_ROOT}`);
     return;
   }
   if (typeof armed !== "boolean") {
@@ -105,12 +105,14 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
     const parsed: unknown = JSON.parse(raw);
 
+    if (typeof parsed !== 'object' || parsed === null) {
+        return null;
+    }
+
     const state = parsed as SelfEnhanceArmedState;
 
     // Validate the parsed object structure strictly against the interface
     if (
-      typeof state === 'object' &&
-      state !== null &&
       'armed' in state &&
       'at' in state &&
       'by' in state &&
