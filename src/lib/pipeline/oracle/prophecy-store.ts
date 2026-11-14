@@ -279,6 +279,8 @@ export async function getProphecyCounts(): Promise<{
           counts[key] = item._count.status;
         }
       });
+    } else {
+      console.error("Unexpected result type in getProphecyCounts groupBy operation");
     }
     
     // Calculate total by summing individual counts
