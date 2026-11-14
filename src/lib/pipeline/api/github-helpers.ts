@@ -53,12 +53,7 @@ export function githubHeaders(token: string | null | undefined): Record<string, 
     };
   }
 
-  if (typeof token !== 'string') {
-    // This path should theoretically not be hit if the initial check is correct, 
-    // but it guards against unexpected types if the signature is bypassed.
-    throw new Error(`Invalid token provided: expected string, null, or undefined, but received ${typeof token}`);
-  }
-
+  // Since we checked for null/undefined above, token must be a string here.
   const trimmedToken = token.trim();
 
   if (trimmedToken.length < MIN_TOKEN_LENGTH) {
