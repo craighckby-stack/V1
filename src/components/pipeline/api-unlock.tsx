@@ -99,12 +99,7 @@ export function ApiUnlock() {
       }
     };
 
-    checkHealthz().catch(() => {
-      // Ensure we handle any uncaught promise rejections, but only if state isn't set
-      if (!cancelled && mutationGateConfigured === null) {
-        // If we reach here and state is still null, it's likely a transient error, so we do nothing (keep null)
-      }
-    });
+    checkHealthz();
 
     const onUnauthorized = () => setLocked(true);
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
@@ -116,7 +111,7 @@ export function ApiUnlock() {
       }
       window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     };
-  }, [mutationGateConfigured]);
+  }, []);
 
   // Escape dismisses the panel until the next 401.
   useEffect(() => {
