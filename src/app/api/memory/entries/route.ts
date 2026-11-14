@@ -11,13 +11,6 @@ export const runtime = "nodejs";
  * memory entry (clean patterns, failure diagnoses, etc.).
  */
 export async function GET() {
-  if (!emgRagInstance) {
-    return NextResponse.json(
-      { error: "Memory service is not properly initialized. Check service startup logs." },
-      { status: 500 }
-    );
-  }
-
   try {
     // Ensure the RAG memory store is seeded
     await emgRagInstance.ensureSeeded();
