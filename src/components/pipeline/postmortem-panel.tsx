@@ -61,8 +61,8 @@ export function PostmortemPanel() {
         throw new Error(`Failed to fetch postmortems: ${res.statusText}`);
       }
       const data = await res.json();
-      if (data && typeof data === 'object' && Array.isArray((data as any).postmortems)) {
-        setPostmortems((data as any).postmortems);
+      if (typeof data === 'object' && data !== null && Array.isArray((data as { postmortems: PostmortemRecord[] }).postmortems)) {
+        setPostmortems((data as { postmortems: PostmortemRecord[] }).postmortems);
       } else {
         console.error("API response structure invalid: expected { postmortems: [...] }", data);
         toast({

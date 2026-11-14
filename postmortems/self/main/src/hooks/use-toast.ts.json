@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/hooks/use-toast.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/ast-inspector-modal.tsx(97,31): error TS2345: Argument of type '{ title: string; description: string; }' is not assignable to parameter of type 'Toast'.\n  Type '{ title: string; description: string; }' is missing the following properties from type 'Toast': open, onOpenChange; src/components/pipeline/ast-inspector-modal.tsx(100,31): error TS2345: Argument of type '{ title: string; description: string; }' is not assignable to parameter of type 'Toast'.\n  Type '{ title: string; description: string; }' is missing the following properties from type 'Toast': open, onOpenChange; src/components/pipeline/loop-control-panel.tsx(119,13): error TS2345: Argument of type '{ title: string; description: string; }' is not assignable to parameter of type 'Toast'.\n  Type '{ title: string; description: string; }' is missing the following properties from type 'Toast': open, onOpenChange",
@@ -12,8 +12,8 @@
   "parentHash": "566ff88ff20b790dbf9c69cacdfc6bb67c799898427255385d755b341fb17eff",
   "hash": "73f4ec65e9f257918255db061cc9b9fa428baa06355cff20d99fa39344748142",
   "lastAttemptAt": "2026-11-14T10:38:22.152Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-14T11:29:05.248Z",
   "createdAt": "2026-11-14T09:26:39.559Z",
-  "updatedAt": "2026-11-14T10:38:22.152Z",
+  "updatedAt": "2026-11-14T11:29:05.248Z",
   "schema": 2
 }
