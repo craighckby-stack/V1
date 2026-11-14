@@ -59,7 +59,9 @@ const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
 
 const addToRemoveQueue = (toastId: string) => {
   if (toastTimeouts.has(toastId)) {
-    return
+    // Clear existing timeout if present before setting a new one, though usually not needed for removal
+    clearTimeout(toastTimeouts.get(toastId))
+    toastTimeouts.delete(toastId)
   }
 
   const timeout = setTimeout(() => {
@@ -92,13 +94,15 @@ export const reducer = (state: State, action: Action): State => {
     case "DISMISS_TOAST": {
       const { toastId } = action
 
-      // ! Side effects ! - This could be extracted into a dismissToast() action,
-      // but I'll keep it here for simplicity
-      if (toastId) {
-        addToRemoveQueue(toastId)
-      } else {
-        state.toasts.forEach((toast) => {
-          addToRemoveQueue(toast.id)
+      // Clear timeout if one exists for the specific toastId
+      if (toastId && toastTimeouts.has(toastId)) {
+        clearTimeout(toastTimeouts.get(toastId))
+        toastTimeouts.delete(toastId)
+      } else if (!toastId) {
+        // If no specific ID, clear all timeouts
+        toastTimeouts.forEach((timeout, id) => {
+          clearTimeout(timeout)
+          toastTimeouts.delete(id)
         })
       }
 
@@ -111,10 +115,9 @@ export const reducer = (state: State, action: Action): State => {
     }
     case "REMOVE_TOAST":
       if (action.toastId === undefined) {
-        return {
-          ...state,
-          toasts: [],
-        }
+        // If REMOVE_TOAST is dispatched without an ID, we cannot safely clear toasts.
+        // Returning current state prevents accidental clearing of all toasts.
+        return state
       }
       return {
         ...state,
