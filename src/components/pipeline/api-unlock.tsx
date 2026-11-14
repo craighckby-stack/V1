@@ -111,7 +111,7 @@ export function ApiUnlock() {
       }
       window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     };
-  }, [mutationGateConfigured]); // Dependency array is correct, but ensuring it's present for completeness
+  }, []); // Removed mutationGateConfigured from dependency array as it is the state being set
 
   // Escape dismisses the panel until the next 401.
   useEffect(() => {
