@@ -19,7 +19,7 @@ export function ensureAudio(): AudioContext | null {
       try {
         ctx.resume();
       } catch (e) {
-        console.error("Failed to resume AudioContext:", e instanceof Error ? e.message : String(e));
+        console.error("Failed to resume AudioContext:", e instanceof Error ? e.message : String(e), "Check if user interaction has occurred or if context is already terminated.");
         return null;
       }
     }
@@ -37,7 +37,7 @@ export function ensureAudio(): AudioContext | null {
     ctx = new AC();
     return ctx;
   } catch (e) {
-    console.error("Failed to initialize AudioContext:", e instanceof Error ? e.message : String(e));
+    console.error("Failed to initialize AudioContext:", e instanceof Error ? e.message : String(e), "Ensure the environment supports WebAudio API.");
     return null;
   }
 }
@@ -63,12 +63,13 @@ function tone(
   opts?: { type?: OscillatorType; peak?: number; slideTo?: number },
 ) {
   if (dur <= 0 || freq <= 0) return; // Input validation
+  if (!opts) return; // Guard against undefined opts
   const osc = c.createOscillator();
   const g = c.createGain();
-  osc.type = opts?.type ?? "square";
+  osc.type = opts.type ?? "square";
   osc.frequency.setValueAtTime(Math.max(20, freq), t);
-  if (opts?.slideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(20, opts.slideTo), t + dur);
-  const peak = opts?.peak ?? 0.35;
+  if (opts.slideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(20, opts.slideTo), t + dur);
+  const peak = opts.peak ?? 0.35;
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(peak, t + 0.015);
   g.gain.setValueAtTime(peak, t + dur * 0.7);
@@ -83,7 +84,7 @@ function tone(
 let noiseBuf: AudioBuffer | null = null;
 
 function noise(c: AudioContext, t: number, dur: number, peak: number, freq: number) {
-  if (dur <= 0 || freq <= 0) return; // Input validation
+  if (dur <= 0 || freq <= 0 || peak <= 0) return; // Input validation
   if (!noiseBuf || noiseBuf.sampleRate !== c.sampleRate) {
     noiseBuf = c.createBuffer(1, Math.floor(c.sampleRate * 0.5), c.sampleRate);
     const d = noiseBuf.getChannelData(0);
