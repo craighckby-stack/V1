@@ -141,6 +141,11 @@ io.on("connection", (socket) => {
 let pollFailureCount = 0;
 
 async function pollNextJsState() {
+  if (!NEXTJS_STATUS_URL) {
+    console.error("[LOOP-WS] Configuration error: NEXTJS_STATUS_URL is not set. Cannot poll Next.js state.");
+    nextJsReachable = false;
+    return;
+  }
   try {
     const res = await fetch(NEXTJS_STATUS_URL, {
       headers: { Accept: "application/json" },
@@ -172,13 +177,13 @@ async function pollNextJsState() {
   } catch (err) {
     nextJsReachable = false;
     const errorMessage = err instanceof Error ? err.message : String(err);
-    if (pollFailureCount % 10 === 0) {
-      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}) accessing ${NEXTJS_STATUS_URL}: ${errorMessage}. Check if Next.js server is running.`);
-    } else {
-      // Log subsequent failures less verbosely but still capture them
-      console.error(`[LOOP-WS] poll failed (#${pollFailureCount + 1}) accessing ${NEXTJS_STATUS_URL}: ${errorMessage}. Check if Next.js server is running.`);
-    }
     pollFailureCount++;
+    if (pollFailureCount % 10 === 1) { // Log first of every 10 failures
+      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount}) accessing ${NEXTJS_STATUS_URL}: ${errorMessage}. Check if Next.js server is running.`);
+    } else {
+      // Log subsequent failures less verbosely
+      console.error(`[LOOP-WS] poll failed (#${pollFailureCount}) accessing ${NEXTJS_STATUS_URL}: ${errorMessage}. Check if Next.js server is running.`);
+    }
   }
 }
 
