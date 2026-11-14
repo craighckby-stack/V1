@@ -50,6 +50,8 @@ export function CurrentCycle() {
     return "bg-rose-500/15 text-rose-300 border-rose-500/40";
   };
 
+  const fileResults = cycle.fileResults;
+
   return (
     <Card
       className={cn(
@@ -107,12 +109,12 @@ export function CurrentCycle() {
         </div>
       </CardHeader>
       <CardContent>
-        {(!cycle.fileResults || cycle.fileResults.length === 0) ? (
+        {(!fileResults || fileResults.length === 0) ? (
           <p className="text-sm text-slate-500 italic">No file results yet…</p>
         ) : (
           <div className="space-y-2 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
             <AnimatePresence initial={false}>
-              {cycle.fileResults.map((r, idx) => (
+              {fileResults.map((r, idx) => (
                 <motion.div
                   key={`${r.path}-${idx}`}
                   initial={{ opacity: 0, y: 10 }}
@@ -153,8 +155,8 @@ export function CurrentCycle() {
         <div className="flex items-center gap-3 pt-4 mt-3 border-t border-slate-800/60 text-xs text-slate-500">
           <Cpu className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
           <span className="text-sm">
-            {cycle.fileResults?.length || 0} file(s) processed · {cycle.fileResults?.filter((r) => r.pushed).length || 0} pushed
-            · proof {cycle.fileResults && cycle.fileResults.length > 0 ? cycle.fileResults[0].proofHash.substring(0, 8) + '...' : "—"}
+            {fileResults?.length || 0} file(s) processed · {fileResults?.filter((r) => r.pushed).length || 0} pushed
+            · proof {fileResults && fileResults.length > 0 ? fileResults[0].proofHash.substring(0, 8) + '...' : "—"}
           </span>
         </div>
       </CardContent>
