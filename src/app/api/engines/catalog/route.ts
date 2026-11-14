@@ -47,19 +47,10 @@ export async function GET() {
     
     return NextResponse.json({ sources });
   } catch (err) {
-    let errorMessage = "An unknown server error occurred while retrieving the catalog.";
-    if (err instanceof Error) {
-      errorMessage = err.message;
-    } else if (typeof err === 'object' && err !== null && 'message' in err) {
-      // Handle cases where err is an object but not an Error instance (e.g., { message: "..." })
-      errorMessage = String((err as { message: string }).message);
-    } else {
-      errorMessage = String(err);
-    }
-
     // Log the detailed error internally for debugging, providing context about the operation.
-    console.error("Error retrieving siphon catalog: Operation failed. Details:", errorMessage, err);
+    console.error("Error retrieving siphon catalog: Operation failed.", err);
     
+    // Return a generic error message to the client to prevent leaking internal stack traces or implementation details.
     return NextResponse.json(
       { error: "Failed to retrieve catalog due to a server error. Please check server logs for specific details." },
       { status: 500 }
