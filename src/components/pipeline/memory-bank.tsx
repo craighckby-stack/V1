@@ -31,8 +31,13 @@ export function MemoryBank() {
         
         if (!cancelled && typeof data === 'object' && data !== null && Array.isArray(data.entries)) {
           setEntries(data.entries);
-        } else if (!cancelled && !Array.isArray(data?.entries)) {
-          console.error("API response validation failed: 'entries' field is not an array or data is malformed.", data);
+        } else if (!cancelled) {
+          if (!Array.isArray(data?.entries)) {
+            console.error("API response validation failed: 'entries' field is not an array or data is malformed.", data);
+          } else {
+            // This branch should ideally not be hit if the first check passed, but handles unexpected structure if data is not an object/null
+            console.error("API response structure unexpected: data is not a valid object containing 'entries'.", data);
+          }
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred during memory fetch.";
