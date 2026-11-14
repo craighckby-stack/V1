@@ -175,6 +175,15 @@ function bootOracleScheduler(): void {
 
   // First tick after a short delay (not immediately) — gives the
   // server a moment to finish booting before we touch the DB/LLM.
+  if (TICK_MS <= 0) {
+    emitOracleEvent(
+      `Scheduler configuration error: TICK_MS (${TICK_MS}) must be positive. Scheduler not started.`,
+      "error",
+      "scheduler",
+    );
+    return;
+  }
+
   const timer = setInterval(() => {
     oracleSchedulerTick().catch((err) => {
       // A background bookkeeper must never crash the process.
