@@ -84,7 +84,7 @@ export function OracleTaskFeedPanel() {
     return () => clearInterval(interval);
   }, [fetchTasks]);
 
-  if (loading && tasks.length === 0) {
+  if (loading) {
     return (
       <Card className="w-full">
         <CardHeader>
@@ -153,7 +153,7 @@ export function OracleTaskFeedPanel() {
                         <StatusIcon className="h-2.5 w-2.5" />
                         {style.label}
                       </Badge>
-                    </div >
+                    </div>
                     <p className="text-[10px] text-muted-foreground line-clamp-2" title={task.evidence}>
                       {task.evidence}
                     </p>
@@ -166,7 +166,7 @@ export function OracleTaskFeedPanel() {
                             err: {task.lastError.slice(0, 60)}
                           </span>
                         )}
-                      </div >
+                      </div>
                     )}
                   </li>
                 );
