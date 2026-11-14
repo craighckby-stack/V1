@@ -195,8 +195,8 @@ async function main() {
             return json({ ok: false, error: "Invalid JSON body provided: Could not parse request body" }, 400);
           }
 
-          if (!body.filePath || typeof body.filePath !== 'string' || body.filePath.trim() === '') {
-            return json({ ok: false, error: "filePath must be a non-empty string" }, 400);
+          if (!body || typeof body !== 'object' || !body.filePath || typeof body.filePath !== 'string' || body.filePath.trim() === '') {
+            return json({ ok: false, error: "filePath must be a non-empty string in the request body" }, 400);
           }
           
           const result = loop.unlockFile(body.filePath);
