@@ -58,9 +58,9 @@ interface State {
 const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
 
 const addToRemoveQueue = (toastId: string) => {
-  if (toastTimeouts.has(toastId)) {
-    // Clear existing timeout if present before setting a new one, though usually not needed for removal
-    clearTimeout(toastTimeouts.get(toastId))
+  const existingTimeout = toastTimeouts.get(toastId)
+  if (existingTimeout) {
+    clearTimeout(existingTimeout)
     toastTimeouts.delete(toastId)
   }
 
@@ -140,7 +140,7 @@ function dispatch(action: Action) {
 type Toast = Omit<ToasterToast, "id">
 
 function toast({ ...props }: Toast) {
-  if (!props.title || !props.description) {
+  if (!props || !props.title || !props.description) {
     throw new Error("Toast must provide both 'title' and 'description' to be displayed.")
   }
   const id = genId()
