@@ -72,6 +72,10 @@ export function LogStream() {
             ) : (
               <AnimatePresence initial={false}>
                 {logs.map((entry) => {
+                  if (typeof entry !== 'object' || entry === null) {
+                    return null; // Skip non-object entries safely
+                  }
+                  
                   // Safely access type with fallback
                   const typeKey = (entry.type && typeof entry.type === 'string' && Object.keys(TYPE_ICON).includes(entry.type))
                     ? entry.type as keyof typeof TYPE_ICON
