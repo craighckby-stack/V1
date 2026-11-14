@@ -29,11 +29,16 @@ function isInvalidToken(token: string): boolean {
  * identical — the latent hole is closed.
  */
 export function getUsableToken(clientToken?: string): string | null {
-  if (typeof clientToken !== 'string' || !clientToken) {
+  if (typeof clientToken !== 'string') {
     return null;
   }
   
   const candidate = clientToken.trim();
+  
+  if (!candidate) {
+    // Must return null for empty string to match test behavior (returns null for empty string)
+    return null;
+  }
   
   if (
     candidate.length < MIN_TOKEN_LENGTH ||
@@ -53,7 +58,7 @@ export function githubHeaders(token: string | null | undefined): Record<string, 
     };
   }
 
-  // Since we checked for null/undefined above, token must be a string here.
+  // token is guaranteed to be a string here
   const trimmedToken = token.trim();
 
   if (trimmedToken.length < MIN_TOKEN_LENGTH) {
