@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { seedPostmortemsFromMarkdown } from "@/lib/pipeline/postmortem/postmortem-store";
-import { parseBody, isRepoRelativePath } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const seedSchema = z.object({
-  markdown: z.string().min(1).max(2_000_000),
-  repo: z.string().min(1).max(200),
-  branch: z.string().min(1).max(100),
-  filePath: z.string().min(1).max(500).optional(),
-}).strict();
+interface SeedRequest {
+  markdown: string;
+  repo: string;
+  branch: string;
+  /** Optional direct path override — validated below if present. */
+  filePath?: string;
+}
 
 /**
  * Extract every filePath the store's markdown parser would seed. Mirrors
@@ -37,23 +36,32 @@ function extractSeededFilePaths(markdown: string): string[] {
  */
 export async function POST(req: Request) {
   try {
-    const parsed = await parseBody(req, seedSchema);
-    if (!parsed.ok) return parsed.response;
-    const body = parsed.data;
+    const body = (await req.json()) as SeedRequest;
+    if (!body.markdown || typeof body.markdown !== "string") {
+      return NextResponse.json(
+        { error: "markdown (string) is required" },
+        { status: 400 }
+      );
+    }
+    if (!body.repo || !body.branch) {
+      return NextResponse.json(
+        { error: "repo and branch are required" },
+        { status: 400 }
+      );
+    }
 
     // AUDIT 3 F4a — traversal via seeded filePath previously reached
     // writeFileSync outside postmortems/. The store side is hardened
     // separately; this is the ROUTE gate: every filePath embedded in the
     // markdown entry headers (or passed directly on the body) is checked
     // for traversal / absolute-path shapes BEFORE the store is called.
-    // Uses the shared isRepoRelativePath helper so it also catches Windows
-    // drive-letter paths (C:\…), UNC (\\…), and ~ shorthands that the old
-    // inline check missed (audit H8).
     const seededPaths = extractSeededFilePaths(body.markdown);
-    if (body.filePath && body.filePath.trim() !== "") {
+    if (typeof body.filePath === "string" && body.filePath.trim() !== "") {
       seededPaths.push(body.filePath);
     }
-    const badPaths = seededPaths.filter((p) => !isRepoRelativePath(p));
+    const badPaths = seededPaths.filter(
+      (p) => p.includes("..") || p.startsWith("/") || p.startsWith("\\")
+    );
     if (badPaths.length > 0) {
       return NextResponse.json(
         {

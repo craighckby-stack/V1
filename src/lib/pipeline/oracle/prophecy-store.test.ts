@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createProphecy, listPendingProphecies, listDueProphecies, listRecentProphecies, getProphecy, judgeProphecy, getProphecyCounts, getJudgedPropheciesForCalibration } from "./prophecy-store";
+import { createProphecy, listPendingProphecies, listDueProphecies, listRecentProphecies, getProphecy, judgeProphecy, getProphecyCounts, getJudgedPropheciesForCalibration, type ProphecyRow } from "./prophecy-store";
 
 describe("prophecy-store", () => {
   // Test createProphecy
@@ -20,12 +20,12 @@ describe("prophecy-store", () => {
     const result = await createProphecy(input);
     
     expect(result).not.toBeNull();
-    expect(result?.claim).toBe(input.claim);
-    expect(result?.confidence).toBe(input.confidence);
-    expect(result?.status).toBe("pending");
-    expect(result?.contextSha).toBe(input.contextSha);
-    expect(result?.historySnapshot).toBe(input.historySnapshot);
-    expect(result?.domain).toBe(input.domain);
+    expect(result!.claim).toBe(input.claim);
+    expect(result!.confidence).toBe(input.confidence);
+    expect(result!.status).toBe("pending");
+    expect(result!.contextSha).toBe(input.contextSha);
+    expect(result!.historySnapshot).toBe(input.historySnapshot);
+    expect(result!.domain).toBe(input.domain);
   });
 
   // Test listPendingProphecies
@@ -82,7 +82,7 @@ describe("prophecy-store", () => {
     if (allProphecies.length > 0) {
       const prophecy = await getProphecy(allProphecies[0].id);
       expect(prophecy).not.toBeNull();
-      expect(prophecy?.id).toBe(allProphecies[0].id);
+      expect(prophecy!.id).toBe(allProphecies[0].id);
     }
     
     // Test with an invalid ID
@@ -112,15 +112,15 @@ describe("prophecy-store", () => {
     const judged = await judgeProphecy(newProphecy.id, verdict, evaluation);
     
     expect(judged).not.toBeNull();
-    expect(judged?.status).toBe(verdict);
-    expect(judged?.evaluation).toBe(evaluation);
-    expect(judged?.evaluatedAt).not.toBeNull();
+    expect(judged!.status).toBe(verdict);
+    expect(judged!.evaluation).toBe(evaluation);
+    expect(judged!.evaluatedAt).not.toBeNull();
     
     // Verify the update persisted
     const updated = await getProphecy(newProphecy.id);
-    expect(updated?.status).toBe(verdict);
-    expect(updated?.evaluation).toBe(evaluation);
-    expect(updated?.evaluatedAt).not.toBeNull();
+    expect(updated!.status).toBe(verdict);
+    expect(updated!.evaluation).toBe(evaluation);
+    expect(updated!.evaluatedAt).not.toBeNull();
   });
 
   // Test getProphecyCounts

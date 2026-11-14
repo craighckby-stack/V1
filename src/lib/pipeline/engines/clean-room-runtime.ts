@@ -118,54 +118,12 @@ export class UnifiedModelStreamAdapter {
 export class ToolSandboxVFSEngine {
   private readonly memoryFs = new Map<string, string>();
 
-  /**
-   * Normalize and validate a virtual path inside the sandbox VFS.
-   *
-   * The old guard only blocked the literal substring "../" — it missed:
-   *   - URL-encoded `..%2f` (decode after the substring check)
-   *   - `..\` (only forward slashes were normalized AFTER the check)
-   *   - `foo/..` (no trailing slash — `includes("../")` is false)
-   *   - `..` alone (the `=== ".."` branch was the only catch)
-   *
-   * The robust approach: normalize backslashes → forward slashes, URL-
-   * decode once, then resolve `.` / `..` segments by walking the path.
-   * If a `..` tries to pop above the VFS root, reject. This is the same
-   * defense `path.resolve()` uses for the real filesystem, applied to
-   * the virtual one.
-   */
   private sanitizePath(path: string): string {
-    // 1. Backslash → forward slash (Windows-style inputs).
-    let normalized = path.replace(/\\/g, "/");
-    // 2. URL-decode ONCE so `%2e%2e%2f` → `../` before the segment walk.
-    //    A second decode is unnecessary and would double-decode literal
-    //    `%2525`-style inputs that legitimately contain `%2f` as data.
-    try {
-      normalized = decodeURIComponent(normalized);
-    } catch {
-      // Malformed % sequence — leave as-is; the segment walk will reject
-      // any `..` it can find and otherwise treat the rest as a literal
-      // filename (which is safe inside an in-memory VFS).
+    const normalized = path.replace(/\\/g, "/");
+    if (normalized.includes("../") || normalized.startsWith("../") || normalized === "..") {
+      throw new Error(`SECURITY ALERT: Path traversal barrier breached (${path}). Sandbox access denied.`);
     }
-    // 3. Walk segments. `.` and empty are dropped; `..` pops the parent
-    //    or, if there's no parent (we're at root), triggers the security
-    //    rejection.
-    const segments: string[] = [];
-    for (const raw of normalized.split("/")) {
-      const seg = raw;
-      if (seg === "" || seg === ".") continue;
-      if (seg === "..") {
-        if (segments.length === 0) {
-          throw new Error(
-            `SECURITY ALERT: Path traversal barrier breached (${path}). ` +
-              `Sandbox access denied — path escapes the VFS root.`
-          );
-        }
-        segments.pop();
-        continue;
-      }
-      segments.push(seg);
-    }
-    return segments.join("/");
+    return normalized.startsWith("/") ? normalized.slice(1) : normalized;
   }
 
   public writeFile(path: string, content: string): void {

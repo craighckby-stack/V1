@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { conductLlmDebate } from "@/lib/pipeline/llm/debate-llm";
-import { parseBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const debateSchema = z.object({
-  filePath: z.string().min(1).max(500),
-  candidateCode: z.string().min(1).max(500_000),
-  topic: z.string().min(1).max(2000).optional(),
-}).strict();
+interface DebateRequest {
+  filePath: string;
+  candidateCode: string;
+  topic?: string;
+}
 
 /**
  * POST /api/evolution/debate
@@ -21,14 +19,19 @@ const debateSchema = z.object({
  */
 export async function POST(req: Request) {
   try {
-    const parsed = await parseBody(req, debateSchema);
-    if (!parsed.ok) return parsed.response;
+    const body = (await req.json()) as DebateRequest;
+    if (!body.filePath || typeof body.candidateCode !== "string") {
+      return NextResponse.json(
+        { error: "filePath and candidateCode are required" },
+        { status: 400 }
+      );
+    }
 
-    const topic = parsed.data.topic ?? `Code Review for ${parsed.data.filePath}`;
+    const topic = body.topic ?? `Code Review for ${body.filePath}`;
     const { verdict, usedLlm, llmError } = await conductLlmDebate(
       topic,
-      parsed.data.candidateCode,
-      parsed.data.filePath
+      body.candidateCode,
+      body.filePath
     );
     return NextResponse.json({
       ...verdict,

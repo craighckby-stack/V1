@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { getUsableToken, githubHeaders } from "@/lib/pipeline/api/github-helpers";
-import { parseBody, REPO_REGEX, isRepoRelativePath } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,28 +11,26 @@ interface GitHubContentsResponse {
   encoding?: string;
 }
 
-const fetchFileSchema = z.object({
-  repo: z.string().regex(REPO_REGEX, "repo must be 'owner/name'").max(100),
-  path: z
-    .string()
-    .min(1)
-    .max(1000)
-    .refine(isRepoRelativePath, "path must be repo-relative (no .. or leading /)"),
-  branch: z.string().min(1).max(100).optional(),
-  token: z.string().min(1).max(500).optional(),
-}).strict();
+interface FetchFileRequest {
+  repo: string;
+  path: string;
+  branch?: string;
+  token?: string;
+}
 
 export async function POST(req: Request) {
   try {
-    const parsed = await parseBody(req, fetchFileSchema);
-    if (!parsed.ok) return parsed.response;
-    const body = parsed.data;
+    const body = (await req.json()) as FetchFileRequest;
+    if (!body.repo || !body.path) {
+      return NextResponse.json(
+        { error: "repo and path are required" },
+        { status: 400 }
+      );
+    }
     const branch = body.branch || "main";
     const token = getUsableToken(body.token);
 
-    // Path/branch are encodeURIComponent'd so `?`/`#`/`../` can't rewrite
-    // the URL — the old template literal passed them verbatim.
-    const url = `https://api.github.com/repos/${encodeURIComponent(body.repo)}/contents/${encodeURIComponent(body.path)}?ref=${encodeURIComponent(branch)}`;
+    const url = `https://api.github.com/repos/${body.repo}/contents/${body.path}?ref=${branch}`;
     const res = await fetch(url, { headers: githubHeaders(token) });
     if (!res.ok) {
       return NextResponse.json(

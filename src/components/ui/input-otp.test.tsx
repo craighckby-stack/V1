@@ -9,6 +9,7 @@ describe("UI Components Structure", () => {
     // We cannot fully render React components in bun:test without a renderer,
     // so we test the structure of props passed down, assuming a rendering context.
     // We assert that the component accepts and passes containerClassName correctly.
+    const containerClass = "my-custom-container";
     // In a real test environment, we'd assert the rendered HTML has data-slot="input-otp"
     // and the correct class list. Here, we assert the component signature allows this.
     expect(InputOTP).toBeDefined(); // Basic check that the component exists

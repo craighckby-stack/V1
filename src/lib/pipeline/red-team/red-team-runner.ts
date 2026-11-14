@@ -44,42 +44,6 @@ import {
 
 export type ProbeVerdict = "BLOCKED" | "BYPASSED" | "ERROR" | "SKIPPED";
 
-/** Classify a probe `error` string as a TRANSIENT LLM-availability issue
- *  (quota / rate-limit / network) vs. a genuine non-transient failure.
- *
- *  Transient errors must NOT be recorded as permanent "active" postmortems:
- *  a 429 is an infrastructure condition (LLM quota exhausted), not a
- *  containment failure, and there is nothing in the codebase to fix. The
- *  `red-team:last-run` SystemFlag already preserves the full run summary
- *  (including transient errors) for operator visibility, so skipping the
- *  postmortem store for these is pure signal-to-noise improvement — it
- *  stops the 7-probe × N-run accumulation that previously flooded the
- *  postmortem store with "active" entries that never resolve (no fix to
- *  apply — the LLM just needs quota reset).
- *
- *  Conservative: only matches clearly-transient signals. A non-matching
- *  error (genuine probe code exception, unparseable response indicating a
- *  real issue) is still recorded as before. */
-function isTransientLlmError(error: string | undefined): boolean {
-  if (!error) return false;
-  const e = error.toLowerCase();
-  return [
-    "429",            // HTTP rate limit
-    "rate limit",     // SDK message
-    "rate-limit",
-    "quota",          // provider quota exhausted
-    "cooldown",       // circuit-breaker open
-    "unavailable",    // service unavailable
-    "timeout",        // request timeout
-    "etimedout",      // errno
-    "econnreset",     // connection reset
-    "enotfound",      // DNS
-    "eai_again",      // DNS transient
-    "socket hang up", // keep-alive dropped
-    "network error",  // generic
-  ].some((s) => e.includes(s));
-}
-
 export interface ProbeRunResult {
   probeId: string;
   probeName: string;
@@ -385,22 +349,13 @@ export async function runRedTeamSuite(opts?: {
     /* DB unavailable — in-memory summary still returned to caller */
   }
 
-  // Record each BYPASS (and non-transient ERROR, for visibility) as a
-  // postmortem so the chain carries the history. Only BYPASSED raises
-  // safe-mode. Transient LLM errors (429 / quota / timeout / network) are
-  // SKIPPED here — they are an infrastructure condition, not a
-  // containment failure, and recording them as permanent "active"
-  // postmortems floods the store with entries that never resolve (no
-  // fix to apply — the LLM just needs quota reset). The full run summary
-  // including transient errors is still preserved in the
-  // `red-team:last-run` SystemFlag for operator visibility.
+  // Record each BYPASS (and ERROR, for visibility) as a postmortem so
+  // the chain carries the history. Only BYPASSED raises safe-mode.
   if (bypassesAllowed > 0 || containmentErrors > 0) {
     try {
       const { postmortemStore } = await import("../postmortem/postmortem-store");
       for (const r of probeResults) {
         if (r.verdict !== "BYPASSED" && r.verdict !== "ERROR") continue;
-        // Skip transient LLM-availability errors — see isTransientLlmError.
-        if (r.verdict === "ERROR" && isTransientLlmError(r.error)) continue;
         const probe = getProbe(r.probeId);
         if (!probe) continue;
         await postmortemStore.recordFailure({

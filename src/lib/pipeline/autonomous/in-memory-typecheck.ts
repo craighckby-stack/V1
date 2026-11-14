@@ -24,6 +24,7 @@ import { scriptKindForPath } from "./code-analysis";
 import { PROJECT_ROOT } from "../core/paths";
 const TSCONFIG_PATH = resolve(PROJECT_ROOT, "tsconfig.json");
 
+let cachedProgram: ts.Program | null = null;
 let cachedFileNames: string[] | null = null;
 let cachedCompilerOptions: ts.CompilerOptions | null = null;
 

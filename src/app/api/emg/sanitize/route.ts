@@ -1,21 +1,24 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { sanitizeAndGovern } from "@/lib/pipeline/emg/sanitizer";
-import { parseBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const sanitizeSchema = z.object({
-  code: z.string().min(1).max(500_000),
-}).strict();
+interface SanitizeRequest {
+  code: string;
+}
 
 export async function POST(req: Request) {
   try {
-    const parsed = await parseBody(req, sanitizeSchema);
-    if (!parsed.ok) return parsed.response;
+    const body = (await req.json()) as SanitizeRequest;
+    if (typeof body.code !== "string") {
+      return NextResponse.json(
+        { error: "code (string) is required" },
+        { status: 400 }
+      );
+    }
 
-    const result = sanitizeAndGovern(parsed.data.code);
+    const result = sanitizeAndGovern(body.code);
     return NextResponse.json({
       clean: result.clean,
       sanitizedCode: result.sanitizedCode,

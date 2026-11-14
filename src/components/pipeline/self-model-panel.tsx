@@ -245,7 +245,7 @@ export function SelfModelPanel({ open, onClose }: Props) {
           <div>
             <span style={{ color: PROMPT_COLOR, fontWeight: "bold" }}>🧠 SELF-MODEL</span>
             <span style={{ color: DIM_COLOR, marginLeft: "8px" }}>
-              — the loop&apos;s measured self-knowledge (audit 7)
+              — the loop's measured self-knowledge (audit 7)
             </span>
           </div>
           <button type="button" onClick={onClose} style={btnStyle} aria-label="Close self-model panel">
@@ -283,7 +283,7 @@ export function SelfModelPanel({ open, onClose }: Props) {
           </div>
           {cal?.correction?.active && (cal.correction.buckets?.length ?? 0) > 0 && (
             <div style={{ marginTop: "4px" }}>
-              {(cal.correction.buckets ?? []).map((b) => {
+              {cal.correction.buckets!.map((b) => {
                 // Range color: over-confident (negative shift) warns — the
                 // loop regretted trusting this range; under-confident
                 // (positive) accent — the loop undersold itself here.

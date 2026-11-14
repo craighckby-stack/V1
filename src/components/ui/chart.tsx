@@ -330,17 +330,17 @@ function getPayloadConfigFromPayload(
   // Check if the key itself is a string value in the payload
   if (
     key in payload &&
-    typeof (payload as Record<string, unknown>)[key] === "string"
+    typeof (payload as Record<string, any>)[key] === "string"
   ) {
-    configLabelKey = (payload as Record<string, unknown>)[key] as string
+    configLabelKey = (payload as Record<string, any>)[key] as string
   } 
   // Check if the key exists in payload.payload and its value is a string
   else if (
     payloadPayload &&
     key in payloadPayload &&
-    typeof (payloadPayload as Record<string, unknown>)[key] === "string"
+    typeof (payloadPayload as Record<string, any>)[key] === "string"
   ) {
-    configLabelKey = (payloadPayload as Record<string, unknown>)[key] as string
+    configLabelKey = (payloadPayload as Record<string, any>)[key] as string
   }
 
   // Check if the derived configLabelKey exists in config, otherwise fall back to original key

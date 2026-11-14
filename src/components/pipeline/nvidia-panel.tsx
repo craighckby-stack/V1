@@ -440,7 +440,7 @@ export function NvidiaPanel({ open, onClose }: Props) {
           to Git. Get a free key at <span style={{ color: PROMPT_COLOR }}>build.nvidia.com</span> (profile →
           API keys → generate). The free hosted catalog is a prototype endpoint: models rotate without
           notice. LOOP classifies 410 Gone as a permanent error and falls through to the next provider
-          automatically — the loop never stalls, but you&apos;ll see the failure in this panel&apos;s last-error line.
+          automatically — the loop never stalls, but you'll see the failure in this panel's last-error line.
         </div>
       </div>
     </div>

@@ -9,6 +9,7 @@ import {
   SelectScrollUpButton,
   SelectSeparator,
   SelectTrigger,
+  SelectValue,
 } from "./select";
 
 describe("Select Components Contract", () => {

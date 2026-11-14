@@ -12,9 +12,9 @@ describe("token-vault", () => {
     });
     
     test("returns false for non-string inputs", () => {
-      expect(isSealedEnvelope(123 as unknown as string)).toBe(false);
-      expect(isSealedEnvelope(null as unknown as string)).toBe(false);
-      expect(isSealedEnvelope(undefined as unknown as string)).toBe(false);
+      expect(isSealedEnvelope(123 as any)).toBe(false);
+      expect(isSealedEnvelope(null as any)).toBe(false);
+      expect(isSealedEnvelope(undefined as any)).toBe(false);
     });
     
     test("returns false for empty string", () => {
@@ -60,11 +60,11 @@ describe("token-vault", () => {
     });
     
     test("returns empty string for null input", () => {
-      expect(openToken(null as unknown as string)).toBe("");
+      expect(openToken(null as any)).toBe("");
     });
     
     test("returns empty string for undefined input", () => {
-      expect(openToken(undefined as unknown as string)).toBe("");
+      expect(openToken(undefined as any)).toBe("");
     });
     
     test("returns empty string for empty string input", () => {

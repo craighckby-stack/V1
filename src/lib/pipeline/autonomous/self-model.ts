@@ -47,9 +47,6 @@
  */
 
 import { db } from "@/lib/db";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
-import { PROJECT_ROOT } from "../core/paths";
 // NOTE: readArchaeologyReport is imported LAZILY inside bootstrapSelfModel
 // (not at module top-level). This keeps the import chain of getSelfModelSummary
 // (the function the /api/self-model route calls) lightweight — just `db` —
@@ -97,177 +94,6 @@ export function classifyOutcome(enhanced: boolean, reason: string): SelfOutcome 
   return "fail";
 }
 
-// ── Snapshot resilience (audit 9 — the DB-epoch-loss incident) ────────
-// The sandbox's crash recovery once rolled the SQLite file back to an
-// ancient epoch while every .git/info/ state file survived: the loop
-// lost its ENTIRE measured self-knowledge in one stroke — per-file
-// bandit rows (attempts, pass rates, exhaustion, streaks/momentum),
-// the 118-prediction calibration curve, and 400+ corpus attempts —
-// and cold-started with "no history — exploring" on files it had a
-// dozen attempts on. The loop stats already had a .git/info
-// write-through (which is why cyclesCompleted survived that incident
-// intact); the cognitive tables now get the same treatment.
-
-const SNAPSHOT_FILE = PROJECT_ROOT
-  ? join(PROJECT_ROOT, ".git/info/self-model-snapshot.json")
-  : undefined;
-
-interface SnapshotFileRow {
-  filePath: string;
-  attempts: number;
-  passes: number;
-  fails: number;
-  zeroDiffs: number;
-  visualPolishAttempts: number;
-  visualPolishPasses: number;
-  lastTouchedAt: string | null;
-  lastOutcome: string | null;
-  finishedScore: number;
-  streak: number;
-}
-
-interface SnapshotPredictionRow {
-  id: string;
-  filePath: string;
-  mode: string;
-  confidence: number;
-  outcome: string;
-  cycleNumber: number;
-  reason: string | null;
-  skipProbe: boolean;
-  createdAt: string;
-}
-
-interface SelfModelSnapshot {
-  version: 1;
-  savedAt: string;
-  files: SnapshotFileRow[];
-  predictions: SnapshotPredictionRow[];
-}
-
-/** Write the cognitive tables to .git/info/self-model-snapshot.json.
- *  Called fire-and-forget at every cycle end — the payload is tiny
- *  (dozens of file rows + the newest 300 resolved predictions) and the
- *  write is fail-soft by the same contract as every other state file.
- *  The DB stays the source of truth; the snapshot is the disaster
- *  recovery path for the next epoch loss. */
-export async function writeSelfModelSnapshot(): Promise<void> {
-  if (!SNAPSHOT_FILE) return;
-  try {
-    const [files, preds] = await Promise.all([
-      db.selfModelFile.findMany(),
-      db.selfPrediction.findMany({
-        where: { outcome: { not: null } },
-        orderBy: { createdAt: "desc" },
-        take: 300,
-      }),
-    ]);
-    const snap: SelfModelSnapshot = {
-      version: 1,
-      savedAt: new Date().toISOString(),
-      files: files.map((f) => ({
-        filePath: f.filePath,
-        attempts: f.attempts,
-        passes: f.passes,
-        fails: f.fails,
-        zeroDiffs: f.zeroDiffs,
-        visualPolishAttempts: f.visualPolishAttempts,
-        visualPolishPasses: f.visualPolishPasses,
-        lastTouchedAt: f.lastTouchedAt ? f.lastTouchedAt.toISOString() : null,
-        lastOutcome: f.lastOutcome,
-        finishedScore: f.finishedScore,
-        streak: f.streak,
-      })),
-      predictions: preds.map((p) => ({
-        id: p.id,
-        filePath: p.filePath,
-        mode: p.mode,
-        confidence: p.confidence,
-        outcome: p.outcome ?? "fail",
-        cycleNumber: p.cycleNumber,
-        reason: p.reason,
-        skipProbe: p.skipProbe,
-        createdAt: p.createdAt.toISOString(),
-      })),
-    };
-    const infoDir = join(PROJECT_ROOT, ".git/info");
-    if (!existsSync(infoDir)) mkdirSync(infoDir, { recursive: true });
-    writeFileSync(SNAPSHOT_FILE, JSON.stringify(snap), "utf8");
-  } catch {
-    /* fail-soft — the DB remains the source of truth */
-  }
-}
-
-/** Restore the cognitive tables from the snapshot. Called by
- *  bootstrapSelfModel ONLY when the DB model is empty (a wiped/lost
- *  epoch) — a populated DB always wins over the snapshot. Returns the
- *  restored row counts so the caller can log one honest line. */
-async function restoreSelfModelFromSnapshot(): Promise<{
-  files: number;
-  predictions: number;
-}> {
-  if (!SNAPSHOT_FILE) return { files: 0, predictions: 0 };
-  try {
-    if (!existsSync(SNAPSHOT_FILE)) return { files: 0, predictions: 0 };
-    const snap = JSON.parse(readFileSync(SNAPSHOT_FILE, "utf8")) as SelfModelSnapshot;
-    if (snap.version !== 1 || !Array.isArray(snap.files) || !Array.isArray(snap.predictions)) {
-      return { files: 0, predictions: 0 }; // malformed — fall through to corpus path
-    }
-    let restored = 0;
-    for (const f of snap.files) {
-      if (typeof f.filePath !== "string" || !f.filePath) continue;
-      await db.selfModelFile
-        .upsert({
-          where: { filePath: f.filePath },
-          create: {
-            filePath: f.filePath,
-            attempts: Math.max(0, f.attempts | 0),
-            passes: Math.max(0, f.passes | 0),
-            fails: Math.max(0, f.fails | 0),
-            zeroDiffs: Math.max(0, f.zeroDiffs | 0),
-            visualPolishAttempts: Math.max(0, f.visualPolishAttempts | 0),
-            visualPolishPasses: Math.max(0, f.visualPolishPasses | 0),
-            lastTouchedAt: f.lastTouchedAt ? new Date(f.lastTouchedAt) : null,
-            lastOutcome: f.lastOutcome ?? null,
-            finishedScore: Math.min(1, Math.max(0, Number(f.finishedScore) || 0)),
-            streak: Math.max(0, f.streak | 0),
-          },
-          update: {}, // empty DB means the create path always runs; kept for safety
-        })
-        .catch(() => { /* fail-soft per row */ });
-      restored++;
-    }
-    let restoredPreds = 0;
-    for (const p of snap.predictions) {
-      if (typeof p.filePath !== "string" || typeof p.confidence !== "number") continue;
-      await db.selfPrediction
-        .create({
-          data: {
-            id: p.id, // preserve ids — nothing foreign-keys to them, but the calibration window sorts by createdAt and the ids keep rows dedupable across re-restores
-            filePath: p.filePath,
-            mode: p.mode === "visual-polish" ? "visual-polish" : "refactor",
-            confidence: Math.min(1, Math.max(0, p.confidence)),
-            outcome: p.outcome,
-            cycleNumber: p.cycleNumber | 0,
-            reason: p.reason ?? null,
-            skipProbe: Boolean(p.skipProbe),
-            createdAt: new Date(p.createdAt),
-          },
-        })
-        .catch(() => { /* fail-soft per row (id collision on re-restore) */ });
-      restoredPreds++;
-    }
-    if (restored > 0) {
-      console.log(
-        `[SELF-MODEL] restored ${restored} file row(s) + ${restoredPreds} prediction(s) from the .git/info snapshot — the DB epoch was lost, the measured self-knowledge was not`
-      );
-    }
-    return { files: restored, predictions: restoredPreds };
-  } catch {
-    return { files: 0, predictions: 0 };
-  }
-}
-
 // ── Bootstrap: instant self-knowledge from history ────────────────────
 
 let bootstrapped = false;
@@ -282,13 +108,6 @@ export async function bootstrapSelfModel(): Promise<void> {
   try {
     const existing = await db.selfModelFile.count();
     if (existing > 0) return; // already bootstrapped (or organically grown)
-
-    // SNAPSHOT RESTORE (audit 9): prefer the .git/info snapshot over the
-    // corpus when the DB model is empty — it carries the full cognitive
-    // state (bandit rows + the calibration curve + streaks), not just the
-    // attempt aggregates. A populated DB always wins over both.
-    const snap = await restoreSelfModelFromSnapshot();
-    if (snap.files > 0) return; // snapshot had the knowledge — done
 
     // 1. Mine the corpus. gateOutcome values (mutation-corpus writer):
     //   enhanced → pass | typecheck-fail/debate-fail/test-fail/truncation/

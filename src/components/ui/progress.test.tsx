@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { Progress } from "./progress"; // Assuming progress.tsx is in the same directory or accessible via relative path
 
 // Note: Since this component relies heavily on React/DOM rendering and external CSS utilities (cn, @radix-ui/react-progress),
 // we cannot assert concrete DOM structure or styling directly without a full JSDOM environment.

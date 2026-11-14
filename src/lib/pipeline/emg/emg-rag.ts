@@ -38,24 +38,15 @@ const MAX_RESULTS_PER_CATEGORY = 3;
  * — emergency only). The prune does a `findMany + deleteMany` (cheap
  * but not free), so we don't want to run it per add.
  *
- * Lives on globalThis (not module-level) so all Turbopack route-graph
- * instances share one counter. A module-level `let` is per-instance —
- * adds spread across graphs would each reset their own counter to 0
- * and the prune-every-25 cadence would never fire. Same pattern as
- * hot-swap.ts STATE_SLOT.
+ * Module-level counter, fire-and-forget on every 25th add (matching the
+ * MutationCorpus "every 25th cycle" pattern in mutation-corpus.ts:130 —
+ * amortize the cost across calls). Resets to 0 on process restart,
+ * which is fine: missing one prune on restart just delays the next by
+ * 25 adds.
  */
-const PRUNE_COUNT_SLOT = "__emgRagPruneCount";
+let addEntryCount = 0;
 const MEMORY_PRUNE_INTERVAL = 25;
 const MEMORY_PRUNE_KEEP = 1000;
-
-function getPruneCount(): number {
-  const g = globalThis as unknown as { [PRUNE_COUNT_SLOT]?: number };
-  return g[PRUNE_COUNT_SLOT] ?? 0;
-}
-
-function setPruneCount(n: number): void {
-  (globalThis as unknown as { [PRUNE_COUNT_SLOT]?: number })[PRUNE_COUNT_SLOT] = n;
-}
 
 /**
  * Memory entries are ONLY real observations recorded by actual pipeline
@@ -284,9 +275,8 @@ class EmgRagMemory {
     // add already succeeded. See MEMORY_PRUNE_INTERVAL above for the
     // cadence rationale (every 25th add amortizes the findMany+deleteMany
     // cost across calls — too expensive per-add).
-    const next = getPruneCount() + 1;
-    setPruneCount(next);
-    if (next % MEMORY_PRUNE_INTERVAL === 0) {
+    addEntryCount++;
+    if (addEntryCount % MEMORY_PRUNE_INTERVAL === 0) {
       void pruneMemoryEntries(MEMORY_PRUNE_KEEP).catch(() => {
         /* retention is best-effort — see retention.ts */
       });

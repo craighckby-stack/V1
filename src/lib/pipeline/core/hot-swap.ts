@@ -128,10 +128,7 @@ export interface LoopSnapshot {
   status: string;
   config: {
     enabled: boolean;
-    // Mirrors loop-runtime's LoopMode union — duplicated here because
-    // importing it would create the module cycle this snapshot protocol
-    // exists to avoid. Keep in sync with LoopMode.
-    mode: "scheduled" | "watch" | "continuous" | "manual";
+    mode: string;
     intervalMinutes: number;
     targetRepo: string;
     branch: string;
@@ -200,70 +197,16 @@ interface HotSwapState {
 
 function getHotSwapState(): HotSwapState {
   const g = globalThis as unknown as { [STATE_SLOT]?: HotSwapState };
-  let state = g[STATE_SLOT];
-  if (!state) {
-    state = { swapInProgress: false, swapHistory: [] };
-    g[STATE_SLOT] = state;
+  if (!g[STATE_SLOT]) {
+    g[STATE_SLOT] = { swapInProgress: false, swapHistory: [] };
   }
-  return state;
-}
-
-/** Typed view of the globalThis slots this module touches. Audit M4 —
- *  every access used to be `globalThis as any`, so a typo'd slot name or
- *  a wrong field read was invisible to the compiler. The runtime pin is
- *  intentionally structural (the loop-runtime module owns the concrete
- *  class; importing it here would create a cycle) — we type exactly the
- *  surface hot-swap reads. */
-interface PinnedLoopRuntime {
-  getState?: () => PinnedLoopState | null | undefined;
-  stop?: () => void;
-  previouslyCommittedPaths?: Set<string>;
-  previouslyFailedPaths?: Map<string, number>;
-  previouslyStablePaths?: Map<string, number>;
-}
-
-/** The slice of LoopState snapshotLoop reads (all fields optional —
- *  defensive defaults are applied field-by-field below). */
-interface PinnedLoopState {
-  status?: string;
-  config?: {
-    enabled?: boolean;
-    // Same union as LoopSnapshot.config.mode / LoopMode (see note there).
-    mode?: "scheduled" | "watch" | "continuous" | "manual";
-    intervalMinutes?: number;
-    targetRepo?: string;
-    branch?: string;
-    evolutionBranch?: string;
-    maxCycles?: number;
-    maxFilesPerCycle?: number;
-    autoPush?: boolean;
-    siphonSourceId?: string;
-    userPrompt?: string;
-    githubToken?: string;
-  };
-  stats?: {
-    totalRuns?: number;
-    totalFilesScanned?: number;
-    totalFilesCommitted?: number;
-    lastRunTime?: string | null;
-    lastTreeFingerprint?: string | null;
-    nextRunAt?: string | null;
-  };
-}
-
-interface LoopGlobalThis {
-  __autonomousLoopRuntime?: PinnedLoopRuntime;
-  __oracleScheduler?: { timer?: ReturnType<typeof setInterval> | null };
-  __oracleSchedulerTimer?: ReturnType<typeof setInterval> | null;
-  /** Dynamic pin-name access (GLOBAL_PINS, SNAPSHOT_SLOT) goes through
-   *   the index signature — the values are opaque to this module. */
-  [slot: string]: unknown;
+  return g[STATE_SLOT]!;
 }
 
 /** Capture the current loop runtime's public state via the global pin. */
 function snapshotLoop(): LoopSnapshot | null {
   try {
-    const g = globalThis as unknown as LoopGlobalThis;
+    const g = globalThis as unknown as { __autonomousLoopRuntime?: any };
     const rt = g.__autonomousLoopRuntime;
     if (!rt) return null;
     const state = rt.getState?.();
@@ -293,13 +236,13 @@ function snapshotLoop(): LoopSnapshot | null {
         nextRunAt: state.stats?.nextRunAt ?? null,
       },
       previouslyCommittedPaths: rt.previouslyCommittedPaths
-        ? Array.from(rt.previouslyCommittedPaths)
+        ? Array.from(rt.previouslyCommittedPaths as Set<string>)
         : [],
       previouslyFailedPaths: rt.previouslyFailedPaths
-        ? Array.from(rt.previouslyFailedPaths.entries())
+        ? Array.from((rt.previouslyFailedPaths as Map<string, number>).entries())
         : [],
       previouslyStablePaths: rt.previouslyStablePaths
-        ? Array.from(rt.previouslyStablePaths.entries())
+        ? Array.from((rt.previouslyStablePaths as Map<string, number>).entries())
         : [],
       swappableReason: "",
     };
@@ -311,7 +254,11 @@ function snapshotLoop(): LoopSnapshot | null {
 /** Stop the current loop's timer so no cycle starts while we're swapping. */
 function pauseLoop(): void {
   try {
-    const g = globalThis as unknown as LoopGlobalThis;
+    const g = globalThis as unknown as {
+      __autonomousLoopRuntime?: any;
+      __oracleScheduler?: { timer?: ReturnType<typeof setInterval> | null };
+      __oracleSchedulerTimer?: ReturnType<typeof setInterval> | null;
+    };
     // Stop the autonomous loop runtime's timer — it drives the high-level
     // cycle scheduler that still runs in this server process. Bumping
     // runId via stop() makes any in-flight runCycle exit at its next
@@ -351,7 +298,7 @@ function pauseLoop(): void {
  *  next import of each module will see no pin and create a fresh instance. */
 function clearPins(): string[] {
   const cleared: string[] = [];
-  const g = globalThis as unknown as LoopGlobalThis;
+  const g = globalThis as any;
   for (const pin of GLOBAL_PINS) {
     if (g[pin] !== undefined) {
       g[pin] = undefined;
@@ -364,7 +311,7 @@ function clearPins(): string[] {
 /** Stash the snapshot where the new loop-runtime constructor can find it.
  *  The constructor reads SNAPSHOT_SLOT on creation and restores. */
 function stashSnapshot(snap: LoopSnapshot, reason: string): void {
-  const g = globalThis as unknown as LoopGlobalThis;
+  const g = globalThis as any;
   g[SNAPSHOT_SLOT] = { ...snap, swappableReason: reason, stashedAt: Date.now() };
 }
 
@@ -400,7 +347,7 @@ export async function hotSwapPipeline(opts?: {
 
     if (opts?.dryRun) {
       const pinsPresent = GLOBAL_PINS.filter(
-        (p) => (globalThis as unknown as LoopGlobalThis)[p] !== undefined
+        (p) => (globalThis as any)[p] !== undefined
       );
       return {
         ok: true,
@@ -545,18 +492,10 @@ interface SwapJournalEntry {
  *  splits on newlines — a multi-MB journal would slow every reader call.
  *  Rotate every 50th swap to keep newest 1000 entries (see retention.ts).
  *  The 50-swap throttle amortizes the read-rewrite cost (same pattern as
- *  mutation-corpus.ts: every 25th cycle). Counter is on globalThis
- *  (Turbopack re-evaluates this module per route graph — a module-level
- *  `let` resets per instance and a busy graph that never hits 50 never
- *  rotates). */
-const SWAP_JOURNAL_COUNTER_SLOT = "__hotSwapAppendCounter";
-function getSwapAppendCounter(): number {
-  const g = globalThis as unknown as { [SWAP_JOURNAL_COUNTER_SLOT]?: number };
-  return g[SWAP_JOURNAL_COUNTER_SLOT] ?? 0;
-}
-function setSwapAppendCounter(n: number): void {
-  (globalThis as unknown as { [SWAP_JOURNAL_COUNTER_SLOT]?: number })[SWAP_JOURNAL_COUNTER_SLOT] = n;
-}
+ *  mutation-corpus.ts: every 25th cycle). Module-level counter resets on
+ *  restart — worst case the journal grows by 50 entries (~10 KB) before
+ *  the next rotation, which is negligible. */
+let swapAppendCounter = 0;
 function appendSwapJournal(entry: SwapJournalEntry): void {
   try {
     mkdirSync(join(PROJECT_ROOT, ".git/info"), { recursive: true });
@@ -565,9 +504,8 @@ function appendSwapJournal(entry: SwapJournalEntry): void {
     // Best-effort — a rotation failure logs and leaves the file intact.
     // Dynamic import (not top-level) avoids a core→autonomous static
     // dependency edge; retention.ts is a leaf (db + paths only).
-    const next = getSwapAppendCounter() + 1;
-    setSwapAppendCounter(next);
-    if (next % 50 === 0) {
+    swapAppendCounter++;
+    if (swapAppendCounter % 50 === 0) {
       void import("../autonomous/retention")
         .then((m) => m.pruneHotSwapJournal(1000))
         .catch(() => { /* best-effort — don't fail the swap */ });
@@ -650,7 +588,7 @@ export async function getHotSwapSuccessCount(): Promise<number> {
  *  clear → "1111" again after re-pin, so the value the swap panel polls
  *  every 2s NEVER actually changed across a completed swap.) */
 export function runningPipelineFingerprint(): string {
-  const g = globalThis as unknown as LoopGlobalThis;
+  const g = globalThis as any;
   const pins = GLOBAL_PINS.map((p) => (g[p] !== undefined ? "1" : "0")).join("");
   const swapCount = getSwapCount();
   const mixed = `${pins}:${swapCount}`;
@@ -671,7 +609,7 @@ export function runningPipelineFingerprint(): string {
  *  the snapshot must survive all of them so the instance that finally
  *  arms gets the state. Returns null if no swap is pending. */
 export function consumeStashedSnapshot(): LoopSnapshot | null {
-  const g = globalThis as unknown as LoopGlobalThis;
+  const g = globalThis as any;
   const snap = g[SNAPSHOT_SLOT];
   if (!snap) return null;
   return snap as LoopSnapshot;
@@ -682,6 +620,6 @@ export function consumeStashedSnapshot(): LoopSnapshot | null {
  *  snapshot survives transient instances and is only taken by the
  *  one that persists. */
 export function clearStashedSnapshot(): void {
-  const g = globalThis as unknown as LoopGlobalThis;
+  const g = globalThis as any;
   g[SNAPSHOT_SLOT] = undefined;
 }

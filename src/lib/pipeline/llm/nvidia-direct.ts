@@ -71,42 +71,26 @@ const JITTER_MS = 200;
 // a deprecated model id is a config issue, not an overload, and we
 // don't want to penalize a future reconfiguration.
 const CIRCUIT_BREAKER_COOLDOWN_MS = 15_000;
-// The breaker map MUST live on globalThis so all Turbopack route-graph
-// instances share one view. A module-level `new Map()` is per-instance
-// (Turbopack re-evaluates the module per route graph) — a breaker
-// tripped in one graph is invisible to the others, and quota burns
-// across graphs. Same pattern as agent-llm.ts / gemini-direct.ts.
-const BREAKER_SLOT = "__nvidiaBreakers";
-type BreakerMap = Map<string, number>;
-function nvidiaBreakers(): BreakerMap {
-  const g = globalThis as unknown as { [BREAKER_SLOT]?: BreakerMap };
-  let breakers = g[BREAKER_SLOT];
-  if (!breakers) {
-    breakers = new Map<string, number>();
-    g[BREAKER_SLOT] = breakers;
-  }
-  return breakers;
-}
+const modelCircuitBreakers = new Map<string, number>();
 
 function breakerClear(model: string): boolean {
-  const breakers = nvidiaBreakers();
-  const until = breakers.get(model);
+  const until = modelCircuitBreakers.get(model);
   if (!until) return true;
   if (Date.now() >= until) {
-    breakers.delete(model);
+    modelCircuitBreakers.delete(model);
     return true;
   }
   return false;
 }
 
 function tripBreaker(model: string): void {
-  nvidiaBreakers().set(model, Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS);
+  modelCircuitBreakers.set(model, Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS);
 }
 
 /** Snapshot of the per-model breaker map — for the status API + UI. */
 export function nvidiaModelBreakers(): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const [model, until] of nvidiaBreakers()) {
+  for (const [model, until] of modelCircuitBreakers) {
     if (until > Date.now()) out[model] = until;
   }
   return out;

@@ -1,10 +1,22 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { getUsableToken } from "@/lib/pipeline/api/github-helpers";
-import { parseBody, REPO_REGEX, isRepoRelativePath } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+interface BatchFileEntry {
+  path: string;
+  content: string;
+  sha?: string;
+}
+
+interface BatchCommitRequest {
+  repo: string;
+  branch: string;
+  files: BatchFileEntry[];
+  message: string;
+  token?: string;
+}
 
 interface BatchResultEntry {
   path: string;
@@ -18,34 +30,17 @@ interface GitHubCommitResponse {
   message?: string;
 }
 
-// Audit 2, item 16: an EMPTY files array used to pass validation and then
-// report success ("committed 0 of 0") — a no-op dressed as a success.
-const batchCommitSchema = z.object({
-  repo: z.string().regex(REPO_REGEX, "repo must be 'owner/name'").max(100),
-  branch: z.string().min(1).max(100),
-  files: z
-    .array(
-      z.object({
-        path: z
-          .string()
-          .min(1)
-          .max(1000)
-          .refine(isRepoRelativePath, "path must be repo-relative (no .. or leading /)"),
-        content: z.string().max(10_000_000),
-        sha: z.string().min(1).max(100).optional(),
-      }).strict(),
-    )
-    .min(1)
-    .max(100),
-  message: z.string().min(1).max(1000),
-  token: z.string().min(1).max(500).optional(),
-}).strict();
-
 export async function POST(req: Request) {
   try {
-    const parsed = await parseBody(req, batchCommitSchema);
-    if (!parsed.ok) return parsed.response;
-    const body = parsed.data;
+    const body = (await req.json()) as BatchCommitRequest;
+    // Audit 2, item 16: an EMPTY files array passed validation and then
+    // reported success ("committed 0 of 0") — a no-op dressed as a success.
+    if (!body.repo || !body.branch || !Array.isArray(body.files) || body.files.length === 0 || !body.message) {
+      return NextResponse.json(
+        { error: "repo, branch, a non-empty files array, and message are required" },
+        { status: 400 }
+      );
+    }
 
     const token = getUsableToken(body.token);
     if (!token) {
@@ -60,7 +55,7 @@ export async function POST(req: Request) {
 
     for (const file of body.files) {
       try {
-        const url = `https://api.github.com/repos/${encodeURIComponent(body.repo)}/contents/${encodeURIComponent(file.path)}`;
+        const url = `https://api.github.com/repos/${body.repo}/contents/${file.path}`;
         const payload: Record<string, unknown> = {
           message: body.message,
           content: Buffer.from(file.content).toString("base64"),

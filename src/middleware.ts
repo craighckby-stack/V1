@@ -90,11 +90,7 @@ export function middleware(req: NextRequest) {
   const expectedKey = process.env.LOOP_API_KEY;
   if (expectedKey) {
     const providedKey = req.headers.get("x-loop-key");
-    // Constant-time compare to avoid a timing oracle on the key.
-    if (
-      !providedKey ||
-      !safeEqual(providedKey, expectedKey)
-    ) {
+    if (providedKey !== expectedKey) {
       return NextResponse.json(
         {
           error:
@@ -103,52 +99,16 @@ export function middleware(req: NextRequest) {
         { status: 401 }
       );
     }
-  } else {
-    // Fail-OPEN only in development so a fresh clone is bootable without
-    // forcing the operator to set a key first. In production an unset key
-    // is a misconfiguration that exposes every mutating route (duress/purge,
-    // chat-task/apply, push-target, autonomous/config, …) to the world — we
-    // refuse to serve them. The healthz route surfaces this state as
-    // `mutationGate.configured: false` for the UI.
-    if (process.env.NODE_ENV === "production") {
-      if (!warnedUnconfigured) {
-        warnedUnconfigured = true;
-        console.error(
-          "[middleware] LOOP_API_KEY is not set AND NODE_ENV=production — " +
-            "refusing all mutating API requests (fail-closed). Set LOOP_API_KEY in the environment to unlock them."
-        );
-      }
-      return NextResponse.json(
-        {
-          error:
-            "server misconfiguration — LOOP_API_KEY is not set; mutating API is disabled in production",
-        },
-        { status: 503 }
-      );
-    }
-    if (!warnedUnconfigured) {
-      // Fail-open ONLY in dev — keeps the system bootable.
-      warnedUnconfigured = true;
-      console.warn(
-        "[middleware] LOOP_API_KEY is not set — mutating API routes are UNPROTECTED (fail-open, dev only). " +
-          "Set LOOP_API_KEY in .env to lock them down."
-      );
-    }
+  } else if (!warnedUnconfigured) {
+    // Fail-open ONLY while unconfigured — keeps the system bootable.
+    warnedUnconfigured = true;
+    console.warn(
+      "[middleware] LOOP_API_KEY is not set — mutating API routes are UNPROTECTED (fail-open). " +
+        "Set LOOP_API_KEY in .env to lock them down."
+    );
   }
 
   return NextResponse.next();
-}
-
-/** Constant-time string compare. Falls back to the non-constant path if
- *  the two strings differ in length — a length mismatch already reveals
- *  nothing about the secret beyond a single bit ("wrong length"). */
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return a === b;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
 }
 
 export const config = {

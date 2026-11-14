@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { markArmed, readArmedState } from "./armed-state";
+import { markArmed, readArmedState, type ArmedState } from "./armed-state";
 
 describe("armed-state", () => {
   test("markArmed writes valid armed state to file", () => {
@@ -15,17 +15,17 @@ describe("armed-state", () => {
 
   test("markArmed validates armed parameter", () => {
     // Test with invalid armed parameter (should log error but not throw)
-    expect(() => markArmed("true" as unknown as boolean, "operator-start")).not.toThrow();
-    expect(() => markArmed(1 as unknown as boolean, "operator-start")).not.toThrow();
-    expect(() => markArmed(null as unknown as boolean, "operator-start")).not.toThrow();
+    expect(() => markArmed("true" as any, "operator-start")).not.toThrow();
+    expect(() => markArmed(1 as any, "operator-start")).not.toThrow();
+    expect(() => markArmed(null as any, "operator-start")).not.toThrow();
   });
 
   test("markArmed validates by parameter", () => {
     // Test with invalid by parameter (should log error but not throw)
     expect(() => markArmed(true, "")).not.toThrow();
     expect(() => markArmed(true, "   ")).not.toThrow();
-    expect(() => markArmed(true, 123 as unknown as string)).not.toThrow();
-    expect(() => markArmed(true, null as unknown as string)).not.toThrow();
+    expect(() => markArmed(true, 123 as any)).not.toThrow();
+    expect(() => markArmed(true, null as any)).not.toThrow();
   });
 
   test("readArmedState returns null when file doesn't exist", () => {

@@ -14,12 +14,12 @@ describe("loop-worker-client", () => {
     });
 
     test("returns null for null init parameter", async () => {
-      const result = await workerFetch("/test", null as unknown as RequestInit);
+      const result = await workerFetch("/test", null as any);
       expect(result).toBe(null);
     });
 
     test("returns null for non-object init parameter", async () => {
-      const result = await workerFetch("/test", "invalid" as unknown as RequestInit);
+      const result = await workerFetch("/test", "invalid" as any);
       expect(result).toBe(null);
     });
 
@@ -82,9 +82,9 @@ describe("loop-worker-client", () => {
   describe("healWorkerInBackground", () => {
     test("does not block execution", () => {
       // This function should fire and forget, not blocking the caller
-      const before = Date.now();
+      let before = Date.now();
       healWorkerInBackground();
-      const after = Date.now();
+      let after = Date.now();
       // The function should complete very quickly (fire and forget)
       expect(after - before).toBeLessThan(100);
     });

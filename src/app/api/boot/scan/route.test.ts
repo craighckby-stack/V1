@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { dynamic, runtime } from "./route";
+import { GET, dynamic, runtime } from "./route";
 
 // Mock dependencies to isolate the GET function's logic and test observable output structure
 // Since we cannot mock imports directly in this isolated test environment without knowing

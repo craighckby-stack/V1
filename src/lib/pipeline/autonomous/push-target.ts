@@ -25,6 +25,7 @@ import {
   scanDiff,
   scanCommitMessage,
   summarizeFindings,
+  isIgnoredScanPath,
   type SecretFinding,
 } from "../core/secret-scan";
 import { recordPushSuccess, recordPushAuthFailure, isSafeMode, raiseSafeModeFlag } from "../core/duress";
@@ -788,46 +789,56 @@ export function validateCommitMessage(message: string): string | null {
 //   { attempted: false }                       — HEAD message is fine, no-op
 //   { attempted: true, amended: true, oldSha, newSha } — recovered
 //   { attempted: true, amended: false, oldSha?, reason } — refused, see reason
-// ── amendUuidHeadCommit helpers (mechanical extraction, same logic) ──
-// Each helper is one numbered section of the original god function, moved
-// verbatim into its own name so the orchestrator reads as a 7-step pipeline
-// and each safety check is independently readable. No behavioral change.
-
-/** Section 1: read the HEAD commit's message + full sha (full sha is
- *  preserved in the replacement message body for traceability — git short
- *  sha alone is ambiguous after a future force-push or repo reclone).
- *  Returns null if git is unavailable or there are no commits yet. */
-function readHeadCommit(): { message: string; sha: string } | null {
+export function amendUuidHeadCommit(): {
+  attempted: boolean;
+  amended: boolean;
+  oldSha?: string;
+  newSha?: string;
+  reason?: string;
+} {
+  // 1. Read HEAD message + full sha (full sha is preserved in the
+  //    replacement message body for traceability — git short sha alone
+  //    is ambiguous after a future force-push or repo reclone).
+  let headMessage: string;
+  let headSha: string;
   try {
-    const message = execSync("git log -1 --format=%B", {
+    headMessage = execSync("git log -1 --format=%B", {
       cwd: PROJECT_ROOT,
       encoding: "utf-8",
       timeout: 5000,
       stdio: "pipe",
     });
-    const sha = execSync("git log -1 --format=%H", {
+    headSha = execSync("git log -1 --format=%H", {
       cwd: PROJECT_ROOT,
       encoding: "utf-8",
       timeout: 5000,
       stdio: "pipe",
     }).trim();
-    return { message, sha };
   } catch {
-    return null;
+    return {
+      attempted: false,
+      amended: false,
+      reason: "git unavailable or no commits yet (fresh repo)",
+    };
   }
-}
 
-/** Section 3: verify HEAD is local-only (not on ANY remote branch).
- *  Audit 3 (F4): the old check (`git rev-list --count origin/main..HEAD`)
- *  tested the WRONG ref — the loop pushes every mutation to a loop-NN
- *  branch, so origin/main lags perpetually and the count was >0 even when
- *  HEAD was already pushed: the guard was systematically vacuous and could
- *  amend already-pushed commits (exactly the history-rewrite attack it
- *  claimed to refuse). The correct question is whether ANY remote-tracking
- *  branch contains HEAD. We fetch first so the remote-tracking refs are
- *  fresh (sandbox restores can rewind .git), and if we cannot verify, we
- *  REFUSE — fail-closed: unverifiable is unsafe to rewrite. */
-function verifyHeadIsLocalOnly(): { ok: true } | { ok: false; reason: string } {
+  // 2. Is HEAD actually a bare UUID / empty message? (No-op if not.)
+  const rejectReason = validateCommitMessage(headMessage);
+  if (!rejectReason) {
+    return { attempted: false, amended: false };
+  }
+
+  // 3. Is HEAD local-only (not on ANY remote branch)?
+  //    Audit 3 (F4): the old check (`git rev-list --count
+  //    origin/main..HEAD`) tested the WRONG ref — the loop pushes every
+  //    mutation to a loop-NN branch, so origin/main lags perpetually and
+  //    the count was >0 even when HEAD was already pushed: the guard was
+  //    systematically vacuous and could amend already-pushed commits
+  //    (exactly the history-rewrite attack it claimed to refuse). The
+  //    correct question is whether ANY remote-tracking branch contains
+  //    HEAD. We fetch first so the remote-tracking refs are fresh (sandbox
+  //    restores can rewind .git), and if we cannot verify, we REFUSE —
+  //    fail-closed: unverifiable is unsafe to rewrite.
   try {
     execSync("git fetch --quiet", {
       cwd: PROJECT_ROOT,
@@ -837,7 +848,9 @@ function verifyHeadIsLocalOnly(): { ok: true } | { ok: false; reason: string } {
     });
   } catch {
     return {
-      ok: false,
+      attempted: true,
+      amended: false,
+      oldSha: headSha,
       reason:
         "could not fetch to verify HEAD is local-only (offline?) — refusing to amend: " +
         "unable to verify local-only is unsafe to rewrite (fail-closed)",
@@ -858,7 +871,9 @@ function verifyHeadIsLocalOnly(): { ok: true } | { ok: false; reason: string } {
         .slice(0, 3)
         .join(", ");
       return {
-        ok: false,
+        attempted: true,
+        amended: false,
+        oldSha: headSha,
         reason:
           `HEAD is already pushed (contained by remote branch(es): ${branches}) — ` +
           "amending would rewrite shared history (red-team-flagged history-rewrite attack); " +
@@ -866,23 +881,23 @@ function verifyHeadIsLocalOnly(): { ok: true } | { ok: false; reason: string } {
       };
     }
     // No remote branch contains HEAD → genuinely local-only, proceed.
-    return { ok: true };
   } catch {
     return {
-      ok: false,
+      attempted: true,
+      amended: false,
+      oldSha: headSha,
       reason:
         "could not verify HEAD is local-only (`git branch -r --contains` failed) — " +
         "refusing to amend (fail-closed)",
     };
   }
-}
 
-/** Section 4: refuse if anything is staged. `git commit --amend` would fold
- *  staged changes into the amended commit, silently bundling unrelated
- *  work into the host-injected commit. `git diff --cached --quiet` exits
- *  0 when nothing staged, 1 when something staged, >1 on error. execSync
- *  throws on non-zero, so the catch branch handles both "staged" and "error". */
-function checkNothingStaged(): { ok: true } | { ok: false; reason: string } {
+  // 4. Anything staged? `git commit --amend` would fold staged changes
+  //    into the amended commit, silently bundling unrelated work into
+  //    the host-injected commit. Refuse in that case. `git diff --cached
+  //    --quiet` exits 0 when nothing staged, 1 when something staged,
+  //    >1 on error. execSync throws on non-zero, so the catch branch
+  //    handles both "staged" and "error".
   try {
     execSync("git diff --cached --quiet", {
       cwd: PROJECT_ROOT,
@@ -890,121 +905,39 @@ function checkNothingStaged(): { ok: true } | { ok: false; reason: string } {
       stdio: "pipe",
     });
     // exit 0 → nothing staged, proceed
-    return { ok: true };
   } catch (err) {
     const status = (err as { status?: number }).status;
     if (status === 1) {
       return {
-        ok: false,
+        attempted: true,
+        amended: false,
+        oldSha: headSha,
         reason:
           "staged changes present — refusing to fold them into the amended commit " +
           "(amend would silently bundle staged work into the host-injected commit)",
       };
     }
     return {
-      ok: false,
+      attempted: true,
+      amended: false,
+      oldSha: headSha,
       reason: `git diff --cached --quiet failed: ${(err as Error).message.slice(0, 200)}`,
     };
   }
-}
 
-/** Section 5: build the replacement message. First line is the conventional
- *  prefix ("restore:") so commit-archaeology greps find it. Body preserves
- *  the original UUID + old short sha for traceability (an archaeologist
- *  reading the amended commit can still recover that it was host-injected
- *  and what the original UUID was). */
-function buildRestoreMessage(headSha: string, headMessage: string): string {
+  // 5. Generate the replacement message. First line is the conventional
+  //    prefix ("restore:") so commit-archaeology greps find it. Body
+  //    preserves the original UUID + old short sha for traceability
+  //    (an archaeologist reading the amended commit can still recover
+  //    that it was host-injected and what the original UUID was).
   const shortSha = headSha.slice(0, 7);
   const originalFirstLine = headMessage.split(/\r?\n/, 1)[0].trim();
-  return (
+  const newMessage =
     `restore: amend bare-UUID host-injected commit (loop boot auto-recovery)\n\n` +
     `Replaces UUID message "${originalFirstLine}" from commit ${shortSha} with a real ` +
     `description. The host sandbox restore orchestrator injected the original during a ` +
     `machine-restart snapshot rehydration, bypassing LOOP's commit path. ` +
-    `See postmortem: system:commit-message-guard.`
-  );
-}
-
-/** Section 7: run the amend. `execFileSync` with arg array — no shell, so
- *  the multi-line message (containing quotes, parens, colons) can never be
- *  a command-injection surface. `--no-verify` is NOT passed — the amend
- *  goes through any git hooks, same as a normal commit. `--allow-empty` is
- *  required because the host-injected commit may itself be empty (the
- *  restore orchestrator sometimes commits a working-tree rehydration with
- *  only mode-bit / timestamp changes that git collapses to an empty diff).
- *  Without `--allow-empty`, git refuses the amend with "doing so would make
- *  it empty" — leaving the UUID message in place. On a non-empty original,
- *  `--allow-empty` is a harmless no-op (the amended commit keeps the
- *  original tree + the new message). */
-function runUuidAmend(
-  newMessage: string,
-  headSha: string,
-):
-  | { attempted: true; amended: true; oldSha: string; newSha: string }
-  | { attempted: true; amended: false; oldSha: string; reason: string } {
-  try {
-    execFileSync("git", ["commit", "--amend", "--allow-empty", "-m", newMessage], {
-      cwd: PROJECT_ROOT,
-      timeout: 15000,
-      stdio: "pipe",
-    });
-    const newSha = execSync("git log -1 --format=%H", {
-      cwd: PROJECT_ROOT,
-      encoding: "utf-8",
-      timeout: 5000,
-      stdio: "pipe",
-    }).trim();
-    return { attempted: true, amended: true, oldSha: headSha, newSha };
-  } catch (err) {
-    return {
-      attempted: true,
-      amended: false,
-      oldSha: headSha,
-      reason: `git commit --amend failed: ${(err as Error).message.slice(0, 200)}`,
-    };
-  }
-}
-
-export function amendUuidHeadCommit(): {
-  attempted: boolean;
-  amended: boolean;
-  oldSha?: string;
-  newSha?: string;
-  reason?: string;
-} {
-  // 1. Read HEAD message + full sha.
-  const head = readHeadCommit();
-  if (!head) {
-    return {
-      attempted: false,
-      amended: false,
-      reason: "git unavailable or no commits yet (fresh repo)",
-    };
-  }
-  const { message: headMessage, sha: headSha } = head;
-
-  // 2. Is HEAD actually a bare UUID / empty message? (No-op if not.)
-  const rejectReason = validateCommitMessage(headMessage);
-  if (!rejectReason) {
-    return { attempted: false, amended: false };
-  }
-
-  // 3. Is HEAD local-only (not on ANY remote branch)?
-  const local = verifyHeadIsLocalOnly();
-  if (!local.ok) {
-    return { attempted: true, amended: false, oldSha: headSha, reason: local.reason };
-  }
-
-  // 4. Anything staged? `git commit --amend` would fold staged changes
-  //    into the amended commit, silently bundling unrelated work into
-  //    the host-injected commit.
-  const staged = checkNothingStaged();
-  if (!staged.ok) {
-    return { attempted: true, amended: false, oldSha: headSha, reason: staged.reason };
-  }
-
-  // 5. Generate the replacement message.
-  const newMessage = buildRestoreMessage(headSha, headMessage);
+    `See postmortem: system:commit-message-guard.`;
 
   // 6. Validate the new message (defensive — the template is clean).
   //    A future template edit that accidentally produces a UUID first
@@ -1019,8 +952,44 @@ export function amendUuidHeadCommit(): {
     };
   }
 
-  // 7. Run the amend.
-  return runUuidAmend(newMessage, headSha);
+  // 7. Run the amend. `execFileSync` with arg array — no shell, so the
+  //    multi-line message (containing quotes, parens, colons) can never
+  //    be a command-injection surface. `--no-verify` is NOT passed — the
+  //    amend goes through any git hooks, same as a normal commit.
+  //    `--allow-empty` is required because the host-injected commit may
+  //    itself be empty (the restore orchestrator sometimes commits a
+  //    working-tree rehydration with only mode-bit / timestamp changes
+  //    that git collapses to an empty diff). Without `--allow-empty`,
+  //    git refuses the amend with "doing so would make it empty" —
+  //    leaving the UUID message in place. On a non-empty original,
+  //    `--allow-empty` is a harmless no-op (the amended commit keeps
+  //    the original tree + the new message).
+  try {
+    execFileSync("git", ["commit", "--amend", "--allow-empty", "-m", newMessage], {
+      cwd: PROJECT_ROOT,
+      timeout: 15000,
+      stdio: "pipe",
+    });
+    const newSha = execSync("git log -1 --format=%H", {
+      cwd: PROJECT_ROOT,
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: "pipe",
+    }).trim();
+    return {
+      attempted: true,
+      amended: true,
+      oldSha: headSha,
+      newSha,
+    };
+  } catch (err) {
+    return {
+      attempted: true,
+      amended: false,
+      oldSha: headSha,
+      reason: `git commit --amend failed: ${(err as Error).message.slice(0, 200)}`,
+    };
+  }
 }
 
 // ── PUSH-FAILURE CIRCUIT BREAKER (audit 3, F8) ──────────────────
@@ -1348,7 +1317,7 @@ export async function pushCurrentState(opts?: {
         env: pushEnv,
       });
     } catch (err) {
-      const stderr = scrub(String((err as { stderr?: string }).stderr ?? (err as Error).message ?? ""), target.token);
+      let stderr = scrub(String((err as { stderr?: string }).stderr ?? (err as Error).message ?? ""), target.token);
 
       // ── DIVERGENCE: REFUSE (audit 3, redesigned) ─────────────────────
       // A fetch-first rejection means the remote holds commits this repo

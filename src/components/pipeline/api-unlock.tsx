@@ -24,41 +24,16 @@
  * BIOS terminal. No blue/indigo.
  */
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const STORAGE_KEY = "loopApiKey";
 const UNAUTHORIZED_EVENT = "loop-api-unauthorized";
 
-/** Subscribe to localStorage `storage` events (cross-tab changes of the
- *  key). Same-tab programmatic writes don't fire it, but the panel only
- *  reads this on mount/subscribe — the unlock flow reloads the page,
- *  which re-reads fresh anyway. */
-function subscribeToStorage(callback: () => void): () => void {
-  window.addEventListener("storage", callback);
-  return () => window.removeEventListener("storage", callback);
-}
-
-/** Client snapshot: is a key stored? (localStorage can throw in private
- *  browsing — treat as absent, same as the old try/catch.) */
-function readHasKeySnapshot(): boolean {
-  try {
-    return window.localStorage.getItem(STORAGE_KEY) !== null;
-  } catch {
-    return false;
-  }
-}
-
 export function ApiUnlock() {
   const [locked, setLocked] = useState(false);
-  // useSyncExternalStore is the blessed pattern for client-only values
-  // (the old version called setState synchronously inside useEffect —
-  // the exact cascade the react-hooks/set-state-in-effect rule flags).
-  // Server snapshot: false ("no key") avoids a hydration mismatch.
-  const hasKey = useSyncExternalStore(
-    subscribeToStorage,
-    readHasKeySnapshot,
-    () => false,
-  );
+  // null until mounted (avoids SSR/hydration mismatch), then whether a
+  // key is already stored in localStorage.
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
   // null until the healthz fetch lands, then whether the server's
   // middleware is actually configured to gate mutations (LOOP_API_KEY
   // is set in .env). The middleware fails OPEN when the env var is
@@ -70,10 +45,21 @@ export function ApiUnlock() {
   const [mutationGateConfigured, setMutationGateConfigured] = useState<boolean | null>(null);
   const [value, setValue] = useState("");
 
-  // Listen for 401s from the patched fetch. (The hasKey read moved to
-  // useSyncExternalStore above; the hint shows when BOTH (a) no key is
-  // stored AND (b) the server confirms it has LOOP_API_KEY configured.)
+  // Listen for 401s from the patched fetch; also detect whether a key is
+  // already stored (drives the subtle "not set" hint). The hint only shows
+  // when BOTH (a) no key is in localStorage AND (b) the server confirms
+  // it has LOOP_API_KEY configured — see mutationGateConfigured above.
   useEffect(() => {
+    // Check localStorage only on client side
+    if (typeof window !== "undefined") {
+      try {
+        setHasKey(window.localStorage.getItem(STORAGE_KEY) !== null);
+      } catch (error) {
+        // Handle potential localStorage access errors (e.g., private browsing mode)
+        setHasKey(false);
+      }
+    }
+    
     let cancelled = false;
     let abortController: AbortController | null = null;
     
@@ -96,7 +82,7 @@ export function ApiUnlock() {
       }
     };
 
-    checkHealthz().catch(() => {
+    checkHealthz().catch(error => {
       // Ensure we handle any uncaught promise rejections
       if (!cancelled) {
         setMutationGateConfigured(null);

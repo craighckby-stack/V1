@@ -59,26 +59,15 @@ const __loopSafeModeSlot = globalThis as unknown as {
 if (!__loopSafeModeSlot.__loopSafeMode) {
   __loopSafeModeSlot.__loopSafeMode = { active: false, reason: null };
 }
-/** Narrowed read of the runtime safe-mode object — initializes the slot
- *  if a fresh module instance finds it empty (defensive: the module-init
- *  block above already covers the normal path). Replaces the four
- *  `__loopSafeMode!` non-null assertions (audit F-4 lint re-enable). */
-function runtimeSafeMode(): { active: boolean; reason: string | null } {
-  if (!__loopSafeModeSlot.__loopSafeMode) {
-    __loopSafeModeSlot.__loopSafeMode = { active: false, reason: null };
-  }
-  return __loopSafeModeSlot.__loopSafeMode;
-}
 function getRuntimeSafeMode(): boolean {
-  return runtimeSafeMode().active;
+  return __loopSafeModeSlot.__loopSafeMode!.active;
 }
 function getRuntimeSafeModeReason(): string | null {
-  return runtimeSafeMode().reason;
+  return __loopSafeModeSlot.__loopSafeMode!.reason;
 }
 function setRuntimeSafeMode(active: boolean, reason: string | null): void {
-  const sm = runtimeSafeMode();
-  sm.active = active;
-  sm.reason = reason;
+  __loopSafeModeSlot.__loopSafeMode!.active = active;
+  __loopSafeModeSlot.__loopSafeMode!.reason = reason;
 }
 
 // Consecutive push-auth-failure counter + purge no-re-entry guard.
@@ -334,7 +323,7 @@ export async function duressPurgePat(opts: {
     if (!keysOk) {
       // Forbidden end state caught. Raise safe-mode anyway (belt-and-
       // suspenders — the runtime flag is set in-memory next), then halt.
-      try { await raiseSafeMode(setBy, `${opts.reason} (Phase 1 KEYS failed)`); } catch { /* best-effort */ }
+      try { await raiseSafeMode(setBy, `${opts.reason} (Phase 1 KEYS failed)`); } catch (e) { /* best-effort */ }
       return {
         outcome: "FAILED",
         keysPurged,

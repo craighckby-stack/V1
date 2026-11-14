@@ -1,18 +1,11 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { hotSwapPipeline } from "@/lib/pipeline/core/hot-swap";
-import { parseOptionalBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 // A swap re-imports the pipeline subtree; give it headroom above the
 // Next.js compile + require time.
 export const maxDuration = 60;
-
-const hotSwapSchema = z.object({
-  reason: z.string().min(1).max(200).optional(),
-  dryRun: z.boolean().optional(),
-});
 
 /**
  * POST /api/hot-swap/trigger
@@ -27,11 +20,17 @@ const hotSwapSchema = z.object({
  */
 export async function POST(req: Request) {
   try {
-    const { reason, dryRun } = await parseOptionalBody(
-      req,
-      hotSwapSchema,
-      { reason: "manual operator trigger", dryRun: false },
-    );
+    let reason = "manual operator trigger";
+    let dryRun = false;
+    try {
+      const body = await req.json();
+      if (body && typeof body.reason === "string" && body.reason.trim()) {
+        reason = body.reason.trim().slice(0, 200);
+      }
+      if (body && typeof body.dryRun === "boolean") dryRun = body.dryRun;
+    } catch {
+      /* no body — use defaults */
+    }
     const result = await hotSwapPipeline({ reason, dryRun });
     return NextResponse.json({ ok: result.ok, result });
   } catch (err) {

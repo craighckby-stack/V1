@@ -7,6 +7,7 @@ import {
 } from "./crash-budget";
 import {
   existsSync,
+  readFileSync,
   writeFileSync,
   unlinkSync,
   copyFileSync,
@@ -193,14 +194,13 @@ describe("crash-budget", () => {
     resetCrashBudget();
     const read = readCrashBudget();
     expect(read).not.toBeNull();
-    expect(read?.count).toBe(0);
-    expect(read?.lastClass).toBe("");
-    expect(read?.crashWall).toBe(false);
+    expect(read!.count).toBe(0);
+    expect(read!.lastClass).toBe("");
+    expect(read!.crashWall).toBe(false);
     // `at` must be a parseable ISO timestamp — the operator's boot log
     // line reads this field and renders it.
-    const at = read?.at ?? "";
-    expect(typeof read?.at).toBe("string");
-    expect(() => new Date(at).toISOString()).not.toThrow();
+    expect(typeof read!.at).toBe("string");
+    expect(() => new Date(read!.at).toISOString()).not.toThrow();
   });
 
   test("resetCrashBudget clears a previously tripped wall", () => {
@@ -218,8 +218,8 @@ describe("crash-budget", () => {
 
     const after = readCrashBudget();
     expect(after).not.toBeNull();
-    expect(after?.crashWall).toBe(false);
-    expect(after?.count).toBe(0);
-    expect(after?.lastClass).toBe("");
+    expect(after!.crashWall).toBe(false);
+    expect(after!.count).toBe(0);
+    expect(after!.lastClass).toBe("");
   });
 });

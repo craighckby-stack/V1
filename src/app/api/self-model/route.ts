@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { getSelfModelSummary } from "@/lib/pipeline/autonomous/self-model";
-import { parseOptionalBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -47,16 +45,52 @@ export async function GET() {
   }
 }
 
-const selfModelPostSchema = z.object({
-  force: z.boolean().optional(),
-});
-
 export async function POST(req: Request) {
-  // Optional body: `{ force?: boolean }`. Missing/invalid body → force=false.
-  // The old hand-rolled 45-line parse/error cascade (including a dead
-  // `if (!req)` check on a function parameter that is always defined) is
-  // replaced by the shared helper.
-  const { force } = await parseOptionalBody(req, selfModelPostSchema, { force: false });
+  let force = false;
+  let body: { force?: boolean } | null = null;
+
+  try {
+    if (!req) {
+      throw new Error("Request object is missing.");
+    }
+    body = await req.json();
+    
+    // Validate body is an object
+    if (typeof body !== 'object' || body === null) {
+      throw new Error("Request body must be a non-null object.");
+    }
+    
+    // Validate force parameter if present
+    if ('force' in body) {
+      if (typeof body.force === 'boolean') {
+        force = body.force;
+      } else {
+        throw new Error("Force parameter must be a boolean.");
+      }
+    }
+  } catch (e) {
+    // Handle JSON parsing errors specifically
+    if (e instanceof SyntaxError) {
+      return NextResponse.json(
+        { error: `Invalid JSON in request body: ${e.message}` },
+        { status: 400 }
+      );
+    }
+    
+    // Handle other validation/runtime errors
+    if (e instanceof Error) {
+      return NextResponse.json(
+        { error: `Invalid request body: ${e.message}` },
+        { status: 400 }
+      );
+    }
+    
+    // Fallback for unknown error types during parsing/validation
+    return NextResponse.json(
+      { error: "Invalid request body: Unknown error during parsing or validation." },
+      { status: 400 }
+    );
+  }
 
   if (force) {
     try {

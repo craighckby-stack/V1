@@ -168,6 +168,7 @@ export async function queryRelevantPostmortems(opts: {
 
     for (const kw of keywords) {
       let termScore = 0;
+      let field: AncestralHit["strongestField"] = "symptom";
       if (constraintsLower.includes(kw)) {
         termScore += FIELD_WEIGHTS.constraints;
         if (FIELD_WEIGHTS.constraints > strongestFieldScore) {

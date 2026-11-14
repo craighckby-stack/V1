@@ -1,17 +1,8 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { generateProphecy, generateProphecies } from "@/lib/pipeline/oracle/prophecy-generator";
-import { parseOptionalBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const oracleGenerateSchema = z.object({
-  // Required here + defaults in parseOptionalBody: an empty/absent body
-  // fails validation and falls back to count=1, so the merged type is
-  // { count: number } (not number|undefined).
-  count: z.number().int().min(1).max(10),
-});
 
 /**
  * POST /api/oracle/generate
@@ -35,10 +26,15 @@ const oracleGenerateSchema = z.object({
  * knows the system isn't silently dropping predictions.
  */
 export async function POST(req: Request) {
-  // Missing/invalid body → count=1. A non-integer count falls back to 1
-  // (the old code rounded and clamped; the zod int() check + default is
-  // stricter and simpler).
-  const { count } = await parseOptionalBody(req, oracleGenerateSchema, { count: 1 });
+  let count = 1;
+  try {
+    const body = await req.json().catch(() => ({}));
+    if (typeof body?.count === "number" && Number.isFinite(body.count)) {
+      count = Math.max(1, Math.min(10, Math.round(body.count)));
+    }
+  } catch {
+    /* body wasn't JSON — use default count of 1 */
+  }
 
   try {
     if (count === 1) {

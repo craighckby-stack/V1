@@ -18,9 +18,6 @@
  */
 
 import { unifiedPipelineRunnerInstance } from "../core/unified-pipeline";
-// Type-only import — erased at compile time, so it does NOT create the
-// runtime require-cycle the code below carefully avoids.
-import type { LoopSnapshot } from "../core/hot-swap";
 import { db } from "@/lib/db";
 import { postmortemStore, generatePostmortemFromReport } from "../postmortem/postmortem-store";
 import { autoProphecyAfterCycle } from "../oracle/oracle-auto";
@@ -191,26 +188,6 @@ export interface AutonomousCycleSummary {
   proofHash: string | null;
 }
 
-/** Mutable state threaded through one cycle's phases (audit H1
- *  refactor: executeCycle was a single ~630-line method; the phase
- *  helpers below share this context instead of closing over locals). */
-interface CycleRunContext {
-  mode: LoopMode;
-  /** STOP generation captured at cycle start — compared at the per-file
-   *  and pre-commit checkpoints so an in-flight cycle is interruptible. */
-  myGen: number;
-  token: string | null;
-  headers: Record<string, string>;
-  cycleId: string;
-  cycleNumber: number;
-  cycleStatus: AutonomousCycleState["status"];
-  cycleProofHash: string | null;
-  halted: boolean;
-  committed: number;
-  /** Tree fingerprint — committed to stats ONLY if the cycle completes. */
-  completedFingerprint: string | null;
-}
-
 class AutonomousLoopRuntime {
   private config: LoopConfig = {
     // ── OPERATOR-GATED (default, set 2026-11-03) ──────────────────────
@@ -257,17 +234,6 @@ class AutonomousLoopRuntime {
   };
   private logs: LoopLogEntry[] = [];
   private currentCycle: AutonomousCycleState | null = null;
-
-  /** Narrowing helper for the executeCycle body: currentCycle is created
-   *  at the top of every cycle and cleared in the finally, so mid-cycle
-   *  code can rely on it — this turns the old `this.currentCycle!`
-   *  non-null assertions into a checked read (audit F-4 lint re-enable). */
-  private requireCycle(): AutonomousCycleState {
-    if (!this.currentCycle) {
-      throw new Error("requireCycle called outside an active cycle");
-    }
-    return this.currentCycle;
-  }
   private recentCycles: AutonomousCycleSummary[] = [];
   private timer: NodeJS.Timeout | null = null;
   private continuousLoopRunning = false;
@@ -409,13 +375,13 @@ class AutonomousLoopRuntime {
    * safe-mode fix (see core/duress.ts). */
   private static readonly AUTO_ARM_FLAG = "__loopAutoArmFired";
   private autoArmAlreadyFired(): boolean {
-    return !!(globalThis as unknown as Record<string, unknown>)[AutonomousLoopRuntime.AUTO_ARM_FLAG];
+    return !!(globalThis as any)[AutonomousLoopRuntime.AUTO_ARM_FLAG];
   }
   private markAutoArmFired(): void {
-    (globalThis as unknown as Record<string, unknown>)[AutonomousLoopRuntime.AUTO_ARM_FLAG] = true;
+    (globalThis as any)[AutonomousLoopRuntime.AUTO_ARM_FLAG] = true;
   }
   private resetAutoArmFlag(): void {
-    (globalThis as unknown as Record<string, unknown>)[AutonomousLoopRuntime.AUTO_ARM_FLAG] = false;
+    (globalThis as any)[AutonomousLoopRuntime.AUTO_ARM_FLAG] = false;
   }
 
   constructor() {
@@ -436,7 +402,7 @@ class AutonomousLoopRuntime {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { consumeStashedSnapshot } = require("../core/hot-swap") as {
-        consumeStashedSnapshot?: () => LoopSnapshot | null;
+        consumeStashedSnapshot?: () => any;
       };
       if (typeof consumeStashedSnapshot === "function") {
         const snap = consumeStashedSnapshot();
@@ -523,7 +489,7 @@ class AutonomousLoopRuntime {
           // Re-check the pin: if another instance already armed + is
           // running, this one should no-op. The pin is set by the
           // singleton export below.
-          const g = globalThis as unknown as { __autonomousLoopRuntime?: unknown };
+          const g = globalThis as unknown as { __autonomousLoopRuntime?: any };
           if (g.__autonomousLoopRuntime && g.__autonomousLoopRuntime !== this) {
             // Another instance won the race. Don't arm a second timer.
             return;
@@ -1252,167 +1218,6 @@ class AutonomousLoopRuntime {
   }
 
   private async executeCycle(mode: LoopMode): Promise<AutonomousCycleState | null> {
-    // ── Pre-flight gates (re-entry, LLM cooldown, safe-mode) ──────────
-    const gated = await this.preCycleGates(mode);
-    if (gated === null) return null;
-    const myGen = gated.myGen;
-
-    // ── Cycle state creation ──────────────────────────────────────────
-    this.status = "running";
-    this.stats.totalRuns++;
-    const cycleId = `cycle_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const cycleNumber = this.stats.totalRuns;
-    const startedAt = new Date().toISOString();
-
-    this.currentCycle = {
-      id: cycleId,
-      cycleNumber,
-      mode,
-      targetRepo: this.config.targetRepo,
-      branch: this.config.branch,
-      startedAt,
-      filesScanned: 0,
-      filesCommitted: 0,
-      status: "running",
-      fileResults: [],
-    };
-
-    this.addLog(
-      `Starting autonomous cycle #${cycleNumber} (${mode}) on ${this.config.targetRepo}:${this.config.branch}`,
-      "info"
-    );
-
-    const token = this.resolveToken();
-    const headers: Record<string, string> = {
-      "User-Agent": "Architecture-Helper-Pipeline",
-      Accept: "application/vnd.github.v3+json",
-    };
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    const ctx: CycleRunContext = {
-      mode,
-      myGen,
-      token,
-      headers,
-      cycleId,
-      cycleNumber,
-      cycleStatus: "completed",
-      cycleProofHash: null,
-      halted: false,
-      committed: 0,
-      completedFingerprint: null,
-    };
-
-    try {
-      // 1. Fetch repo tree (recursive)
-      const { tree, fingerprint } = await this.fetchRepoTree(headers);
-
-      // Compute tree fingerprint
-      const fp = fingerprint;
-      if (this.config.mode === "watch" && this.stats.lastTreeFingerprint === fp) {
-        this.addLog(
-          `Watch mode: tree fingerprint unchanged (${fp}). Skipping cycle — no remote changes detected.`,
-          "info"
-        );
-        ctx.cycleStatus = "halted";
-        // NOTE: no finalizeCycle() call here — the try/finally below is
-        // the SINGLE finalize point. The old code called finalizeCycle()
-        // explicitly on this path, so the finally block ran it a second
-        // time: the same cycle was double-inserted into recentCycles
-        // (the second DB insert failed on the duplicate id, but the
-        // in-memory list kept both copies).
-        return this.requireCycle();
-      }
-      // Capture for the completed path only — stats.lastTreeFingerprint
-      // is committed AFTER the per-file work succeeds (see below).
-      ctx.completedFingerprint = fp;
-      this.addLog(`Tree fingerprint computed: ${fp} (${tree.length} entries)`, "info");
-
-      // 2. Select the real code files for this cycle.
-      const codeBlobs = this.selectCodeFiles(tree);
-
-      this.requireCycle().filesScanned = codeBlobs.length;
-      this.stats.totalFilesScanned += codeBlobs.length;
-      this.addLog(
-        `Selected ${codeBlobs.length} code file(s) for pipeline processing (${this.previouslyCommittedPaths.size} already committed, ${this.previouslyFailedPaths.size} in failed-cooldown, ${this.previouslyStablePaths.size} in stable-cooldown — all skipped).`,
-        "info"
-      );
-
-      // 2.5. Ensure the evolution branch exists before we try to commit to it.
-      await this.ensureEvolutionBranch(token, headers);
-
-      // 3. For each file: fetch content, run pipeline, optionally commit
-      for (const blob of codeBlobs) {
-        if (ctx.halted) break;
-        // External audit F2 — per-file STOP checkpoint: [STOP] pressed
-        // during a previous file's pipeline run bumps cycleGeneration; stop
-        // here instead of fetching and LLM-processing more files.
-        if (ctx.myGen !== this.cycleGeneration) {
-          this.addLog("STOP mid-cycle — aborting remaining files (in-flight cycle interrupted)", "warn");
-          ctx.halted = true;
-          // Record the operator interrupt honestly — the cycle did NOT
-          // run to completion, so the DB row / recent-cycles must not say
-          // "completed".
-          ctx.cycleStatus = "halted";
-          break;
-        }
-        try {
-          await this.processFileInCycle(ctx, blob);
-        } catch (err) {
-          this.addLog(`File ${blob.path} failed: ${(err as Error).message}`, "error");
-        }
-      }
-
-      this.requireCycle().filesCommitted = ctx.committed;
-      this.stats.totalFilesCommitted += ctx.committed;
-      this.stats.lastRunTime = new Date().toISOString();
-      if (!ctx.halted) {
-        ctx.cycleStatus = "completed";
-        // Commit the fingerprint only on a cycle that ran to completion.
-        if (ctx.completedFingerprint) this.stats.lastTreeFingerprint = ctx.completedFingerprint;
-      }
-    } catch (err) {
-      this.addLog(`Cycle #${cycleNumber} aborted: ${(err as Error).message}`, "error");
-      ctx.cycleStatus = "error";
-    } finally {
-      this.finalizeCycle(cycleId, ctx.cycleStatus, ctx.cycleProofHash);
-      // ── Crash-budget reset on a clean cycle ─────────────────────────
-      // A cycle that ran to completion or halted (governor saturation)
-      // is "clean" for crash-budget purposes: the loop is structurally
-      // fine — per-file failures inside the cycle are caught in the
-      // for-loop above and reported through postmortems, they do NOT
-      // reach the runContinuousLoop catch and do NOT count as a crash.
-      // Resetting the budget on a clean cycle is what makes the wall
-      // trip only on SUSTAINED crashes, not on a single crash followed
-      // by 100 clean cycles followed by another single crash.
-      if (
-        (ctx.cycleStatus === "completed" || ctx.cycleStatus === "halted") &&
-        this.consecutiveCrashCount > 0
-      ) {
-        this.consecutiveCrashCount = 0;
-        this.lastCrashClass = "";
-        try {
-          resetCrashBudget();
-        } catch {
-          /* best-effort — in-memory is the live source */
-        }
-      }
-      this.status = this.config.enabled ? "idle" : "paused";
-      if (this.config.enabled && this.config.mode !== "continuous") {
-        const ms = Math.max(15_000, this.config.intervalMinutes * 60 * 1000);
-        this.stats.nextRunAt = new Date(Date.now() + ms).toISOString();
-      } else {
-        this.stats.nextRunAt = null;
-      }
-    }
-
-    return this.currentCycle;
-  }
-
-  /** Pre-flight gates shared by every cycle entry. Returns the captured
-   *  STOP generation, or null when the cycle should not start (another
-   *  cycle running, LLM gate active, safe-mode raised). */
-  private async preCycleGates(mode: LoopMode): Promise<{ myGen: number } | null> {
     if (this.status === "running") {
       this.addLog("Skipping cycle — another cycle already running.", "warn");
       return null;
@@ -1445,8 +1250,8 @@ class AutonomousLoopRuntime {
     // ── Safe-mode gate (concept: PKM duress / GRAFT 2) ──────────────
     // If the duress protocol OR the red-team suite has raised safe-mode,
     // the loop REFUSES to run any further cycles — no mutate, no push.
-    // The operator must clear it via /api/duress/clear after verifying the
-    // situation. This is the HALT step of the PKM §3 sequence: the
+    // The operator must clear it via /api/duress/clear after verifying
+    // the situation. This is the HALT step of the PKM §3 sequence: the
     // autonomous loop's own work is what the purge protects against.
     if (isSafeMode()) {
       const state = await getSafeModeState();
@@ -1454,7 +1259,7 @@ class AutonomousLoopRuntime {
       const reason = state.reason ?? "(no reason recorded)";
       this.addLog(
         `SAFE-MODE ACTIVE — cycle skipped. Raised by ${by}: ${reason}. ` +
-          `Clear via /api/duress/clear after verifying the situation.`,
+        `Clear via /api/duress/clear after verifying the situation.`,
         "error"
       );
       this.status = "paused";
@@ -1466,482 +1271,585 @@ class AutonomousLoopRuntime {
       this.scheduleRecoveryProbe();
       return null;
     }
-    return { myGen };
-  }
+    this.status = "running";
+    this.stats.totalRuns++;
+    const cycleId = `cycle_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const cycleNumber = this.stats.totalRuns;
+    const startedAt = new Date().toISOString();
 
-  /** Phase 1 — fetch the recursive repo tree + compute its fingerprint.
-   *  Throws on fetch failure (the cycle's catch turns it into an error
-   *  cycle, exactly as before). */
-  private async fetchRepoTree(
-    headers: Record<string, string>
-  ): Promise<{ tree: Array<{ path: string; type: string; sha: string; size?: number }>; fingerprint: string }> {
-    const treeUrl = `https://api.github.com/repos/${this.config.targetRepo}/git/trees/${this.config.branch}?recursive=1`;
-    let treeRes = await fetch(treeUrl, { headers });
-    if (!treeRes.ok && this.config.branch === "main") {
-      const altUrl = `https://api.github.com/repos/${this.config.targetRepo}/git/trees/master?recursive=1`;
-      treeRes = await fetch(altUrl, { headers });
-    }
-    if (!treeRes.ok) {
-      throw new Error(`GitHub tree fetch failed (${treeRes.status})`);
-    }
-    const treeData = (await treeRes.json()) as {
-      tree: Array<{ path: string; type: string; sha: string; size?: number }>;
+    this.currentCycle = {
+      id: cycleId,
+      cycleNumber,
+      mode,
+      targetRepo: this.config.targetRepo,
+      branch: this.config.branch,
+      startedAt,
+      filesScanned: 0,
+      filesCommitted: 0,
+      status: "running",
+      fileResults: [],
     };
-    const tree = treeData.tree ?? [];
-    return { tree, fingerprint: this.computeTreeFingerprint(tree) };
-  }
 
-  /** Phase 2 — filter the tree to REAL code files eligible for this cycle.
-   *  See the inline audit-5 note for the ignored-path rationale. */
-  private selectCodeFiles(
-    tree: Array<{ path: string; type: string; sha: string; size?: number }>
-  ): Array<{ path: string; type: string; sha: string; size?: number }> {
-    // 2. Filter to REAL code files only. The LLM cannot meaningfully
-    //    refactor markdown, JSON, YAML, shell, SQL, HTML, or CSS — running
-    //    it on those files produces cosmetic comment injection that the
-    //    0-diff saturation check then halts on, wasting LLM API calls.
-    //    Only include languages where the LLM can extract constants,
-    //    add type annotations, modularize, etc.
-    const codeExtRegex = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|swift|rb|php|c|cpp|cc|cs)$/i;
-    // audit 5 — ZERO_DIFF_SATURATION wall: the prior `ignored` regex
-    // admitted scripts/, build-guide/, proxy/, mini-services/, and
-    // top-level config stubs (next.config.ts, next-env.d.ts, postcss/
-    // eslint configs). The deep investigation (audit 5) found 100% of
-    // zero-diff postmortems are in this autonomous-loop path, and the
-    // top zero-diff files (scripts/q.ts: 14 attempts, scripts/check-
-    // llm.ts, next-env.d.ts, build-guide/*.py) are GENUINELY FINISHED —
-    // 8-16 lines, correct, no bugs, no missing error handling. The
-    // LLM correctly returns them unchanged; the loop was just feeding
-    // it trivial files. Excluding these paths means the loop spends
-    // its maxFilesPerCycle budget on substantive code where a real
-    // refactor is possible. Config stubs (next.config, postcss, eslint,
-    // tailwind, tsconfig) are also excluded — they're declarative
-    // configs with no business logic to refactor.
-    const ignored = /^(node_modules|\.git|\.next|dist|build|coverage|public\/assets|vendor|third_party|\.agents|docs?|examples?|scripts|build-guide|proxy|mini-services)\//i;
-    const ignoredFiles = /^(next-env\.d\.ts|next\.config\.(ts|js|mjs)|postcss\.config\.(mjs|js|ts)|eslint\.config\.(mjs|js|ts)|tailwind\.config\.(ts|js|mjs)|tsconfig\.json|prettier\.config\.(js|mjs|ts)|\.env\.example|package\.json|bun\.lock|bun\.lockb)$/i;
-    // Hard cap on files per cycle — prevents runaway LLM API costs.
-    const effectiveMaxFiles = Math.min(this.config.maxFilesPerCycle, 500);
-    // Skip files already committed in prior cycles so each cycle makes
-    // forward progress through large repos.
-    const alreadyCommitted = this.previouslyCommittedPaths;
-    // Skip files that failed recently (cooldown) so the loop doesn't
-    // get stuck retrying an un-improvable file every cycle. A file that
-    // failed >= FAILED_FILE_COOLDOWN_CYCLES ago is re-tried.
-    //
-    // ALSO skip files declared stable recently (zero-diff saturation).
-    // Stable files get a LONG cooldown (STABLE_FILE_COOLDOWN_CYCLES,
-    // 50) — see previouslyStablePaths for why. The two cooldowns are
-    // independent: a stable file is not a failure, and a failed file
-    // is not stable. A file in EITHER map is skipped until its cooldown
-    // expires.
-    const currentCycleNum = this.stats.totalRuns;
-    const cooledDown = (path: string): boolean => {
-      const failedAt = this.previouslyFailedPaths.get(path);
-      if (
-        failedAt !== undefined &&
-        currentCycleNum - failedAt < AutonomousLoopRuntime.FAILED_FILE_COOLDOWN_CYCLES
-      ) {
-        return false;
-      }
-      const stableAt = this.previouslyStablePaths.get(path);
-      if (
-        stableAt !== undefined &&
-        currentCycleNum - stableAt < AutonomousLoopRuntime.STABLE_FILE_COOLDOWN_CYCLES
-      ) {
-        return false;
-      }
-      return true;
+    this.addLog(
+      `Starting autonomous cycle #${cycleNumber} (${mode}) on ${this.config.targetRepo}:${this.config.branch}`,
+      "info"
+    );
+
+    const token = this.resolveToken();
+    const headers: Record<string, string> = {
+      "User-Agent": "Architecture-Helper-Pipeline",
+      Accept: "application/vnd.github.v3+json",
     };
-    return tree
-      .filter(
-        (item) =>
-          item.type === "blob" &&
-          codeExtRegex.test(item.path) &&
-          !ignored.test(item.path) &&
-          !ignoredFiles.test(item.path) &&
-          !alreadyCommitted.has(item.path) &&
-          cooledDown(item.path)
-      )
-      .slice(0, effectiveMaxFiles);
-  }
+    if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  /** Phase 2.5 — ensure the evolution branch exists before we try to
-   *  commit to it. If the branch doesn't exist, create it from the
-   *  source branch's HEAD. This prevents 404 "branch not found" errors
-   *  on the commit PUT. All failures are logged, never thrown (the
-   *  per-file push surfaces the real error if the branch is still
-   *  missing). */
-  private async ensureEvolutionBranch(
-    token: string | null,
-    headers: Record<string, string>
-  ): Promise<void> {
-    if (!(token && this.config.autoPush && this.config.evolutionBranch !== this.config.branch)) {
-      return;
-    }
+    let cycleStatus: AutonomousCycleState["status"] = "completed";
+    let cycleProofHash: string | null = null;
+    // The tree fingerprint is committed to stats ONLY when the cycle
+    // finishes non-error. (The old code wrote it immediately after the
+    // unchanged-check, BEFORE the per-file work — a mid-cycle crash then
+    // made every later watch cycle see "fingerprint unchanged" and skip,
+    // permanently swallowing the crashed cycle's files until the remote
+    // tree changed again.)
+    let completedFingerprint: string | null = null;
+
     try {
-      const branchCheckUrl = `https://api.github.com/repos/${this.config.targetRepo}/git/ref/heads/${this.config.evolutionBranch}`;
-      const branchCheckRes = await fetch(branchCheckUrl, { headers });
-      if (!branchCheckRes.ok && branchCheckRes.status === 404) {
-        // Branch doesn't exist — create it from source branch HEAD
-        const sourceRefUrl = `https://api.github.com/repos/${this.config.targetRepo}/git/ref/heads/${this.config.branch}`;
-        const sourceRefRes = await fetch(sourceRefUrl, { headers });
-        if (sourceRefRes.ok) {
-          const sourceRefData = (await sourceRefRes.json()) as { object?: { sha?: string } };
-          const sourceSha = sourceRefData.object?.sha;
-          if (sourceSha) {
-            const createBranchRes = await fetch(
-              `https://api.github.com/repos/${this.config.targetRepo}/git/refs`,
-              {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  "Content-Type": "application/json",
-                  "User-Agent": "Architecture-Helper-Pipeline",
-                  Accept: "application/vnd.github.v3+json",
-                },
-                body: JSON.stringify({
-                  ref: `refs/heads/${this.config.evolutionBranch}`,
-                  sha: sourceSha,
-                }),
+      // 1. Fetch repo tree (recursive)
+      const treeUrl = `https://api.github.com/repos/${this.config.targetRepo}/git/trees/${this.config.branch}?recursive=1`;
+      let treeRes = await fetch(treeUrl, { headers });
+      if (!treeRes.ok && this.config.branch === "main") {
+        const altUrl = `https://api.github.com/repos/${this.config.targetRepo}/git/trees/master?recursive=1`;
+        treeRes = await fetch(altUrl, { headers });
+      }
+      if (!treeRes.ok) {
+        throw new Error(`GitHub tree fetch failed (${treeRes.status})`);
+      }
+      const treeData = (await treeRes.json()) as {
+        tree: Array<{ path: string; type: string; sha: string; size?: number }>;
+      };
+      const tree = treeData.tree ?? [];
+
+      // Compute tree fingerprint
+      const fp = this.computeTreeFingerprint(tree);
+      if (this.config.mode === "watch" && this.stats.lastTreeFingerprint === fp) {
+        this.addLog(
+          `Watch mode: tree fingerprint unchanged (${fp}). Skipping cycle — no remote changes detected.`,
+          "info"
+        );
+        cycleStatus = "halted";
+        // NOTE: no finalizeCycle() call here — the try/finally below is
+        // the SINGLE finalize point. The old code called finalizeCycle()
+        // explicitly on this path, so the finally block ran it a second
+        // time: the same cycle was double-inserted into recentCycles
+        // (the second DB insert failed on the duplicate id, but the
+        // in-memory list kept both copies).
+        return this.currentCycle!;
+      }
+      // Capture for the completed path only — stats.lastTreeFingerprint
+      // is committed AFTER the per-file work succeeds (see below).
+      completedFingerprint = fp;
+      this.addLog(`Tree fingerprint computed: ${fp} (${tree.length} entries)`, "info");
+
+      // 2. Filter to REAL code files only. The LLM cannot meaningfully
+      //    refactor markdown, JSON, YAML, shell, SQL, HTML, or CSS — running
+      //    it on those files produces cosmetic comment injection that the
+      //    0-diff saturation check then halts on, wasting LLM API calls.
+      //    Only include languages where the LLM can extract constants,
+      //    add type annotations, modularize, etc.
+      const codeExtRegex = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|swift|rb|php|c|cpp|cc|cs)$/i;
+      // audit 5 — ZERO_DIFF_SATURATION wall: the prior `ignored` regex
+      // admitted scripts/, build-guide/, proxy/, mini-services/, and
+      // top-level config stubs (next.config.ts, next-env.d.ts, postcss/
+      // eslint configs). The deep investigation (audit 5) found 100% of
+      // zero-diff postmortems are in this autonomous-loop path, and the
+      // top zero-diff files (scripts/q.ts: 14 attempts, scripts/check-
+      // llm.ts, next-env.d.ts, build-guide/*.py) are GENUINELY FINISHED —
+      // 8-16 lines, correct, no bugs, no missing error handling. The
+      // LLM correctly returns them unchanged; the loop was just feeding
+      // it trivial files. Excluding these paths means the loop spends
+      // its maxFilesPerCycle budget on substantive code where a real
+      // refactor is possible. Config stubs (next.config, postcss, eslint,
+      // tailwind, tsconfig) are also excluded — they're declarative
+      // configs with no business logic to refactor.
+      const ignored = /^(node_modules|\.git|\.next|dist|build|coverage|public\/assets|vendor|third_party|\.agents|docs?|examples?|scripts|build-guide|proxy|mini-services)\//i;
+      const ignoredFiles = /^(next-env\.d\.ts|next\.config\.(ts|js|mjs)|postcss\.config\.(mjs|js|ts)|eslint\.config\.(mjs|js|ts)|tailwind\.config\.(ts|js|mjs)|tsconfig\.json|prettier\.config\.(js|mjs|ts)|\.env\.example|package\.json|bun\.lock|bun\.lockb)$/i;
+      // Hard cap on files per cycle — prevents runaway LLM API costs.
+      const effectiveMaxFiles = Math.min(this.config.maxFilesPerCycle, 500);
+      // Skip files already committed in prior cycles so each cycle makes
+      // forward progress through large repos.
+      const alreadyCommitted = this.previouslyCommittedPaths;
+      // Skip files that failed recently (cooldown) so the loop doesn't
+      // get stuck retrying an un-improvable file every cycle. A file that
+      // failed >= FAILED_FILE_COOLDOWN_CYCLES ago is re-tried.
+      //
+      // ALSO skip files declared stable recently (zero-diff saturation).
+      // Stable files get a LONG cooldown (STABLE_FILE_COOLDOWN_CYCLES,
+      // 50) — see previouslyStablePaths for why. The two cooldowns are
+      // independent: a stable file is not a failure, and a failed file
+      // is not stable. A file in EITHER map is skipped until its cooldown
+      // expires.
+      const currentCycleNum = this.stats.totalRuns;
+      const cooledDown = (path: string): boolean => {
+        const failedAt = this.previouslyFailedPaths.get(path);
+        if (
+          failedAt !== undefined &&
+          currentCycleNum - failedAt < AutonomousLoopRuntime.FAILED_FILE_COOLDOWN_CYCLES
+        ) {
+          return false;
+        }
+        const stableAt = this.previouslyStablePaths.get(path);
+        if (
+          stableAt !== undefined &&
+          currentCycleNum - stableAt < AutonomousLoopRuntime.STABLE_FILE_COOLDOWN_CYCLES
+        ) {
+          return false;
+        }
+        return true;
+      };
+      const codeBlobs = tree
+        .filter(
+          (item) =>
+            item.type === "blob" &&
+            codeExtRegex.test(item.path) &&
+            !ignored.test(item.path) &&
+            !ignoredFiles.test(item.path) &&
+            !alreadyCommitted.has(item.path) &&
+            cooledDown(item.path)
+        )
+        .slice(0, effectiveMaxFiles);
+
+      this.currentCycle!.filesScanned = codeBlobs.length;
+      this.stats.totalFilesScanned += codeBlobs.length;
+      this.addLog(
+        `Selected ${codeBlobs.length} code file(s) for pipeline processing (${alreadyCommitted.size} already committed, ${this.previouslyFailedPaths.size} in failed-cooldown, ${this.previouslyStablePaths.size} in stable-cooldown — all skipped).`,
+        "info"
+      );
+
+      // 2.5. Ensure the evolution branch exists before we try to commit to it.
+      //     If the branch doesn't exist, create it from the source branch's HEAD.
+      //     This prevents 404 "branch not found" errors on the commit PUT.
+      if (token && this.config.autoPush && this.config.evolutionBranch !== this.config.branch) {
+        try {
+          const branchCheckUrl = `https://api.github.com/repos/${this.config.targetRepo}/git/ref/heads/${this.config.evolutionBranch}`;
+          const branchCheckRes = await fetch(branchCheckUrl, { headers });
+          if (!branchCheckRes.ok && branchCheckRes.status === 404) {
+            // Branch doesn't exist — create it from source branch HEAD
+            const sourceRefUrl = `https://api.github.com/repos/${this.config.targetRepo}/git/ref/heads/${this.config.branch}`;
+            const sourceRefRes = await fetch(sourceRefUrl, { headers });
+            if (sourceRefRes.ok) {
+              const sourceRefData = (await sourceRefRes.json()) as { object?: { sha?: string } };
+              const sourceSha = sourceRefData.object?.sha;
+              if (sourceSha) {
+                const createBranchRes = await fetch(
+                  `https://api.github.com/repos/${this.config.targetRepo}/git/refs`,
+                  {
+                    method: "POST",
+                    headers: {
+                      Authorization: `Bearer ${token}`,
+                      "Content-Type": "application/json",
+                      "User-Agent": "Architecture-Helper-Pipeline",
+                      Accept: "application/vnd.github.v3+json",
+                    },
+                    body: JSON.stringify({
+                      ref: `refs/heads/${this.config.evolutionBranch}`,
+                      sha: sourceSha,
+                    }),
+                  }
+                );
+                if (createBranchRes.ok) {
+                  this.addLog(
+                    `Created evolution branch '${this.config.evolutionBranch}' from ${this.config.branch} (${sourceSha.slice(0, 7)}).`,
+                    "success",
+                    "github"
+                  );
+                } else {
+                  const errBody = await createBranchRes.json().catch(() => ({}));
+                  this.addLog(
+                    `Failed to create evolution branch: ${(errBody as { message?: string })?.message ?? `HTTP ${createBranchRes.status}`}`,
+                    "warn",
+                    "github"
+                  );
+                }
               }
-            );
-            if (createBranchRes.ok) {
-              this.addLog(
-                `Created evolution branch '${this.config.evolutionBranch}' from ${this.config.branch} (${sourceSha.slice(0, 7)}).`,
-                "success",
-                "github"
-              );
             } else {
-              const errBody = await createBranchRes.json().catch(() => ({}));
               this.addLog(
-                `Failed to create evolution branch: ${(errBody as { message?: string })?.message ?? `HTTP ${createBranchRes.status}`}`,
+                `Could not resolve source branch '${this.config.branch}' to create evolution branch (HTTP ${sourceRefRes.status}).`,
                 "warn",
                 "github"
               );
             }
+          } else if (branchCheckRes.ok) {
+            this.addLog(
+              `Evolution branch '${this.config.evolutionBranch}' already exists.`,
+              "info",
+              "github"
+            );
           }
-        } else {
+        } catch (err) {
           this.addLog(
-            `Could not resolve source branch '${this.config.branch}' to create evolution branch (HTTP ${sourceRefRes.status}).`,
+            `Branch creation check failed: ${(err as Error).message}`,
             "warn",
             "github"
           );
         }
-      } else if (branchCheckRes.ok) {
-        this.addLog(
-          `Evolution branch '${this.config.evolutionBranch}' already exists.`,
-          "info",
-          "github"
-        );
+      }
+
+      // 3. For each file: fetch content, run pipeline, optionally commit
+      let committed = 0;
+      let halted = false;
+      for (const blob of codeBlobs) {
+        if (halted) break;
+        // External audit F2 — per-file STOP checkpoint: [STOP] pressed
+        // during a previous file's pipeline run bumps cycleGeneration; stop
+        // here instead of fetching and LLM-processing more files.
+        if (myGen !== this.cycleGeneration) {
+          this.addLog("STOP mid-cycle — aborting remaining files (in-flight cycle interrupted)", "warn");
+          halted = true;
+          // Record the operator interrupt honestly — the cycle did NOT
+          // run to completion, so the DB row / recent-cycles must not say
+          // "completed".
+          cycleStatus = "halted";
+          break;
+        }
+        try {
+          const fileUrl = `https://api.github.com/repos/${this.config.targetRepo}/contents/${blob.path}?ref=${this.config.branch}`;
+          const fileRes = await fetch(fileUrl, { headers });
+          if (!fileRes.ok) {
+            this.addLog(`Failed to fetch ${blob.path} (${fileRes.status}). Skipping.`, "warn");
+            continue;
+          }
+          const fileData = (await fileRes.json()) as { content?: string; sha: string };
+          const rawContent = fileData.content
+            ? Buffer.from(fileData.content, "base64").toString("utf-8")
+            : "";
+
+          // Run pipeline
+          const report = await unifiedPipelineRunnerInstance.runPipeline(
+            {
+              githubToken: token ?? undefined,
+              targetRepo: this.config.targetRepo,
+              targetBranch: this.config.branch,
+              evolutionBranch: this.config.evolutionBranch,
+              filePath: blob.path,
+              userPrompt: this.config.userPrompt,
+              siphonSourceId: this.config.siphonSourceId,
+              code: rawContent,
+              triggeredBy: mode,
+            }
+          );
+
+          // Record pipeline run in DB (best-effort)
+          try {
+            await db.pipelineRun.create({
+              data: {
+                pipelineId: report.id,
+                targetRepo: this.config.targetRepo,
+                targetBranch: this.config.branch,
+                evolutionBranch: this.config.evolutionBranch,
+                filePath: blob.path,
+                userPrompt: this.config.userPrompt,
+                siphonSourceId: this.config.siphonSourceId,
+                status: report.status,
+                astScore: report.astDiffResult.astScore,
+                consensus: report.reviewVerdict.consensus,
+                proofHash: report.proofCommitHash,
+                // audit 4 — grow-only sweep: cap code blobs at 20 KB to match
+                // the manual /api/pipeline/run path (route.ts:60-61). The
+                // previous 200 KB cap was a copy-paste mistake when the
+                // autonomous write path was added — the comment at
+                // route.ts:58 says "the full code lives in git history
+                // anyway", and 200 KB × many rows/cycle was a 178 MB-waiting-
+                // to-happen regression. The full evolved code is recoverable
+                // from the loop-NN branch the cycle pushed to.
+                originalCode: report.originalCode.slice(0, 20000),
+                evolvedCode: report.evolvedCode.slice(0, 20000),
+                sanitizerClean: report.sanitizerResult.clean,
+                violations: JSON.stringify(report.sanitizerResult.violations),
+                triggeredBy: mode,
+              },
+            });
+            // audit 4 — grow-only sweep: prune PipelineRun AFTER each
+            // autonomous write (best-effort, fire-and-forget). The manual
+            // route prunes to 25; the autonomous path ran with NO prune at
+            // all, so every cycle permanently added rows. Keep 50 (2× the
+            // manual cap) since autonomous cycles fire more often — a 25-row
+            // window would age out within hours. See retention.ts.
+            void prunePipelineRuns(50);
+          } catch (err) {
+            this.addLog(`DB write failed for ${blob.path}: ${(err as Error).message}`, "warn");
+          }
+
+          let pushed = false;
+          // Decompose the gate decision into its constituent parts so we can
+          // log the ACTUAL reason a commit was skipped, instead of lumping
+          // everything under "Gates failed".
+          const astPassed = report.astDiffResult.passed;
+          const reviewApproved =
+            report.reviewVerdict.consensus === "APPROVED" ||
+            report.reviewVerdict.consensus === "CONDITIONAL_APPROVAL";
+          const haltReason = report.haltState?.reason;
+          const haltShouldHalt = !!report.haltState?.shouldHalt;
+          // 0-diff saturation means the LLM produced no semantic change —
+          // there is literally nothing to commit, so this is NOT a failure.
+          const isZeroDiffSaturation = haltReason === "ZERO_DIFF_SATURATION";
+          // Real gates passed = AST + review both green AND not halted by
+          // a non-saturation reason (max cycles, consecutive failures).
+          const gatesPassed = astPassed && reviewApproved && !haltShouldHalt;
+          // We only commit when there IS a real change to push.
+          const hasRealChange = !isZeroDiffSaturation;
+
+          if (gatesPassed && hasRealChange && this.config.autoPush && token) {
+            // External audit F2 — pre-commit STOP checkpoint: the pipeline
+            // run above takes tens of seconds; a [STOP] that landed during
+            // it must still prevent THIS file's remote commit.
+            if (myGen !== this.cycleGeneration) {
+              this.addLog(`STOP mid-cycle — skipping GitHub commit for ${blob.path} (gates had passed, but the operator interrupted)`, "warn");
+              halted = true;
+              cycleStatus = "halted";
+              continue;
+            }
+            const pushResult = await this.putFileWithToctouRetry({
+              token,
+              filePath: blob.path,
+              rawContent,
+              evolvedCode: report.evolvedCode,
+              baseSha: fileData.sha,
+              cycleId,
+              cycleNumber,
+              proofHash: report.proofCommitHash,
+              astScore: report.astDiffResult.astScore,
+            });
+            if (pushResult.pushed) {
+              pushed = true;
+              committed++;
+              // Track this path so future cycles skip it.
+              this.previouslyCommittedPaths.add(blob.path);
+              this.addLog(
+                `Pushed ${blob.path} → ${this.config.evolutionBranch} (proof ${report.proofCommitHash})${pushResult.toctouHealed ? " [TOCTOU-healed]" : ""}`,
+                "success",
+                "github"
+              );
+            } else if (pushResult.skippedDueToRemoteChange) {
+              // Already logged inside the helper — the next cycle will
+              // fetch the fresh remote content and refactor it anew.
+            } else {
+              this.addLog(
+                `Commit failed for ${blob.path}: ${pushResult.error ?? "unknown"}`,
+                "error",
+                "github"
+              );
+            }
+          } else if (!astPassed) {
+            this.addLog(
+              `Skipping ${blob.path}: AST gate failed (score ${report.astDiffResult.astScore}/100, violations: ${report.astDiffResult.violations.map(v => v.code).join(",") || "none"}).`,
+              "warn"
+            );
+          } else if (!reviewApproved) {
+            this.addLog(
+              `Skipping ${blob.path}: Review tribunal rejected (${report.reviewVerdict.consensus}, coefficient ${(report.reviewVerdict.consensusCoefficient * 100).toFixed(0)}%).`,
+              "warn"
+            );
+          } else if (isZeroDiffSaturation) {
+            this.addLog(
+              `No change for ${blob.path}: LLM produced no semantic diff (0-diff saturation). Nothing to commit.`,
+              "info"
+            );
+          } else if (haltShouldHalt) {
+            this.addLog(
+              `Skipping ${blob.path}: Halt governor engaged (${haltReason}: ${report.haltState?.detail ?? ""}).`,
+              "warn"
+            );
+            // Only halt the cycle for non-saturation reasons.
+            halted = true;
+            cycleStatus = "halted";
+          } else if (!token) {
+            this.addLog(
+              `No GitHub token available — would have pushed ${blob.path} (proof ${report.proofCommitHash}).`,
+              "warn"
+            );
+          }
+
+          // Postmortem integration: record failures, resolve on success.
+          const repo = this.config.targetRepo;
+          const branch = this.config.branch;
+          if (pushed) {
+            // Commit succeeded — resolve any active postmortem for this file.
+            postmortemStore
+              .markResolved(repo, branch, blob.path)
+              .then(() => {
+                this.addLog(
+                  `Postmortem resolved for ${blob.path} (file successfully committed).`,
+                  "info"
+                );
+              })
+              .catch(() => {
+                /* ignore */
+              });
+          } else if (isZeroDiffSaturation) {
+            // ── Stable-file branch (the bug fix) ────────────────────────
+            // The LLM produced no semantic change. This is NOT a failure
+            // (it's the model correctly identifying the file as already
+            // good). The old code lumped zero-diff in with real AST/review
+            // failures here, which meant:
+            //   1. `attempts` got bumped every cycle (build-guide/*.py hit
+            //      attempt #7+ in the dev log) — pure noise.
+            //   2. The on-disk postmortem JSON got rewritten every cycle
+            //      (7+ files showed up as modified in `git status` every
+            //      pass) — git churn with no information gain.
+            //   3. The file got the 5-cycle FAILED cooldown, so the loop
+            //      re-called the LLM on it every 5 cycles forever — quota
+            //      waste that contributed to the 429 rate-limits.
+            //
+            // The fix:
+            //   - Apply the LONG stable cooldown (50 cycles) so quota
+            //     belongs to files that might actually change.
+            //   - Record the ZERO_DIFF_SATURATION postmortem ONCE (so the
+            //     next attempt gets the "make a real refactor" constraint).
+            //     On REPEATED zero-diff, the existing postmortem already
+            //     says "stable" — don't rewrite it. The attempts counter
+            //     stops ticking up once the file is recognized as stable.
+            //   - Do NOT add to previouslyFailedPaths — a stable file is
+            //     not a failure.
+            this.previouslyStablePaths.set(blob.path, this.stats.totalRuns);
+            postmortemStore
+              .getActivePostmortem(repo, branch, blob.path)
+              .then((existing) => {
+                if (existing && existing.failureType === "ZERO_DIFF_SATURATION") {
+                  // Already recorded as stable — don't churn the postmortem.
+                  this.addLog(
+                    `File ${blob.path} still stable (0-diff saturation, attempt #${existing.attempts}). Long cooldown ${AutonomousLoopRuntime.STABLE_FILE_COOLDOWN_CYCLES} cycles — quota preserved.`,
+                    "info"
+                  );
+                  return null;
+                }
+                // First time we've seen this file as stable (or it
+                // previously failed for a different reason and is now
+                // stable). Record a fresh ZERO_DIFF_SATURATION postmortem
+                // so the next attempt gets the "make a real refactor"
+                // constraint instead of the old AST/review constraint.
+                const pm = generatePostmortemFromReport({
+                  filePath: blob.path,
+                  astDiffResult: report.astDiffResult,
+                  sanitizerResult: report.sanitizerResult,
+                  reviewVerdict: report.reviewVerdict,
+                  haltReason: report.haltState?.reason,
+                });
+                return postmortemStore.recordFailure({
+                  repo,
+                  branch,
+                  filePath: blob.path,
+                  failureType: pm.failureType,
+                  symptom: pm.symptom,
+                  evidence: pm.evidence,
+                  constraints: pm.constraints,
+                });
+              })
+              .then((record) => {
+                if (record) {
+                  this.addLog(
+                    `File ${blob.path} marked stable (0-diff saturation, postmortem attempt #${record.attempts}). Long cooldown ${AutonomousLoopRuntime.STABLE_FILE_COOLDOWN_CYCLES} cycles — next retry will see evolved lessons.`,
+                    "info"
+                  );
+                }
+              })
+              .catch(() => {
+                /* best-effort — stable cooldown still set above */
+              });
+          } else if (!astPassed || !reviewApproved) {
+            // A real failure — record/update the postmortem so the next
+            // attempt gets the constraints.
+            const pm = generatePostmortemFromReport({
+              filePath: blob.path,
+              astDiffResult: report.astDiffResult,
+              sanitizerResult: report.sanitizerResult,
+              reviewVerdict: report.reviewVerdict,
+              haltReason: report.haltState?.reason,
+            });
+            postmortemStore
+              .recordFailure({
+                repo,
+                branch,
+                filePath: blob.path,
+                failureType: pm.failureType,
+                symptom: pm.symptom,
+                evidence: pm.evidence,
+                constraints: pm.constraints,
+              })
+              .then((record) => {
+                this.addLog(
+                  `Postmortem recorded for ${blob.path} (attempt #${record.attempts}, ${pm.failureType}). Next attempt will use these constraints.`,
+                  "warn"
+                );
+              })
+              .catch(() => {
+                /* ignore */
+              });
+            // ── Failed-path cooldown (the "don't get stuck" fix) ────
+            // Record this path in previouslyFailedPaths with the current
+            // cycle number. The next cycle's file selector (see
+            // cooledDown() above) skips it for FAILED_FILE_COOLDOWN_CYCLES
+            // cycles, then re-tries. (Zero-diff files are NOT added here
+            // — they go to previouslyStablePaths with a longer cooldown.)
+            this.previouslyFailedPaths.set(blob.path, this.stats.totalRuns);
+          }
+
+          this.currentCycle!.fileResults.push({
+            path: blob.path,
+            astScore: report.astDiffResult.astScore,
+            consensus: report.reviewVerdict.consensus,
+            proofHash: report.proofCommitHash,
+            status: report.status,
+            pushed,
+          });
+          if (report.proofCommitHash && !cycleProofHash) cycleProofHash = report.proofCommitHash;
+        } catch (err) {
+          this.addLog(`File ${blob.path} failed: ${(err as Error).message}`, "error");
+        }
+      }
+
+      this.currentCycle!.filesCommitted = committed;
+      this.stats.totalFilesCommitted += committed;
+      this.stats.lastRunTime = new Date().toISOString();
+      if (!halted) {
+        cycleStatus = "completed";
+        // Commit the fingerprint only on a cycle that ran to completion.
+        if (completedFingerprint) this.stats.lastTreeFingerprint = completedFingerprint;
       }
     } catch (err) {
-      this.addLog(
-        `Branch creation check failed: ${(err as Error).message}`,
-        "warn",
-        "github"
-      );
-    }
-  }
-
-  /** Phase 3 — process ONE file: fetch content, run the pipeline,
-   *  record the run, decide the gates, push on pass, integrate the
-   *  postmortem store. Mutates ctx (committed / halted / cycleStatus /
-   *  cycleProofHash) exactly as the old inline loop body did. */
-  private async processFileInCycle(
-    ctx: CycleRunContext,
-    blob: { path: string; type: string; sha: string; size?: number }
-  ): Promise<void> {
-    const { mode, myGen, token, headers, cycleId, cycleNumber } = ctx;
-    const fileUrl = `https://api.github.com/repos/${this.config.targetRepo}/contents/${blob.path}?ref=${this.config.branch}`;
-    const fileRes = await fetch(fileUrl, { headers });
-    if (!fileRes.ok) {
-      this.addLog(`Failed to fetch ${blob.path} (${fileRes.status}). Skipping.`, "warn");
-      return;
-    }
-    const fileData = (await fileRes.json()) as { content?: string; sha: string };
-    const rawContent = fileData.content
-      ? Buffer.from(fileData.content, "base64").toString("utf-8")
-      : "";
-
-    // Run pipeline
-    const report = await unifiedPipelineRunnerInstance.runPipeline(
-      {
-        githubToken: token ?? undefined,
-        targetRepo: this.config.targetRepo,
-        targetBranch: this.config.branch,
-        evolutionBranch: this.config.evolutionBranch,
-        filePath: blob.path,
-        userPrompt: this.config.userPrompt,
-        siphonSourceId: this.config.siphonSourceId,
-        code: rawContent,
-        triggeredBy: mode,
+      this.addLog(`Cycle #${cycleNumber} aborted: ${(err as Error).message}`, "error");
+      cycleStatus = "error";
+    } finally {
+      this.finalizeCycle(cycleId, cycleStatus, cycleProofHash);
+      // ── Crash-budget reset on a clean cycle ─────────────────────────
+      // A cycle that ran to completion or halted (governor saturation)
+      // is "clean" for crash-budget purposes: the loop is structurally
+      // fine — per-file failures inside the cycle are caught in the
+      // for-loop above and reported through postmortems, they do NOT
+      // reach the runContinuousLoop catch and do NOT count as a crash.
+      // Resetting the budget on a clean cycle is what makes the wall
+      // trip only on SUSTAINED crashes, not on a single crash followed
+      // by 100 clean cycles followed by another single crash.
+      if (
+        (cycleStatus === "completed" || cycleStatus === "halted") &&
+        this.consecutiveCrashCount > 0
+      ) {
+        this.consecutiveCrashCount = 0;
+        this.lastCrashClass = "";
+        try {
+          resetCrashBudget();
+        } catch {
+          /* best-effort — in-memory is the live source */
+        }
       }
-    );
-
-    // Record pipeline run in DB (best-effort)
-    try {
-      await db.pipelineRun.create({
-        data: {
-          pipelineId: report.id,
-          targetRepo: this.config.targetRepo,
-          targetBranch: this.config.branch,
-          evolutionBranch: this.config.evolutionBranch,
-          filePath: blob.path,
-          userPrompt: this.config.userPrompt,
-          siphonSourceId: this.config.siphonSourceId,
-          status: report.status,
-          astScore: report.astDiffResult.astScore,
-          consensus: report.reviewVerdict.consensus,
-          proofHash: report.proofCommitHash,
-          // audit 4 — grow-only sweep: cap code blobs at 20 KB to match
-          // the manual /api/pipeline/run path (route.ts:60-61). The
-          // previous 200 KB cap was a copy-paste mistake when the
-          // autonomous write path was added — the comment at
-          // route.ts:58 says "the full code lives in git history
-          // anyway", and 200 KB × many rows/cycle was a 178 MB-waiting-
-          // to-happen regression. The full evolved code is recoverable
-          // from the loop-NN branch the cycle pushed to.
-          originalCode: report.originalCode.slice(0, 20000),
-          evolvedCode: report.evolvedCode.slice(0, 20000),
-          sanitizerClean: report.sanitizerResult.clean,
-          violations: JSON.stringify(report.sanitizerResult.violations),
-          triggeredBy: mode,
-        },
-      });
-      // audit 4 — grow-only sweep: prune PipelineRun AFTER each
-      // autonomous write (best-effort, fire-and-forget). The manual
-      // route prunes to 25; the autonomous path ran with NO prune at
-      // all, so every cycle permanently added rows. Keep 50 (2× the
-      // manual cap) since autonomous cycles fire more often — a 25-row
-      // window would age out within hours. See retention.ts.
-      void prunePipelineRuns(50);
-    } catch (err) {
-      this.addLog(`DB write failed for ${blob.path}: ${(err as Error).message}`, "warn");
-    }
-
-    let pushed = false;
-    // Decompose the gate decision into its constituent parts so we can
-    // log the ACTUAL reason a commit was skipped, instead of lumping
-    // everything under "Gates failed".
-    const astPassed = report.astDiffResult.passed;
-    const reviewApproved =
-      report.reviewVerdict.consensus === "APPROVED" ||
-      report.reviewVerdict.consensus === "CONDITIONAL_APPROVAL";
-    const haltReason = report.haltState?.reason;
-    const haltShouldHalt = !!report.haltState?.shouldHalt;
-    // 0-diff saturation means the LLM produced no semantic change —
-    // there is literally nothing to commit, so this is NOT a failure.
-    const isZeroDiffSaturation = haltReason === "ZERO_DIFF_SATURATION";
-    // Real gates passed = AST + review both green AND not halted by
-    // a non-saturation reason (max cycles, consecutive failures).
-    const gatesPassed = astPassed && reviewApproved && !haltShouldHalt;
-    // We only commit when there IS a real change to push.
-    const hasRealChange = !isZeroDiffSaturation;
-
-    if (gatesPassed && hasRealChange && this.config.autoPush && token) {
-      // External audit F2 — pre-commit STOP checkpoint: the pipeline
-      // run above takes tens of seconds; a [STOP] that landed during
-      // it must still prevent THIS file's remote commit.
-      if (myGen !== this.cycleGeneration) {
-        this.addLog(`STOP mid-cycle — skipping GitHub commit for ${blob.path} (gates had passed, but the operator interrupted)`, "warn");
-        ctx.halted = true;
-        ctx.cycleStatus = "halted";
-        return;
-      }
-      const pushResult = await this.putFileWithToctouRetry({
-        token,
-        filePath: blob.path,
-        rawContent,
-        evolvedCode: report.evolvedCode,
-        baseSha: fileData.sha,
-        cycleId,
-        cycleNumber,
-        proofHash: report.proofCommitHash,
-        astScore: report.astDiffResult.astScore,
-      });
-      if (pushResult.pushed) {
-        pushed = true;
-        ctx.committed++;
-        // Track this path so future cycles skip it.
-        this.previouslyCommittedPaths.add(blob.path);
-        this.addLog(
-          `Pushed ${blob.path} → ${this.config.evolutionBranch} (proof ${report.proofCommitHash})${pushResult.toctouHealed ? " [TOCTOU-healed]" : ""}`,
-          "success",
-          "github"
-        );
-      } else if (pushResult.skippedDueToRemoteChange) {
-        // Already logged inside the helper — the next cycle will
-        // fetch the fresh remote content and refactor it anew.
+      this.status = this.config.enabled ? "idle" : "paused";
+      if (this.config.enabled && this.config.mode !== "continuous") {
+        const ms = Math.max(15_000, this.config.intervalMinutes * 60 * 1000);
+        this.stats.nextRunAt = new Date(Date.now() + ms).toISOString();
       } else {
-        this.addLog(
-          `Commit failed for ${blob.path}: ${pushResult.error ?? "unknown"}`,
-          "error",
-          "github"
-        );
+        this.stats.nextRunAt = null;
       }
-    } else if (!astPassed) {
-      this.addLog(
-        `Skipping ${blob.path}: AST gate failed (score ${report.astDiffResult.astScore}/100, violations: ${report.astDiffResult.violations.map(v => v.code).join(",") || "none"}).`,
-        "warn"
-      );
-    } else if (!reviewApproved) {
-      this.addLog(
-        `Skipping ${blob.path}: Review tribunal rejected (${report.reviewVerdict.consensus}, coefficient ${(report.reviewVerdict.consensusCoefficient * 100).toFixed(0)}%).`,
-        "warn"
-      );
-    } else if (isZeroDiffSaturation) {
-      this.addLog(
-        `No change for ${blob.path}: LLM produced no semantic diff (0-diff saturation). Nothing to commit.`,
-        "info"
-      );
-    } else if (haltShouldHalt) {
-      this.addLog(
-        `Skipping ${blob.path}: Halt governor engaged (${haltReason}: ${report.haltState?.detail ?? ""}).`,
-        "warn"
-      );
-      // Only halt the cycle for non-saturation reasons.
-      ctx.halted = true;
-      ctx.cycleStatus = "halted";
-    } else if (!token) {
-      this.addLog(
-        `No GitHub token available — would have pushed ${blob.path} (proof ${report.proofCommitHash}).`,
-        "warn"
-      );
     }
 
-    // Postmortem integration: record failures, resolve on success.
-    const repo = this.config.targetRepo;
-    const branch = this.config.branch;
-    if (pushed) {
-      // Commit succeeded — resolve any active postmortem for this file.
-      postmortemStore
-        .markResolved(repo, branch, blob.path)
-        .then(() => {
-          this.addLog(
-            `Postmortem resolved for ${blob.path} (file successfully committed).`,
-            "info"
-          );
-        })
-        .catch(() => {
-          /* ignore */
-        });
-    } else if (isZeroDiffSaturation) {
-      // ── Stable-file branch (the bug fix) ────────────────────────
-      // The LLM produced no semantic change. This is NOT a failure
-      // (it's the model correctly identifying the file as already
-      // good). The old code lumped zero-diff in with real AST/review
-      // failures here, which meant:
-      //   1. `attempts` got bumped every cycle (build-guide/*.py hit
-      //      attempt #7+ in the dev log) — pure noise.
-      //   2. The on-disk postmortem JSON got rewritten every cycle
-      //      (7+ files showed up as modified in `git status` every
-      //      pass) — git churn with no information gain.
-      //   3. The file got the 5-cycle FAILED cooldown, so the loop
-      //      re-called the LLM on it every 5 cycles forever — quota
-      //      waste that contributed to the 429 rate-limits.
-      //
-      // The fix:
-      //   - Apply the LONG stable cooldown (50 cycles) so quota
-      //     belongs to files that might actually change.
-      //   - Record the ZERO_DIFF_SATURATION postmortem ONCE (so the
-      //     next attempt gets the "make a real refactor" constraint).
-      //     On REPEATED zero-diff, the existing postmortem already
-      //     says "stable" — don't rewrite it. The attempts counter
-      //     stops ticking up once the file is recognized as stable.
-      //   - Do NOT add to previouslyFailedPaths — a stable file is
-      //     not a failure.
-      this.previouslyStablePaths.set(blob.path, this.stats.totalRuns);
-      postmortemStore
-        .getActivePostmortem(repo, branch, blob.path)
-        .then((existing) => {
-          if (existing && existing.failureType === "ZERO_DIFF_SATURATION") {
-            // Already recorded as stable — don't churn the postmortem.
-            this.addLog(
-              `File ${blob.path} still stable (0-diff saturation, attempt #${existing.attempts}). Long cooldown ${AutonomousLoopRuntime.STABLE_FILE_COOLDOWN_CYCLES} cycles — quota preserved.`,
-              "info"
-            );
-            return null;
-          }
-          // First time we've seen this file as stable (or it
-          // previously failed for a different reason and is now
-          // stable). Record a fresh ZERO_DIFF_SATURATION postmortem
-          // so the next attempt gets the "make a real refactor"
-          // constraint instead of the old AST/review constraint.
-          const pm = generatePostmortemFromReport({
-            filePath: blob.path,
-            astDiffResult: report.astDiffResult,
-            sanitizerResult: report.sanitizerResult,
-            reviewVerdict: report.reviewVerdict,
-            haltReason: report.haltState?.reason,
-          });
-          return postmortemStore.recordFailure({
-            repo,
-            branch,
-            filePath: blob.path,
-            failureType: pm.failureType,
-            symptom: pm.symptom,
-            evidence: pm.evidence,
-            constraints: pm.constraints,
-          });
-        })
-        .then((record) => {
-          if (record) {
-            this.addLog(
-              `File ${blob.path} marked stable (0-diff saturation, postmortem attempt #${record.attempts}). Long cooldown ${AutonomousLoopRuntime.STABLE_FILE_COOLDOWN_CYCLES} cycles — next retry will see evolved lessons.`,
-              "info"
-            );
-          }
-        })
-        .catch(() => {
-          /* best-effort — stable cooldown still set above */
-        });
-    } else if (!astPassed || !reviewApproved) {
-      // A real failure — record/update the postmortem so the next
-      // attempt gets the constraints.
-      const pm = generatePostmortemFromReport({
-        filePath: blob.path,
-        astDiffResult: report.astDiffResult,
-        sanitizerResult: report.sanitizerResult,
-        reviewVerdict: report.reviewVerdict,
-        haltReason: report.haltState?.reason,
-      });
-      postmortemStore
-        .recordFailure({
-          repo,
-          branch,
-          filePath: blob.path,
-          failureType: pm.failureType,
-          symptom: pm.symptom,
-          evidence: pm.evidence,
-          constraints: pm.constraints,
-        })
-        .then((record) => {
-          this.addLog(
-            `Postmortem recorded for ${blob.path} (attempt #${record.attempts}, ${pm.failureType}). Next attempt will use these constraints.`,
-            "warn"
-          );
-        })
-        .catch(() => {
-          /* ignore */
-        });
-      // ── Failed-path cooldown (the "don't get stuck" fix) ────
-      // Record this path in previouslyFailedPaths with the current
-      // cycle number. The next cycle's file selector (see
-      // cooledDown() above) skips it for FAILED_FILE_COOLDOWN_CYCLES
-      // cycles, then re-tries. (Zero-diff files are NOT added here
-      // — they go to previouslyStablePaths with a longer cooldown.)
-      this.previouslyFailedPaths.set(blob.path, this.stats.totalRuns);
-    }
-
-    this.requireCycle().fileResults.push({
-      path: blob.path,
-      astScore: report.astDiffResult.astScore,
-      consensus: report.reviewVerdict.consensus,
-      proofHash: report.proofCommitHash,
-      status: report.status,
-      pushed,
-    });
-    if (report.proofCommitHash && !ctx.cycleProofHash) ctx.cycleProofHash = report.proofCommitHash;
+    return this.currentCycle;
   }
 
   /**
@@ -2000,7 +1908,7 @@ class AutonomousLoopRuntime {
       rawContent,
       evolvedCode,
       baseSha,
-
+      cycleId,
       cycleNumber,
       proofHash,
       astScore,

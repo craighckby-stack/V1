@@ -218,7 +218,7 @@ export async function recordSelfProphecy(input: {
       }),
       domain: "self-prediction",
     });
-  } catch {
+  } catch (e) {
     // fail-soft — the oracle loses one sample
   }
 }

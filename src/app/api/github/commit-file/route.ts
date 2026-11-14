@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { getUsableToken } from "@/lib/pipeline/api/github-helpers";
-import { parseBody, REPO_REGEX, isRepoRelativePath } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+interface CommitFileRequest {
+  repo: string;
+  path: string;
+  branch: string;
+  content: string;
+  message: string;
+  sha?: string;
+  token?: string;
+}
 
 interface GitHubCommitResponse {
   content?: { sha?: string; path?: string };
@@ -12,27 +20,17 @@ interface GitHubCommitResponse {
   message?: string;
 }
 
-const commitFileSchema = z.object({
-  repo: z.string().regex(REPO_REGEX, "repo must be 'owner/name'").max(100),
-  path: z
-    .string()
-    .min(1)
-    .max(1000)
-    .refine(isRepoRelativePath, "path must be repo-relative (no .. or leading /)"),
-  branch: z.string().min(1).max(100),
-  // Audit 2, item 17: an EMPTY string is a legitimate file content — type
-  // check, never truthiness.
-  content: z.string().max(10_000_000),
-  message: z.string().min(1).max(1000),
-  sha: z.string().min(1).max(100).optional(),
-  token: z.string().min(1).max(500).optional(),
-}).strict();
-
 export async function POST(req: Request) {
   try {
-    const parsed = await parseBody(req, commitFileSchema);
-    if (!parsed.ok) return parsed.response;
-    const body = parsed.data;
+    const body = (await req.json()) as CommitFileRequest;
+    // Audit 2, item 17: `!body.content` rejected the legitimate empty-string
+    // file (a valid thing to commit). Type-check instead of truthiness.
+    if (!body.repo || !body.path || !body.branch || typeof body.content !== "string" || !body.message) {
+      return NextResponse.json(
+        { error: "repo, path, branch, content (string, may be empty), and message are required" },
+        { status: 400 }
+      );
+    }
 
     const token = getUsableToken(body.token);
     if (!token) {
@@ -42,7 +40,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const url = `https://api.github.com/repos/${encodeURIComponent(body.repo)}/contents/${encodeURIComponent(body.path)}`;
+    const url = `https://api.github.com/repos/${body.repo}/contents/${body.path}`;
     const payload: Record<string, unknown> = {
       message: body.message,
       content: Buffer.from(body.content).toString("base64"),

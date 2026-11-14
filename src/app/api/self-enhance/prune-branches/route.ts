@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { pruneOldLoopBranches, getPushTargetPublic } from "@/lib/pipeline/autonomous/push-target";
-import { parseOptionalBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -65,12 +63,6 @@ export async function GET(req: Request) {
   }
 }
 
-const pruneBranchesSchema = z.object({
-  keep: z.number().int().min(1).max(1000).optional(),
-  margin: z.number().int().min(0).max(1000).optional(),
-  dryRun: z.boolean().optional(),
-});
-
 export async function POST(req: Request) {
   try {
     const configured = (await getPushTargetPublic()).configured;
@@ -84,13 +76,23 @@ export async function POST(req: Request) {
         { status: 200 }
       );
     }
-    // No/invalid body — proceed with defaults. The prune is safe to call
-    // with no arguments; a malformed JSON must not 500 the operator.
-    const { keep, margin, dryRun } = await parseOptionalBody(
-      req,
-      pruneBranchesSchema,
-      { keep: 50, margin: 10, dryRun: false },
-    );
+    let body: { keep?: unknown; margin?: unknown; dryRun?: unknown } = {};
+    try {
+      body = (await req.json()) as { keep?: unknown; margin?: unknown; dryRun?: unknown };
+    } catch {
+      // No/invalid body — proceed with defaults. The prune is safe to call
+      // with no arguments; a malformed JSON must not 500 the operator.
+      body = {};
+    }
+    const keep =
+      typeof body.keep === "number" && Number.isFinite(body.keep) && body.keep > 0
+        ? Math.floor(body.keep)
+        : 50;
+    const margin =
+      typeof body.margin === "number" && Number.isFinite(body.margin) && body.margin >= 0
+        ? Math.floor(body.margin)
+        : 10;
+    const dryRun = body.dryRun === true;
     const result = await pruneOldLoopBranches({ keep, margin, dryRun });
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {

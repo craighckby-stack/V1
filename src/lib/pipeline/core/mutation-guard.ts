@@ -87,7 +87,7 @@ export const SCAFFOLDING_PROTECTED_PATHS = new Set([
  *  SCAFFOLDING_PROTECTED_PATHS so there's one place to edit. */
 const SCAFFOLDING_BASENAMES = new Set(
   Array.from(SCAFFOLDING_PROTECTED_PATHS)
-    .map((p) => p.split("/").pop() ?? "")
+    .map((p) => p.split("/").pop()!)
     .filter((b) => !b.startsWith(".")) // .env etc. matched by exact path
 );
 
@@ -101,7 +101,7 @@ const SCAFFOLDING_BASENAMES = new Set(
 function isProtectedPath(filePath: string): boolean {
   if (sharedIsProtectedPath(filePath)) return true;
   if (SCAFFOLDING_PROTECTED_PATHS.has(filePath)) return true;
-  const base = filePath.split("/").pop() ?? "";
+  const base = filePath.split("/").pop()!;
   if (SCAFFOLDING_BASENAMES.has(base)) return true;
   return false;
 }

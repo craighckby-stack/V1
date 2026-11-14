@@ -207,7 +207,7 @@ function extractSymbolsRegex(code: string, filePath?: string): AstSymbol[] {
   const methodPatterns: Array<[RegExp, AstSymbol["type"]]> = [];
   if (ext === "java" || ext === "kt" || ext === "cs") {
     methodPatterns.push([
-      /^\s*(?:@\w+\s+)*\s*(?:public|private|protected|static|final|synchronized|abstract|native|override)\s+(?:final\s+)?(?:[A-Za-z_][\w<>[\],?\s]*\s+)+([A-Za-z_]\w*)\s*\(/,
+      /^\s*(?:@\w+\s+)*\s*(?:public|private|protected|static|final|synchronized|abstract|native|override)\s+(?:final\s+)?(?:[A-Za-z_][\w<>\[\],?\s]*\s+)+([A-Za-z_]\w*)\s*\(/,
       "method",
     ]);
   }
@@ -236,7 +236,7 @@ function extractSymbolsRegex(code: string, filePath?: string): AstSymbol[] {
   const skipNames = new Set(["if", "for", "while", "switch", "catch", "return", "new", "throw", "assert", "sizeof"]);
 
   for (let idx = 0; idx < lines.length; idx++) {
-    const line = lines[idx] ?? "";
+    const line = lines[idx]!;
     let matched = false;
 
     for (const [pat, type] of topLevelPatterns) {

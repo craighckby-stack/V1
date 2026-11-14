@@ -70,7 +70,7 @@ describe("oracle-task-feed", () => {
     expect(fed).toBe(true);
 
     // Verify the task landed.
-    const line = stableHashLine(prophecy?.id ?? "");
+    const line = stableHashLine(prophecy!.id);
     const task = await db.selfTask.findUnique({
       where: {
         kind_filePath_line: {
@@ -81,14 +81,14 @@ describe("oracle-task-feed", () => {
       },
     });
     expect(task).not.toBeNull();
-    expect(task?.kind).toBe(ORACLE_FAILED_PROPHECY_KIND);
-    expect(task?.filePath).toBe("src/lib/pipeline/oracle/oracle-events.ts");
-    expect(task?.evidence).toContain("Oracle self-prophecy FAILED by deadline");
-    expect(task?.evidence).toContain(prophecy?.claim.slice(0, 40));
-    expect(task?.evidence).toContain("0.72");
-    expect(task?.evidence).toContain("FULFILLED if the next enhanceFile");
-    expect(task?.priority).toBe(7);
-    expect(task?.status).toBe("pending");
+    expect(task!.kind).toBe(ORACLE_FAILED_PROPHECY_KIND);
+    expect(task!.filePath).toBe("src/lib/pipeline/oracle/oracle-events.ts");
+    expect(task!.evidence).toContain("Oracle self-prophecy FAILED by deadline");
+    expect(task!.evidence).toContain(prophecy!.claim.slice(0, 40));
+    expect(task!.evidence).toContain("0.72");
+    expect(task!.evidence).toContain("FULFILLED if the next enhanceFile");
+    expect(task!.priority).toBe(7);
+    expect(task!.status).toBe("pending");
   });
 
   test("queueTaskForFailedProphecy is idempotent — same prophecy re-queues the same task (upsert, not duplicate)", async () => {
@@ -112,7 +112,7 @@ describe("oracle-task-feed", () => {
     await queueTaskForFailedProphecy(prophecy as Prophecy);
     await queueTaskForFailedProphecy(prophecy as Prophecy);
 
-    const line = stableHashLine(prophecy?.id ?? "");
+    const line = stableHashLine(prophecy!.id);
     const count = await db.selfTask.count({
       where: {
         kind: ORACLE_FAILED_PROPHECY_KIND,

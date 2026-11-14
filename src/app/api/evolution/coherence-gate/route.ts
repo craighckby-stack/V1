@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
-import { parseBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+interface CoherenceGateRequest {
+  originalCode: string;
+  proposedCode: string;
+}
 
 type CoherenceStatus = "COHERENT" | "EXCESSIVE_DRIFT";
 
@@ -14,11 +17,6 @@ interface CoherenceGateResponse {
   status: CoherenceStatus;
 }
 
-const coherenceGateSchema = z.object({
-  originalCode: z.string().max(500_000),
-  proposedCode: z.string().max(500_000),
-}).strict();
-
 /**
  * POST /api/evolution/coherence-gate
  *
@@ -28,11 +26,16 @@ const coherenceGateSchema = z.object({
  */
 export async function POST(req: Request) {
   try {
-    const parsed = await parseBody(req, coherenceGateSchema);
-    if (!parsed.ok) return parsed.response;
+    const body = (await req.json()) as CoherenceGateRequest;
+    if (typeof body.originalCode !== "string" || typeof body.proposedCode !== "string") {
+      return NextResponse.json(
+        { error: "originalCode and proposedCode are required" },
+        { status: 400 }
+      );
+    }
 
-    const origLen = parsed.data.originalCode.length || 1;
-    const propLen = parsed.data.proposedCode.length;
+    const origLen = body.originalCode.length || 1;
+    const propLen = body.proposedCode.length;
     const structuralDriftRatio = Math.abs(propLen - origLen) / origLen;
     const passed = structuralDriftRatio < 0.7;
     const saturationScore = Math.max(0, 1 - structuralDriftRatio);

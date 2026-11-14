@@ -3,7 +3,7 @@ import { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, C
 
 // Mocking React components for testing structure/props, as we are testing the component rendering logic, not React itself.
 // In a real environment, we'd use a renderer like @testing-library/react. Here, we check for expected props/attributes.
-const renderComponent = (Component: (p: Record<string, unknown>) => { props: Record<string, unknown> }, props: Record<string, unknown> = {}) => ({
+const renderComponent = (Component: any, props: Record<string, any> = {}) => ({
   props: props,
   // Simulate rendering by returning the component instance/structure for inspection
   instance: Component({ ...props })

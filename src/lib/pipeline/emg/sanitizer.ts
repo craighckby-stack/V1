@@ -232,16 +232,9 @@ export function sanitizeAndGovern(inputCode: string, filePath?: string): Securit
     }
   } catch (error) {
     violations.push(`Error during sanitization: ${error instanceof Error ? error.message : String(error)}`);
-    // FAIL CLOSED: returning the unsanitized inputCode on a sanitizer
-    // error (the old behavior) lets a secret in the input slip through
-    // unredacted — a transient parse failure silently downgrades to
-    // "trust the LLM output as-is". Instead return a sentinel that
-    // downstream stages must treat as a hard rejection. The clean:false
-    // flag already does that for the gate-runner; the sentinel makes the
-    // raw code unusable too so no copy-paste path can resurrect it.
     return {
       clean: false,
-      sanitizedCode: "// SANITIZER_FAILED — original code redacted as a precaution; see violations[] for the cause",
+      sanitizedCode: inputCode, // Return original code on error
       errorClass: "AST_PARSE",
       violations,
       highEntropyTokensFound
