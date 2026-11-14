@@ -29,7 +29,9 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
         s += ch === "\n" || ch === " " ? ch : GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
       }
       setOut(s);
-      if (p < 1) raf = requestAnimationFrame(tick);
+      if (p < 1) {
+        raf = requestAnimationFrame(tick);
+      }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
