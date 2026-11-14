@@ -44,7 +44,7 @@ export async function createProphecy(input: {
   if (!input.claim || !input.rationale || !input.falsifiabilityCriterion) {
     return null;
   }
-  if (!input.claim.trim() || !input.rationale.trim() || !input.falsifiabilityCriterion.trim()) {
+  if (input.claim.trim() === '' || input.rationale.trim() === '' || input.falsifiabilityCriterion.trim() === '') {
     return null;
   }
   if (typeof input.confidence !== 'number' || input.confidence < 0 || input.confidence > 1) {
