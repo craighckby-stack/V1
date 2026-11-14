@@ -86,7 +86,7 @@ type StageDetails = {
 function StageCard({ stage }: { stage: PipelineStageState }) {
   if (!stage.id) {
     // Guard clause for malformed state from the store
-    console.error("PipelineStageState received without an ID:", stage);
+    console.error("PipelineStageState received without an ID. Cannot render stage.", stage);
     return null;
   }
 
@@ -97,9 +97,12 @@ function StageCard({ stage }: { stage: PipelineStageState }) {
     ring: "ring-slate-500/40",
   };
   const Icon = meta.icon;
-  const StatusIcon = STATUS_ICON[stage.status] ?? Circle;
-  const color = STATUS_COLOR[stage.status] ?? "text-slate-500";
-  const isRunning = stage.status === "running";
+  
+  const status = stage.status;
+  const StatusIcon = STATUS_ICON[status] ?? Circle;
+  const color = STATUS_COLOR[status] ?? "text-slate-500";
+  
+  const isRunning = status === "running";
   const details = stage.details as StageDetails | undefined;
 
   return (
@@ -112,9 +115,9 @@ function StageCard({ stage }: { stage: PipelineStageState }) {
         "bg-slate-900/40",
         isRunning
           ? "border-cyan-500/50 shadow-[0_0_24px_-12px] shadow-cyan-500/50"
-          : stage.status === "succeeded"
+          : status === "succeeded"
           ? "border-emerald-500/30"
-          : stage.status === "blocked"
+          : status === "blocked"
           ? "border-amber-500/40"
           : "border-slate-800/60"
       )}
