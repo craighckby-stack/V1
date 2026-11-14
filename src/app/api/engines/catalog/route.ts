@@ -24,9 +24,17 @@ export async function GET() {
       );
     }
 
+    if (!Array.isArray(SIPHON_SOURCES)) {
+      return NextResponse.json(
+        { error: "SIPHON_SOURCES must be an array." },
+        { status: 500 }
+      );
+    }
+
     const sources: CatalogEntry[] = SIPHON_SOURCES.map((source) => {
       if (!source || !source.patterns) {
-        throw new Error("Invalid siphon source: missing required 'patterns' property");
+        // Throwing here will be caught by the outer try/catch
+        throw new Error(`Invalid siphon source found: missing required 'patterns' property in source object.`);
       }
       
       return {

@@ -50,14 +50,19 @@ export function ApiUnlock() {
   // when BOTH (a) no key is in localStorage AND (b) the server confirms
   // it has LOOP_API_KEY configured — see mutationGateConfigured above.
   useEffect(() => {
-    // Check localStorage only on client side
+    // Check localStorage only on client side. Deferred to a microtask so
+    // the mount-safe null→boolean flip happens outside the synchronous
+    // effect body (react-hooks/set-state-in-effect) with no extra painted
+    // frame — microtasks drain before the browser paints.
     if (typeof window !== "undefined") {
-      try {
-        setHasKey(window.localStorage.getItem(STORAGE_KEY) !== null);
-      } catch (error) {
-        // Handle potential localStorage access errors (e.g., private browsing mode)
-        setHasKey(false);
-      }
+      queueMicrotask(() => {
+        try {
+          setHasKey(window.localStorage.getItem(STORAGE_KEY) !== null);
+        } catch {
+          // Handle potential localStorage access errors (e.g., private browsing mode)
+          setHasKey(false);
+        }
+      });
     }
     
     let cancelled = false;
@@ -82,7 +87,7 @@ export function ApiUnlock() {
       }
     };
 
-    checkHealthz().catch(error => {
+    checkHealthz().catch(() => {
       // Ensure we handle any uncaught promise rejections
       if (!cancelled) {
         setMutationGateConfigured(null);
