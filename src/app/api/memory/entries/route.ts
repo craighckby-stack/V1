@@ -31,11 +31,8 @@ export async function GET() {
     let errorMessage = "Failed to retrieve memory entries due to an internal service error.";
     
     if (err instanceof Error) {
-      // Provide context from the error message if it's helpful, otherwise use a generic message.
-      errorMessage = `Failed to retrieve memory entries: ${err.message}`;
-    } else if (typeof err === 'object' && err !== null && 'message' in err) {
-      // Handle objects that might resemble errors but aren't instances of Error
-      errorMessage = `Failed to retrieve memory entries: ${(err as { message: string }).message}`;
+      // Provide context from the error message, but keep the client response clean.
+      errorMessage = `Internal service error while fetching memory entries: ${err.message}`;
     } else {
       // Handle non-Error objects (e.g., primitives thrown)
       errorMessage = "Failed to retrieve memory entries due to an unknown error type.";
