@@ -14,7 +14,7 @@ export async function GET(req: Request) {
     // Check if emgRagInstance is properly initialized
     if (!emgRagInstance) {
       return NextResponse.json(
-        { error: "RAG service not properly initialized." },
+        { error: "RAG service not properly initialized. Cannot process memory queries." },
         { status: 500 }
       );
     }
@@ -42,24 +42,24 @@ export async function GET(req: Request) {
 
     if (!result) {
       return NextResponse.json(
-        { error: "RAG query returned no result." },
+        { error: "RAG query returned no result for the given query." },
         { status: 500 }
       );
     }
 
-    // Add null checks for result properties before destructuring
+    // Add strict checks for result properties before destructuring
     if (!result.topFixes || !result.topFailures || 
-        typeof result.cognitiveFrictionScore === 'undefined' || 
-        typeof result.epistemicRuling === 'undefined') {
+        typeof result.cognitiveFrictionScore !== 'number' || 
+        typeof result.epistemicRuling !== 'string') {
       return NextResponse.json(
-        { error: "RAG query returned malformed result data. Missing required properties." },
+        { error: "RAG query returned malformed result data. Missing or invalid required properties (topFixes, topFailures, cognitiveFrictionScore, epistemicRuling)." },
         { status: 500 }
       );
     }
 
     // Add null checks for array elements before mapping
-    const safeTopFixes = result.topFixes.filter(e => e != null);
-    const safeTopFailures = result.topFailures.filter(e => e != null);
+    const safeTopFixes = result.topFixes.filter((e): e is typeof result.topFixes[number] => e != null);
+    const safeTopFailures = result.topFailures.filter((e): e is typeof result.topFailures[number] => e != null);
 
     return NextResponse.json({
       query: q,
@@ -89,13 +89,12 @@ export async function GET(req: Request) {
       epistemicRuling: result.epistemicRuling,
     });
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during memory query.";
-    // Include the full error object for better debugging context in 500 responses
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during memory query execution.";
+    
+    // Return a clear, actionable error message to the client, avoiding internal stack traces unless necessary for debugging logs.
     return NextResponse.json(
       { 
-        error: `Memory query failed: ${errorMessage}`,
-        operation: "ensureSeeded or query",
-        details: err instanceof Error ? { name: err.name, stack: err.stack } : { message: "Unknown error object" }
+        error: `Failed to execute memory query: ${errorMessage}. Please check the query parameters and try again.`
       }, 
       { status: 500 }
     );
