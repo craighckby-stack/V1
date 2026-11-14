@@ -61,14 +61,23 @@ export function PostmortemPanel() {
         throw new Error(`Failed to fetch postmortems: ${res.statusText}`);
       }
       const data = await res.json();
+      if (typeof data !== 'object' || data === null) {
+        console.error("API response is not a valid object:", data);
+        toast({
+          title: "Data Error",
+          description: "Invalid postmortem data received from server: expected an object.",
+          variant: "destructive",
+        });
+        return;
+      }
       const typedData = data as { postmortems: PostmortemRecord[] };
-      if (typeof data === 'object' && data !== null && Array.isArray(typedData.postmortems)) {
+      if (Array.isArray(typedData.postmortems)) {
         setPostmortems(typedData.postmortems);
       } else {
         console.error("API response structure invalid: expected { postmortems: [...] }", data);
         toast({
           title: "Data Error",
-          description: "Invalid postmortem data received from server.",
+          description: "Invalid postmortem data received from server: 'postmortems' field is not an array.",
           variant: "destructive",
         });
       }
@@ -215,11 +224,11 @@ export function PostmortemPanel() {
                           </span>
                           <span className="text-[10px] text-slate-500 font-mono ml-auto">
                             {(() => {
-                              try {
-                                return new Date(pm.lastAttemptAt).toLocaleString();
-                              } catch {
-                                return "Invalid date";
+                              const timestamp = Date.parse(pm.lastAttemptAt);
+                              if (!isNaN(timestamp)) {
+                                return new Date(timestamp).toLocaleString();
                               }
+                              return "Invalid date";
                             })()}
                           </span>
                         </div>
