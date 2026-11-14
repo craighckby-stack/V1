@@ -74,14 +74,18 @@ export async function POST(req: Request) {
         );
     }
     
+    let errorMessage = "Internal server error while processing coherence gate request.";
+    
     if (err instanceof Error) {
       console.error("Coherence Gate POST error:", err.message, err.stack);
+      errorMessage = `Internal server error: ${err.message}. Please check request format and try again.`;
     } else {
       console.error("Coherence Gate POST error: Unknown non-Error object during request processing.", err);
+      errorMessage = "Internal server error due to unexpected data during request processing.";
     }
 
     return NextResponse.json(
-      { error: "Internal server error while processing coherence gate request." },
+      { error: errorMessage },
       { status: 500 }
     );
   }
