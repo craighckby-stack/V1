@@ -51,7 +51,9 @@ export async function GET() {
     return NextResponse.json({ sources });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during catalog retrieval.";
-    // Do not expose detailed internal error messages in the public API response.
+    // Log the detailed error internally for debugging, but return a generic message to the client.
+    console.error("Error retrieving siphon catalog:", errorMessage, err);
+    
     return NextResponse.json(
       { error: "Failed to retrieve catalog. Please check server logs for specific details." },
       { status: 500 }
