@@ -44,55 +44,59 @@ export function MemoryBank() {
   }, [setEntries]);
 
   return (
-    <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-slate-100 flex items-center gap-2 text-base">
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-emerald-500/30 to-cyan-500/30 ring-1 ring-emerald-500/40">
-            <BookOpen className="h-4 w-4 text-emerald-300" />
+    <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur shadow-xl">
+      <CardHeader className="pb-4">
+        <CardTitle className="text-slate-100 flex items-center gap-3 text-lg">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500/30 to-cyan-500/30 ring-1 ring-emerald-500/40">
+            <BookOpen className="h-5 w-5 text-emerald-300" aria-hidden="true" />
           </span>
-          Memory Bank <span className="text-xs text-slate-500 font-normal">(RAG)</span>
+          Memory Bank <span className="text-sm text-slate-500 font-normal hidden sm:inline">(RAG)</span>
         </CardTitle>
       </CardHeader>
       <CardContent>
         {entries.length === 0 ? (
-          <p className="text-xs text-slate-500 italic py-6 text-center">No memory entries found. Attempting to fetch from API...</p>
+          <p className="text-sm text-slate-500 italic py-8 text-center">No memory entries found. Attempting to fetch from API...</p>
         ) : (
-          <ScrollArea className="h-[280px] pr-3">
-            <div className="space-y-2">
+          <ScrollArea className="h-[300px] pr-4">
+            <div className="space-y-3">
               {entries.map((entry) => {
                 const meta = PROVENANCE_META[entry.provenance] ?? PROVENANCE_META.clean;
                 const Icon = meta.icon;
                 return (
                   <div
                     key={entry.id}
-                    className="rounded-md border border-slate-800/60 bg-slate-900/40 p-3"
+                    className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-4 transition-all duration-150 hover:border-emerald-600/50 hover:bg-slate-900/50 focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+                    role="region"
+                    aria-labelledby={`entry-title-${entry.id}`}
                   >
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <Icon className={cn("h-3.5 w-3.5", meta.color)} />
+                    <div className="flex items-center gap-3 mb-2">
+                      <Icon className={cn("h-4 w-4", meta.color)} aria-hidden="true" />
                       <Badge
                         variant="outline"
-                        className={cn("text-[9px] uppercase tracking-widest", meta.bg)}
+                        className={cn("text-[10px] uppercase tracking-wider", meta.bg)}
                       >
                         {entry.provenance}
                       </Badge>
                       <Badge
                         variant="outline"
-                        className="text-[9px] uppercase tracking-widest bg-slate-700/40 text-slate-300 border-slate-600/40"
+                        className="text-[10px] uppercase tracking-wider bg-slate-700/40 text-slate-300 border-slate-600/40"
                       >
                         {entry.trust ?? "unknown"}
                       </Badge>
                       {entry.filePath && (
-                        <span className="ml-auto text-[10px] text-slate-500 font-mono truncate" title={entry.filePath}>
+                        <span className="ml-auto text-xs text-slate-500 font-mono truncate" title={entry.filePath}>
                           {entry.filePath}
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-200 leading-relaxed">{entry.content}</p>
+                    <p className="text-sm text-slate-200 leading-relaxed mb-2">{entry.content}</p>
                     {entry.diagnosis && (
-                      <p className="text-[11px] text-slate-400 mt-1 italic">→ {entry.diagnosis}</p>
+                      <p className="text-xs text-slate-400 mt-1 italic">
+                        <span className="sr-only">Diagnosis: </span>→ {entry.diagnosis}
+                      </p>
                     )}
                     {entry.cleanSnippet && (
-                      <pre className="text-[10px] font-mono text-cyan-300 mt-1.5 bg-slate-950/60 border border-slate-800/60 rounded px-2 py-1 overflow-x-auto">
+                      <pre className="text-xs font-mono text-cyan-300 mt-2 bg-slate-950/60 border border-slate-800/60 rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap">
                         {entry.cleanSnippet}
                       </pre>
                     )}
