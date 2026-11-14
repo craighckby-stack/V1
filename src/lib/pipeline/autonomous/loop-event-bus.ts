@@ -105,6 +105,9 @@ class LoopEventBus {
           throw new Error(`LoopEventBus.emit() for kind 'push' has invalid attempt: ${evt.attempt}. Must be a non-negative integer.`);
         }
       }
+      if (evt.sha !== undefined && typeof evt.sha !== 'string') {
+        throw new Error(`LoopEventBus.emit() for kind 'push' has invalid sha: ${evt.sha}. Must be a string if provided.`);
+      }
     }
 
     return this.emitter.emit("event", evt);
