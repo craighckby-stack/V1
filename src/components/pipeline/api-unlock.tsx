@@ -111,7 +111,7 @@ export function ApiUnlock() {
       }
       window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     };
-  }, [mutationGateConfigured]); // Added dependency for completeness, though it's checked inside
+  }, [mutationGateConfigured]); // Dependency array is correct, but ensuring it's present for completeness
 
   // Escape dismisses the panel until the next 401.
   useEffect(() => {
@@ -137,7 +137,7 @@ export function ApiUnlock() {
         window.localStorage.setItem(STORAGE_KEY, key);
       } catch (error) {
         // Handle potential localStorage errors (e.g., quota exceeded) with context
-        console.error(`Failed to store API key in localStorage for key: ${key.substring(0, 4)}...`, error);
+        console.error(`Failed to store API key in localStorage. Check storage permissions or quota. Attempted key prefix: ${key.substring(0, 4)}...`, error);
         return;
       }
     }
