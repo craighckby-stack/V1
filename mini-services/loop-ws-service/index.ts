@@ -173,7 +173,7 @@ async function pollNextJsState() {
     nextJsReachable = false;
     const errorMessage = err instanceof Error ? err.message : String(err);
     if (pollFailureCount % 10 === 0) {
-      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}): ${errorMessage}. Check if Next.js server is running at ${NEXTJS_STATUS_URL}`);
+      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}) accessing ${NEXTJS_STATUS_URL}: ${errorMessage}. Check if Next.js server is running.`);
     }
     pollFailureCount++;
   }
