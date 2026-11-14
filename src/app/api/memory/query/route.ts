@@ -13,6 +13,7 @@ export async function GET(req: Request) {
   try {
     // Check if emgRagInstance is properly initialized
     if (!emgRagInstance) {
+      console.error("RAG service not properly initialized.");
       return NextResponse.json(
         { error: "RAG service not properly initialized. Cannot process memory queries." },
         { status: 500 }
@@ -90,6 +91,7 @@ export async function GET(req: Request) {
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during memory query execution.";
+    console.error("Error executing memory query:", err); // Log full error internally
     
     // Return a clear, actionable error message to the client, avoiding internal stack traces unless necessary for debugging logs.
     return NextResponse.json(
