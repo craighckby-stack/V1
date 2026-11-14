@@ -170,7 +170,7 @@ export function openToken(stored: string): string {
     const body = stored.slice(ENVELOPE_PREFIX.length);
     const parts = body.split(".");
     if (parts.length !== ENVELOPE_PARTS_COUNT) return "";
-    let iv: Buffer, tag: Buffer, ct: Buffer;
+    let iv: Buffer | undefined, tag: Buffer | undefined, ct: Buffer | undefined;
     
     try {
       iv = Buffer.from(parts[0], "base64url");
@@ -181,8 +181,8 @@ export function openToken(stored: string): string {
       return "";
     }
     
-    // Validate IV and tag lengths
-    if (!iv || iv.length !== IV_LENGTH || !tag || tag.length !== GCM_TAG_LENGTH) return "";
+    // Validate IV and tag lengths and existence after decoding
+    if (!iv || iv.length !== IV_LENGTH || !tag || tag.length !== GCM_TAG_LENGTH || !ct) return "";
     
     const decipher = createDecipheriv("aes-256-gcm", key, iv);
     decipher.setAuthTag(tag);

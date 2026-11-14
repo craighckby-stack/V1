@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/api/validate.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 5 → evolved 7), no behavioral signal, 6 changed lines — mutations must change observable behavior, not add guards to code that already works",
@@ -12,8 +12,8 @@
   "parentHash": "6ba070b761322649aac9ba664774e321e4054d0ec1af7bd36dfa80b3ffb1093d",
   "hash": "afc64d9d4266f26539b3acf2e5fbd70263fb9aaa6f5edd8b7cb0f8c4a54229f0",
   "lastAttemptAt": "2026-11-14T09:29:57.122Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-14T10:01:36.581Z",
   "createdAt": "2026-11-14T09:29:57.123Z",
-  "updatedAt": "2026-11-14T09:29:57.123Z",
+  "updatedAt": "2026-11-14T10:01:36.581Z",
   "schema": 2
 }
