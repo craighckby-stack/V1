@@ -92,36 +92,36 @@ export function DebateChamber() {
                   ? "bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/20"
                   : "bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/20"
               )}
-              aria-label={`Consensus status: ${consensusStatus?.replace("_", " ") || "UNKNOWN"}`}
+              aria-label={`Consensus status: ${String(consensusStatus || "UNKNOWN").replace("_", " ")}`}
             >
-              {consensusStatus?.replace("_", " ") || "UNKNOWN"}
+              {String(consensusStatus || "UNKNOWN").replace("_", " ")}
             </Badge>
             <div className="text-right">
-              <div className="text-[10px] uppercase tracking-widest text-slate-500">Consensus</div>
+              <div className="text-[10px] uppercase tracking-widest text-slate-500">Consensus</div >
               <div className="text-xl font-bold text-emerald-300 tabular-nums leading-none">
                 {consensusPct}%
-              </div>
+              </div >
             </div>
           </div>
         </div >
         <div className="space-y-3 mt-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
-            <div className="text-[10px] text-slate-500 mb-1 sm:mb-0">Consensus Coefficient</div>
-            <span className="tabular-nums text-emerald-300 text-base font-medium">{consensusPct}%</span>
-          </div>
+            <div className="text-[10px] text-slate-500 mb-1 sm:mb-0">Consensus Coefficient</div >
+            <span className="tabular-nums text-emerald-300 text-base font-medium">{consensusPct}%</span >
+          </div >
           <Progress
             value={consensusPct}
             className="h-2 bg-slate-800/60 [&>div]:bg-emerald-500 transition-all duration-300"
           />
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
-            <div className="text-[10px] text-slate-500 mb-1 sm:mb-0">Cognitive Friction</div>
-            <span className="tabular-nums text-amber-300 text-base font-medium">{frictionPct}%</span>
-          </div>
+            <div className="text-[10px] text-slate-500 mb-1 sm:mb-0">Cognitive Friction</div >
+            <span className="tabular-nums text-amber-300 text-base font-medium">{frictionPct}%</span >
+          </div >
           <Progress
             value={frictionPct}
             className="h-2 bg-slate-800/60 [&>div]:bg-amber-500 transition-all duration-300"
           />
-        </div>
+        </div >
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
@@ -129,13 +129,13 @@ export function DebateChamber() {
             {Array.isArray(verdict.arguments) && verdict.arguments.length > 0 ? (
               verdict.arguments.map((arg, idx) => {
                 // Ensure arg is defined and required fields exist before rendering the argument card
-                if (!arg || !arg.speakerName || !arg.stance || !arg.statement) {
-                  console.error(`DebateChamber: Skipping argument at index ${idx}. Missing required fields (speakerName, stance, or statement). Received object structure:`, arg);
+                if (!arg || typeof arg.speakerName !== 'string' || typeof arg.stance !== 'string' || typeof arg.statement !== 'string') {
+                  console.error(`DebateChamber: Skipping argument at index ${idx}. Missing or invalid required fields (speakerName, stance, or statement). Received object structure:`, arg);
                   return null;
                 }
                 return (
                   <motion.div
-                    key={`${arg.speaker}-${idx}`}
+                    key={`${arg.speakerName}-${idx}`}
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 12 }}
@@ -159,20 +159,20 @@ export function DebateChamber() {
                       <span className="ml-auto text-sm text-slate-400 font-mono">
                         {typeof arg.cognitiveFriction === 'number' && !isNaN(arg.cognitiveFriction) ? (arg.cognitiveFriction * 100).toFixed(0) : '0'}%
                       </span>
-                    </div>
+                    </div >
                     <p className="text-sm text-slate-200 leading-relaxed">{arg.statement}</p>
-                    {arg.citations && arg.citations.length > 0 && (
+                    {arg.citations && Array.isArray(arg.citations) && arg.citations.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
-                        {arg.citations.map((c) => (
+                        {arg.citations.map((c, cIdx) => (
                           <span
-                            key={c}
+                            key={cIdx}
                             className="text-[10px] text-slate-400 font-mono px-2 py-0.5 rounded bg-slate-950/40 border border-slate-800/60 focus-visible:ring-1 focus-visible:ring-cyan-500"
                             role="listitem"
                           >
                             {c}
                           </span>
                         ))}
-                      </div>
+                      </div >
                     )}
                   </motion.div>
                 );
@@ -187,7 +187,7 @@ export function DebateChamber() {
           <div className="flex items-start gap-3">
             <ShieldCheck className="h-4 w-4 text-rose-300 mt-0.5 shrink-0 flex-shrink-0" aria-hidden="true" />
             <div className="flex-1 min-w-0">
-              <div className="text-[10px] uppercase tracking-widest text-slate-500">Security Findings</div>
+              <div className="text-[10px] uppercase tracking-widest text-slate-500">Security Findings</div >
               <ul className="text-sm text-slate-300 space-y-1 mt-1 list-disc list-inside">
                 {verdict.securityPoints?.length > 0 ? (
                   verdict.securityPoints.map((p, i) => (
@@ -196,13 +196,13 @@ export function DebateChamber() {
                 ) : (
                   <li className="pl-1 text-slate-500">No security findings reported.</li>
                 )}
-              </ul>
-            </div>
-          </div>
+              </ul >
+            </div >
+          </div >
           <div className="flex items-start gap-3">
             <GitGraph className="h-4 w-4 text-cyan-300 mt-0.5 shrink-0 flex-shrink-0" aria-hidden="true" />
             <div className="flex-1 min-w-0">
-              <div className="text-[10px] uppercase tracking-widest text-slate-500">Architecture Findings</div>
+              <div className="text-[10px] uppercase tracking-widest text-slate-500">Architecture Findings</div >
               <ul className="text-sm text-slate-300 space-y-1 mt-1 list-disc list-inside">
                 {verdict.architecturePoints?.length > 0 ? (
                   verdict.architecturePoints.map((p, i) => (
@@ -211,16 +211,16 @@ export function DebateChamber() {
                 ) : (
                   <li className="pl-1 text-slate-500">No architecture findings reported.</li>
                 )}
-              </ul>
-            </div>
-          </div>
+              </ul >
+            </div >
+          </div >
           <div className="flex items-start gap-3">
             <CheckCircle2 className="h-4 w-4 text-emerald-300 mt-0.5 shrink-0 flex-shrink-0" aria-hidden="true" />
             <div className="flex-1 min-w-0">
-              <div className="text-[10px] uppercase tracking-widest text-slate-500">Lead Verdict</div>
+              <div className="text-[10px] uppercase tracking-widest text-slate-500">Lead Verdict</div >
               <p className="text-sm text-slate-200 mt-1">{verdict.leadSummary || "No summary available"}</p>
-            </div>
-          </div>
+            </div >
+          </div >
         </div >
       </CardContent>
     </Card>
