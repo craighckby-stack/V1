@@ -25,7 +25,6 @@ import {
   scanDiff,
   scanCommitMessage,
   summarizeFindings,
-  isIgnoredScanPath,
   type SecretFinding,
 } from "../core/secret-scan";
 import { recordPushSuccess, recordPushAuthFailure, isSafeMode, raiseSafeModeFlag } from "../core/duress";
@@ -1317,7 +1316,7 @@ export async function pushCurrentState(opts?: {
         env: pushEnv,
       });
     } catch (err) {
-      let stderr = scrub(String((err as { stderr?: string }).stderr ?? (err as Error).message ?? ""), target.token);
+      const stderr = scrub(String((err as { stderr?: string }).stderr ?? (err as Error).message ?? ""), target.token);
 
       // ── DIVERGENCE: REFUSE (audit 3, redesigned) ─────────────────────
       // A fetch-first rejection means the remote holds commits this repo

@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { scanContent, summarizeFindings, SENSITIVE_PATTERNS } from "@/lib/pipeline/core/secret-scan";
+import { parseBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const secretScanSchema = z.object({
+  content: z.string().min(1).max(500_000),
+  filePath: z.string().min(1).max(500).optional(),
+  blockOnMedium: z.boolean().optional(),
+}).strict();
 
 /**
  * POST /api/secret-scan/scan
@@ -21,19 +29,19 @@ export const runtime = "nodejs";
  */
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    if (!body || typeof body.content !== "string") {
-      return NextResponse.json(
-        { ok: false, error: "body.content (string) is required" },
-        { status: 400 }
-      );
-    }
-    const filePath = typeof body.filePath === "string" ? body.filePath : "paste.txt";
-    const blockOnMedium = body.blockOnMedium === true;
-    const findings = scanContent(body.content, filePath);
+    const parsed = await parseBody(req, secretScanSchema);
+    if (!parsed.ok) return parsed.response;
+
+    const filePath = parsed.data.filePath ?? "paste.txt";
+    const blockOnMedium = parsed.data.blockOnMedium === true;
+    const findings = scanContent(parsed.data.content, filePath);
     // Strip the matchedText from each finding before returning — the
     // API should never echo a real secret back to the client. The
-    // redactedPreview is the safe form.
+    // redactedPreview is the safe form. The replacement uses the
+    // FUNCTION form of .replace so `$&`/`$'`-style patterns inside
+    // matchedText can't be interpreted as substitution directives
+    // (audit H7 — the old string form could leave the secret unredacted
+    // in the echoed line content).
     const safeFindings = findings.map((f) => ({
       patternId: f.patternId,
       patternName: f.patternName,
@@ -42,7 +50,7 @@ export async function POST(req: Request) {
       redactedPreview: f.redactedPreview,
       filePath: f.filePath,
       line: f.line,
-      lineContentRedacted: f.lineContent.replace(f.matchedText, f.redactedPreview),
+      lineContentRedacted: f.lineContent.replace(f.matchedText, () => f.redactedPreview),
     }));
     const summary = summarizeFindings(findings, blockOnMedium);
     return NextResponse.json({

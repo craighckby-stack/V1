@@ -588,7 +588,7 @@ export function OraclePanel({ open, onClose }: Props) {
 
         <div style={{ marginTop: "16px", paddingTop: "8px", borderTop: `1px solid ${DIM_COLOR}`, color: DIM_COLOR, fontSize: "11px" }}>
           Prophecies are predictions made BEFORE the events they describe,
-          judged AFTER. The calibration metric is the system's
+          judged AFTER. The calibration metric is the system&apos;s
           metacognition — a measurable form of self-reflection. Made-up
           prophecies are never stored; unjudgeable ones are marked
           retired, not silently dropped.

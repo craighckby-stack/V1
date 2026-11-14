@@ -8,7 +8,7 @@ describe("ConsoleStream", () => {
     
     // We can't directly test the rendered output without a DOM environment
     // But we can test that the component doesn't throw and returns a valid structure
-    expect(() => ConsoleStream({ lines, logRef: mockRef })).not.toThrow();
+    expect(() => ConsoleStream({ lines: lines as unknown as ConsoleLine[], logRef: mockRef })).not.toThrow();
   });
 
   test("renders valid console lines", () => {
@@ -44,7 +44,7 @@ describe("ConsoleStream", () => {
     expect(() => ConsoleStream({ lines, logRef: mockRef })).not.toThrow();
     
     // Test that the component returns JSX with the correct number of elements
-    const result = ConsoleStream({ lines, logRef: mockRef });
+    const result = ConsoleStream({ lines: lines as unknown as ConsoleLine[], logRef: mockRef });
     expect(result).not.toBeNull();
     // We can't directly inspect the rendered DOM in this environment
     // but we can verify the component processes the input correctly
@@ -52,7 +52,7 @@ describe("ConsoleStream", () => {
 
   test("skips invalid line entries", () => {
     const mockRef = { current: null };
-    const lines: any[] = [
+    const lines: unknown[] = [
       null,
       undefined,
       "not an object",
@@ -62,14 +62,14 @@ describe("ConsoleStream", () => {
     ];
     
     // Test that the component doesn't throw with mixed valid/invalid input
-    expect(() => ConsoleStream({ lines, logRef: mockRef })).not.toThrow();
+    expect(() => ConsoleStream({ lines: lines as unknown as ConsoleLine[], logRef: mockRef })).not.toThrow();
   });
 
   test("handles non-array lines prop", () => {
     const mockRef = { current: null };
     
     // Test that the component returns null when lines is not an array
-    const result = ConsoleStream({ lines: null as any, logRef: mockRef });
+    const result = ConsoleStream({ lines: null as unknown as ConsoleLine[], logRef: mockRef });
     expect(result).toBeNull();
   });
 
@@ -96,7 +96,7 @@ describe("ConsoleStream", () => {
   test("uses default color for unknown log type", () => {
     const mockRef = { current: null };
     const lines: ConsoleLine[] = [
-      { id: "1", type: "log", text: "unknown log type", logType: "unknown" as any },
+      { id: "1", type: "log", text: "unknown log type", logType: "unknown" as unknown as ConsoleLine["logType"] },
     ];
     
     // Test that the component doesn't throw with unknown log type

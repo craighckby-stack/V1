@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getStoredTarget } from "@/lib/pipeline/autonomous/push-target";
+import { parseBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -61,16 +63,18 @@ export async function GET() {
   }
 }
 
+const visibilitySchema = z.object({
+  private: z.boolean(),
+}).strict();
+
 /** POST — flip visibility. Body: { private: boolean }.
  *  PATCH /repos/{owner}/{repo} with { private: bool } is the official
  *  GitHub REST path for toggling public/private. The PAT's `repo`
  *  scope grants this — no admin:org needed for user-owned repos. */
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as { private?: boolean };
-    if (typeof body.private !== "boolean") {
-      return NextResponse.json({ ok: false, error: "body.private (boolean) required" }, { status: 400 });
-    }
+    const parsed = await parseBody(req, visibilitySchema);
+    if (!parsed.ok) return parsed.response;
     const t = await getStoredTarget();
     if (!t) {
       return NextResponse.json({ ok: false, error: "no push target configured" }, { status: 404 });
@@ -78,7 +82,9 @@ export async function POST(req: Request) {
     const r = await ghFetch(`/repos/${t.repo}`, t.token, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ private: body.private, name: t.repo.split("/")[1] }),
+      // audit H4: the `name` field is dropped — GitHub validates it against
+      // the URL path's repo and a renamed repo made the PATCH 422.
+      body: JSON.stringify({ private: parsed.data.private }),
     });
     if (!r.ok) {
       const txt = await r.text();
@@ -91,7 +97,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       repo: t.repo,
-      private: typeof data.private === "boolean" ? data.private : body.private,
+      private: typeof data.private === "boolean" ? data.private : parsed.data.private,
     });
   } catch (err) {
     return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 500 });

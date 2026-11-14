@@ -14,7 +14,7 @@
  */
 
 import { readFileSync, writeFileSync, readdirSync, existsSync, rmSync, statSync } from "fs";
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
 import { join, relative, resolve, basename, dirname } from "path";
 import { createHash } from "crypto";
 import { llmComplete, extractSummaryAndCode, llmCooldownMs } from "../llm/agent-llm";
@@ -31,7 +31,6 @@ import {
   TARGET_FILES,
   SCAN_SCOPES,
   SCHEMA_TARGET,
-  SATURATION_THRESHOLD,
   getSaturationThreshold,
   type FileSaturation,
   type SaturationMap,
@@ -57,6 +56,7 @@ import {
   classifyOutcome,
   shouldProactivelySkip,
   predictConfidence,
+  writeSelfModelSnapshot,
 } from "./self-model";
 import {
   getLessonsForPrompt,
@@ -118,7 +118,6 @@ import { isSafeMode } from "../core/duress";
 // dead after a dev-server reload without this persistence tier.
 import {
   readSelfEnhanceArmedState,
-  markSelfEnhanceArmed,
   type SelfEnhanceArmedState,
 } from "./self-enhance-armed-state";
 // Audit 3 (F10): serialize live-tree writes against chat-task's
@@ -126,8 +125,6 @@ import {
 // could silently revert a gated, already-pushed enhancement).
 import { withTreeLock } from "../core/tree-lock";
 
-const PIPELINE_SRC_DIR = join(PROJECT_ROOT, "src/lib/pipeline");
-const DISPLAY_SRC_DIR = join(PROJECT_ROOT, "src/app/display");
 
 /** D4 (corpus): 16-hex sha of a source string — compact provenance for
  *  "what did the file look like when this was attempted". */
@@ -452,6 +449,12 @@ export interface SelfEnhanceResult {
 // resets to 0 on process restart (acceptable — the lesson prune is
 // housekeeping; missing one prune on restart just delays the next one
 // by 10 distills).
+
+// Skip-probe sampling rate: every 4th proactive skip spends the LLM call
+// anyway — 25% sampling scores the skip rule while the other 75% still
+// save the quota. Module-level: shared by the proactive-skip pre-pass AND
+// the main-loop skip block (audit H1 refactor).
+const SKIP_PROBE_INTERVAL = 4;
 let distillAttemptCount = 0;
 
 class SelfEnhanceLoop {
@@ -714,12 +717,17 @@ class SelfEnhanceLoop {
             // 2s delay mirrors the autonomous loop's auto-arm timer: lets
             // the module graph settle and the Z.AI cortex warm up before
             // the first cycle's ratchet fires its first llmComplete.
+            // Capture the narrowed fields BEFORE the closure — TS can't
+            // carry the outer `disk` narrowing across the callback boundary
+            // (the old `disk!.at` assertions masked that).
+            const armedAt = disk.at;
+            const armedBy = disk.by;
             setTimeout(() => {
               const g2 = globalThis as unknown as { __selfEnhanceLoop?: SelfEnhanceLoop };
               if (g2.__selfEnhanceLoop !== this) return; // a different instance won the pin
               if (this.continuous) return; // already running (e.g. hot-swap resume fired first)
               this.log(
-                `PERSISTED ARMED STATE (armed at ${disk!.at} by ${disk!.by}) — auto-starting on boot. It runs whenever the quota gate is open; [STOP] clears the intent.`,
+                `PERSISTED ARMED STATE (armed at ${armedAt} by ${armedBy}) — auto-starting on boot. It runs whenever the quota gate is open; [STOP] clears the intent.`,
                 "success"
               );
               void this.runContinuous().catch((err) => {
@@ -762,6 +770,28 @@ class SelfEnhanceLoop {
     const focus = TARGET_FILES.length > 0;
     const allowSet = new Set(TARGET_FILES);
     const files: string[] = [];
+    // Scope-widening hardening (audit 9): the new scopes include
+    // mini-services/*/ whose subdirectories contain node_modules — the
+    // old scopes (src/lib/pipeline, src/app) had none, so the walker
+    // never needed a skip list. Without it, scoping a mini-service would
+    // flood the candidate list with thousands of dependency .ts files
+    // (every one an LLM call the gates would rightly reject). Same for
+    // build output dirs if a scope ever crosses them.
+    const SKIP_DIRS = new Set([
+      "node_modules",
+      ".git",
+      ".next",
+      "dist",
+      "build",
+      "coverage",
+      ".turbo",
+      ".cache",
+    ]);
+    // Dedupe guard: scopes now OVERLAP by design (src/lib contains
+    // src/lib/pipeline). Without this, every pipeline file would be
+    // listed twice and the bandit would see duplicates as two separate
+    // candidates — the same file attempted twice per cycle.
+    const seen = new Set<string>();
     const scan = (dir: string, extensions: string[]) => {
       let entries: import("fs").Dirent[];
       try {
@@ -772,6 +802,7 @@ class SelfEnhanceLoop {
       for (const entry of entries) {
         const fullPath = join(dir, entry.name);
         if (entry.isDirectory()) {
+          if (SKIP_DIRS.has(entry.name)) continue;
           scan(fullPath, extensions);
         } else {
           const isTs = entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts");
@@ -785,7 +816,10 @@ class SelfEnhanceLoop {
             // control surface, control API subtree), (2) in the allowlist
             // when focus mode is on.
             if (!isProtectedPath(relPath) && (!focus || allowSet.has(relPath))) {
-              files.push(fullPath);
+              if (!seen.has(fullPath)) {
+                seen.add(fullPath);
+                files.push(fullPath);
+              }
             }
           }
         }
@@ -1358,7 +1392,6 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
     // the per-mode stats (visual-polish vs refactor) into the calibration
     // curve. Serial loop ⇒ safe instance-field hand-off.
     this.lastAttemptMode = mode;
-    const startTime = Date.now();
     // Capture the current run generation. If stop() fires during this
     // enhanceFile (incrementing runId), we abort at the next checkpoint
     // (after the ratchet, before the LLM enhance call) instead of running
@@ -1492,7 +1525,7 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // when enhancing bar.ts. Local, synchronous, zero LLM cost.
       const ancestralKeyword =
         (postmortem.symptom ? postmortem.symptom + " " : "") +
-        relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
+        relPath.replace(/[/\\]/g, " ").replace(/\.[a-z]+$/, "");
       let ancestralBlock = "";
       try {
         const ancestral = await queryRelevantPostmortems({
@@ -2369,9 +2402,104 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
    * Run one cycle: scan files, enhance each one sequentially.
    */
   async runCycle(): Promise<{ filesScanned: number; filesEnhanced: number; results: SelfEnhanceResult[] }> {
+    // ── Phase helpers (audit H1 refactor: this was a single ~1,160-line
+    //    method; each phase is now a named private method below). ────────
+    const myRun = await this.runCyclePreflight();
+    if (myRun === null) {
+      return { filesScanned: 0, filesEnhanced: 0, results: [] };
+    }
+
+    try {
+
+      // ── Pause-before-scan (rate-limit gate) ──────────────────────────
+      // If the shared LLM gate is active at cycle start, pause the WHOLE
+      // cycle until it clears — do NOT scan and iterate files. Previously
+      // the loop iterated all ~17 files during a cooldown: each file's
+      // ratchet made a real LLM call that 429'd and RE-ESCALATED the gate
+      // (2→5→15→30min) within a single cycle, then the per-file wait slept
+      // the new cooldown, then the next file did it again. That churned
+      // 4× 429s and 50+ min of waiting into one cycle. Now: one pause at
+      // the top, then a fresh scan when the gate opens. Mid-cycle gate
+      // escalations (a file's ratchet 429s) BREAK the for-loop so the next
+      // cycle's start-pause handles the wait — one 429 per cooldown window.
+      // Manual one-shot cycles skip this (continuous=false) and defer fast
+      // at the enhanceFile checkpoint instead.
+      if (this.continuous) {
+        const cdAtStart = llmCooldownMs();
+        if (cdAtStart > 0) {
+          this.log(`LLM rate-limited — pausing cycle ${Math.round(cdAtStart / 1000)}s until cooldown clears (countdown in UI)`, "warn");
+          const cleared = await this.waitForCooldown(myRun);
+          if (!cleared) {
+            this.log("Stop during cycle-start pause — cycle aborted", "warn");
+            return { filesScanned: 0, filesEnhanced: 0, results: [] };
+          }
+          this.log("LLM cooldown cleared — starting cycle", "success");
+        }
+      }
+
+
+      const files = await this.scanAndOrderTargets();
+
+      const prePass = await this.proactiveSkipPrePass(files, myRun);
+      const { files: eligibleFiles, skipResults, probes } = prePass;
+
+      const vpResults = await this.visualPolishPrePass(myRun);
+
+      const results: SelfEnhanceResult[] = [];
+      let enhanced = 0;
+      let deferredThisCycle = 0;
+      let lockedSkipped = 0;
+
+      // Merge proactive-skip pre-pass results (removed from the main list —
+      // seed them here for honest cycle accounting).
+      if (skipResults.length > 0) {
+        results.push(...skipResults);
+        lockedSkipped += skipResults.length;
+      }
+
+      // Merge visual-polish results into the cycle's result list.
+      if (vpResults.length > 0) {
+        results.push(...vpResults);
+        enhanced += vpResults.filter((r) => r.enhanced).length;
+      }
+
+      const mainOut = await this.enhanceWholeFiles(eligibleFiles, myRun, probes, results);
+      enhanced += mainOut.enhanced;
+      deferredThisCycle += mainOut.deferred;
+      lockedSkipped += mainOut.lockedSkipped;
+
+      this.trackPassProgress(eligibleFiles, enhanced, deferredThisCycle, lockedSkipped, myRun);
+
+      const cycleNow = this.stats.cyclesCompleted;
+      this.postCycleHousekeeping(cycleNow);
+
+
+      // ── Merge SelfTask drain results into the cycle return ──────────
+      // The drain pre-pass (top of runCycle) stashes its results on the
+      // instance. Merge them into the cycle's result list + bump the
+      // enhanced count so the UI + stats reflect the deterministic fixes
+      // alongside the whole-file refactors.
+      const stashed = (this as unknown as { _selfTaskResults?: SelfEnhanceResult[] })._selfTaskResults;
+      if (stashed && stashed.length > 0) {
+        results.unshift(...stashed);
+        enhanced += stashed.filter((r) => r.enhanced).length;
+        (this as unknown as { _selfTaskResults?: SelfEnhanceResult[] })._selfTaskResults = undefined;
+      }
+
+
+      return { filesScanned: eligibleFiles.length, filesEnhanced: enhanced, results };
+    } finally {
+      this.running = false;
+    }
+  }
+
+  /** Preflight: re-entry guard, safe-mode gate, durable-stats wait,
+   *  test-gate crash recovery. Returns the captured run generation, or
+   *  null when the cycle must not start. */
+  private async runCyclePreflight(): Promise<number | null> {
     if (this.running) {
       // Don't log — the continuous runner polls runCycle and this is normal
-      return { filesScanned: 0, filesEnhanced: 0, results: [] };
+      return null;
     }
     // Audit 3 (F1): safe-mode is the emergency brake for THIS loop — the
     // one that writes live source and pushes. A raised flag (red-team
@@ -2380,7 +2508,7 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
     // untrustworthy: refuse the cycle, loudly.
     if (isSafeMode()) {
       this.log("SAFE-MODE active — self-enhancement cycle refused (clear via the Duress panel after review)", "error");
-      return { filesScanned: 0, filesEnhanced: 0, results: [] };
+      return null;
     }
     this.running = true;
     this.currentFile = null;
@@ -2415,981 +2543,1029 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       }
     }
 
+    return myRun;
+  }
+
+  /** SelfTask drain (audit 5 — ZERO_DIFF_SATURATION mitigation): up to
+   *  SELF_TASKS_PER_CYCLE concrete findings, gated + pushed like any
+   *  other live write. Results are stashed on the instance for the
+   *  cycle-return merge. Best-effort — never fails the cycle. */
+  private async drainSelfTasks(myRun: number): Promise<void> {
+    // ── SelfTask drain (audit 5 — ZERO_DIFF_SATURATION mitigation) ──
+    // The whole-file refactor path hits zero-diff on files that are
+    // "finished" (no bugs, no missing error handling — the LLM correctly
+    // returns them unchanged). The SelfTask pipeline (self-task-
+    // generator.ts + task-executor.ts) queues CONCRETE findings (todo
+    // comments, empty catches, any-usage, missing return types, unused
+    // imports, magic numbers, non-null assertions) that cannot zero-
+    // diff by construction: the deterministic kinds (missing-return-type,
+    // unused-import) produce a guaranteed non-trivial text change
+    // verified by in-memory typecheck. The LLM kinds have a much
+    // narrower prompt (one file, one issue, one instruction) than the
+    // whole-file "find anything to fix" prompt.
+    //
+    // This pre-pass drains up to SELF_TASKS_PER_CYCLE tasks BEFORE the
+    // whole-file scan. Each applied task is written live + pushed via
+    // the same gitPush() path as a successful enhanceFile, so the
+    // existing commit-archaeology, secret-scan, and branch-retention
+    // machinery all apply. Best-effort by design — a SelfTask failure
+    // never fails the cycle (the whole-file scan still runs after).
+    //
+    // WHY DETERMINISTIC-FIRST: claimNextTask(true) restricts to the
+    // checker-inferred kinds (no LLM call) so the drain makes forward
+    // progress even when the LLM gate is cooling down. The perf concern
+    // (task-executor builds a fresh ts.Program per task, ~10s) is
+    // amortized by the small cap — 3 tasks per cycle adds ~30s, well
+    // under the cycle's existing LLM latency.
+    const SELF_TASKS_PER_CYCLE = 3;
+    const selfTaskResults: SelfEnhanceResult[] = [];
     try {
-      // ── SelfTask drain (audit 5 — ZERO_DIFF_SATURATION mitigation) ──
-      // The whole-file refactor path hits zero-diff on files that are
-      // "finished" (no bugs, no missing error handling — the LLM correctly
-      // returns them unchanged). The SelfTask pipeline (self-task-
-      // generator.ts + task-executor.ts) queues CONCRETE findings (todo
-      // comments, empty catches, any-usage, missing return types, unused
-      // imports, magic numbers, non-null assertions) that cannot zero-
-      // diff by construction: the deterministic kinds (missing-return-type,
-      // unused-import) produce a guaranteed non-trivial text change
-      // verified by in-memory typecheck. The LLM kinds have a much
-      // narrower prompt (one file, one issue, one instruction) than the
-      // whole-file "find anything to fix" prompt.
-      //
-      // This pre-pass drains up to SELF_TASKS_PER_CYCLE tasks BEFORE the
-      // whole-file scan. Each applied task is written live + pushed via
-      // the same gitPush() path as a successful enhanceFile, so the
-      // existing commit-archaeology, secret-scan, and branch-retention
-      // machinery all apply. Best-effort by design — a SelfTask failure
-      // never fails the cycle (the whole-file scan still runs after).
-      //
-      // WHY DETERMINISTIC-FIRST: claimNextTask(true) restricts to the
-      // checker-inferred kinds (no LLM call) so the drain makes forward
-      // progress even when the LLM gate is cooling down. The perf concern
-      // (task-executor builds a fresh ts.Program per task, ~10s) is
-      // amortized by the small cap — 3 tasks per cycle adds ~30s, well
-      // under the cycle's existing LLM latency.
-      const SELF_TASKS_PER_CYCLE = 3;
-      const selfTaskResults: SelfEnhanceResult[] = [];
-      try {
-        // Refresh the task queue every 25th cycle (generateTasks scans
-        // all source files with the TS compiler — too expensive to run
-        // every cycle, but without it the drain would have no tasks to
-        // consume after the initial queue is drained). Matches the
-        // MutationCorpus / retention prune throttle pattern.
-        const cycleNow = this.stats.cyclesCompleted;
-        if (cycleNow % 25 === 0) {
-          try {
-            const scan = await generateTasks();
-            if (scan.newTasks > 0) {
-              this.log(`SelfTask rescan: ${scan.filesAnalyzed} files, ${scan.findings} findings, ${scan.newTasks} new tasks`, "info");
-            }
-          } catch {
-            /* best-effort — the drain can work with the existing queue */
-          }
-        }
-        for (let i = 0; i < SELF_TASKS_PER_CYCLE; i++) {
-          if (myRun !== this.runId) break;
-          if (isSafeMode()) break;
-          // Prefer deterministic tasks (no LLM, zero-diff-immune). Fall
-          // back to LLM tasks only if the deterministic queue is empty
-          // AND the LLM gate is open.
-          let task = await claimNextTask(true).catch(() => null);
-          if (!task && llmCooldownMs() === 0) {
-            task = await claimNextTask(false).catch(() => null);
-          }
-          if (!task) break; // queue empty — proceed to whole-file scan
-
-          const filePath: string = task.filePath;
-          const kind: string = task.kind;
-          this.currentFile = filePath;
-          this.log(`SelfTask[${kind}] claimed: ${filePath}:${task.line}`, "info");
-
-          const exec: TaskExecutionResult = await executeTask({
-            id: task.id,
-            kind: task.kind,
-            filePath: task.filePath,
-            line: task.line,
-            evidence: task.evidence ?? "",
-            attempts: task.attempts ?? 0,
-          }).catch((e): TaskExecutionResult => ({
-            status: "failed",
-            method: "llm",
-            summary: `executor threw: ${(e as Error).message}`,
-          }));
-
-          if (exec.status === "applied" && exec.newCode) {
-            const abs = join(PROJECT_ROOT, filePath);
-            const relPath = relative(PROJECT_ROOT, abs);
-            let candidate = exec.newCode;
-            // ── FULL GATE CHAIN for LLM-produced fixes (external audit F1) ──
-            // The SelfTask path previously went truncation → syntax →
-            // typecheck → LIVE WRITE, skipping the structural validator,
-            // mutation guard, debate tribunal and behavioral test gate that
-            // enhanceFile runs. A SelfTask fix is smaller, but it is still
-            // an LLM rewrite of a live file: it can drop exports
-            // (structural), smuggle evil tokens (mutation-guard), or
-            // subtly change behavior (debate + tests). Deterministic kinds
-            // (missing-return-type, unused-import) are checker-driven
-            // insertions/removals that cannot drop exports or add tokens —
-            // for those, executeTask's in-memory typecheck plus the guarded
-            // write below is the proportionate gate set.
-            if (exec.method === "llm") {
-              // Banner strip (same defense-in-depth as enhanceFile 3b)
-              const banner = this.stripBannerComments(candidate);
-              if (banner.stripped) {
-                this.log(`SelfTask[${kind}] stripped decorative banner from ${relPath} (LLM ignored the no-header rule)`, "warn");
-              }
-              candidate = banner.code;
-              if (exec.baseCode !== undefined && candidate.trim() === exec.baseCode.trim()) {
-                await this.updateTask(task.id, { status: "skipped", lastError: "LLM fix was banner-only (no real change)" });
-                this.log(`SelfTask[${kind}] no-op: banner-only change, nothing to write`, "info");
-                continue;
-              }
-              // Structural validator + mutation guard + AST retention
-              // (verifyRefactor bundles them; candidate passed via stdin,
-              // nothing touches disk). Also re-typechecks — executeTask
-              // already did, but the banner strip changed the content.
-              const verification = await this.verifyRefactor(abs, candidate);
-              if (!verification.ok) {
-                await this.updateTask(task.id, {
-                  status: "failed",
-                  lastError: `structural/mutation gate rejected: ${verification.errors.slice(0, 2).join(" | ").slice(0, 250)}`,
-                });
-                this.log(`SelfTask[${kind}] rejected by structural/mutation gates: ${verification.errors[0]?.slice(0, 120)}`, "warn");
-                continue;
-              }
-              // Debate tribunal — fail-closed on unavailability (same
-              // contract as the ratchet: a deferred task is requeued, not
-              // counted as a failure or auto-approved).
-              const debate = await this.debateGate(abs, exec.baseCode ?? "", candidate, `self-task ${kind} fix: ${exec.summary.slice(0, 180)}`);
-              if (!debate.approved) {
-                if (debate.deferred) {
-                  await this.updateTask(task.id, { status: "pending", deferred: 1 });
-                  this.log(`SelfTask[${kind}] deferred: debate tribunal unavailable, not auto-approving (fail-closed)`, "warn");
-                } else {
-                  await this.updateTask(task.id, { status: "failed", lastError: `debate rejected: ${debate.reason.slice(0, 200)}` });
-                  this.log(`SelfTask[${kind}] rejected by debate: ${debate.reason.slice(0, 120)}`, "warn");
-                }
-                continue;
-              }
-              // Behavioral test gate — co-located tests must still pass.
-              const testResult = await this.testGate(abs, candidate);
-              if (!testResult.passed) {
-                await this.updateTask(task.id, { status: "failed", lastError: `test gate failed: ${testResult.reason.slice(0, 200)}` });
-                this.log(`SelfTask[${kind}] rejected by test gate: ${testResult.reason.slice(0, 120)}`, "warn");
-                continue;
-              }
-            }
-            // ── GUARDED LIVE WRITE (external audit F1: the concurrent-write
-            // hole) — same three protections as enhanceFile's phase 6:
-            //   (a) STOP checkpoint before the write (a stop() during the
-            //       executor or the gates above must not still land a write),
-            //   (b) TOCTOU disk-conflict check — the disk content must still
-            //       be what this fix was computed against (exec.baseCode);
-            //       a concurrent writer between executeTask's read and this
-            //       write would otherwise be silently clobbered,
-            //   (c) the tree lock, serializing against chat-task rollback.
-            const pushMsg = `self-task[${kind}]: ${relPath}:${task.line} — ${exec.summary.slice(0, 120)}`;
-            type SelfTaskWriteOutcome =
-              | { kind: "stopped" }
-              | { kind: "conflict"; diskSha?: string; diskError?: string }
-              | { kind: "write-failed"; error: string }
-              | { kind: "done"; pushed: boolean; commitSha?: string };
-            const writeOutcome = await withTreeLock<SelfTaskWriteOutcome>(async () => {
-              if (myRun !== this.runId) {
-                return { kind: "stopped" };
-              }
-              // The target file may have been DELETED (not just changed)
-              // during the 1–3-minute gate chain above. The old unguarded
-              // readFileSync threw here, escaped withTreeLock, was
-              // swallowed by the drain's outer catch, and the claimed task
-              // was never updated — a permanent in_progress zombie that
-              // claimNextTask (pending-only) never re-queues.
-              let diskNow: string;
-              try {
-                diskNow = readFileSync(abs, "utf-8");
-              } catch (rErr) {
-                return { kind: "conflict", diskSha: undefined, diskError: (rErr as Error).message };
-              }
-              if (exec.baseCode !== undefined && sha16(diskNow) !== sha16(exec.baseCode)) {
-                return { kind: "conflict", diskSha: sha16(diskNow) };
-              }
-              try {
-                writeFileSync(abs, candidate, "utf-8");
-              } catch (wErr) {
-                return { kind: "write-failed", error: (wErr as Error).message };
-              }
-              const push = await this.gitPush(pushMsg);
-              return { kind: "done", pushed: push.pushed, commitSha: push.commitSha };
-            });
-            if (writeOutcome.kind === "stopped") {
-              await this.updateTask(task.id, { status: "pending", lastError: "stop requested before live write — requeued" });
-              this.log(`SelfTask[${kind}] aborted: stop requested before live write (task requeued)`, "warn");
-              continue;
-            }
-            if (writeOutcome.kind === "conflict") {
-              await postmortemStore
-                .recordFailure({
-                  repo: "self",
-                  branch: "main",
-                  filePath: relPath,
-                  failureType: "OTHER",
-                  symptom: `TOCTOU conflict on ${relPath}: disk content changed between the SelfTask read and its gated write`,
-                  evidence: `fix computed against sha ${sha16(exec.baseCode ?? "")} vs on-disk sha ${writeOutcome.diskSha ?? `(unreadable: ${writeOutcome.diskError ?? "missing"})`} — a concurrent writer (chat-task, operator edit, host restore, or file deletion) landed while the SelfTask gates ran`,
-                  constraints: `Re-read the current file before proposing changes — the disk state moved during the last SelfTask gate chain; clobbering it would revert someone else's work.`,
-                  observed: false,
-                })
-                .catch(() => {
-                  /* best-effort scar */
-                });
-              await this.updateTask(task.id, { status: "pending", lastError: "TOCTOU conflict — disk changed during gates; requeued" });
-              this.log(`CONFLICT: ${relPath} changed on disk while the SelfTask gates ran — requeued instead of clobbering`, "error");
-              continue;
-            }
-            if (writeOutcome.kind === "write-failed") {
-              await this.updateTask(task.id, { status: "failed", lastError: `write failed: ${writeOutcome.error}` });
-              this.log(`SelfTask[${kind}] write failed: ${writeOutcome.error}`, "warn");
-              continue;
-            }
-            const push = { pushed: writeOutcome.pushed, commitSha: writeOutcome.commitSha };
-            if (push.pushed) {
-              this.stats.totalEnhanced++;
-              this.stats.totalPushed++;
-              // Durable tier: the SelfTask drain runs before the per-file
-              // loop, and a stop-aborted cycle skips the cycle-end persist —
-              // persist here so a task's counters survive an abort.
-              this.persistStats();
-              await this.updateTask(task.id, {
-                status: "done",
-                fixSummary: exec.summary.slice(0, 500),
-                commitSha: push.commitSha,
-              });
-              selfTaskResults.push({
-                filePath: relPath,
-                enhanced: true,
-                reason: `SelfTask[${kind}]: ${exec.summary.slice(0, 100)}`,
-                oldBytes: 0,
-                newBytes: candidate.length,
-                diffBytes: candidate.length,
-                llmUsed: exec.method === "llm",
-                llmLatencyMs: 0,
-                compiled: true,
-                pushed: true,
-                commitSha: push.commitSha,
-              });
-              this.log(`SelfTask[${kind}] applied + pushed: ${relPath} — ${exec.summary.slice(0, 80)}`, "success");
-              // (Post-selftask hot-swap was a self-suicide after the worker
-              // split — pauseLoop() would call sel.stop() on the worker's
-              // own __selfEnhanceLoop. Removed; the server picks up the
-              // deterministic fix via Turbopack HMR on the next request, and
-              // protected singletons are operator-triggered via
-              // /api/hot-swap/trigger.)
-            } else {
-              // Commit didn't land (push failed). Revert the live write
-              // so the working tree doesn't drift from the committed state.
-              try { execSync(`git checkout -- ${relPath}`); } catch { /* best-effort */ }
-              await this.updateTask(task.id, { status: "pending", lastError: `push failed: ${exec.summary.slice(0, 100)}` });
-              this.log(`SelfTask[${kind}] push failed for ${relPath} — reverted, task re-queued`, "warn");
-            }
-          } else if (exec.status === "no-op") {
-            await this.updateTask(task.id, { status: "skipped", lastError: exec.summary });
-            this.log(`SelfTask[${kind}] no-op: ${exec.summary.slice(0, 80)}`, "info");
-          } else if (exec.status === "deferred") {
-            await this.updateTask(task.id, { status: "pending", deferred: 1 });
-            this.log(`SelfTask[${kind}] deferred: ${exec.summary.slice(0, 80)}`, "info");
-          } else {
-            // failed
-            await this.updateTask(task.id, { status: "failed", lastError: exec.error ?? exec.summary });
-            this.log(`SelfTask[${kind}] failed: ${(exec.error ?? exec.summary).slice(0, 80)}`, "warn");
-          }
-        }
-      } catch (drainErr) {
-        // The SelfTask drain is best-effort — a failure here must NOT
-        // prevent the whole-file scan from running.
-        this.log(`SelfTask drain error (non-fatal): ${(drainErr as Error).message.slice(0, 120)}`, "warn");
-      }
-      // Merge SelfTask results into the cycle's result list so the UI
-      // and stats reflect them.
-      if (selfTaskResults.length > 0) {
-        // (the cycle return is built at the end of runCycle; we stash
-        //  these on the instance via a field so the return path can pick
-        //  them up. See the return statement near the end of runCycle.)
-        (this as unknown as { _selfTaskResults?: SelfEnhanceResult[] })._selfTaskResults = selfTaskResults;
-      }
-
-      // ── Pause-before-scan (rate-limit gate) ──────────────────────────
-      // If the shared LLM gate is active at cycle start, pause the WHOLE
-      // cycle until it clears — do NOT scan and iterate files. Previously
-      // the loop iterated all ~17 files during a cooldown: each file's
-      // ratchet made a real LLM call that 429'd and RE-ESCALATED the gate
-      // (2→5→15→30min) within a single cycle, then the per-file wait slept
-      // the new cooldown, then the next file did it again. That churned
-      // 4× 429s and 50+ min of waiting into one cycle. Now: one pause at
-      // the top, then a fresh scan when the gate opens. Mid-cycle gate
-      // escalations (a file's ratchet 429s) BREAK the for-loop so the next
-      // cycle's start-pause handles the wait — one 429 per cooldown window.
-      // Manual one-shot cycles skip this (continuous=false) and defer fast
-      // at the enhanceFile checkpoint instead.
-      if (this.continuous) {
-        const cdAtStart = llmCooldownMs();
-        if (cdAtStart > 0) {
-          this.log(`LLM rate-limited — pausing cycle ${Math.round(cdAtStart / 1000)}s until cooldown clears (countdown in UI)`, "warn");
-          const cleared = await this.waitForCooldown(myRun);
-          if (!cleared) {
-            this.log("Stop during cycle-start pause — cycle aborted", "warn");
-            return { filesScanned: 0, filesEnhanced: 0, results: [] };
-          }
-          this.log("LLM cooldown cleared — starting cycle", "success");
-        }
-      }
-
-      const scanned = this.scanFiles();
-      // Cumulative scan count — increments every cycle so the counter visibly
-      // moves (was `= files.length`, frozen at 16 forever, looked broken).
-      this.stats.totalScanned += scanned.length;
-      this.log(`Scanned ${scanned.length} files in src/lib/pipeline/`, "info");
-
-      // ── BANDIT TARGET ORDERING (audit 7 — "priority-weighted file
-      //    selection", the cognitive core) ──────────────────────────────
-      // The self-model's UCB1 bandit reorders candidates by:
-      //   empirical success rate (Laplace-smoothed)
-      //   + exploration bonus (untried files get a look)
-      //   + recency bonus (long-untouched files resurface)
-      //   - exhaustion penalty (files that keep zero-diffing sink)
-      // This replaces the old alphabetical tree-order scan with actual
-      // DECISION-MAKING. The bandit self-explains its top 3 picks in the
-      // log ("🧠 target: X — score 0.62 (3/5 passed, 14d untouched, ...)")
-      // so the loop's reasoning is visible. Focus mode (TARGET_FILES
-      // non-empty) respects the operator's named order — the bandit only
-      // reorders full-scope scans. Degrades to tree order if the self-
-      // model table is missing.
-      let files = scanned;
-      if (TARGET_FILES.length === 0 && scanned.length > 1) {
+      // Refresh the task queue every 25th cycle (generateTasks scans
+      // all source files with the TS compiler — too expensive to run
+      // every cycle, but without it the drain would have no tasks to
+      // consume after the initial queue is drained). Matches the
+      // MutationCorpus / retention prune throttle pattern.
+      const cycleNow = this.stats.cyclesCompleted;
+      if (cycleNow % 25 === 0) {
         try {
-          const { ordered } = await orderTargetsByBandit(scanned, PROJECT_ROOT, (line, level) => this.log(line, level));
-          files = ordered;
+          const scan = await generateTasks();
+          if (scan.newTasks > 0) {
+            this.log(`SelfTask rescan: ${scan.filesAnalyzed} files, ${scan.findings} findings, ${scan.newTasks} new tasks`, "info");
+          }
         } catch {
-          /* self-model unavailable — tree order */
+          /* best-effort — the drain can work with the existing queue */
         }
       }
+      for (let i = 0; i < SELF_TASKS_PER_CYCLE; i++) {
+        if (myRun !== this.runId) break;
+        if (isSafeMode()) break;
+        // Prefer deterministic tasks (no LLM, zero-diff-immune). Fall
+        // back to LLM tasks only if the deterministic queue is empty
+        // AND the LLM gate is open.
+        let task = await claimNextTask(true).catch(() => null);
+        if (!task && llmCooldownMs() === 0) {
+          task = await claimNextTask(false).catch(() => null);
+        }
+        if (!task) break; // queue empty — proceed to whole-file scan
 
-      // Skip-probe sampling rate: every 4th proactive skip spends the LLM
-      // call anyway — 25% sampling scores the skip rule while the other
-      // 75% still save the quota. Declared here (before the pre-pass) so
-      // both the pre-pass and the main-loop skip block can reference it.
-      const SKIP_PROBE_INTERVAL = 4;
+        const filePath: string = task.filePath;
+        const kind: string = task.kind;
+        this.currentFile = filePath;
+        this.log(`SelfTask[${kind}] claimed: ${filePath}:${task.line}`, "info");
 
-      // ── PROACTIVE-SKIP PRE-PASS (unblocks the starved skip mechanism) ──
-      // The main for-loop's proactive-skip check was starved: the bandit
-      // puts exhausted files at the BOTTOM of its ordering (exhaustion
-      // penalty), while fresh files at the TOP burn LLM calls and trigger
-      // the mid-cycle cooldown break. By the time the loop reaches the
-      // exhausted files, it has already broken out — so the proactive-skip
-      // never fires and the skip-probe calibration stays at 0.
-      // This pre-pass checks EVERY file UPFRONT (no LLM, just DB lookups)
-      // and removes the skip-eligible ones from the `files` list BEFORE the
-      // main iteration. Skip-probes (every Nth skip) are LEFT IN the list
-      // so the main loop can spend the call and score the rule. The pre-pass
-      // is itself O(N) DB reads — cheap vs even one LLM call.
-      const proactiveSkipResults: SelfEnhanceResult[] = [];
-      const proactiveSkipped = new Set<string>();
-      // Files the pre-pass flagged as skip-PROBES (every Nth skip). These
-      // stay in the `files` list so the main loop can spend the LLM call
-      // and open a tagged prediction row — but the main loop must NOT
-      // re-run shouldProactivelySkip or re-increment skipProbeCounter
-      // (the pre-pass already did both). This set is the handoff.
-      const proactiveProbes = new Set<string>();
-      for (const file of files) {
-        const relPath = relative(PROJECT_ROOT, file);
-        // Locked-out files are handled by the main loop's lockout check.
-        const sat = this.saturation.get(relPath);
-        if (sat?.lockedOut) continue;
-        try {
-          const skip = await shouldProactivelySkip(relPath);
-          if (!skip.skip) continue;
-          this.skipProbeCounter++;
-          const isProbe =
-            this.skipProbeCounter % SKIP_PROBE_INTERVAL === 0 &&
-            llmCooldownMs() === 0 &&
-            !isSafeMode() &&
-            myRun === this.runId;
-          if (isProbe) {
-            // Leave probe-skips for the main loop (it spends the call +
-            // opens the tagged prediction row). Mark in proactiveProbes
-            // so the main loop knows the counter was already bumped.
-            this.log(`🧠 skip-probe deferred to main loop: ${relPath} (${skip.reason})`, "info");
-            proactiveProbes.add(file);
+        const exec: TaskExecutionResult = await executeTask({
+          id: task.id,
+          kind: task.kind,
+          filePath: task.filePath,
+          line: task.line,
+          evidence: task.evidence ?? "",
+          attempts: task.attempts ?? 0,
+        }).catch((e): TaskExecutionResult => ({
+          status: "failed",
+          method: "llm",
+          summary: `executor threw: ${(e as Error).message}`,
+        }));
+
+        if (exec.status === "applied" && exec.newCode) {
+          const abs = join(PROJECT_ROOT, filePath);
+          const relPath = relative(PROJECT_ROOT, abs);
+          let candidate = exec.newCode;
+          // ── FULL GATE CHAIN for LLM-produced fixes (external audit F1) ──
+          // The SelfTask path previously went truncation → syntax →
+          // typecheck → LIVE WRITE, skipping the structural validator,
+          // mutation guard, debate tribunal and behavioral test gate that
+          // enhanceFile runs. A SelfTask fix is smaller, but it is still
+          // an LLM rewrite of a live file: it can drop exports
+          // (structural), smuggle evil tokens (mutation-guard), or
+          // subtly change behavior (debate + tests). Deterministic kinds
+          // (missing-return-type, unused-import) are checker-driven
+          // insertions/removals that cannot drop exports or add tokens —
+          // for those, executeTask's in-memory typecheck plus the guarded
+          // write below is the proportionate gate set.
+          if (exec.method === "llm") {
+            // Banner strip (same defense-in-depth as enhanceFile 3b)
+            const banner = this.stripBannerComments(candidate);
+            if (banner.stripped) {
+              this.log(`SelfTask[${kind}] stripped decorative banner from ${relPath} (LLM ignored the no-header rule)`, "warn");
+            }
+            candidate = banner.code;
+            if (exec.baseCode !== undefined && candidate.trim() === exec.baseCode.trim()) {
+              await this.updateTask(task.id, { status: "skipped", lastError: "LLM fix was banner-only (no real change)" });
+              this.log(`SelfTask[${kind}] no-op: banner-only change, nothing to write`, "info");
+              continue;
+            }
+            // Structural validator + mutation guard + AST retention
+            // (verifyRefactor bundles them; candidate passed via stdin,
+            // nothing touches disk). Also re-typechecks — executeTask
+            // already did, but the banner strip changed the content.
+            const verification = await this.verifyRefactor(abs, candidate);
+            if (!verification.ok) {
+              await this.updateTask(task.id, {
+                status: "failed",
+                lastError: `structural/mutation gate rejected: ${verification.errors.slice(0, 2).join(" | ").slice(0, 250)}`,
+              });
+              this.log(`SelfTask[${kind}] rejected by structural/mutation gates: ${verification.errors[0]?.slice(0, 120)}`, "warn");
+              continue;
+            }
+            // Debate tribunal — fail-closed on unavailability (same
+            // contract as the ratchet: a deferred task is requeued, not
+            // counted as a failure or auto-approved).
+            const debate = await this.debateGate(abs, exec.baseCode ?? "", candidate, `self-task ${kind} fix: ${exec.summary.slice(0, 180)}`);
+            if (!debate.approved) {
+              if (debate.deferred) {
+                await this.updateTask(task.id, { status: "pending", deferred: 1 });
+                this.log(`SelfTask[${kind}] deferred: debate tribunal unavailable, not auto-approving (fail-closed)`, "warn");
+              } else {
+                await this.updateTask(task.id, { status: "failed", lastError: `debate rejected: ${debate.reason.slice(0, 200)}` });
+                this.log(`SelfTask[${kind}] rejected by debate: ${debate.reason.slice(0, 120)}`, "warn");
+              }
+              continue;
+            }
+            // Behavioral test gate — co-located tests must still pass.
+            const testResult = await this.testGate(abs, candidate);
+            if (!testResult.passed) {
+              await this.updateTask(task.id, { status: "failed", lastError: `test gate failed: ${testResult.reason.slice(0, 200)}` });
+              this.log(`SelfTask[${kind}] rejected by test gate: ${testResult.reason.slice(0, 120)}`, "warn");
+              continue;
+            }
+          }
+          // ── GUARDED LIVE WRITE (external audit F1: the concurrent-write
+          // hole) — same three protections as enhanceFile's phase 6:
+          //   (a) STOP checkpoint before the write (a stop() during the
+          //       executor or the gates above must not still land a write),
+          //   (b) TOCTOU disk-conflict check — the disk content must still
+          //       be what this fix was computed against (exec.baseCode);
+          //       a concurrent writer between executeTask's read and this
+          //       write would otherwise be silently clobbered,
+          //   (c) the tree lock, serializing against chat-task rollback.
+          const pushMsg = `self-task[${kind}]: ${relPath}:${task.line} — ${exec.summary.slice(0, 120)}`;
+          type SelfTaskWriteOutcome =
+            | { kind: "stopped" }
+            | { kind: "conflict"; diskSha?: string; diskError?: string }
+            | { kind: "write-failed"; error: string }
+            | { kind: "done"; pushed: boolean; commitSha?: string };
+          const writeOutcome = await withTreeLock<SelfTaskWriteOutcome>(async () => {
+            if (myRun !== this.runId) {
+              return { kind: "stopped" };
+            }
+            // The target file may have been DELETED (not just changed)
+            // during the 1–3-minute gate chain above. The old unguarded
+            // readFileSync threw here, escaped withTreeLock, was
+            // swallowed by the drain's outer catch, and the claimed task
+            // was never updated — a permanent in_progress zombie that
+            // claimNextTask (pending-only) never re-queues.
+            let diskNow: string;
+            try {
+              diskNow = readFileSync(abs, "utf-8");
+            } catch (rErr) {
+              return { kind: "conflict", diskSha: undefined, diskError: (rErr as Error).message };
+            }
+            if (exec.baseCode !== undefined && sha16(diskNow) !== sha16(exec.baseCode)) {
+              return { kind: "conflict", diskSha: sha16(diskNow) };
+            }
+            try {
+              writeFileSync(abs, candidate, "utf-8");
+            } catch (wErr) {
+              return { kind: "write-failed", error: (wErr as Error).message };
+            }
+            const push = await this.gitPush(pushMsg);
+            return { kind: "done", pushed: push.pushed, commitSha: push.commitSha };
+          });
+          if (writeOutcome.kind === "stopped") {
+            await this.updateTask(task.id, { status: "pending", lastError: "stop requested before live write — requeued" });
+            this.log(`SelfTask[${kind}] aborted: stop requested before live write (task requeued)`, "warn");
             continue;
           }
-          // Non-probe skip: resolve here, remove from the main loop's list.
-          this.log(`🧠 ${skip.reason}`, "info");
-          const skipReason = `Skipped (self-model predicts zero-diff: finished ${skip.finishedScore.toFixed(2)}, predicted ${(skip.confidence * 100).toFixed(0)}%)`;
-          proactiveSkipResults.push({
-            filePath: relPath,
-            enhanced: false,
-            reason: skipReason,
-            oldBytes: 0,
-            newBytes: 0,
-            diffBytes: 0,
-            llmUsed: false,
-            llmLatencyMs: 0,
-            compiled: false,
-            pushed: false,
-          });
-          proactiveSkipped.add(file);
-          // Advance the saturation state for this synthetic no-growth
-          // outcome so the 3-strike lockout can still fire if the model
-          // is wrong and the file keeps getting skipped.
-          await this.advanceSaturation(relPath, skipReason);
-        } catch {
-          /* self-model unavailable — leave for the main loop (honest) */
-        }
-      }
-      if (proactiveSkipped.size > 0) {
-        files = files.filter((f) => !proactiveSkipped.has(f));
-      }
-      // Move probe-deferred files to the FRONT of the list so the main
-      // loop reaches them FIRST — before any fresh file's enhanceFile
-      // 429s and triggers the cooldown break. Without this reordering,
-      // the probe files sit at their bandit position (bottom, near the
-      // exhausted files) and the cooldown break fires on a non-probe
-      // file before the probe is ever reached — the probe exemption
-      // (!proactiveProbes.has(file)) only helps when the probe IS the
-      // current file, not when non-probe files sit before it. By front-
-      // loading probes, the main loop processes them while the LLM is
-      // still cool (pre-pass ran no LLM calls), maximizing the chance
-      // the probe actually opens + resolves in one cycle.
-      if (proactiveProbes.size > 0) {
-        files = [
-          ...files.filter((f) => proactiveProbes.has(f)),
-          ...files.filter((f) => !proactiveProbes.has(f)),
-        ];
-      }
-
-      // ── VISUAL-POLISH PRE-PASS (audit 6 — "still not enhancing its own
-      //    ui look") ────────────────────────────────────────────────────
-      // Every VISUAL_POLISH_INTERVAL cycles, pick one .tsx UI component
-      // from src/components/pipeline/ and run it through the visual-polish
-      // prompt (styling/accessibility/responsive/micro-interactions) BEFORE
-      // the whole-file bug-hunt scan. The default refactor prompt forbids
-      // cosmetic changes, so without this pre-pass the loop only ever
-      // makes null-safety fixes to UI files — never visual improvements.
-      // Same gate chain (typecheck + structural-validator + mutation-guard
-      // + debate) applies; only the prompt differs.
-      const VISUAL_POLISH_INTERVAL = 5;
-      const visualPolishResults: SelfEnhanceResult[] = [];
-      if (
-        this.stats.cyclesCompleted % VISUAL_POLISH_INTERVAL === 0 &&
-        !isSafeMode() &&
-        myRun === this.runId &&
-        llmCooldownMs() === 0
-      ) {
-        try {
-          // Pick a .tsx UI component that's not protected and not locked out.
-          // DEAD-ARM FIX: this pre-pass used to filter the SCANNED list for
-          // /components/pipeline/ — but SCAN_SCOPES covers src/lib/pipeline
-          // and src/app only, so the filter could never match, the arm never
-          // fired once (mode stats: visual-polish 0/0 forever), and
-          // predictConfidence's visual-polish branch was dead code. Discover
-          // the components directly from disk instead: the arm works without
-          // widening the refactor scan scope.
-          // ELIGIBILITY FILTER (follow-up): the arm's first firing after the
-          // dead-arm fix targeted defense-panel.tsx (19.5KB) and was auto-
-          // skipped by enhanceFile's 12KB mutation ceiling — recorded as a
-          // "fail" for a file that never had a chance. 10 of the 12 pipeline
-          // components are over the ceiling, so most firings would burn
-          // their slot on a guaranteed skip. Filter to files under the SAME
-          // ceiling enhanceFile enforces (MAX_FILE_BYTES, see the enhance
-          // path) BEFORE rotating, so every firing targets a file the gate
-          // chain will actually run on. 11 components currently qualify.
-          const uiDir = join(PROJECT_ROOT, "src", "components", "pipeline");
-          const uiFiles = existsSync(uiDir)
-            ? readdirSync(uiDir)
-                .filter((f) => f.endsWith(".tsx"))
-                .map((f) => join(uiDir, f))
-                .filter((f) => !isProtectedPath(relative(PROJECT_ROOT, f)))
-                .filter((f) => {
-                  try {
-                    return statSync(f).size <= 12000; // match enhanceFile's MAX_FILE_BYTES
-                  } catch {
-                    return false;
-                  }
-                })
-            : [];
-          if (uiFiles.length === 0) {
-            this.log(
-              "Visual-polish pre-pass: no eligible UI component under the 12KB mutation ceiling — skipping this cycle",
-              "info"
-            );
-          } else {
-            // Rotate through the list by cycle number so we don't polish
-            // the same component every time.
-            const pick = uiFiles[this.stats.cyclesCompleted % uiFiles.length];
-            const pickRel = relative(PROJECT_ROOT, pick);
-            this.log(
-              `Visual-polish mode: targeting ${pickRel} (${uiFiles.length} eligible component(s) under the 12KB ceiling)`,
-              "info"
-            );
-            // SELF-MODEL (audit 7): open a prediction + record the outcome
-            // so the calibration curve has visual-polish samples too. The
-            // per-mode stats (visualPolishAttempts/Passes) feed the mode-
-            // specific confidence in predictConfidence.
-            const vpPredId = await openSelfPrediction(
-              pickRel, "visual-polish", this.stats.cyclesCompleted + 1
-            ).catch(() => null);
-            const vpResult = await this.enhanceFile(pick, "visual-polish");
-            visualPolishResults.push(vpResult);
-            const vpOutcome = classifyOutcome(vpResult.enhanced, vpResult.reason);
-            void noteOutcome(pickRel, vpOutcome, "visual-polish").catch(() => {});
-            void resolveSelfPrediction(vpPredId, vpOutcome).catch(() => {});
-            if (vpResult.enhanced) {
-              this.log(`Visual-polish applied: ${vpResult.filePath} — ${vpResult.reason.slice(0, 80)}`, "success");
-            } else {
-              this.log(`Visual-polish no-op: ${vpResult.filePath} — ${vpResult.reason.slice(0, 80)}`, "info");
-            }
+          if (writeOutcome.kind === "conflict") {
+            await postmortemStore
+              .recordFailure({
+                repo: "self",
+                branch: "main",
+                filePath: relPath,
+                failureType: "OTHER",
+                symptom: `TOCTOU conflict on ${relPath}: disk content changed between the SelfTask read and its gated write`,
+                evidence: `fix computed against sha ${sha16(exec.baseCode ?? "")} vs on-disk sha ${writeOutcome.diskSha ?? `(unreadable: ${writeOutcome.diskError ?? "missing"})`} — a concurrent writer (chat-task, operator edit, host restore, or file deletion) landed while the SelfTask gates ran`,
+                constraints: `Re-read the current file before proposing changes — the disk state moved during the last SelfTask gate chain; clobbering it would revert someone else's work.`,
+                observed: false,
+              })
+              .catch(() => {
+                /* best-effort scar */
+              });
+            await this.updateTask(task.id, { status: "pending", lastError: "TOCTOU conflict — disk changed during gates; requeued" });
+            this.log(`CONFLICT: ${relPath} changed on disk while the SelfTask gates ran — requeued instead of clobbering`, "error");
+            continue;
           }
-        } catch (vpErr) {
-          this.log(`Visual-polish error (non-fatal): ${(vpErr as Error).message.slice(0, 120)}`, "warn");
+          if (writeOutcome.kind === "write-failed") {
+            await this.updateTask(task.id, { status: "failed", lastError: `write failed: ${writeOutcome.error}` });
+            this.log(`SelfTask[${kind}] write failed: ${writeOutcome.error}`, "warn");
+            continue;
+          }
+          const push = { pushed: writeOutcome.pushed, commitSha: writeOutcome.commitSha };
+          if (push.pushed) {
+            this.stats.totalEnhanced++;
+            this.stats.totalPushed++;
+            // Durable tier: the SelfTask drain runs before the per-file
+            // loop, and a stop-aborted cycle skips the cycle-end persist —
+            // persist here so a task's counters survive an abort.
+            this.persistStats();
+            await this.updateTask(task.id, {
+              status: "done",
+              fixSummary: exec.summary.slice(0, 500),
+              commitSha: push.commitSha,
+            });
+            selfTaskResults.push({
+              filePath: relPath,
+              enhanced: true,
+              reason: `SelfTask[${kind}]: ${exec.summary.slice(0, 100)}`,
+              oldBytes: 0,
+              newBytes: candidate.length,
+              diffBytes: candidate.length,
+              llmUsed: exec.method === "llm",
+              llmLatencyMs: 0,
+              compiled: true,
+              pushed: true,
+              commitSha: push.commitSha,
+            });
+            this.log(`SelfTask[${kind}] applied + pushed: ${relPath} — ${exec.summary.slice(0, 80)}`, "success");
+            // (Post-selftask hot-swap was a self-suicide after the worker
+            // split — pauseLoop() would call sel.stop() on the worker's
+            // own __selfEnhanceLoop. Removed; the server picks up the
+            // deterministic fix via Turbopack HMR on the next request, and
+            // protected singletons are operator-triggered via
+            // /api/hot-swap/trigger.)
+          } else {
+            // Commit didn't land (push failed). Revert the live write
+            // so the working tree doesn't drift from the committed state.
+            // argv form (no shell) — relPath is filesystem-derived but a
+            // future task-source could queue a path with shell
+            // metacharacters; execFileSync never interprets them.
+            try {
+              execFileSync("git", ["checkout", "--", relPath], { cwd: PROJECT_ROOT, stdio: "pipe" });
+            } catch { /* best-effort */ }
+            await this.updateTask(task.id, { status: "pending", lastError: `push failed: ${exec.summary.slice(0, 100)}` });
+            this.log(`SelfTask[${kind}] push failed for ${relPath} — reverted, task re-queued`, "warn");
+          }
+        } else if (exec.status === "no-op") {
+          await this.updateTask(task.id, { status: "skipped", lastError: exec.summary });
+          this.log(`SelfTask[${kind}] no-op: ${exec.summary.slice(0, 80)}`, "info");
+        } else if (exec.status === "deferred") {
+          await this.updateTask(task.id, { status: "pending", deferred: 1 });
+          this.log(`SelfTask[${kind}] deferred: ${exec.summary.slice(0, 80)}`, "info");
+        } else {
+          // failed
+          await this.updateTask(task.id, { status: "failed", lastError: exec.error ?? exec.summary });
+          this.log(`SelfTask[${kind}] failed: ${(exec.error ?? exec.summary).slice(0, 80)}`, "warn");
         }
       }
+    } catch (drainErr) {
+      // The SelfTask drain is best-effort — a failure here must NOT
+      // prevent the whole-file scan from running.
+      this.log(`SelfTask drain error (non-fatal): ${(drainErr as Error).message.slice(0, 120)}`, "warn");
+    }
+    // Merge SelfTask results into the cycle's result list so the UI
+    // and stats reflect them.
+    if (selfTaskResults.length > 0) {
+      // (the cycle return is built at the end of runCycle; we stash
+      //  these on the instance via a field so the return path can pick
+      //  them up. See the return statement near the end of runCycle.)
+      (this as unknown as { _selfTaskResults?: SelfEnhanceResult[] })._selfTaskResults = selfTaskResults;
+    }
+  }
 
-      const results: SelfEnhanceResult[] = [];
-      let enhanced = 0;
-      let deferredThisCycle = 0;
-      let lockedSkipped = 0;
+  /** Scan the mutation scopes and order candidates by the self-model's
+   *  UCB1 bandit (audit 7). Falls back to tree order when unavailable. */
+  private async scanAndOrderTargets(): Promise<string[]> {
+    const scanned = this.scanFiles();
+    // Cumulative scan count — increments every cycle so the counter visibly
+    // moves (was `= files.length`, frozen at 16 forever, looked broken).
+    this.stats.totalScanned += scanned.length;
+    this.log(`Scanned ${scanned.length} files in src/lib/pipeline/`, "info");
 
-      // Merge proactive-skip pre-pass results (these files were removed
-      // from the `files` list, so they never enter the main for-loop —
-      // their results must be seeded here for honest cycle accounting).
-      if (proactiveSkipResults.length > 0) {
-        results.push(...proactiveSkipResults);
-        lockedSkipped += proactiveSkipResults.length;
+    // ── BANDIT TARGET ORDERING (audit 7 — "priority-weighted file
+    //    selection", the cognitive core) ──────────────────────────────
+    // The self-model's UCB1 bandit reorders candidates by:
+    //   empirical success rate (Laplace-smoothed)
+    //   + exploration bonus (untried files get a look)
+    //   + recency bonus (long-untouched files resurface)
+    //   - exhaustion penalty (files that keep zero-diffing sink)
+    // This replaces the old alphabetical tree-order scan with actual
+    // DECISION-MAKING. The bandit self-explains its top 3 picks in the
+    // log ("🧠 target: X — score 0.62 (3/5 passed, 14d untouched, ...)")
+    // so the loop's reasoning is visible. Focus mode (TARGET_FILES
+    // non-empty) respects the operator's named order — the bandit only
+    // reorders full-scope scans. Degrades to tree order if the self-
+    // model table is missing.
+    let files = scanned;
+    if (TARGET_FILES.length === 0 && scanned.length > 1) {
+      try {
+        const { ordered } = await orderTargetsByBandit(scanned, PROJECT_ROOT, (line, level) => this.log(line, level));
+        files = ordered;
+      } catch {
+        /* self-model unavailable — tree order */
       }
+    }
 
-      // Merge visual-polish results into the cycle's result list.
-      if (visualPolishResults.length > 0) {
-        results.push(...visualPolishResults);
-        enhanced += visualPolishResults.filter((r) => r.enhanced).length;
-      }
+    return files;
+  }
 
-      for (const file of files) {
-        // Run-token check inside the for-loop. Token-ONLY (audit 2): the
-        // old `!this.continuous ||` here broke the MANUAL trigger — a
-        // one-shot cycle runs with continuous=false and used to break
-        // before the first file, reporting "Cycle complete: 0 files".
-        // stop() always bumps runId, so the token alone stops continuous
-        // cycles within ~1 file while letting manual cycles run to
-        // completion (or until an explicit stop).
-        if (myRun !== this.runId) {
-          this.log("Stop requested — breaking out of cycle", "warn");
-          break;
-        }
-        // Audit 3 (F1): a safe-mode raised mid-cycle (probe round, red-team
-        // run, duress) halts the pass immediately — no further files are
-        // mutated through the distrusted path.
-        if (isSafeMode()) {
-          this.log("SAFE-MODE raised mid-cycle — halting self-enhancement pass", "error");
-          break;
-        }
-        const relPath = relative(PROJECT_ROOT, file);
+  /** Proactive-skip pre-pass: check EVERY file upfront (DB-only),
+   *  remove the skip-eligible ones, front-load skip-probes. See the
+   *  inline audit-7 notes for the starvation rationale. */
+  private async proactiveSkipPrePass(
+    files: string[],
+    myRun: number
+  ): Promise<{ files: string[]; skipResults: SelfEnhanceResult[]; probes: Set<string> }> {
 
-        // ── Saturation lockout skip ──────────────────────────────────
-        // A locked-out file is NOT mutated — no LLM call, no quota burn.
-        // The user unlocked it (or restarted the server) to re-open it.
-        // We count it so the cycle log shows "X/N (Y locked)" honestly.
-        const sat = this.saturation.get(relPath);
-        if (sat?.lockedOut) {
-          lockedSkipped++;
+    // ── PROACTIVE-SKIP PRE-PASS (unblocks the starved skip mechanism) ──
+    // The main for-loop's proactive-skip check was starved: the bandit
+    // puts exhausted files at the BOTTOM of its ordering (exhaustion
+    // penalty), while fresh files at the TOP burn LLM calls and trigger
+    // the mid-cycle cooldown break. By the time the loop reaches the
+    // exhausted files, it has already broken out — so the proactive-skip
+    // never fires and the skip-probe calibration stays at 0.
+    // This pre-pass checks EVERY file UPFRONT (no LLM, just DB lookups)
+    // and removes the skip-eligible ones from the `files` list BEFORE the
+    // main iteration. Skip-probes (every Nth skip) are LEFT IN the list
+    // so the main loop can spend the call and score the rule. The pre-pass
+    // is itself O(N) DB reads — cheap vs even one LLM call.
+    const proactiveSkipResults: SelfEnhanceResult[] = [];
+    const proactiveSkipped = new Set<string>();
+    // Files the pre-pass flagged as skip-PROBES (every Nth skip). These
+    // stay in the `files` list so the main loop can spend the LLM call
+    // and open a tagged prediction row — but the main loop must NOT
+    // re-run shouldProactivelySkip or re-increment skipProbeCounter
+    // (the pre-pass already did both). This set is the handoff.
+    const proactiveProbes = new Set<string>();
+    for (const file of files) {
+      const relPath = relative(PROJECT_ROOT, file);
+      // Locked-out files are handled by the main loop's lockout check.
+      const sat = this.saturation.get(relPath);
+      if (sat?.lockedOut) continue;
+      try {
+        const skip = await shouldProactivelySkip(relPath);
+        if (!skip.skip) continue;
+        this.skipProbeCounter++;
+        const isProbe =
+          this.skipProbeCounter % SKIP_PROBE_INTERVAL === 0 &&
+          llmCooldownMs() === 0 &&
+          !isSafeMode() &&
+          myRun === this.runId;
+        if (isProbe) {
+          // Leave probe-skips for the main loop (it spends the call +
+          // opens the tagged prediction row). Mark in proactiveProbes
+          // so the main loop knows the counter was already bumped.
+          this.log(`🧠 skip-probe deferred to main loop: ${relPath} (${skip.reason})`, "info");
+          proactiveProbes.add(file);
           continue;
         }
+        // Non-probe skip: resolve here, remove from the main loop's list.
+        this.log(`🧠 ${skip.reason}`, "info");
+        const skipReason = `Skipped (self-model predicts zero-diff: finished ${skip.finishedScore.toFixed(2)}, predicted ${(skip.confidence * 100).toFixed(0)}%)`;
+        proactiveSkipResults.push({
+          filePath: relPath,
+          enhanced: false,
+          reason: skipReason,
+          oldBytes: 0,
+          newBytes: 0,
+          diffBytes: 0,
+          llmUsed: false,
+          llmLatencyMs: 0,
+          compiled: false,
+          pushed: false,
+        });
+        proactiveSkipped.add(file);
+        // Advance the saturation state for this synthetic no-growth
+        // outcome so the 3-strike lockout can still fire if the model
+        // is wrong and the file keeps getting skipped.
+        await this.advanceSaturation(relPath, skipReason);
+      } catch {
+        /* self-model unavailable — leave for the main loop (honest) */
+      }
+    }
+    if (proactiveSkipped.size > 0) {
+      files = files.filter((f) => !proactiveSkipped.has(f));
+    }
+    // Move probe-deferred files to the FRONT of the list so the main
+    // loop reaches them FIRST — before any fresh file's enhanceFile
+    // 429s and triggers the cooldown break. Without this reordering,
+    // the probe files sit at their bandit position (bottom, near the
+    // exhausted files) and the cooldown break fires on a non-probe
+    // file before the probe is ever reached — the probe exemption
+    // (!proactiveProbes.has(file)) only helps when the probe IS the
+    // current file, not when non-probe files sit before it. By front-
+    // loading probes, the main loop processes them while the LLM is
+    // still cool (pre-pass ran no LLM calls), maximizing the chance
+    // the probe actually opens + resolves in one cycle.
+    if (proactiveProbes.size > 0) {
+      files = [
+        ...files.filter((f) => proactiveProbes.has(f)),
+        ...files.filter((f) => !proactiveProbes.has(f)),
+      ];
+    }
+    return { files, skipResults: proactiveSkipResults, probes: proactiveProbes };
+  }
 
-        // ── PROACTIVE SATURATION SKIP (audit 7 — "predict files that
-        //    will zero-diff", the cognitive core) ──────────────────────
-        // Ask the self-model BEFORE the LLM call: is this file "finished"
-        // (high finishedScore + low predicted confidence + enough
-        // history to trust the verdict)? If yes, skip it for free — no
-        // LLM call, no quota burn, no waiting for the 3-cycle lockout.
-        // This is the loop PREDICTING its own zero-diffs instead of
-        // discovering them after the fact. The skip is logged so the
-        // reasoning is visible ("🧠 proactively skipping X — finished
-        // 0.85, predicted 12% (will zero-diff)"). Falls back to spending
-        // the call if the self-model is unavailable (honest).
-        //
-        // ORDERING: this check runs BEFORE the mid-cycle cooldown break
-        // below. The proactive-skip is a DB-only lookup (no LLM call), so
-        // it can run during cooldown. More importantly, without this
-        // ordering the cooldown break (which fires when a fresh file's
-        // enhanceFile 429s) would END THE CYCLE before the bandit's bottom-
-        // ranked exhausted files ever reach this check — starving the
-        // proactive-skip of any candidates and leaving the skip-probe
-        // calibration at 0 forever. With the skip BEFORE the break, the
-        // exhausted files are skipped for free regardless of cooldown
-        // state; only files that NEED the LLM (enhanceFile) honor the break.
-        //
-        // PRE-PASS HANDOFF: the proactive-skip pre-pass (above the visual-
-        // polish block) already resolved non-probe skips and removed them
-        // from `files`. Files that reach this point in the main loop are
-        // either (a) not skip-eligible, or (b) pre-pass-deferred PROBES
-        // (in the `proactiveProbes` set). For (b), the pre-pass already
-        // incremented skipProbeCounter and decided this is a probe — we
-        // must NOT re-increment or re-check (double-counting would shift
-        // the modulo and the probe would never fire). Just set the flag.
-        let skipProbe = false;
-        if (proactiveProbes.has(file)) {
-          skipProbe = true;
-          this.log(`🧠 skip-probe: spending the call on ${relPath} (pre-pass deferred)`, "info");
+  /** Visual-polish pre-pass (audit 6): every VISUAL_POLISH_INTERVAL
+   *  cycles, one .tsx UI component through the visual-polish prompt. */
+  private async visualPolishPrePass(myRun: number): Promise<SelfEnhanceResult[]> {
+
+    // ── VISUAL-POLISH PRE-PASS (audit 6 — "still not enhancing its own
+    //    ui look") ────────────────────────────────────────────────────
+    // Every VISUAL_POLISH_INTERVAL cycles, pick one .tsx UI component
+    // from src/components/pipeline/ and run it through the visual-polish
+    // prompt (styling/accessibility/responsive/micro-interactions) BEFORE
+    // the whole-file bug-hunt scan. The default refactor prompt forbids
+    // cosmetic changes, so without this pre-pass the loop only ever
+    // makes null-safety fixes to UI files — never visual improvements.
+    // Same gate chain (typecheck + structural-validator + mutation-guard
+    // + debate) applies; only the prompt differs.
+    const VISUAL_POLISH_INTERVAL = 5;
+    const visualPolishResults: SelfEnhanceResult[] = [];
+    if (
+      this.stats.cyclesCompleted % VISUAL_POLISH_INTERVAL === 0 &&
+      !isSafeMode() &&
+      myRun === this.runId &&
+      llmCooldownMs() === 0
+    ) {
+      try {
+        // Pick a .tsx UI component that's not protected and not locked out.
+        // DEAD-ARM FIX: this pre-pass used to filter the SCANNED list for
+        // /components/pipeline/ — but SCAN_SCOPES covers src/lib/pipeline
+        // and src/app only, so the filter could never match, the arm never
+        // fired once (mode stats: visual-polish 0/0 forever), and
+        // predictConfidence's visual-polish branch was dead code. Discover
+        // the components directly from disk instead: the arm works without
+        // widening the refactor scan scope.
+        // ELIGIBILITY FILTER (follow-up): the arm's first firing after the
+        // dead-arm fix targeted defense-panel.tsx (19.5KB) and was auto-
+        // skipped by enhanceFile's 12KB mutation ceiling — recorded as a
+        // "fail" for a file that never had a chance. 10 of the 12 pipeline
+        // components are over the ceiling, so most firings would burn
+        // their slot on a guaranteed skip. Filter to files under the SAME
+        // ceiling enhanceFile enforces (MAX_FILE_BYTES, see the enhance
+        // path) BEFORE rotating, so every firing targets a file the gate
+        // chain will actually run on. 11 components currently qualify.
+        const uiDir = join(PROJECT_ROOT, "src", "components", "pipeline");
+        const uiFiles = existsSync(uiDir)
+          ? readdirSync(uiDir)
+              .filter((f) => f.endsWith(".tsx"))
+              .map((f) => join(uiDir, f))
+              .filter((f) => !isProtectedPath(relative(PROJECT_ROOT, f)))
+              .filter((f) => {
+                try {
+                  return statSync(f).size <= 12000; // match enhanceFile's MAX_FILE_BYTES
+                } catch {
+                  return false;
+                }
+              })
+          : [];
+        if (uiFiles.length === 0) {
+          this.log(
+            "Visual-polish pre-pass: no eligible UI component under the 12KB mutation ceiling — skipping this cycle",
+            "info"
+          );
         } else {
-          try {
-            const skip = await shouldProactivelySkip(relPath);
-            if (skip.skip) {
-              // Defensive: the pre-pass should have removed non-probe skips,
-              // but the self-model can update between the pre-pass and here
-              // (a new file crossed the threshold). Handle it the same way
-              // the pre-pass would — resolve or defer.
-              this.skipProbeCounter++;
-              skipProbe =
-                this.skipProbeCounter % SKIP_PROBE_INTERVAL === 0 &&
-                llmCooldownMs() === 0 &&
-                !isSafeMode() &&
-                myRun === this.runId;
-              if (skipProbe) {
-                this.log(`🧠 skip-probe: spending the call on ${relPath} to score the skip rule (${skip.reason})`, "info");
-              } else {
-                this.log(`🧠 ${skip.reason}`, "info");
-                const skipReason = `Skipped (self-model predicts zero-diff: finished ${skip.finishedScore.toFixed(2)}, predicted ${(skip.confidence * 100).toFixed(0)}%)`;
-                results.push({
-                  filePath: relPath,
-                  enhanced: false,
-                  reason: skipReason,
-                  oldBytes: 0,
-                  newBytes: 0,
-                  diffBytes: 0,
-                  llmUsed: false,
-                  llmLatencyMs: 0,
-                  compiled: false,
-                  pushed: false,
-                });
-                lockedSkipped++;
-                // Advance the saturation state for this synthetic no-growth
-                // outcome TOO — the old code continued BEFORE the saturation
-                // update, so the counter never advanced for proactive skips
-                // and the pass-complete checkpoint was unreachable.
-                await this.advanceSaturation(relPath, skipReason);
-                continue;
-              }
-              // Probe path: fall through to the real attempt below with
-              // skipProbe=true, so the prediction row is tagged for the
-              // audit's skip-rule scoring section.
-            }
-          } catch {
-            /* self-model unavailable — proceed to LLM call (honest) */
+          // Rotate through the list by cycle number so we don't polish
+          // the same component every time.
+          const pick = uiFiles[this.stats.cyclesCompleted % uiFiles.length];
+          const pickRel = relative(PROJECT_ROOT, pick);
+          this.log(
+            `Visual-polish mode: targeting ${pickRel} (${uiFiles.length} eligible component(s) under the 12KB ceiling)`,
+            "info"
+          );
+          // SELF-MODEL (audit 7): open a prediction + record the outcome
+          // so the calibration curve has visual-polish samples too. The
+          // per-mode stats (visualPolishAttempts/Passes) feed the mode-
+          // specific confidence in predictConfidence.
+          const vpPredId = await openSelfPrediction(
+            pickRel, "visual-polish", this.stats.cyclesCompleted + 1
+          ).catch(() => null);
+          const vpResult = await this.enhanceFile(pick, "visual-polish");
+          visualPolishResults.push(vpResult);
+          const vpOutcome = classifyOutcome(vpResult.enhanced, vpResult.reason);
+          void noteOutcome(pickRel, vpOutcome, "visual-polish").catch(() => {});
+          void resolveSelfPrediction(vpPredId, vpOutcome).catch(() => {});
+          if (vpResult.enhanced) {
+            this.log(`Visual-polish applied: ${vpResult.filePath} — ${vpResult.reason.slice(0, 80)}`, "success");
+          } else {
+            this.log(`Visual-polish no-op: ${vpResult.filePath} — ${vpResult.reason.slice(0, 80)}`, "info");
           }
         }
+      } catch (vpErr) {
+        this.log(`Visual-polish error (non-fatal): ${(vpErr as Error).message.slice(0, 120)}`, "warn");
+      }
+    }
+    return visualPolishResults;
+  }
 
-        // Mid-cycle gate escalation: a previous file's ratchet 429'd and set
-        // the gate. DON'T wait per-file then call enhanceFile (that re-escalated
-        // 2→5→15→30min within one cycle — the churn). Instead BREAK the for-loop:
-        // the cycle ends early (honest "X/N files"), runContinuous waits 5s,
-        // and the NEXT cycle's start-of-cycle pause handles the cooldown.
-        // Net: one 429 per cooldown window, not 17.
-        // Manual one-shot cycles (continuous=false) skip this — they defer
-        // fast at the enhanceFile checkpoint and return quickly.
-        // ORDERING: this runs AFTER the proactive-skip (which is a DB-only
-        // lookup and doesn't need the LLM) so exhausted files are still
-        // skipped for free during cooldown — only files that actually need
-        // an LLM call (enhanceFile below) honor the break.
-        // PROBE EXCEPTION: a pre-pass-deferred skip-probe (proactiveProbes)
-        // must NOT be blocked by the cooldown break — the whole point of
-        // the probe is to spend the LLM call to score the skip rule, and
-        // breaking here would leave the probe prediction unopened forever.
-        // The probe file falls through to openSelfPrediction (opens the
-        // tagged row) + enhanceFile (which has its own cooldown checkpoint
-        // and will defer cleanly if the gate is still closed). The
-        // prediction row stays pending until a future cycle retries and
-        // resolves it — the skip-probe calibration counts resolved probes,
-        // so it populates once the attempt eventually completes.
-        const cdBefore = llmCooldownMs();
-        if (cdBefore > 0 && this.continuous && !proactiveProbes.has(file)) {
-          this.log(`LLM cooldown escalated mid-cycle — ending cycle (will pause ${Math.round(cdBefore / 1000)}s before next cycle)`, "warn");
-          break;
+  /** The main whole-file enhancement loop: per-file saturation/skip
+   *  checks, self-prediction, enhanceFile, outcome recording, and the
+   *  compounding feedback suite (D1/D4/D7/D8). Pushes each result into
+   *  the shared `results` array; returns the counters. */
+  private async enhanceWholeFiles(
+    files: string[],
+    myRun: number,
+    proactiveProbes: Set<string>,
+    results: SelfEnhanceResult[]
+  ): Promise<{ enhanced: number; deferred: number; lockedSkipped: number }> {
+    let enhanced = 0;
+    let deferredThisCycle = 0;
+    let lockedSkipped = 0;
+    for (const file of files) {
+      // Run-token check inside the for-loop. Token-ONLY (audit 2): the
+      // old `!this.continuous ||` here broke the MANUAL trigger — a
+      // one-shot cycle runs with continuous=false and used to break
+      // before the first file, reporting "Cycle complete: 0 files".
+      // stop() always bumps runId, so the token alone stops continuous
+      // cycles within ~1 file while letting manual cycles run to
+      // completion (or until an explicit stop).
+      if (myRun !== this.runId) {
+        this.log("Stop requested — breaking out of cycle", "warn");
+        break;
+      }
+      // Audit 3 (F1): a safe-mode raised mid-cycle (probe round, red-team
+      // run, duress) halts the pass immediately — no further files are
+      // mutated through the distrusted path.
+      if (isSafeMode()) {
+        this.log("SAFE-MODE raised mid-cycle — halting self-enhancement pass", "error");
+        break;
+      }
+      const relPath = relative(PROJECT_ROOT, file);
+
+      // ── Saturation lockout skip ──────────────────────────────────
+      // A locked-out file is NOT mutated — no LLM call, no quota burn.
+      // The user unlocked it (or restarted the server) to re-open it.
+      // We count it so the cycle log shows "X/N (Y locked)" honestly.
+      const sat = this.saturation.get(relPath);
+      if (sat?.lockedOut) {
+        lockedSkipped++;
+        continue;
+      }
+
+      // ── PROACTIVE SATURATION SKIP (audit 7 — "predict files that
+      //    will zero-diff", the cognitive core) ──────────────────────
+      // Ask the self-model BEFORE the LLM call: is this file "finished"
+      // (high finishedScore + low predicted confidence + enough
+      // history to trust the verdict)? If yes, skip it for free — no
+      // LLM call, no quota burn, no waiting for the 3-cycle lockout.
+      // This is the loop PREDICTING its own zero-diffs instead of
+      // discovering them after the fact. The skip is logged so the
+      // reasoning is visible ("🧠 proactively skipping X — finished
+      // 0.85, predicted 12% (will zero-diff)"). Falls back to spending
+      // the call if the self-model is unavailable (honest).
+      //
+      // ORDERING: this check runs BEFORE the mid-cycle cooldown break
+      // below. The proactive-skip is a DB-only lookup (no LLM call), so
+      // it can run during cooldown. More importantly, without this
+      // ordering the cooldown break (which fires when a fresh file's
+      // enhanceFile 429s) would END THE CYCLE before the bandit's bottom-
+      // ranked exhausted files ever reach this check — starving the
+      // proactive-skip of any candidates and leaving the skip-probe
+      // calibration at 0 forever. With the skip BEFORE the break, the
+      // exhausted files are skipped for free regardless of cooldown
+      // state; only files that NEED the LLM (enhanceFile) honor the break.
+      //
+      // PRE-PASS HANDOFF: the proactive-skip pre-pass (above the visual-
+      // polish block) already resolved non-probe skips and removed them
+      // from `files`. Files that reach this point in the main loop are
+      // either (a) not skip-eligible, or (b) pre-pass-deferred PROBES
+      // (in the `proactiveProbes` set). For (b), the pre-pass already
+      // incremented skipProbeCounter and decided this is a probe — we
+      // must NOT re-increment or re-check (double-counting would shift
+      // the modulo and the probe would never fire). Just set the flag.
+      let skipProbe = false;
+      if (proactiveProbes.has(file)) {
+        skipProbe = true;
+        this.log(`🧠 skip-probe: spending the call on ${relPath} (pre-pass deferred)`, "info");
+      } else {
+        try {
+          const skip = await shouldProactivelySkip(relPath);
+          if (skip.skip) {
+            // Defensive: the pre-pass should have removed non-probe skips,
+            // but the self-model can update between the pre-pass and here
+            // (a new file crossed the threshold). Handle it the same way
+            // the pre-pass would — resolve or defer.
+            this.skipProbeCounter++;
+            skipProbe =
+              this.skipProbeCounter % SKIP_PROBE_INTERVAL === 0 &&
+              llmCooldownMs() === 0 &&
+              !isSafeMode() &&
+              myRun === this.runId;
+            if (skipProbe) {
+              this.log(`🧠 skip-probe: spending the call on ${relPath} to score the skip rule (${skip.reason})`, "info");
+            } else {
+              this.log(`🧠 ${skip.reason}`, "info");
+              const skipReason = `Skipped (self-model predicts zero-diff: finished ${skip.finishedScore.toFixed(2)}, predicted ${(skip.confidence * 100).toFixed(0)}%)`;
+              results.push({
+                filePath: relPath,
+                enhanced: false,
+                reason: skipReason,
+                oldBytes: 0,
+                newBytes: 0,
+                diffBytes: 0,
+                llmUsed: false,
+                llmLatencyMs: 0,
+                compiled: false,
+                pushed: false,
+              });
+              lockedSkipped++;
+              // Advance the saturation state for this synthetic no-growth
+              // outcome TOO — the old code continued BEFORE the saturation
+              // update, so the counter never advanced for proactive skips
+              // and the pass-complete checkpoint was unreachable.
+              await this.advanceSaturation(relPath, skipReason);
+              continue;
+            }
+            // Probe path: fall through to the real attempt below with
+            // skipProbe=true, so the prediction row is tagged for the
+            // audit's skip-rule scoring section.
+          }
+        } catch {
+          /* self-model unavailable — proceed to LLM call (honest) */
         }
+      }
 
-        // ── SELF-PREDICTION (audit 7 — the calibration engine) ────────
-        // Open a prediction row BEFORE the attempt. The self-model
-        // predicts its own success probability from empirical data (no
-        // LLM cost — the prediction IS the model speaking). After the
-        // gate verdict, resolveSelfPrediction closes the row. Over
-        // cycles this builds a REAL calibration curve: "when I say 70%
-        // confident, am I right 70% of the time?" with a Brier score as
-        // the single number for self-knowledge. Fail-soft: a null id
-        // means no prediction recorded (calibration loses one sample).
-        const predId = await openSelfPrediction(
-          relPath,
-          "refactor",
-          this.stats.cyclesCompleted + 1,
-          skipProbe
-        ).catch(() => null);
+      // Mid-cycle gate escalation: a previous file's ratchet 429'd and set
+      // the gate. DON'T wait per-file then call enhanceFile (that re-escalated
+      // 2→5→15→30min within one cycle — the churn). Instead BREAK the for-loop:
+      // the cycle ends early (honest "X/N files"), runContinuous waits 5s,
+      // and the NEXT cycle's start-of-cycle pause handles the cooldown.
+      // Net: one 429 per cooldown window, not 17.
+      // Manual one-shot cycles (continuous=false) skip this — they defer
+      // fast at the enhanceFile checkpoint and return quickly.
+      // ORDERING: this runs AFTER the proactive-skip (which is a DB-only
+      // lookup and doesn't need the LLM) so exhausted files are still
+      // skipped for free during cooldown — only files that actually need
+      // an LLM call (enhanceFile below) honor the break.
+      // PROBE EXCEPTION: a pre-pass-deferred skip-probe (proactiveProbes)
+      // must NOT be blocked by the cooldown break — the whole point of
+      // the probe is to spend the LLM call to score the skip rule, and
+      // breaking here would leave the probe prediction unopened forever.
+      // The probe file falls through to openSelfPrediction (opens the
+      // tagged row) + enhanceFile (which has its own cooldown checkpoint
+      // and will defer cleanly if the gate is still closed). The
+      // prediction row stays pending until a future cycle retries and
+      // resolves it — the skip-probe calibration counts resolved probes,
+      // so it populates once the attempt eventually completes.
+      const cdBefore = llmCooldownMs();
+      if (cdBefore > 0 && this.continuous && !proactiveProbes.has(file)) {
+        this.log(`LLM cooldown escalated mid-cycle — ending cycle (will pause ${Math.round(cdBefore / 1000)}s before next cycle)`, "warn");
+        break;
+      }
 
-        // ── SELF-PROPHECY (audit 7 — the Oracle's public track record)
-        //    ──────────────────────────────────────────────────────────
-        // The self-model's prediction ALSO becomes an Oracle Prophecy
-        // row (domain="self-prediction") with a 10-min horizon. The
-        // auto-adjudicator resolves it next cycle with NO LLM call — the
-        // verdict IS the next attempt's outcome. This floods the Oracle
-        // with adjudicable, continuous-confidence prophecies (vs the
-        // sparse LLM-generated kind), giving a real calibration curve
-        // within hours. Fire-and-forget; fail-soft.
-        if (predId !== null) {
+      // ── SELF-PREDICTION (audit 7 — the calibration engine) ────────
+      // Open a prediction row BEFORE the attempt. The self-model
+      // predicts its own success probability from empirical data (no
+      // LLM cost — the prediction IS the model speaking). After the
+      // gate verdict, resolveSelfPrediction closes the row. Over
+      // cycles this builds a REAL calibration curve: "when I say 70%
+      // confident, am I right 70% of the time?" with a Brier score as
+      // the single number for self-knowledge. Fail-soft: a null id
+      // means no prediction recorded (calibration loses one sample).
+      const predId = await openSelfPrediction(
+        relPath,
+        "refactor",
+        this.stats.cyclesCompleted + 1,
+        skipProbe
+      ).catch(() => null);
+
+      // ── SELF-PROPHECY (audit 7 — the Oracle's public track record)
+      //    ──────────────────────────────────────────────────────────
+      // The self-model's prediction ALSO becomes an Oracle Prophecy
+      // row (domain="self-prediction") with a 10-min horizon. The
+      // auto-adjudicator resolves it next cycle with NO LLM call — the
+      // verdict IS the next attempt's outcome. This floods the Oracle
+      // with adjudicable, continuous-confidence prophecies (vs the
+      // sparse LLM-generated kind), giving a real calibration curve
+      // within hours. Fire-and-forget; fail-soft.
+      if (predId !== null) {
+        void (async () => {
+          try {
+            const pc = await predictConfidence(relPath, "refactor");
+            await recordSelfProphecy({
+              filePath: relPath,
+              confidence: pc.confidence,
+              reason: pc.reason,
+              mode: "refactor",
+              cycleNumber: this.stats.cyclesCompleted + 1,
+            });
+          } catch {
+            /* fail-soft */
+          }
+        })();
+      }
+
+      const result = await this.enhanceFile(file);
+      results.push(result);
+      if (result.enhanced) enhanced++;
+      if (result.reason.startsWith("Rejected")) this.stats.totalReverted++;
+      if (result.reason.startsWith("Deferred")) deferredThisCycle++;
+      // Durable tier: persist after every per-file verdict so a crash
+      // mid-cycle loses at most one file's counters, not the boot's.
+      this.persistStats();
+
+      // ── SELF-MODEL OUTCOME (audit 7 — feeds the bandit + the
+      //    calibration curve) ─────────────────────────────────────────
+      // Classify the verdict and record it into the self-model: the
+      // bandit's empirical rate for this file updates, the finished-
+      // score shifts (zero-diff → +0.25 toward "finished", pass →
+      // -0.15 back toward "room to improve"), and the prediction row
+      // resolves. Both calls are fail-soft — a DB hiccup loses one
+      // sample but never fails the cycle. The mode comes from
+      // lastAttemptMode (set at enhanceFile top), defaulting to
+      // refactor for the main loop.
+      const outcome = classifyOutcome(result.enhanced, result.reason);
+      void noteOutcome(relPath, outcome, this.lastAttemptMode).catch(() => {});
+      void resolveSelfPrediction(predId, outcome).catch(() => {});
+      // ── ORACLE SELF-PROPHECY ADJUDICATION (audit 7) ──────────────
+      // Deterministically judge any pending self-prophecies for this
+      // file whose predicted cycle has passed. No LLM, no cooldown
+      // gate — the verdict IS this attempt's outcome. Closes the
+      // oracle's loop in one cycle.
+      void adjudicateSelfProphecies(
+        relPath, result.enhanced, this.stats.cyclesCompleted + 1
+      ).catch(() => {});
+
+      // ── COMPOUNDING FEEDBACK SUITE (D1/D4/D7/D8) ─────────────────
+      // All best-effort: a feedback failure must never fail the cycle.
+      // Only counts when the LLM actually produced a proposal (llmUsed)
+      // — a deferred/unavailable call never saw the lessons in action.
+      const hadRealProposal = result.llmUsed;
+      const ids = hadRealProposal && this.lastLessonIds.length > 0 ? [...this.lastLessonIds] : [];
+      this.lastLessonIds = [];
+      const attemptInfo = { ...this.lastAttemptInfo };
+
+      if (hadRealProposal) {
+        // D8: the tuner's measurement window — attempts vs passes.
+        noteAttemptOutcome(this.stats.cyclesCompleted + 1, true, result.enhanced);
+      }
+
+      // LESSON FEEDBACK (the measured half of compounding): pass →
+        // helped, fail → hindered …
+      if (ids.length > 0) {
+        void recordLessonOutcome(ids, result.enhanced).catch(() => {
+          /* feedback is best-effort */
+        });
+        // … and on a gate failure, D1 LAPSE DETECTION: did one of the
+        // injected lessons COVER this exact failure? Then the LLM read
+        // the rule and ignored it — the phrasing needs to get sharper,
+        // and at 6+ lapses a procedure graduates to the Operating
+        // Constraints block (D2 promotion).
+        if (!result.enhanced && result.reason.startsWith("Rejected")) {
           void (async () => {
             try {
-              const pc = await predictConfidence(relPath, "refactor");
-              await recordSelfProphecy({
-                filePath: relPath,
-                confidence: pc.confidence,
-                reason: pc.reason,
-                mode: "refactor",
-                cycleNumber: this.stats.cyclesCompleted + 1,
-              });
+              const pm = await postmortemStore.getActivePostmortem("self", "main", relPath);
+              if (pm) {
+                const lapse = await recordLessonLapse(ids, relPath, pm.failureType, pm.symptom);
+                if (lapse.lapsed > 0) {
+                  this.log(
+                    `LAPSE: ${lapse.lapsed} injected lesson(s) covered this failure and were ignored (${lapse.details.map((d) => `#${d.lapseCount}`).join(", ")}) — phrasing will sharpen; at 6+ a procedure promotes to Operating Constraints`,
+                    "warn"
+                  );
+                }
+                // D7 REFLEXION: one self-diagnosis call on repeat failures
+                // (attempts >= 2). Gate-checked inside; never steals quota.
+                const refl = await maybeReflectAfterFailure({
+                  filePath: relPath,
+                  failureType: pm.failureType,
+                  symptom: pm.symptom,
+                  constraints: pm.constraints,
+                  attempts: pm.attempts,
+                });
+                if (refl.reflected) {
+                  this.log(`REFLEXION: stored self-diagnosis for ${relPath} — it rides the next attempt's constraint block`, "info");
+                }
+              }
             } catch {
-              /* fail-soft */
+              /* best-effort */
             }
           })();
         }
-
-        const result = await this.enhanceFile(file);
-        results.push(result);
-        if (result.enhanced) enhanced++;
-        if (result.reason.startsWith("Rejected")) this.stats.totalReverted++;
-        if (result.reason.startsWith("Deferred")) deferredThisCycle++;
-        // Durable tier: persist after every per-file verdict so a crash
-        // mid-cycle loses at most one file's counters, not the boot's.
-        this.persistStats();
-
-        // ── SELF-MODEL OUTCOME (audit 7 — feeds the bandit + the
-        //    calibration curve) ─────────────────────────────────────────
-        // Classify the verdict and record it into the self-model: the
-        // bandit's empirical rate for this file updates, the finished-
-        // score shifts (zero-diff → +0.25 toward "finished", pass →
-        // -0.15 back toward "room to improve"), and the prediction row
-        // resolves. Both calls are fail-soft — a DB hiccup loses one
-        // sample but never fails the cycle. The mode comes from
-        // lastAttemptMode (set at enhanceFile top), defaulting to
-        // refactor for the main loop.
-        const outcome = classifyOutcome(result.enhanced, result.reason);
-        void noteOutcome(relPath, outcome, this.lastAttemptMode).catch(() => {});
-        void resolveSelfPrediction(predId, outcome).catch(() => {});
-        // ── ORACLE SELF-PROPHECY ADJUDICATION (audit 7) ──────────────
-        // Deterministically judge any pending self-prophecies for this
-        // file whose predicted cycle has passed. No LLM, no cooldown
-        // gate — the verdict IS this attempt's outcome. Closes the
-        // oracle's loop in one cycle.
-        void adjudicateSelfProphecies(
-          relPath, result.enhanced, this.stats.cyclesCompleted + 1
-        ).catch(() => {});
-
-        // ── COMPOUNDING FEEDBACK SUITE (D1/D4/D7/D8) ─────────────────
-        // All best-effort: a feedback failure must never fail the cycle.
-        // Only counts when the LLM actually produced a proposal (llmUsed)
-        // — a deferred/unavailable call never saw the lessons in action.
-        const hadRealProposal = result.llmUsed;
-        const ids = hadRealProposal && this.lastLessonIds.length > 0 ? [...this.lastLessonIds] : [];
-        this.lastLessonIds = [];
-        const attemptInfo = { ...this.lastAttemptInfo };
-
-        if (hadRealProposal) {
-          // D8: the tuner's measurement window — attempts vs passes.
-          noteAttemptOutcome(this.stats.cyclesCompleted + 1, true, result.enhanced);
-        }
-
-        // LESSON FEEDBACK (the measured half of compounding): pass →
-          // helped, fail → hindered …
-        if (ids.length > 0) {
-          void recordLessonOutcome(ids, result.enhanced).catch(() => {
-            /* feedback is best-effort */
-          });
-          // … and on a gate failure, D1 LAPSE DETECTION: did one of the
-          // injected lessons COVER this exact failure? Then the LLM read
-          // the rule and ignored it — the phrasing needs to get sharper,
-          // and at 6+ lapses a procedure graduates to the Operating
-          // Constraints block (D2 promotion).
-          if (!result.enhanced && result.reason.startsWith("Rejected")) {
-            void (async () => {
-              try {
-                const pm = await postmortemStore.getActivePostmortem("self", "main", relPath);
-                if (pm) {
-                  const lapse = await recordLessonLapse(ids, relPath, pm.failureType, pm.symptom);
-                  if (lapse.lapsed > 0) {
-                    this.log(
-                      `LAPSE: ${lapse.lapsed} injected lesson(s) covered this failure and were ignored (${lapse.details.map((d) => `#${d.lapseCount}`).join(", ")}) — phrasing will sharpen; at 6+ a procedure promotes to Operating Constraints`,
-                      "warn"
-                    );
-                  }
-                  // D7 REFLEXION: one self-diagnosis call on repeat failures
-                  // (attempts >= 2). Gate-checked inside; never steals quota.
-                  const refl = await maybeReflectAfterFailure({
-                    filePath: relPath,
-                    failureType: pm.failureType,
-                    symptom: pm.symptom,
-                    constraints: pm.constraints,
-                    attempts: pm.attempts,
-                  });
-                  if (refl.reflected) {
-                    this.log(`REFLEXION: stored self-diagnosis for ${relPath} — it rides the next attempt's constraint block`, "info");
-                  }
-                }
-              } catch {
-                /* best-effort */
-              }
-            })();
-          }
-        }
-
-        // D4 CORPUS: one row per attempt — the audit trail + the
-        // distiller's transform signal. Deferred/unavailable attempts
-        // are recorded too (they carry originalSha + outcome); only
-        // llmUsed=false ones have no transformSummary.
-        if (attemptInfo.originalSha) {
-          void recordMutationAttempt({
-            cycleNumber: this.stats.cyclesCompleted + 1,
-            branchNumber: attemptInfo.branchNumber,
-            filePath: relPath,
-            gateOutcome: classifyGateOutcome(result.reason),
-            originalSha: attemptInfo.originalSha,
-            mutatedSha: attemptInfo.mutatedSha,
-            lessonIdsInjected: ids,
-            transformSummary: attemptInfo.transformSummary,
-          }).catch(() => {
-            /* corpus is an amplifier, not a gate */
-          });
-        }
-
-        // ── Per-file saturation update ───────────────────────────────
-        // Classify this cycle's outcome for THIS file and update its
-        // saturation counter (shared with the proactive-skip path — see
-        // advanceSaturation). Growth → reset. No-growth → increment,
-        // and lock out at SATURATION_THRESHOLD. Neutral (quota/transient)
-        // → don't touch the counter (don't punish a file for API limits).
-        await this.advanceSaturation(relPath, result.reason);
-
-        // Brief pause between files to avoid hammering the LLM API
-        await new Promise((r) => setTimeout(r, 2000));
       }
 
-      // ── Pass-complete detection ─────────────────────────────────────
-      // When every eligible file is locked out, the pass is complete —
-      // the system is stable. This is the checkpoint the user reviews.
-      // The loop doesn't auto-stop (it'll keep cycling, but every file
-      // will skip); the UI shows "PASS COMPLETE — review & unlock" so
-      // the user knows the system has converged and it's their move.
-      const eligibleCount = files.length;
-      // Honest counting (fix): locked-among-THIS-scan, not the whole-map
-      // count. The saturation map remembers files from earlier passes
-      // (older TARGET_FILES allowlists, since-removed display files) —
-      // stale entries could fire "PASS COMPLETE" while current files
-      // are still eligible (overcount bug).
-      const lockedCount = files.filter(
-        (f) => this.saturation.get(relative(PROJECT_ROOT, f))?.lockedOut
-      ).length;
-      if (eligibleCount > 0 && lockedCount >= eligibleCount) {
-        this.log(
-          `🎯 PASS COMPLETE — all ${eligibleCount} file(s) locked out. Review & unlock in the UI to start a new pass.`,
-          "success"
-        );
+      // D4 CORPUS: one row per attempt — the audit trail + the
+      // distiller's transform signal. Deferred/unavailable attempts
+      // are recorded too (they carry originalSha + outcome); only
+      // llmUsed=false ones have no transformSummary.
+      if (attemptInfo.originalSha) {
+        void recordMutationAttempt({
+          cycleNumber: this.stats.cyclesCompleted + 1,
+          branchNumber: attemptInfo.branchNumber,
+          filePath: relPath,
+          gateOutcome: classifyGateOutcome(result.reason),
+          originalSha: attemptInfo.originalSha,
+          mutatedSha: attemptInfo.mutatedSha,
+          lessonIdsInjected: ids,
+          transformSummary: attemptInfo.transformSummary,
+        }).catch(() => {
+          /* corpus is an amplifier, not a gate */
+        });
       }
 
-      // Track consecutive cycles that made NO progress (zero enhanced, at
-      // least one defer) due to the gate. After 3, log a loud "quota
-      // exhausted" message once. With the break-on-escalation behavior, a
-      // blocked cycle defers just 1 file (the probe that 429'd) then breaks
-      // — so we key on "enhanced===0 && deferredThisCycle>0" rather than
-      // "all files deferred" (which never happens now). The loop does NOT
-      // auto-stop; the start-of-cycle pause keeps it alive until the gate
-      // clears, and the UI shows the live countdown.
-      if (files.length > 0 && enhanced === 0 && deferredThisCycle > 0) {
-        this.consecutiveCooldownCycles++;
-        if (this.consecutiveCooldownCycles >= 3 && !this.quotaExhaustedLogged) {
-          this.log("LLM quota exhausted — loop paused until cooldown clears (countdown in UI)", "error");
-          this.quotaExhaustedLogged = true;
-        } else {
-          this.log(`Cycle blocked on LLM gate (${this.consecutiveCooldownCycles} consecutive) — pausing ${Math.round(llmCooldownMs() / 1000)}s`, "warn");
-        }
-      } else {
-        // At least one file enhanced (or no defers) — reset the counter
-        // and the "quota exhausted" flag so it can fire again next outage.
-        this.consecutiveCooldownCycles = 0;
-        this.quotaExhaustedLogged = false;
-      }
+      // ── Per-file saturation update ───────────────────────────────
+      // Classify this cycle's outcome for THIS file and update its
+      // saturation counter (shared with the proactive-skip path — see
+      // advanceSaturation). Growth → reset. No-growth → increment,
+      // and lock out at SATURATION_THRESHOLD. Neutral (quota/transient)
+      // → don't touch the counter (don't punish a file for API limits).
+      await this.advanceSaturation(relPath, result.reason);
 
-      // Audit 3: a stop-aborted cycle (break above) is not a completed
-      // cycle — counting it skewed the distill/probe/attacker cadence by
-      // one per stop.
-      if (myRun === this.runId) {
-        this.stats.cyclesCompleted++;
-        this.persistStats();
-      }
-      this.currentFile = null;
-      // Same honest counting: locked-among-scanned, not whole-map.
-      const lockedNow = files.filter(
-        (f) => this.saturation.get(relative(PROJECT_ROOT, f))?.lockedOut
-      ).length;
+      // Brief pause between files to avoid hammering the LLM API
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    return { enhanced, deferred: deferredThisCycle, lockedSkipped };
+  }
+
+  /** Pass-complete detection, consecutive-cooldown tracking, and the
+   *  honest cycle-complete accounting (audit 3: a stop-aborted cycle is
+   *  not a completed cycle). */
+  private trackPassProgress(
+    files: string[],
+    enhanced: number,
+    deferredThisCycle: number,
+    lockedSkipped: number,
+    myRun: number
+  ): void {
+
+    // ── Pass-complete detection ─────────────────────────────────────
+    // When every eligible file is locked out, the pass is complete —
+    // the system is stable. This is the checkpoint the user reviews.
+    // The loop doesn't auto-stop (it'll keep cycling, but every file
+    // will skip); the UI shows "PASS COMPLETE — review & unlock" so
+    // the user knows the system has converged and it's their move.
+    const eligibleCount = files.length;
+    // Honest counting (fix): locked-among-THIS-scan, not the whole-map
+    // count. The saturation map remembers files from earlier passes
+    // (older TARGET_FILES allowlists, since-removed display files) —
+    // stale entries could fire "PASS COMPLETE" while current files
+    // are still eligible (overcount bug).
+    const lockedCount = files.filter(
+      (f) => this.saturation.get(relative(PROJECT_ROOT, f))?.lockedOut
+    ).length;
+    if (eligibleCount > 0 && lockedCount >= eligibleCount) {
       this.log(
-        `Cycle complete: ${enhanced}/${files.length} enhanced${lockedSkipped > 0 ? `, ${lockedSkipped} locked` : ""}${lockedNow >= files.length && files.length > 0 ? " — PASS COMPLETE" : ""}`,
+        `🎯 PASS COMPLETE — all ${eligibleCount} file(s) locked out. Review & unlock in the UI to start a new pass.`,
         "success"
       );
+    }
 
-      // ── LESSON DISTILLATION (the compounding half) ────────────
-      // Every DISTILL_INTERVAL cycles (meta-tunable, D8): one LLM pass
-      // over the aggregate failure history extracts general lessons.
-      // Fire-and-forget — a distillation failure must never fail the
-      // cycle. Skips itself when the LLM gate is closed (mutations own
-      // the quota first). D6: each pass also mirrors the lesson table
-      // to memory/lessons.md (inside distillLessons).
-      const cycleNow = this.stats.cyclesCompleted;
-      void maybeDistill(cycleNow)
-        .then((added) => {
-          if (added > 0) {
-            this.log(`🧠 Distilled ${added} new lesson(s) from aggregate history (cycle ${cycleNow})`, "success");
+    // Track consecutive cycles that made NO progress (zero enhanced, at
+    // least one defer) due to the gate. After 3, log a loud "quota
+    // exhausted" message once. With the break-on-escalation behavior, a
+    // blocked cycle defers just 1 file (the probe that 429'd) then breaks
+    // — so we key on "enhanced===0 && deferredThisCycle>0" rather than
+    // "all files deferred" (which never happens now). The loop does NOT
+    // auto-stop; the start-of-cycle pause keeps it alive until the gate
+    // clears, and the UI shows the live countdown.
+    if (files.length > 0 && enhanced === 0 && deferredThisCycle > 0) {
+      this.consecutiveCooldownCycles++;
+      if (this.consecutiveCooldownCycles >= 3 && !this.quotaExhaustedLogged) {
+        this.log("LLM quota exhausted — loop paused until cooldown clears (countdown in UI)", "error");
+        this.quotaExhaustedLogged = true;
+      } else {
+        this.log(`Cycle blocked on LLM gate (${this.consecutiveCooldownCycles} consecutive) — pausing ${Math.round(llmCooldownMs() / 1000)}s`, "warn");
+      }
+    } else {
+      // At least one file enhanced (or no defers) — reset the counter
+      // and the "quota exhausted" flag so it can fire again next outage.
+      this.consecutiveCooldownCycles = 0;
+      this.quotaExhaustedLogged = false;
+    }
+
+    // Audit 3: a stop-aborted cycle (break above) is not a completed
+    // cycle — counting it skewed the distill/probe/attacker cadence by
+    // one per stop.
+    if (myRun === this.runId) {
+      this.stats.cyclesCompleted++;
+      this.persistStats();
+    }
+    this.currentFile = null;
+    // Same honest counting: locked-among-scanned, not whole-map.
+    const lockedNow = files.filter(
+      (f) => this.saturation.get(relative(PROJECT_ROOT, f))?.lockedOut
+    ).length;
+    this.log(
+      `Cycle complete: ${enhanced}/${files.length} enhanced${lockedSkipped > 0 ? `, ${lockedSkipped} locked` : ""}${lockedNow >= files.length && files.length > 0 ? " — PASS COMPLETE" : ""}`,
+      "success"
+    );
+  }
+
+  /** Post-cycle housekeeping, all fire-and-forget: lesson distillation,
+   *  self-model snapshot, retention prunes (audit 4 P1/P2a/P3), the
+   *  D8 meta-tuner, gate-integrity probes, the test-attacker round,
+   *  the D3 dreamer, and the Oracle auto-prophecy. */
+  private postCycleHousekeeping(cycleNow: number): void {
+
+    // ── LESSON DISTILLATION (the compounding half) ────────────
+    // Every DISTILL_INTERVAL cycles (meta-tunable, D8): one LLM pass
+    // over the aggregate failure history extracts general lessons.
+    // Fire-and-forget — a distillation failure must never fail the
+    // cycle. Skips itself when the LLM gate is closed (mutations own
+    // the quota first). D6: each pass also mirrors the lesson table
+    // to memory/lessons.md (inside distillLessons).
+    void maybeDistill(cycleNow)
+      .then((added) => {
+        if (added > 0) {
+          this.log(`🧠 Distilled ${added} new lesson(s) from aggregate history (cycle ${cycleNow})`, "success");
+        }
+      })
+      .catch(() => {
+        /* distillation is best-effort */
+      });
+
+    // ── SELF-MODEL SNAPSHOT (audit 9 — DB-epoch-loss resilience) ──
+    // Write the cognitive tables (bandit rows + calibration curve)
+    // to .git/info/self-model-snapshot.json, fire-and-forget. The DB
+    // is the source of truth; this is the disaster-recovery path for
+    // the epoch-loss incident (sandbox crash recovery rolled the
+    // SQLite file back while every .git/info/ state file survived —
+    // the loop lost its measured self-knowledge and cold-started).
+    // Cheap by design: one findMany over ~20 rows + 300 predictions,
+    // one file write. Fail-soft inside the helper.
+    void writeSelfModelSnapshot().catch(() => {
+      /* snapshot is best-effort */
+    });
+
+    // ── AUDIT 4 (P1 + P2a + P3) RETENTION PRUNES ─────────────────
+    // Three best-effort, fire-and-forget prunes for the loop's grow-
+    // only DB tables. A prune failure is swallowed inside the helper
+    // (retention.ts) — the .then/.catch here is purely for the
+    // visible-in-log outcome, never a cycle failure.
+    //
+    // P1 + P2a: every 25th cycle (matching mutation-corpus.ts:130's
+    //   `cycleNumber % 25 === 0` pattern). Amortizes the cost across
+    //   cycles — the prunes do findMany + deleteMany, too expensive
+    //   to run per-cycle.
+    //   - pruneHighAttemptPostmortems(50): auto-resolves churny
+    //     postmortems (>= 50 attempts), feeding them into the
+    //     resolve-then-expire path below.
+    //   - pruneResolvedPostmortems(30): archives + deletes resolved
+    //     postmortems older than 30 days. Archive-then-delete is the
+    //     data-loss guard (see retention.ts).
+    //   - pruneTerminalSelfTasks(1000): keeps the newest 1000
+    //     terminal-state SelfTask rows (done|failed|skipped); the
+    //     pending cap (MAX_PENDING_TOTAL = 200) only covers
+    //     pending+in_progress.
+    //
+    // P3: every 10th distill (using a module-level counter — see the
+    //   distillAttemptCount declaration above). pruneOldLessons soft-
+    //   caps the Lesson table: keeps ALL revoked (rare, high-value),
+    //   the newest 100 active, the newest 100 deactivated; deletes
+    //   deactivated rows older than 90 days outside the keep window.
+    //   The distiller needs the recent deactivated tail for dedup
+    //   ("don't re-derive a rule that already failed to transfer"),
+    //   but the old deactivated tail has no live consumer.
+    if (cycleNow > 0 && cycleNow % 25 === 0) {
+      void pruneHighAttemptPostmortems(50)
+        .then((p) => {
+          if (p && p.autoResolved > 0) {
+            this.log(
+              `🧹 Auto-resolved ${p.autoResolved} churny postmortem(s) (>= 50 attempts) — eligible for expire on the next P1 pass${p.kept > 0 ? `, ${p.kept} kept (DB/disk failure)` : ""}`,
+              "info"
+            );
           }
         })
         .catch(() => {
-          /* distillation is best-effort */
+          /* retention is best-effort */
         });
-
-      // ── AUDIT 4 (P1 + P2a + P3) RETENTION PRUNES ─────────────────
-      // Three best-effort, fire-and-forget prunes for the loop's grow-
-      // only DB tables. A prune failure is swallowed inside the helper
-      // (retention.ts) — the .then/.catch here is purely for the
-      // visible-in-log outcome, never a cycle failure.
-      //
-      // P1 + P2a: every 25th cycle (matching mutation-corpus.ts:130's
-      //   `cycleNumber % 25 === 0` pattern). Amortizes the cost across
-      //   cycles — the prunes do findMany + deleteMany, too expensive
-      //   to run per-cycle.
-      //   - pruneHighAttemptPostmortems(50): auto-resolves churny
-      //     postmortems (>= 50 attempts), feeding them into the
-      //     resolve-then-expire path below.
-      //   - pruneResolvedPostmortems(30): archives + deletes resolved
-      //     postmortems older than 30 days. Archive-then-delete is the
-      //     data-loss guard (see retention.ts).
-      //   - pruneTerminalSelfTasks(1000): keeps the newest 1000
-      //     terminal-state SelfTask rows (done|failed|skipped); the
-      //     pending cap (MAX_PENDING_TOTAL = 200) only covers
-      //     pending+in_progress.
-      //
-      // P3: every 10th distill (using a module-level counter — see the
-      //   distillAttemptCount declaration above). pruneOldLessons soft-
-      //   caps the Lesson table: keeps ALL revoked (rare, high-value),
-      //   the newest 100 active, the newest 100 deactivated; deletes
-      //   deactivated rows older than 90 days outside the keep window.
-      //   The distiller needs the recent deactivated tail for dedup
-      //   ("don't re-derive a rule that already failed to transfer"),
-      //   but the old deactivated tail has no live consumer.
-      if (cycleNow > 0 && cycleNow % 25 === 0) {
-        void pruneHighAttemptPostmortems(50)
-          .then((p) => {
-            if (p && p.autoResolved > 0) {
-              this.log(
-                `🧹 Auto-resolved ${p.autoResolved} churny postmortem(s) (>= 50 attempts) — eligible for expire on the next P1 pass${p.kept > 0 ? `, ${p.kept} kept (DB/disk failure)` : ""}`,
-                "info"
-              );
-            }
-          })
-          .catch(() => {
-            /* retention is best-effort */
-          });
-        void pruneResolvedPostmortems(30)
-          .then((p) => {
-            if (p && (p.pruned > 0 || p.archived > 0)) {
-              this.log(
-                `🧹 Pruned ${p.pruned} resolved postmortem(s) (archived ${p.archived} to postmortems/archived/)${
-                  p.kept > 0 ? `, ${p.kept} kept (archive move failed — data-loss guard)` : ""
-                }`,
-                "info"
-              );
-            }
-          })
-          .catch(() => {
-            /* retention is best-effort */
-          });
-        void pruneTerminalSelfTasks(1000)
+      void pruneResolvedPostmortems(30)
+        .then((p) => {
+          if (p && (p.pruned > 0 || p.archived > 0)) {
+            this.log(
+              `🧹 Pruned ${p.pruned} resolved postmortem(s) (archived ${p.archived} to postmortems/archived/)${
+                p.kept > 0 ? `, ${p.kept} kept (archive move failed — data-loss guard)` : ""
+              }`,
+              "info"
+            );
+          }
+        })
+        .catch(() => {
+          /* retention is best-effort */
+        });
+      void pruneTerminalSelfTasks(1000)
+        .then((p) => {
+          if (p && p.pruned > 0) {
+            this.log(
+              `🧹 Pruned ${p.pruned} terminal SelfTask(s) (kept newest ${p.kept})`,
+              "info"
+            );
+          }
+        })
+        .catch(() => {
+          /* retention is best-effort */
+        });
+    }
+    // P3: every 10th distill. The counter increments ONLY on a distill
+    // cycle (cycleNow % DISTILL_INTERVAL === 0), so this fires roughly
+    // every 10 * DISTILL_INTERVAL = 100 cycles at the default interval.
+    if (cycleNow > 0 && cycleNow % DISTILL_INTERVAL === 0) {
+      distillAttemptCount++;
+      if (distillAttemptCount % 10 === 0) {
+        void pruneOldLessons(100, 100, 90)
           .then((p) => {
             if (p && p.pruned > 0) {
               this.log(
-                `🧹 Pruned ${p.pruned} terminal SelfTask(s) (kept newest ${p.kept})`,
+                `🧹 Lesson soft-cap: pruned ${p.pruned} deactivated lesson(s) older than 90d (kept ${p.keptActive} active, ${p.keptPruned} deactivated, ${p.keptRevoked} revoked)`,
                 "info"
               );
             }
@@ -3398,123 +3574,88 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
             /* retention is best-effort */
           });
       }
-      // P3: every 10th distill. The counter increments ONLY on a distill
-      // cycle (cycleNow % DISTILL_INTERVAL === 0), so this fires roughly
-      // every 10 * DISTILL_INTERVAL = 100 cycles at the default interval.
-      if (cycleNow > 0 && cycleNow % DISTILL_INTERVAL === 0) {
-        distillAttemptCount++;
-        if (distillAttemptCount % 10 === 0) {
-          void pruneOldLessons(100, 100, 90)
-            .then((p) => {
-              if (p && p.pruned > 0) {
-                this.log(
-                  `🧹 Lesson soft-cap: pruned ${p.pruned} deactivated lesson(s) older than 90d (kept ${p.keptActive} active, ${p.keptPruned} deactivated, ${p.keptRevoked} revoked)`,
-                  "info"
-                );
-              }
-            })
-            .catch(() => {
-              /* retention is best-effort */
-            });
-        }
-      }
+    }
 
-      // ── D8 META-TUNER (the L4 rung) ──────────────────────────────
-      // Judge any in-flight trial (accept / roll back / early-abort)
-      // or, on a proposal cycle, start one. Never steals LLM quota (a
-      // trial START is deferred when the gate is closed, inside).
-      void maybeMetaTune(cycleNow)
-        .then((t) => {
-          if (t.action === "proposed" || t.action === "accepted" || t.action === "rolled-back" || t.action === "aborted") {
-            this.log(t.detail, t.action === "accepted" ? "success" : "info");
+    // ── D8 META-TUNER (the L4 rung) ──────────────────────────────
+    // Judge any in-flight trial (accept / roll back / early-abort)
+    // or, on a proposal cycle, start one. Never steals LLM quota (a
+    // trial START is deferred when the gate is closed, inside).
+    void maybeMetaTune(cycleNow)
+      .then((t) => {
+        if (t.action === "proposed" || t.action === "accepted" || t.action === "rolled-back" || t.action === "aborted") {
+          this.log(t.detail, t.action === "accepted" ? "success" : "info");
+        }
+      })
+      .catch(() => {
+        /* tuning is best-effort */
+      });
+
+    // ── D5 INTEGRITY CHECKS ──────────────────────────────────────
+    // Gate-integrity probes (deterministic, every PROBE_INTERVAL
+    // cycles): known-bad and known-good proposals against the REAL
+    // gate code. Any failure raises safe-mode — the loop halts until
+    // the operator clears it.
+    if (cycleNow % PROBE_INTERVAL === 0) {
+      try {
+        const probes = runGateIntegrityProbes();
+        if (probes.halted) {
+          this.log(
+            `🚨 GATE INTEGRITY FAILURE: ${probes.passed}/${probes.total} probes passed — SAFE-MODE raised, loop halted until the operator clears it`,
+            "error"
+          );
+        } else if (cycleNow % (PROBE_INTERVAL * 10) === 0) {
+          this.log(`Gate integrity: ${probes.passed}/${probes.total} probes passed`, "info");
+        }
+      } catch (probeErr) {
+        // Audit 3 (F9): the old silent catch contradicted its own comment
+        // — a crashed probe suite means the integrity check DID NOT RUN,
+        // which must be visible, not swallowed.
+        this.log(`Gate-integrity probe suite CRASHED (integrity unverified): ${(probeErr as Error).message}`, "error");
+      }
+    }
+    // Test-attacker round (every ATTACKER_INTERVAL cycles, LLM,
+    // gate-checked inside — mutations own the quota first): tries to
+    // break the ratchet's own pins. Findings land as CANDIDATE
+    // postmortems on the test file (watch list, never injected).
+    if (cycleNow % ATTACKER_INTERVAL === 0) {
+      void runTestAttacker()
+        .then((round) => {
+          if (round.findings.length > 0) {
+            this.log(
+              `🔴 TEST-ATTACKER: ${round.findings.length} weak pin(s) found — ${round.findings.map((f) => `${f.testPath} (${f.kind})`).join("; ")}`,
+              "warn"
+            );
+          } else if (round.ran) {
+            this.log(`TEST-ATTACKER: ${round.attacked} pin(s) examined — pins held`, "info");
           }
         })
         .catch(() => {
-          /* tuning is best-effort */
+          /* best-effort */
         });
-
-      // ── D5 INTEGRITY CHECKS ──────────────────────────────────────
-      // Gate-integrity probes (deterministic, every PROBE_INTERVAL
-      // cycles): known-bad and known-good proposals against the REAL
-      // gate code. Any failure raises safe-mode — the loop halts until
-      // the operator clears it.
-      if (cycleNow % PROBE_INTERVAL === 0) {
-        try {
-          const probes = runGateIntegrityProbes();
-          if (probes.halted) {
-            this.log(
-              `🚨 GATE INTEGRITY FAILURE: ${probes.passed}/${probes.total} probes passed — SAFE-MODE raised, loop halted until the operator clears it`,
-              "error"
-            );
-          } else if (cycleNow % (PROBE_INTERVAL * 10) === 0) {
-            this.log(`Gate integrity: ${probes.passed}/${probes.total} probes passed`, "info");
-          }
-        } catch (probeErr) {
-          // Audit 3 (F9): the old silent catch contradicted its own comment
-          // — a crashed probe suite means the integrity check DID NOT RUN,
-          // which must be visible, not swallowed.
-          this.log(`Gate-integrity probe suite CRASHED (integrity unverified): ${(probeErr as Error).message}`, "error");
-        }
-      }
-      // Test-attacker round (every ATTACKER_INTERVAL cycles, LLM,
-      // gate-checked inside — mutations own the quota first): tries to
-      // break the ratchet's own pins. Findings land as CANDIDATE
-      // postmortems on the test file (watch list, never injected).
-      if (cycleNow % ATTACKER_INTERVAL === 0) {
-        void runTestAttacker()
-          .then((round) => {
-            if (round.findings.length > 0) {
-              this.log(
-                `🔴 TEST-ATTACKER: ${round.findings.length} weak pin(s) found — ${round.findings.map((f) => `${f.testPath} (${f.kind})`).join("; ")}`,
-                "warn"
-              );
-            } else if (round.ran) {
-              this.log(`TEST-ATTACKER: ${round.attacked} pin(s) examined — pins held`, "info");
-            }
-          })
-          .catch(() => {
-            /* best-effort */
-          });
-      }
-
-      // ── D3 DREAMER (idle-time consolidation) ────────────────────
-      // One cheap advisory task per idle moment. Self-skips when the
-      // gate is closed (mutations own the quota); fires here (end of
-      // cycle, before the 5s inter-cycle gap) so an open gate gets used.
-      if (llmCooldownMs() === 0) {
-        void maybeDream()
-          .then((line) => {
-            if (line) this.log(line, "info");
-          })
-          .catch(() => {
-            /* dreams are best-effort */
-          });
-      }
-
-      // Oracle auto-prophecy (fire-and-forget): the cycle is done, the
-      // system has a fresh view of its own history — let it predict its
-      // next turn. All guards (LLM gate, pending cap) live inside
-      // oracle-auto.ts; this call never blocks or throws. Surfaces in
-      // the console stream via the oracle event ring.
-      autoProphecyAfterCycle();
-
-      // ── Merge SelfTask drain results into the cycle return ──────────
-      // The drain pre-pass (top of runCycle) stashes its results on the
-      // instance. Merge them into the cycle's result list + bump the
-      // enhanced count so the UI + stats reflect the deterministic fixes
-      // alongside the whole-file refactors.
-      const stashed = (this as unknown as { _selfTaskResults?: SelfEnhanceResult[] })._selfTaskResults;
-      if (stashed && stashed.length > 0) {
-        results.unshift(...stashed);
-        enhanced += stashed.filter((r) => r.enhanced).length;
-        (this as unknown as { _selfTaskResults?: SelfEnhanceResult[] })._selfTaskResults = undefined;
-      }
-
-      return { filesScanned: files.length, filesEnhanced: enhanced, results };
-    } finally {
-      this.running = false;
     }
+
+    // ── D3 DREAMER (idle-time consolidation) ────────────────────
+    // One cheap advisory task per idle moment. Self-skips when the
+    // gate is closed (mutations own the quota); fires here (end of
+    // cycle, before the 5s inter-cycle gap) so an open gate gets used.
+    if (llmCooldownMs() === 0) {
+      void maybeDream()
+        .then((line) => {
+          if (line) this.log(line, "info");
+        })
+        .catch(() => {
+          /* dreams are best-effort */
+        });
+    }
+
+    // Oracle auto-prophecy (fire-and-forget): the cycle is done, the
+    // system has a fresh view of its own history — let it predict its
+    // next turn. All guards (LLM gate, pending cap) live inside
+    // oracle-auto.ts; this call never blocks or throws. Surfaces in
+    // the console stream via the oracle event ring.
+    autoProphecyAfterCycle();
   }
+
 
   /**
    * Run continuously: cycle after cycle until stopped.

@@ -17,7 +17,6 @@ describe("Calendar", () => {
     // We can't test the actual rendering without a DOM, but we can verify the component accepts these props
     // In a real implementation, we might use a testing library to render and check the DOM
     expect(() => {
-      // @ts-ignore - We're testing that the component accepts these props without error
       <Calendar {...calendarProps} />;
     }).not.toThrow();
   });
@@ -50,11 +49,11 @@ describe("Calendar", () => {
     
     // We can't directly test the rendered output in a unit test, but we can verify the component accepts these props
     expect(() => {
-      // @ts-ignore - We're testing that the component accepts these props without error
+      // @ts-expect-error -- deliberately passing partial/invalid props to verify runtime behavior
       <CalendarDayButton {...noModifiers} />;
-      // @ts-ignore
+      // @ts-expect-error -- deliberately passing partial/invalid props
       <CalendarDayButton {...selectedModifiers} />;
-      // @ts-ignore
+      // @ts-expect-error -- deliberately passing partial/invalid props
       <CalendarDayButton {...rangeModifiers} />;
     }).not.toThrow();
   });
@@ -66,7 +65,6 @@ describe("Calendar", () => {
     };
     
     expect(() => {
-      // @ts-ignore - We're testing that the component accepts these props without error
       <Calendar formatters={customFormatters} />;
     }).not.toThrow();
   });
@@ -80,7 +78,6 @@ describe("Calendar", () => {
     };
     
     expect(() => {
-      // @ts-ignore - We're testing that the component accepts these props without error
       <Calendar components={customComponents} />;
     }).not.toThrow();
   });
@@ -109,11 +106,11 @@ describe("Calendar", () => {
     };
     
     expect(() => {
-      // @ts-ignore - We're testing that the component accepts these props without error
+      // @ts-expect-error -- deliberately passing partial/invalid props to verify runtime behavior
       <CalendarDayButton {...focusedModifiers} />;
-      // @ts-ignore
+      // @ts-expect-error -- deliberately passing partial/invalid props
       <CalendarDayButton {...todayModifiers} />;
-      // @ts-ignore
+      // @ts-expect-error -- deliberately passing partial/invalid props
       <CalendarDayButton {...disabledModifiers} />;
     }).not.toThrow();
   });

@@ -2,11 +2,15 @@ import { createServer } from 'http'
 import { Server, type Socket } from 'socket.io'
 
 const httpServer = createServer()
+// CORS: the old `origin: "*` let ANY website open a socket to this demo
+// chat server. Restrict to the same-origin dashboard URL (override via
+// env if you want to test from a different origin).
+const ALLOWED_ORIGIN = process.env.LOOP_WS_ALLOWED_ORIGIN ?? 'http://localhost:3000'
 const io = new Server(httpServer, {
   // DO NOT change the path, it is used by Caddy to forward the request to the correct port
   path: '/',
   cors: {
-    origin: "*",
+    origin: ALLOWED_ORIGIN,
     methods: ["GET", "POST"]
   },
   pingTimeout: 60000,

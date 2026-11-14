@@ -6,11 +6,11 @@ async function tryModel(model: string) {
       model,
       messages: [{ role: "user", content: "say OK" }],
       thinking: { type: "disabled" },
-    } as any);
-    const c = (r as any)?.choices?.[0]?.message?.content ?? "(no content)";
+    } as Parameters<typeof zai.chat.completions.create>[0]);
+    const c = (r as unknown as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content ?? "(no content)";
     console.log(`  ${model}: OK -> ${String(c).slice(0,60)}`);
-  } catch (e: any) {
-    console.log(`  ${model}: FAIL -> ${e.message.slice(0,100)}`);
+  } catch (e) {
+    console.log(`  ${model}: FAIL -> ${(e instanceof Error ? e.message : String(e)).slice(0,100)}`);
   }
 }
 async function main() {

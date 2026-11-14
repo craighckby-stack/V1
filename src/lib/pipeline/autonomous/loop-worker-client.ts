@@ -72,7 +72,7 @@ export async function workerFetch<T = unknown>(
     if (res.ok) {
         try {
           data = await res.json();
-        } catch (e) {
+        } catch {
           // Failed to parse JSON on a successful response. Data remains null.
           data = null;
         }
@@ -111,10 +111,8 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   if (Date.now() - lastSpawnAt < 10_000 || isSpawning) return false;
   
   lastSpawnAt = Date.now();
-  const wasSpawning = isSpawning;
   isSpawning = true;
 
-  let spawnSuccessful = false;
   try {
     const { spawn } = await import("child_process");
     const path = await import("path");
@@ -123,12 +121,20 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     // is the only durable record of cycle progress now that the loop does
     // not log into dev.log anymore. Append mode; the detached child
     // outlives this request, so the fd is opened per spawn.
+    //
+    // FD LEAK FIX: spawn() inherits the fd into the child's stdio, but the
+    // PARENT must still close its own handle once the child has taken its
+    // copy. The old code never closed outFd, so each respawn leaked one fd
+    // until the process hit EMFILE and spawn started failing.
     let outFd: number | "ignore" = "ignore";
+    let parentOutFd: number | null = null;
     try {
-      outFd = fs.openSync(
+      const fd = fs.openSync(
         path.join("mini-services", "loop-worker", "worker.log"),
         "a"
       );
+      outFd = fd;
+      parentOutFd = fd;
     } catch (error) {
       console.error("Failed to open worker log file:", error);
       /* fall back to ignore — narration is best-effort */
@@ -143,16 +149,21 @@ export async function ensureWorkerRunning(): Promise<boolean> {
       }
     );
     child.unref();
-    spawnSuccessful = true;
+    // Close the PARENT's copy of the log fd. The detached child has its
+    // own inherited copy (detached + unref'd) and will keep writing; we
+    // don't need our handle anymore. This was the leak: every respawn
+    // opened an fd that was never released back to the OS.
+    if (parentOutFd !== null) {
+      try { fs.closeSync(parentOutFd); } catch { /* best-effort */ }
+    }
   } catch (error) {
     console.error("Failed to spawn loop worker:", error);
-    isSpawning = false; // Ensure reset on spawn failure
     return false;
   } finally {
-    // Reset isSpawning if we set it to true in this attempt
-    if (isSpawning) {
-      isSpawning = false;
-    }
+    // Reset isSpawning unconditionally. The old wasSpawning check was
+    // dead: it was captured AFTER the `if (isSpawning) return false`
+    // guard at line 111, so it was always false here. Simplify.
+    isSpawning = false;
   }
 
   // Wait up to ~5s for boot (pipeline import graph: Prisma + TS compiler

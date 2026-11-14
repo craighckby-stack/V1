@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import {
   analyzeMergeBack,
   executeMergeBack,
   listMergeBackCandidates,
 } from "@/lib/pipeline/autonomous/merge-back";
+import { parseBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -55,31 +57,25 @@ export async function GET(req: Request) {
   }
 }
 
+const mergeBackPostSchema = z.object({
+  // Branch names flow into git argv (execFileSync — no shell), but shape-
+  // validating at the route still rejects absurd payloads early and keeps
+  // the audit's "^loop-\\d+$" recommendation (with optional origin/ prefix
+  // that executeMergeBack normalizes away).
+  branch: z.string().regex(/^(origin\/)?loop-\d+$/, "branch must look like 'loop-NN'").max(100),
+  strategy: z.enum(["theirs-for-source", "dry-run"]).optional(),
+  push: z.boolean().optional(),
+}).strict();
+
 export async function POST(req: Request) {
   try {
-    let body: { branch?: unknown; strategy?: unknown; push?: unknown } = {};
-    try {
-      body = (await req.json()) as { branch?: unknown; strategy?: unknown; push?: unknown };
-    } catch {
-      return NextResponse.json(
-        { ok: false, error: "invalid JSON body — expected { branch, strategy, push? }" },
-        { status: 400 },
-      );
-    }
-    const branch = typeof body.branch === "string" ? body.branch : null;
-    if (!branch) {
-      return NextResponse.json(
-        { ok: false, error: "missing 'branch' (e.g. \"loop-198\")" },
-        { status: 400 },
-      );
-    }
-    const strategy =
-      body.strategy === "theirs-for-source" || body.strategy === "dry-run"
-        ? body.strategy
-        : "dry-run";
-    const push = body.push === true;
+    const parsed = await parseBody(req, mergeBackPostSchema);
+    if (!parsed.ok) return parsed.response;
 
-    const result = await executeMergeBack(branch, { strategy, push });
+    const strategy = parsed.data.strategy ?? "dry-run";
+    const push = parsed.data.push === true;
+
+    const result = await executeMergeBack(parsed.data.branch, { strategy, push });
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(

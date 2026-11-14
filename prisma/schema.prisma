@@ -30,6 +30,10 @@ model PipelineRun {
   violations     String   // JSON array
   triggeredBy    String   // manual | autonomous | watch | continuous
   createdAt      DateTime @default(now())
+
+  // audit H9 — retention prune + history list order by createdAt desc;
+  // the keep-newest-25 sweep ran a full-table sort on every pipeline run.
+  @@index([createdAt])
 }
 
 /// One cycle of the autonomous self-enhancement loop.
@@ -46,6 +50,10 @@ model AutonomousCycle {
   error          String?
   startedAt      DateTime @default(now())
   finishedAt     DateTime?
+
+  // audit H9 — prophecy evidence windows filter startedAt >= X and the
+  // cycle list orders by startedAt desc; both were full scans.
+  @@index([startedAt])
 }
 
 /// Long-term memory entries (RAG-style).
@@ -59,6 +67,9 @@ model MemoryEntry {
   cleanSnippet String?
   content     String
   createdAt   DateTime @default(now())
+
+  // audit H9 — the prune-every-25th-add sweep deletes createdAt < cutoff.
+  @@index([createdAt])
 }
 
 /// Per-file postmortem — negative constraints learned from past failures.
@@ -126,6 +137,15 @@ model Postmortem {
   updatedAt    DateTime @updatedAt
 
   @@unique([targetRepo, branch, filePath])
+
+  // audit H9 — every cycle queries active postmortems (lesson RAG, the
+  // ancestral prompt builder) and the retention sweeps filter
+  // status/lastAttemptAt. The compound unique serves the per-file
+  // lookup; these serve the status sweeps.
+  @@index([status])
+  @@index([lastAttemptAt])
+  // Back-relation for MutationCorpus.postmortemId (audit H10).
+  mutations  MutationCorpus[]
 }
 
 /// Persistent GitHub push target for the self-enhance loop.
@@ -173,6 +193,12 @@ model SelfTask {
   doneAt     DateTime?
 
   @@unique([kind, filePath, line])
+
+  // audit H9 — the task claim is `where status=pending orderBy
+  // priority, deferred, createdAt` (every self-task cycle) plus status
+  // counts and the in-flight→pending reset sweep. This composite serves
+  // the claim exactly and prefixes the counts.
+  @@index([status, priority, deferred, createdAt])
 }
 
 /// Gemini direct-call configuration (singleton). Stores the user-pasted
@@ -310,6 +336,11 @@ model Prophecy {
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+
+  // audit H9 — the oracle scheduler's due-prophecy query is
+  // `where status=pending AND evaluateBy <= now, orderBy evaluateBy asc`
+  // and runs every cycle; the track-record read filters resolved status.
+  @@index([status, evaluateBy])
 }
 
 /// Generic key/value runtime flag store. Used by the duress/purge protocol
@@ -437,6 +468,12 @@ model Lesson {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // audit H9 — lesson selection filters active (+kind for promotion)
+  // on every enhance prompt; the seed/archaeology dedupe looks up by
+  // sourceType.
+  @@index([active, kind])
+  @@index([sourceType])
 }
 
 /// ── D4: MUTATION DIFF CORPUS (concepts: reef receipt-linked records,
@@ -475,7 +512,10 @@ model MutationCorpus {
   mutatedSha   String?
 
   // The postmortem row id for this file (latest), when one exists.
+  // audit H10 — real FK now (was a flat string): deleting a Postmortem
+  // nulls the corpus reference instead of leaving a dangling id.
   postmortemId String?
+  postmortem   Postmortem? @relation(fields: [postmortemId], references: [id], onDelete: SetNull)
 
   // JSON array of lesson ids injected into this attempt's prompt.
   // String (not a list) — Prisma primitives only.
@@ -486,6 +526,13 @@ model MutationCorpus {
   transformSummary  String?
 
   createdAt DateTime @default(now())
+
+  // audit H9 — the corpus retention sweep deletes createdAt < cutoff;
+  // per-file history lookups filter filePath.
+  @@index([createdAt])
+  @@index([filePath])
+  // FK index for the postmortem relation (SQLite does not auto-index FKs).
+  @@index([postmortemId])
 }
 
 /// ── D8: META-LOOP PARAMETER TUNER (concepts: Raven Evolver, the L4
@@ -580,4 +627,9 @@ model SelfPrediction {
   skipProbe   Boolean  @default(false)
   createdAt   DateTime @default(now())
   resolvedAt  DateTime?
+
+  // audit H9 — the calibration curve and the pending-resolution count
+  // filter on outcome (null = pending; pass/fail/zero-diff = resolved).
+  // Built on every self-model summary read.
+  @@index([outcome])
 }

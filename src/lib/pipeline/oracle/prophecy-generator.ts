@@ -27,7 +27,7 @@
  * criterion. Same honesty principle as the debate tribunal.
  */
 
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { readFileSync, existsSync } from "fs";
 import { llmComplete } from "../llm/agent-llm";
 import { createProphecy, type ProphecyRow } from "./prophecy-store";
@@ -88,16 +88,20 @@ function gatherHistoryContext(): { context: string; sha: string | null; snapshot
 
   // ── 1. Recent git log ──────────────────────────────────────────────
   try {
-    const log = execSync(
-      `git -C ${PROJECT_ROOT} log --oneline -n ${GIT_LOG_COUNT} 2>/dev/null`,
-      { encoding: "utf-8", timeout: 5000 },
+    // argv form — no shell interpolation. PROJECT_ROOT is internal but the
+    // consistency matches the prophecy-evaluator's argv form.
+    const log = execFileSync(
+      "git",
+      ["-C", PROJECT_ROOT, "log", "--oneline", `-n`, String(GIT_LOG_COUNT)],
+      { encoding: "utf-8", timeout: 5000, stdio: "pipe" },
     ).trim();
     if (log) {
       parts.push("=== RECENT COMMITS (newest first) ===\n" + log);
       // Capture the current HEAD SHA for the prophecy's contextSha
-      sha = execSync(`git -C ${PROJECT_ROOT} rev-parse HEAD 2>/dev/null`, {
+      sha = execFileSync("git", ["-C", PROJECT_ROOT, "rev-parse", "HEAD"], {
         encoding: "utf-8",
         timeout: 5000,
+        stdio: "pipe",
       }).trim();
     }
   } catch {

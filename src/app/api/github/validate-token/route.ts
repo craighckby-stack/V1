@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getUsableToken, githubHeaders } from "@/lib/pipeline/api/github-helpers";
+import { parseBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -10,10 +12,15 @@ interface GitHubUserResponse {
   name?: string | null;
 }
 
+const validateTokenSchema = z.object({
+  token: z.string().min(1).max(500).optional(),
+}).strict();
+
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as { token?: string };
-    const token = getUsableToken(body.token);
+    const parsed = await parseBody(req, validateTokenSchema);
+    if (!parsed.ok) return parsed.response;
+    const token = getUsableToken(parsed.data.token);
     if (!token) {
       return NextResponse.json(
         { valid: false, error: "Invalid or missing GitHub token" },

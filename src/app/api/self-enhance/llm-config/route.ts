@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { geminiHealthSnapshot } from "@/lib/pipeline/llm/gemini-direct";
 import { nvidiaHealthSnapshot, verifyNvidiaKey } from "@/lib/pipeline/llm/nvidia-direct";
+import { parseBody, parseOptionalBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -72,19 +74,18 @@ export async function GET() {
  *  Omitting `kind` defaults to "gemini" for backwards compatibility
  *  with the existing panel's POST body.
  */
+const llmConfigPostSchema = z.object({
+  kind: z.enum(["gemini", "nvidia"]).optional(),
+  geminiApiKey: z.string().max(500).optional(),
+  nvidiaApiKey: z.string().max(500).optional(),
+  model: z.string().max(200).optional(),
+  forceSave: z.boolean().optional(),
+}).strict();
+
 export async function POST(req: Request) {
-  let body: {
-    kind?: "gemini" | "nvidia";
-    geminiApiKey?: string;
-    nvidiaApiKey?: string;
-    model?: string;
-    forceSave?: boolean;
-  };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
-  }
+  const parsed = await parseBody(req, llmConfigPostSchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
 
   const kind = body.kind ?? "gemini";
 
@@ -395,14 +396,12 @@ async function handleGeminiPost(body: {
  *  compat with the existing panel's DELETE call).
  */
 export async function DELETE(req: Request) {
-  let body: { kind?: "gemini" | "nvidia" } = {};
-  try {
-    body = await req.json().catch(() => ({})) as { kind?: "gemini" | "nvidia" };
-  } catch {
-    // Some callers send no body — default to clearing Gemini (the
-    // historical behavior).
-  }
-  const kind = body.kind ?? "gemini";
+  // Optional body `{ kind?: "gemini" | "nvidia" }` — callers may send no
+  // body, in which case Gemini (the historical behavior) is cleared.
+  const llmConfigDeleteSchema = z.object({
+    kind: z.enum(["gemini", "nvidia"]).optional(),
+  }).strict();
+  const { kind } = await parseOptionalBody(req, llmConfigDeleteSchema, { kind: "gemini" as "gemini" | "nvidia" });
 
   // Cripple-check F11: this handler used to swallow ALL update errors
   // (`.catch(() => {})`) and then unconditionally return ok:true — the
@@ -428,6 +427,14 @@ export async function DELETE(req: Request) {
   try {
     await db.llmConfig.update({ where: { id: SINGLETON_ID }, data: clearFields });
   } catch (err) {
+    // audit M9: Prisma P2025 ("record not found") fired when the singleton
+    // row was never created — the DELETE reported "Failed to clear" for an
+    // already-empty config. A missing row IS the cleared state: report
+    // success with `alreadyClear: true` so the UI can distinguish.
+    const prismaCode = (err as { code?: string }).code;
+    if (prismaCode === "P2025") {
+      return NextResponse.json({ ok: true, kind, alreadyClear: true });
+    }
     const msg = (err as Error).message ?? "unknown db error";
     console.error(`llm-config DELETE (${kind}) failed:`, msg);
     return NextResponse.json(

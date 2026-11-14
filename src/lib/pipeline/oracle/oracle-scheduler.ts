@@ -37,7 +37,7 @@
 import { evaluateDueProphecies } from "./prophecy-evaluator";
 import { emitOracleEvent } from "./oracle-events";
 import { llmIsCoolingDown } from "../llm/agent-llm";
-import { listDueProphecies } from "./prophecy-store";
+import { listDueProphecies, type ProphecyRow } from "./prophecy-store";
 
 const TICK_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -97,7 +97,7 @@ export async function oracleSchedulerTick(): Promise<{
   // beats kicking off the evaluator for nothing (the evaluator's own
   // DB read is cheap too, but this keeps the tick's happy path at
   // exactly one query and no LLM calls at all).
-  let due: any[] = [];
+  let due: ProphecyRow[] = [];
   try {
     const result = await listDueProphecies();
     // Validate that we got an array back, and handle null/undefined result from store

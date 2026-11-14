@@ -8,6 +8,14 @@
  *   3. AST Diff Gate Structural & Symbol Verification
  *   4. Code Review & Verification (Security vs Architecture)
  *   5. Proof-of-Clean Synthesis, Convergence, and Git Dispatch
+ *
+ * Structure (audit H1 refactor): runPipeline was a single ~690-line god
+ * function with three duplicated terminal-report shapes. It is now an
+ * orchestrator over per-stage private methods (stage0Ingestion …
+ * stage5Convergence) that share a PipelineRunContext, with ONE
+ * buildReport() used by all three exits (0-diff halt, guard rejection,
+ * normal convergence). Behavior is byte-for-byte preserved — every log
+ * line, stage update, and gate ordering is unchanged.
  */
 
 import { SIPHON_SOURCES, performArchitecturalVote, ArchitecturalVote } from "./siphon";
@@ -82,11 +90,38 @@ export type LogHandler = (log: {
   type: "info" | "warn" | "success" | "error";
 }) => void;
 
+/** Everything a stage helper needs from / leaves for the rest of the run.
+ *  The stage-output fields (patternVote … reviewVerdict) are filled in
+ *  order by the orchestrator; buildReport reads them all. */
+interface PipelineRunContext {
+  config: PipelineConfig;
+  pipelineId: string;
+  logs: PipelineExecutionReport["logs"];
+  stages: Record<PipelineStageId, PipelineStageState>;
+  log: LogHandler;
+  updateStage: (
+    stageId: PipelineStageId,
+    status: PipelineStageState["status"],
+    summary: string,
+    details?: Record<string, unknown>,
+    durationMs?: number
+  ) => void;
+  // Stage outputs, assigned by the orchestrator between stages:
+  patternVote: ArchitecturalVote;
+  selectedSource: (typeof SIPHON_SOURCES)[number];
+  sanitizerResult: SecuritySanitizerResult;
+  agentEngineResult: EngineExecutionResult;
+  evolvedCode: string;
+  astDiffResult: AstDiffResult;
+}
+
 export class UnifiedPipelineRunner {
   private governor = new SelfStoppingGovernor({
     maxCycles: 100,
     maxConsecutiveFailures: 3,
   });
+
+  // ── Orchestrator ─────────────────────────────────────────────────────
 
   public async runPipeline(
     config: PipelineConfig,
@@ -103,7 +138,65 @@ export class UnifiedPipelineRunner {
       if (onLog) onLog(entry);
     };
 
-    const stages: Record<PipelineStageId, PipelineStageState> = {
+    const stages = this.initStages();
+
+    const updateStage = (
+      stageId: PipelineStageId,
+      status: PipelineStageState["status"],
+      summary: string,
+      details?: Record<string, unknown>,
+      durationMs?: number
+    ) => {
+      stages[stageId] = { ...stages[stageId], status, summary, details, durationMs };
+      if (onStageUpdate) onStageUpdate(stages[stageId]);
+    };
+
+    const ctx: PipelineRunContext = {
+      config,
+      pipelineId,
+      logs,
+      stages,
+      log,
+      updateStage,
+      // Placeholder values — every field is assigned by its stage below
+      // before any later stage or buildReport reads it.
+      patternVote: undefined as unknown as ArchitecturalVote,
+      selectedSource: undefined as unknown as (typeof SIPHON_SOURCES)[number],
+      sanitizerResult: undefined as unknown as SecuritySanitizerResult,
+      agentEngineResult: undefined as unknown as EngineExecutionResult,
+      evolvedCode: "",
+      astDiffResult: undefined as unknown as AstDiffResult,
+    };
+
+    log({
+      timestamp: new Date().toLocaleTimeString(),
+      message: `[HELPER START] Target: ${config.targetRepo}:${config.filePath} (${config.targetBranch})`,
+      type: "info",
+    });
+
+    // STAGES 0-3 — sequential, no early exits.
+    this.stage0Ingestion(ctx);
+    this.stage1Sanitization(ctx);
+    await this.stage2Reasoning(ctx);
+    await this.stage3AstGate(ctx);
+
+    // STAGE 4 — three exits: 0-diff halt, guard rejection, full tribunal.
+    const zeroDiffReport = this.stage4ZeroDiffHalt(ctx);
+    if (zeroDiffReport) return zeroDiffReport;
+
+    const guardReport = await this.stage4MutationGuard(ctx);
+    if (guardReport) return guardReport;
+
+    const reviewVerdict = await this.stage4Tribunal(ctx);
+
+    // STAGE 5 — convergence + the normal terminal report.
+    return this.stage5Convergence(ctx, reviewVerdict);
+  }
+
+  // ── Stage helpers ────────────────────────────────────────────────────
+
+  private initStages(): Record<PipelineStageId, PipelineStageState> {
+    return {
       stage0_ingestion: {
         id: "stage0_ingestion",
         name: "0. Pattern Ingestion Helper",
@@ -141,25 +234,11 @@ export class UnifiedPipelineRunner {
         summary: "Waiting for convergence evaluation",
       },
     };
+  }
 
-    const updateStage = (
-      stageId: PipelineStageId,
-      status: PipelineStageState["status"],
-      summary: string,
-      details?: Record<string, unknown>,
-      durationMs?: number
-    ) => {
-      stages[stageId] = { ...stages[stageId], status, summary, details, durationMs };
-      if (onStageUpdate) onStageUpdate(stages[stageId]);
-    };
-
-    log({
-      timestamp: new Date().toLocaleTimeString(),
-      message: `[HELPER START] Target: ${config.targetRepo}:${config.filePath} (${config.targetBranch})`,
-      type: "info",
-    });
-
-    // STAGE 0
+  /** STAGE 0 — pattern ingestion & template selection. */
+  private stage0Ingestion(ctx: PipelineRunContext): void {
+    const { config, log, updateStage } = ctx;
     const t0 = performance.now();
     updateStage("stage0_ingestion", "running", "Analyzing target structure and selecting architectural pattern...");
     log({
@@ -186,7 +265,13 @@ export class UnifiedPipelineRunner {
       type: "info",
     });
 
-    // STAGE 1
+    ctx.patternVote = patternVote;
+    ctx.selectedSource = selectedSource;
+  }
+
+  /** STAGE 1 — Shannon entropy pre-screen & secret sanitization. */
+  private stage1Sanitization(ctx: PipelineRunContext): void {
+    const { config, log, updateStage } = ctx;
     const t1 = performance.now();
     updateStage("stage1_sanitization", "running", "Running Shannon entropy calculation and credential scan...");
     log({
@@ -226,9 +311,13 @@ export class UnifiedPipelineRunner {
       });
     }
 
-    const sanitizedBaseCode = sanitizerResult.sanitizedCode;
+    ctx.sanitizerResult = sanitizerResult;
+  }
 
-    // STAGE 2
+  /** STAGE 2 — bounded ReAct reasoning loop + evolved-code synthesis. */
+  private async stage2Reasoning(ctx: PipelineRunContext): Promise<void> {
+    const { config, log, updateStage } = ctx;
+    const sanitizedBaseCode = ctx.sanitizerResult.sanitizedCode;
     const t2 = performance.now();
     updateStage("stage2_reasoning", "running", "Running bounded ReAct loop with in-memory VFS sandbox...");
     log({
@@ -251,7 +340,7 @@ export class UnifiedPipelineRunner {
       });
     }
 
-    const agentGoal = `${config.userPrompt} (Template: ${selectedSource.label})`;
+    const agentGoal = `${config.userPrompt} (Template: ${ctx.selectedSource.label})`;
     const agentEngineResult = await executeCleanRoomEngine("inference-reasoning-loop", agentGoal, {
       originalCode: sanitizedBaseCode,
       filePath: config.filePath,
@@ -314,7 +403,15 @@ export class UnifiedPipelineRunner {
       });
     }
 
-    // STAGE 3
+    ctx.agentEngineResult = agentEngineResult;
+    ctx.evolvedCode = evolvedCode;
+  }
+
+  /** STAGE 3 — AST diff gate (structural & symbol verification). */
+  private async stage3AstGate(ctx: PipelineRunContext): Promise<void> {
+    const { config, log, updateStage } = ctx;
+    const sanitizedBaseCode = ctx.sanitizerResult.sanitizedCode;
+    const evolvedCode = ctx.evolvedCode;
     const t3 = performance.now();
     updateStage("stage3_ast_gate", "running", "Verifying AST symbol retention and structural drift...");
     log({
@@ -386,7 +483,15 @@ export class UnifiedPipelineRunner {
       });
     }
 
-    // STAGE 4
+    ctx.astDiffResult = astDiffResult;
+  }
+
+  /** STAGE 4 (exit 1) — 0-diff short-circuit. Returns the HALTED report
+   *  when the evolution stage produced no change, else null to continue. */
+  private stage4ZeroDiffHalt(ctx: PipelineRunContext): PipelineExecutionReport | null {
+    const { config, log, updateStage } = ctx;
+    const sanitizedBaseCode = ctx.sanitizerResult.sanitizedCode;
+    const evolvedCode = ctx.evolvedCode;
     const t4 = performance.now();
 
     // 0-diff short-circuit: if the evolution stage produced NO change
@@ -397,63 +502,60 @@ export class UnifiedPipelineRunner {
     // and sailed through the gates to a commit.) Convening a tribunal
     // over identical code proves nothing — report HALTED honestly and
     // stop here.
-    if (evolvedCode === sanitizedBaseCode) {
-      updateStage(
-        "stage4_review",
-        "skipped",
-        "Skipped: 0-diff (no change produced). Nothing to review or commit.",
-        { consensus: "SKIPPED_ZERO_DIFF" },
-        Math.round(performance.now() - t4)
-      );
-      log({
-        timestamp: new Date().toLocaleTimeString(),
-        message: "[STAGE 4] Skipped — 0-diff: the evolution stage produced no change. Halting cycle honestly (no review, no commit).",
-        type: "warn",
-      });
+    if (evolvedCode !== sanitizedBaseCode) return null;
 
-      let haltStateEarly: HaltEvaluationState | null = null;
-      try {
-        haltStateEarly = this.governor.checkZeroDiffSaturation(sanitizedBaseCode, evolvedCode);
-      } catch {
-        haltStateEarly = null;
-      }
+    updateStage(
+      "stage4_review",
+      "skipped",
+      "Skipped: 0-diff (no change produced). Nothing to review or commit.",
+      { consensus: "SKIPPED_ZERO_DIFF" },
+      Math.round(performance.now() - t4)
+    );
+    log({
+      timestamp: new Date().toLocaleTimeString(),
+      message: "[STAGE 4] Skipped — 0-diff: the evolution stage produced no change. Halting cycle honestly (no review, no commit).",
+      type: "warn",
+    });
 
-      updateStage(
-        "stage5_convergence",
-        "succeeded",
-        "Converged at 0-diff (saturation). No proof commit — nothing changed.",
-        { proofCommitHash: "NONE", haltState: haltStateEarly },
-        0
-      );
-
-      return {
-        id: pipelineId,
-        timestamp: Date.now(),
-        config,
-        status: "HALTED",
-        stages,
-        originalCode: config.code,
-        evolvedCode,
-        patternVote,
-        siphonVote: patternVote,
-        sanitizerResult,
-        agentEngineResult,
-        astDiffResult,
-        reviewVerdict: {
-          currentTopic: `Code Review for ${config.filePath}`,
-          consensus: "APPROVED", // vacuous: identical code — nothing was changed, so nothing needs review
-          consensusCoefficient: 1,
-          cognitiveFriction: 0,
-          securityPoints: [],
-          architecturePoints: [],
-          leadSummary: "Review skipped: 0-diff (no change produced).",
-          arguments: [],
-        },
-        haltState: haltStateEarly,
-        proofCommitHash: "NONE",
-        logs,
-      };
+    let haltStateEarly: HaltEvaluationState | null = null;
+    try {
+      haltStateEarly = this.governor.checkZeroDiffSaturation(sanitizedBaseCode, evolvedCode);
+    } catch {
+      haltStateEarly = null;
     }
+
+    updateStage(
+      "stage5_convergence",
+      "succeeded",
+      "Converged at 0-diff (saturation). No proof commit — nothing changed.",
+      { proofCommitHash: "NONE", haltState: haltStateEarly },
+      0
+    );
+
+    return this.buildReport(ctx, "HALTED", {
+      reviewVerdict: {
+        currentTopic: `Code Review for ${config.filePath}`,
+        consensus: "APPROVED", // vacuous: identical code — nothing was changed, so nothing needs review
+        consensusCoefficient: 1,
+        cognitiveFriction: 0,
+        securityPoints: [],
+        architecturePoints: [],
+        leadSummary: "Review skipped: 0-diff (no change produced).",
+        arguments: [],
+      },
+      haltState: haltStateEarly,
+      proofCommitHash: "NONE",
+      // No tribunalVerdict on this path (matches the original shape).
+    });
+  }
+
+  /** STAGE 4 (exit 2) — two-authority mutation guard. Returns the
+   *  REJECTED/HALTED report when the guard rejects, else null to
+   *  continue to the tribunal. */
+  private async stage4MutationGuard(ctx: PipelineRunContext): Promise<PipelineExecutionReport | null> {
+    const { config, log, updateStage } = ctx;
+    const evolvedCode = ctx.evolvedCode;
+    const t4 = performance.now();
 
     updateStage("stage4_review", "running", "Running mutation guard (triage + finalAuthority) before convening the review tribunal...");
     log({
@@ -484,145 +586,136 @@ export class UnifiedPipelineRunner {
       // type, not the runtime.
       throw new Error("gate-runner returned no guard result under policy.guard=true");
     }
-    if (!gateResult.allowed) {
-      const dur4guard = Math.round(performance.now() - t4);
-      const rejectMsg = `Mutation guard REJECTED (${gateResult.rejectedBy}): ${gateResult.reasons.join("; ")}`;
-      updateStage(
-        "stage4_review",
-        "blocked",
-        rejectMsg,
-        {
-          consensus: "MUTATION_GUARD_REJECTED",
-          rejectedBy: gateResult.rejectedBy,
-          triageVerdict: gateResult.verdict,
-          triageSuspicion: gateResult.triage.suspicionScore,
-          reasons: gateResult.reasons,
-        },
-        dur4guard
-      );
+    if (gateResult.allowed) {
+      // Guard passed — proceed to the LLM debate tribunal (the next
+      // helper). The pass log lives HERE because gateResult is in scope.
       log({
         timestamp: new Date().toLocaleTimeString(),
-        message: `[STAGE 4] ${rejectMsg}`,
-        type: "error",
+        message: `[STAGE 4] Mutation guard passed (triage: ${gateResult.verdict}, suspicion ${gateResult.triage.suspicionScore.toFixed(2)}). Convening review tribunal...`,
+        type: "info",
       });
-      // Synthesize a review verdict that the downstream gate logic reads
-      // as REJECTED, so the cycle halts with no commit. We do NOT call
-      // the debate tribunal — the guard already decided, and spending
-      // an LLM call on an evil proposal would waste quota + risk the LLM
-      // being talked into approving it.
-      const rejectedVerdict: DebateVerdict = {
-        currentTopic: `Mutation Guard for ${config.filePath}`,
-        consensus: "REJECTED",
-        consensusCoefficient: 0,
-        cognitiveFriction: 1,
-        securityPoints: gateResult.reasons,
-        architecturePoints: [],
-        leadSummary: `Mutation guard rejected before review: ${gateResult.rejectedBy} layer.`,
-        arguments: [],
-      };
-      // Record the guard-rejection as a postmortem so the next attempt
-      // gets the constraint — the LLM will see "you tried to introduce
-      // eval( last time; don't" in its prompt.
-      try {
-        await postmortemStore.recordFailure({
-          repo: config.targetRepo,
-          branch: config.targetBranch,
-          filePath: config.filePath,
-          failureType: "OTHER",
-          symptom: `Mutation guard rejected (${gateResult.rejectedBy})`,
-          evidence: gateResult.reasons.join("\n"),
-          constraints: [
-            "The mutation guard rejected your last proposed change.",
-            "Do NOT introduce any of: eval(, new Function(, child_process, __import__(,",
-            "  require('fs'/'child_process'/'net'/'os'), fetch() to non-allowlisted hosts,",
-            "  path-traversal literals (../../), process.mainModule, weak crypto (md5/sha1).",
-            "Do NOT mutate protected paths: prisma/schema.prisma, package.json,",
-            "  next.config.*, tsconfig.json, .env, Caddyfile, start-dev.sh, or any file",
-            "  in the loop runtime / gates / LLM wrappers / UI control surface.",
-          ].join("\n"),
-        });
-      } catch {
-        /* best-effort — the rejection still blocks the commit */
-      }
-      // Fall through to STAGE 5 with the synthesized REJECTED verdict so
-      // the normal "review rejected → no commit" path handles it.
-      const reviewVerdict = rejectedVerdict;
-      const isReviewApproved = false;
-
-      updateStage(
-        "stage4_review",
-        "blocked",
-        `Mutation guard: ${gateResult.rejectedBy} rejected. Review skipped (no LLM call spent on a guarded proposal).`,
-        {
-          consensus: reviewVerdict.consensus,
-          coefficient: reviewVerdict.consensusCoefficient,
-          usedLlm: false,
-          guardRejected: true,
-          reasons: gateResult.reasons,
-        },
-        dur4guard
-      );
-      log({
-        timestamp: new Date().toLocaleTimeString(),
-        message: `[STAGE 4] Mutation guard rejected — review tribunal skipped (no LLM call). Verdict: REJECTED.`,
-        type: "warn",
-      });
-
-      // Skip to STAGE 5 convergence with the synthesized verdict.
-      // (Mirrors the structure of the 0-diff early-return above, but
-      // with a REJECTED verdict instead of a vacuous APPROVED one.)
-      const t5guard = performance.now();
-      const guardHaltState = this.governor.recordResult(false, config.filePath);
-      const guardProofHash = await binaryShieldInstance
-        .computeHash(evolvedCode)
-        .then((h) => h.slice(0, 7))
-        .catch(() => "UNPROVEN");
-      updateStage(
-        "stage5_convergence",
-        "succeeded",
-        `Converged (guard-rejected). Proof: ${guardProofHash}.`,
-        { proofCommitHash: guardProofHash, haltState: guardHaltState, guardRejected: true },
-        Math.round(performance.now() - t5guard)
-      );
-
-      emgRagInstance.addEntry({
-        provenance: "failure",
-        trust: "low",
-        filePath: config.filePath,
-        content: `Mutation guard rejected ${config.filePath} (${gateResult.rejectedBy}): ${gateResult.reasons.join("; ")}. Proof ${guardProofHash}.`,
-        diagnosis: "MUTATION_GUARD_REJECTED",
-      });
-
-      let finalStatusGuard: PipelineExecutionReport["status"] = "REJECTED";
-      if (guardHaltState && guardHaltState.shouldHalt) finalStatusGuard = "HALTED";
-
-      return {
-        id: pipelineId,
-        timestamp: Date.now(),
-        config,
-        status: finalStatusGuard,
-        stages,
-        originalCode: config.code,
-        evolvedCode,
-        patternVote,
-        siphonVote: patternVote,
-        sanitizerResult,
-        agentEngineResult,
-        astDiffResult,
-        reviewVerdict,
-        tribunalVerdict: reviewVerdict,
-        haltState: guardHaltState,
-        proofCommitHash: guardProofHash,
-        logs,
-      };
+      return null;
     }
 
-    // Guard passed — proceed to the LLM debate tribunal.
+    const dur4guard = Math.round(performance.now() - t4);
+    const rejectMsg = `Mutation guard REJECTED (${gateResult.rejectedBy}): ${gateResult.reasons.join("; ")}`;
+    updateStage(
+      "stage4_review",
+      "blocked",
+      rejectMsg,
+      {
+        consensus: "MUTATION_GUARD_REJECTED",
+        rejectedBy: gateResult.rejectedBy,
+        triageVerdict: gateResult.verdict,
+        triageSuspicion: gateResult.triage.suspicionScore,
+        reasons: gateResult.reasons,
+      },
+      dur4guard
+    );
     log({
       timestamp: new Date().toLocaleTimeString(),
-      message: `[STAGE 4] Mutation guard passed (triage: ${gateResult.verdict}, suspicion ${gateResult.triage.suspicionScore.toFixed(2)}). Convening review tribunal...`,
-      type: "info",
+      message: `[STAGE 4] ${rejectMsg}`,
+      type: "error",
     });
+    // Synthesize a review verdict that the downstream gate logic reads
+    // as REJECTED, so the cycle halts with no commit. We do NOT call
+    // the debate tribunal — the guard already decided, and spending
+    // an LLM call on an evil proposal would waste quota + risk the LLM
+    // being talked into approving it.
+    const reviewVerdict: DebateVerdict = {
+      currentTopic: `Mutation Guard for ${config.filePath}`,
+      consensus: "REJECTED",
+      consensusCoefficient: 0,
+      cognitiveFriction: 1,
+      securityPoints: gateResult.reasons,
+      architecturePoints: [],
+      leadSummary: `Mutation guard rejected before review: ${gateResult.rejectedBy} layer.`,
+      arguments: [],
+    };
+    // Record the guard-rejection as a postmortem so the next attempt
+    // gets the constraint — the LLM will see "you tried to introduce
+    // eval( last time; don't" in its prompt.
+    try {
+      await postmortemStore.recordFailure({
+        repo: config.targetRepo,
+        branch: config.targetBranch,
+        filePath: config.filePath,
+        failureType: "OTHER",
+        symptom: `Mutation guard rejected (${gateResult.rejectedBy})`,
+        evidence: gateResult.reasons.join("\n"),
+        constraints: [
+          "The mutation guard rejected your last proposed change.",
+          "Do NOT introduce any of: eval(, new Function(, child_process, __import__(,",
+          "  require('fs'/'child_process'/'net'/'os'), fetch() to non-allowlisted hosts,",
+          "  path-traversal literals (../../), process.mainModule, weak crypto (md5/sha1).",
+          "Do NOT mutate protected paths: prisma/schema.prisma, package.json,",
+          "  next.config.*, tsconfig.json, .env, Caddyfile, start-dev.sh, or any file",
+          "  in the loop runtime / gates / LLM wrappers / UI control surface.",
+        ].join("\n"),
+      });
+    } catch {
+      /* best-effort — the rejection still blocks the commit */
+    }
+
+    updateStage(
+      "stage4_review",
+      "blocked",
+      `Mutation guard: ${gateResult.rejectedBy} rejected. Review skipped (no LLM call spent on a guarded proposal).`,
+      {
+        consensus: reviewVerdict.consensus,
+        coefficient: reviewVerdict.consensusCoefficient,
+        usedLlm: false,
+        guardRejected: true,
+        reasons: gateResult.reasons,
+      },
+      dur4guard
+    );
+    log({
+      timestamp: new Date().toLocaleTimeString(),
+      message: `[STAGE 4] Mutation guard rejected — review tribunal skipped (no LLM call). Verdict: REJECTED.`,
+      type: "warn",
+    });
+
+    // Skip to STAGE 5 convergence with the synthesized verdict.
+    const t5guard = performance.now();
+    const guardHaltState = this.governor.recordResult(false, config.filePath);
+    const guardProofHash = await binaryShieldInstance
+      .computeHash(evolvedCode)
+      .then((h) => h.slice(0, 7))
+      .catch(() => "UNPROVEN");
+    updateStage(
+      "stage5_convergence",
+      "succeeded",
+      `Converged (guard-rejected). Proof: ${guardProofHash}.`,
+      { proofCommitHash: guardProofHash, haltState: guardHaltState, guardRejected: true },
+      Math.round(performance.now() - t5guard)
+    );
+
+    emgRagInstance.addEntry({
+      provenance: "failure",
+      trust: "low",
+      filePath: config.filePath,
+      content: `Mutation guard rejected ${config.filePath} (${gateResult.rejectedBy}): ${gateResult.reasons.join("; ")}. Proof ${guardProofHash}.`,
+      diagnosis: "MUTATION_GUARD_REJECTED",
+    });
+
+    let finalStatusGuard: PipelineExecutionReport["status"] = "REJECTED";
+    if (guardHaltState && guardHaltState.shouldHalt) finalStatusGuard = "HALTED";
+
+    return this.buildReport(ctx, finalStatusGuard, {
+      reviewVerdict,
+      tribunalVerdict: reviewVerdict,
+      haltState: guardHaltState,
+      proofCommitHash: guardProofHash,
+    });
+  }
+
+  /** STAGE 4 (exit 3) — the LLM debate tribunal. Throws when the LLM is
+   *  unavailable (no fabricated verdicts — the original behavior). */
+  private async stage4Tribunal(ctx: PipelineRunContext): Promise<DebateVerdict> {
+    const { config, log, updateStage } = ctx;
+    const evolvedCode = ctx.evolvedCode;
+    const t4 = performance.now();
 
     updateStage("stage4_review", "running", "Conducting dual-perspective review (Security vs Architecture)...");
     log({
@@ -680,7 +773,20 @@ export class UnifiedPipelineRunner {
       type: isReviewApproved ? "success" : "warn",
     });
 
-    // STAGE 5
+    return reviewVerdict;
+  }
+
+  /** STAGE 5 — convergence, RAG memory (honest), proof hash, and the
+   *  normal terminal report. */
+  private async stage5Convergence(
+    ctx: PipelineRunContext,
+    reviewVerdict: DebateVerdict
+  ): Promise<PipelineExecutionReport> {
+    const { config, log, updateStage } = ctx;
+    const sanitizedBaseCode = ctx.sanitizerResult.sanitizedCode;
+    const evolvedCode = ctx.evolvedCode;
+    const astDiffResult = ctx.astDiffResult;
+
     const t5 = performance.now();
     updateStage("stage5_convergence", "running", "Verifying convergence and generating proof commit...");
     log({
@@ -752,28 +858,48 @@ export class UnifiedPipelineRunner {
       finalStatus = "REJECTED";
     } else if (haltState && haltState.shouldHalt) {
       finalStatus = "HALTED";
-    } else if (!sanitizerResult.clean) {
+    } else if (!ctx.sanitizerResult.clean) {
       finalStatus = "SANITIZED_APPLIED";
     }
 
-    return {
-      id: pipelineId,
-      timestamp: Date.now(),
-      config,
-      status: finalStatus,
-      stages,
-      originalCode: config.code,
-      evolvedCode,
-      patternVote,
-      siphonVote: patternVote,
-      sanitizerResult,
-      agentEngineResult,
-      astDiffResult,
+    return this.buildReport(ctx, finalStatus, {
       reviewVerdict,
       tribunalVerdict: reviewVerdict,
       haltState,
       proofCommitHash,
-      logs,
+    });
+  }
+
+  /** The ONE terminal-report shape (audit H1: the god function built this
+   *  object three slightly-different ways inline). */
+  private buildReport(
+    ctx: PipelineRunContext,
+    status: PipelineExecutionReport["status"],
+    opts: {
+      reviewVerdict: DebateVerdict;
+      haltState: HaltEvaluationState | null;
+      proofCommitHash: string;
+      tribunalVerdict?: DebateVerdict;
+    }
+  ): PipelineExecutionReport {
+    return {
+      id: ctx.pipelineId,
+      timestamp: Date.now(),
+      config: ctx.config,
+      status,
+      stages: ctx.stages,
+      originalCode: ctx.config.code,
+      evolvedCode: ctx.evolvedCode,
+      patternVote: ctx.patternVote,
+      siphonVote: ctx.patternVote,
+      sanitizerResult: ctx.sanitizerResult,
+      agentEngineResult: ctx.agentEngineResult,
+      astDiffResult: ctx.astDiffResult,
+      reviewVerdict: opts.reviewVerdict,
+      tribunalVerdict: opts.tribunalVerdict,
+      haltState: opts.haltState,
+      proofCommitHash: opts.proofCommitHash,
+      logs: ctx.logs,
     };
   }
 

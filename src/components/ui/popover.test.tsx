@@ -1,5 +1,4 @@
 import { describe, test, expect } from "bun:test";
-import { Popover, PopoverTrigger, PopoverContent, PopoverAnchor } from "./popover";
 
 // Since these components render JSX/React elements, we test for observable attributes
 // that are directly set in the implementation, simulating how a rendering engine would see them.

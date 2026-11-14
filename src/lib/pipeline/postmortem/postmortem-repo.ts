@@ -131,12 +131,6 @@ function postmortemFileCandidates(repo: string, branch: string, filePath: string
  *  filename itself; legacy extension-less files lost that information
  *  when they were written and keep the pre-F14 ".ts" default. See
  *  walkAndCollect. */
-interface DiscoveredRecord {
-  repo: string;
-  branch: string;
-  filePath: string;
-  record: PostmortemRecord;
-}
 
 /** Shape written to disk. Stable, hand-readable, git-diff-friendly.
  *  Matches PostmortemRecord but with ISO timestamp strings (no Date

@@ -29,15 +29,22 @@ const NEXTJS_STATUS_URL = "http://localhost:3000/api/autonomous/status";
 const POLL_INTERVAL_MS = 1000;
 
 const httpServer = createServer();
+// CORS: the dashboard is served by the Next.js gateway. The old `origin: "*`
+// let ANY website open a socket to the live loop-state stream — combined
+// with the Caddy SSRF this was a cross-origin state-exfil vector. Restrict
+// to the configured origin (or fall back to same-origin localhost for dev).
+// Set LOOP_WS_ALLOWED_ORIGIN to the deployed URL in production.
+const ALLOWED_ORIGIN = process.env.LOOP_WS_ALLOWED_ORIGIN ?? "http://localhost:3000";
 const io = new Server(httpServer, {
   path: "/",
-  cors: { origin: "*", methods: ["GET", "POST"] },
+  cors: { origin: ALLOWED_ORIGIN, methods: ["GET", "POST"] },
   pingTimeout: 60000,
   pingInterval: 25000,
 });
 
 let clientCount = 0;
-let cachedState: any = null;
+interface CachedState { [key: string]: unknown; }
+let cachedState: CachedState | null = null;
 let cachedStateJson = "";
 let lastPollAt: string | null = null;
 let nextJsReachable = false;
@@ -48,7 +55,7 @@ let nextJsReachable = false;
 // then install ONE router: /health is answered here and NEVER reaches
 // engine.io; every other request is delegated untouched.
 const engineListeners = httpServer.listeners("request").slice(0) as
-  ((req: any, res: any) => void)[];
+  ((req: import("http").IncomingMessage, res: import("http").ServerResponse) => void)[];
 httpServer.removeAllListeners("request");
 
 httpServer.on("request", (req, res) => {
@@ -117,10 +124,10 @@ async function pollNextJsState() {
       const summary = `status=${newState?.status} mode=${newState?.config?.mode} totalRuns=${newState?.stats?.totalRuns}`;
       console.log(`[LOOP-WS] state changed -> ${summary}`);
     }
-  } catch (err: any) {
+  } catch (err) {
     nextJsReachable = false;
     if (pollFailureCount % 10 === 0) {
-      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}): ${err?.message ?? err}`);
+      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}): ${err instanceof Error ? err.message : String(err)}`);
     }
     pollFailureCount++;
   }

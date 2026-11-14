@@ -4,15 +4,17 @@ import { useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 import { usePipelineStore, LoopState } from "@/lib/pipeline-store";
 
-/**
- * Hook that connects to the Loop WebSocket mini-service on port 3003
- * via the Caddy gateway. The gateway requires the URL format:
- *     io("/?XTransformPort=3003")
- * and the path MUST be "/" so Caddy can route to port 3003.
- *
- * On receiving a "state" event, it pushes the new LoopState into the
- * Zustand store so every dashboard component re-renders in real time.
- */
+/** Cap on reconnection attempts (audit H5). `Infinity` meant an endless
+ *  retry + console spam storm whenever the WS service was down — the
+ *  dashboard kept logging `connect_error` forever instead of settling
+ *  into the polling fallback. 20 attempts at ~1s backoff ≈ 20s of trying,
+ *  then socket.io gives up and the status polling in page.tsx takes over.
+ *  socket.io auto-reconnects on the next page load. */
+const MAX_RECONNECT_ATTEMPTS = 20;
+
+/** One-shot latch so the connect_error warning doesn't repeat. */
+let warnedOnce = false;
+
 export function useLoopSocket() {
   const setLoopState = usePipelineStore((s) => s.setLoopState);
   const setWsConnected = usePipelineStore((s) => s.setWsConnected);
@@ -23,23 +25,33 @@ export function useLoopSocket() {
       transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionDelay: 1000,
-      reconnectionAttempts: Infinity,
+      reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
     });
     socketRef.current = socket;
 
     socket.on("connect", () => {
       setWsConnected(true);
-      console.log("[LoopSocket] connected:", socket.id);
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[LoopSocket] connected:", socket.id);
+      }
     });
 
     socket.on("disconnect", (reason) => {
       setWsConnected(false);
-      console.log("[LoopSocket] disconnected:", reason);
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[LoopSocket] disconnected:", reason);
+      }
     });
 
     socket.on("connect_error", (err) => {
       setWsConnected(false);
-      console.warn("[LoopSocket] connect_error:", err.message);
+      // Warn ONCE per dead-service episode instead of every attempt —
+      // the polling fallback keeps the dashboard live, and the operator
+      // doesn't need 20 identical warnings in the browser console.
+      if (process.env.NODE_ENV !== "production" && !warnedOnce) {
+        warnedOnce = true;
+        console.warn("[LoopSocket] WS unavailable — falling back to status polling:", err.message);
+      }
     });
 
     socket.on("state", (state: LoopState) => {

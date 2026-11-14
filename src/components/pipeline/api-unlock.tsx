@@ -24,16 +24,41 @@
  * BIOS terminal. No blue/indigo.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 const STORAGE_KEY = "loopApiKey";
 const UNAUTHORIZED_EVENT = "loop-api-unauthorized";
 
+/** Subscribe to localStorage `storage` events (cross-tab changes of the
+ *  key). Same-tab programmatic writes don't fire it, but the panel only
+ *  reads this on mount/subscribe — the unlock flow reloads the page,
+ *  which re-reads fresh anyway. */
+function subscribeToStorage(callback: () => void): () => void {
+  window.addEventListener("storage", callback);
+  return () => window.removeEventListener("storage", callback);
+}
+
+/** Client snapshot: is a key stored? (localStorage can throw in private
+ *  browsing — treat as absent, same as the old try/catch.) */
+function readHasKeySnapshot(): boolean {
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export function ApiUnlock() {
   const [locked, setLocked] = useState(false);
-  // null until mounted (avoids SSR/hydration mismatch), then whether a
-  // key is already stored in localStorage.
-  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  // useSyncExternalStore is the blessed pattern for client-only values
+  // (the old version called setState synchronously inside useEffect —
+  // the exact cascade the react-hooks/set-state-in-effect rule flags).
+  // Server snapshot: false ("no key") avoids a hydration mismatch.
+  const hasKey = useSyncExternalStore(
+    subscribeToStorage,
+    readHasKeySnapshot,
+    () => false,
+  );
   // null until the healthz fetch lands, then whether the server's
   // middleware is actually configured to gate mutations (LOOP_API_KEY
   // is set in .env). The middleware fails OPEN when the env var is
@@ -45,21 +70,10 @@ export function ApiUnlock() {
   const [mutationGateConfigured, setMutationGateConfigured] = useState<boolean | null>(null);
   const [value, setValue] = useState("");
 
-  // Listen for 401s from the patched fetch; also detect whether a key is
-  // already stored (drives the subtle "not set" hint). The hint only shows
-  // when BOTH (a) no key is in localStorage AND (b) the server confirms
-  // it has LOOP_API_KEY configured — see mutationGateConfigured above.
+  // Listen for 401s from the patched fetch. (The hasKey read moved to
+  // useSyncExternalStore above; the hint shows when BOTH (a) no key is
+  // stored AND (b) the server confirms it has LOOP_API_KEY configured.)
   useEffect(() => {
-    // Check localStorage only on client side
-    if (typeof window !== "undefined") {
-      try {
-        setHasKey(window.localStorage.getItem(STORAGE_KEY) !== null);
-      } catch (error) {
-        // Handle potential localStorage access errors (e.g., private browsing mode)
-        setHasKey(false);
-      }
-    }
-    
     let cancelled = false;
     let abortController: AbortController | null = null;
     
@@ -82,7 +96,7 @@ export function ApiUnlock() {
       }
     };
 
-    checkHealthz().catch(error => {
+    checkHealthz().catch(() => {
       // Ensure we handle any uncaught promise rejections
       if (!cancelled) {
         setMutationGateConfigured(null);
@@ -137,14 +151,13 @@ export function ApiUnlock() {
     return (
       <div
         role="dialog"
-        aria-modal="true"
         aria-label="API locked — enter API key"
-        className="fixed bottom-3 sm:bottom-4 right-3 sm:right-4 z-50 w-[min(380px,92vw)] max-w-full border border-amber-500/70 bg-black/95 p-4 font-mono text-xs leading-relaxed text-emerald-400 shadow-[0_0_32px_rgba(0,0,0,0.9)] transition-opacity duration-200"
+        className="fixed bottom-4 right-4 z-50 w-[min(380px,92vw)] border border-amber-500/70 bg-black/95 p-4 font-mono text-xs leading-relaxed text-emerald-400 shadow-[0_0_32px_rgba(0,0,0,0.9)]"
       >
-        <div className="mb-2 border-b border-amber-500/40 pb-1 font-bold tracking-[0.2em] text-amber-400 text-sm">
+        <div className="mb-2 border-b border-amber-500/40 pb-1 font-bold tracking-[0.2em] text-amber-400">
           API LOCKED
         </div>
-        <p className="mb-3 text-emerald-300/90 text-sm">
+        <p className="mb-3 text-emerald-300/90">
           A mutating request was rejected (401). Enter the API key to unlock
           this terminal.
         </p>
@@ -156,7 +169,7 @@ export function ApiUnlock() {
         >
           <label
             htmlFor="api-unlock-key"
-            className="mb-1 block tracking-widest text-emerald-400 text-xs"
+            className="mb-1 block tracking-widest text-emerald-400"
           >
             ENTER API KEY
           </label>
@@ -170,14 +183,12 @@ export function ApiUnlock() {
               autoComplete="off"
               spellCheck={false}
               placeholder="••••••••••••"
-              aria-label="API Unlock Key Input"
-              className="min-w-0 flex-1 border border-emerald-800 bg-black px-2 py-1.5 font-mono text-emerald-300 caret-emerald-400 outline-none placeholder:text-emerald-900 focus:border-emerald-400 focus-visible:ring-1 focus-visible:ring-emerald-400 transition-colors duration-150"
+              className="min-w-0 flex-1 border border-emerald-800 bg-black px-2 py-1 font-mono text-emerald-300 caret-emerald-400 outline-none placeholder:text-emerald-900 focus:border-emerald-400"
             />
             <button
               type="submit"
               disabled={!value.trim()}
-              aria-label="Unlock API using entered key"
-              className="cursor-pointer border border-amber-500/70 bg-black px-3 py-1.5 font-mono tracking-widest text-amber-400 hover:bg-amber-500/10 active:scale-[0.98] transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-amber-500"
+              className="cursor-pointer border border-amber-500/70 bg-black px-3 py-1 font-mono tracking-widest text-amber-400 hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
               UNLOCK
             </button>
@@ -203,7 +214,7 @@ export function ApiUnlock() {
   // server ever rejects a mutation.
   if (hasKey === false && mutationGateConfigured === true) {
     return (
-      <div className="pointer-events-none fixed bottom-1.5 right-2 z-50 font-mono text-[10px] tracking-widest text-amber-600/50 sm:bottom-3 sm:right-4">
+      <div className="pointer-events-none fixed bottom-1.5 right-2 z-50 font-mono text-[10px] tracking-widest text-amber-600/50">
         API KEY NOT SET — MUTATIONS LOCKED
       </div>
     );

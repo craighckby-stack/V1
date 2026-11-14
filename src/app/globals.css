@@ -120,3 +120,117 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── Boot splash (bsp-*) — moved from boot-splash.tsx's inline <style>
+   (audit H2): the one dynamic rule (min-height by warm/cold) became the
+   bsp-post--cold / bsp-post--warm class variants so the whole block is
+   static CSS. */
+.bsp-root {
+          position: fixed; inset: 0; z-index: 1000;
+          background: #000; color: #ffb000;
+          font-family: 'Courier New', 'Lucida Console', monospace;
+          font-size: 13px; line-height: 1.55;
+          display: flex; align-items: center; justify-content: center;
+          overflow: hidden; cursor: pointer; user-select: none;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .bsp-crt { width: 100%; max-width: 980px; padding: 24px 28px; transform-origin: 50% 50%; }
+        .bsp-crt--flash { animation: bsp-on 700ms cubic-bezier(.2,.7,.3,1) both; }
+        .bsp-crt--exit  { animation: bsp-off 650ms ease-in both; }
+        .bsp-text { text-shadow: 0 0 8px rgba(255,176,0,.35), 0 0 2px rgba(255,176,0,.8); }
+        .bsp-post { white-space: pre; overflow-x: auto; }
+        .bsp-post--cold { min-height: 288px; }
+        .bsp-post--warm { min-height: 142px; }
+        .bsp-link { color: #ffd875; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+        .bsp-link:hover { color: #fff; text-shadow: 0 0 8px rgba(255,255,255,.4); }
+        .bsp-post::-webkit-scrollbar { height: 6px; }
+        .bsp-post::-webkit-scrollbar-thumb { background: rgba(255,176,0,.4); }
+        .bsp-post::-webkit-scrollbar-track { background: transparent; }
+        .bsp-dim { color: rgba(255,176,0,.55); }
+        .bsp-ok { color: #ffd875; }
+        .bsp-wait { color: #ff6a3d; }
+        .bsp-rule { color: rgba(255,176,0,.3); white-space: nowrap; overflow: hidden; margin: 6px 0; }
+        .bsp-logo {
+          margin: 0 auto 10px; font-family: inherit; font-size: clamp(6px, 2.4vw, 15px);
+          line-height: 1.06; white-space: pre; overflow: hidden;
+          text-shadow: -2px 0 rgba(255,70,0,.5), 2px 0 rgba(255,230,150,.35), 0 0 16px rgba(255,176,0,.45);
+        }
+        .bsp-jitter { animation: bsp-jitter 3.2s steps(2) infinite; }
+        .bsp-tagline { font-size: clamp(10px, 1.6vw, 14px); letter-spacing: 2px; margin-bottom: 4px; }
+        .bsp-invite { margin-top: 8px; }
+        .bsp-invite-actions { margin-top: 16px; display: flex; justify-content: center; }
+        .bsp-btn {
+          font-family: inherit; font-size: 15px; letter-spacing: 1px;
+          background: #000; color: #ffb000; border: 1px solid #ffb000;
+          padding: 12px 26px; cursor: pointer;
+          text-shadow: 0 0 10px rgba(255,176,0,.6);
+          animation: bsp-pulse 1.4s ease-in-out infinite;
+        }
+        .bsp-btn:hover, .bsp-btn:focus-visible {
+          background: #ffb000; color: #000; text-shadow: none;
+          box-shadow: 0 0 24px rgba(255,176,0,.55); outline: none;
+        }
+        .bsp-hint {
+          position: absolute; bottom: 18px; left: 0; right: 0;
+          text-align: center; font-size: 11px; letter-spacing: 1px;
+          animation: bsp-blink 1.2s steps(1) infinite;
+        }
+        .bsp-selfscan { letter-spacing: 2px; }
+        .bsp-cursor { animation: bsp-blink .9s steps(1) infinite; }
+        @keyframes bsp-on {
+          0%   { transform: scaleY(.003) scaleX(.7); filter: brightness(24); }
+          30%  { transform: scaleY(.003) scaleX(1);  filter: brightness(18); }
+          55%  { transform: scaleY(1);               filter: brightness(3.2); }
+          75%  { filter: brightness(1.6); }
+          100% { transform: none; filter: none; }
+        }
+        @keyframes bsp-off {
+          0%   { transform: none; filter: none; opacity: 1; }
+          55%  { transform: scaleY(.004); filter: brightness(14); opacity: 1; }
+          78%  { transform: scaleY(.004) scaleX(.002); filter: brightness(30); opacity: 1; }
+          100% { transform: scaleY(.001) scaleX(.001); filter: brightness(40); opacity: 0; }
+        }
+        @keyframes bsp-pulse {
+          0%, 100% { box-shadow: 0 0 8px rgba(255,176,0,.15); }
+          50%      { box-shadow: 0 0 22px rgba(255,176,0,.45); }
+        }
+        @keyframes bsp-blink { 0%, 60% { opacity: 1; } 61%, 100% { opacity: .25; } }
+        @keyframes bsp-jitter {
+          0%, 92%, 100% { transform: none; }
+          93% { transform: translate(1px,-1px) skewX(.4deg); }
+          96% { transform: translate(-1px,1px); }
+        }
+        .bsp-scan {
+          position: absolute; inset: 0; pointer-events: none;
+          background: repeating-linear-gradient(0deg, rgba(0,0,0,.28) 0 1px, transparent 1px 3px);
+        }
+        .bsp-band {
+          position: absolute; left: 0; right: 0; top: -140px; height: 120px; pointer-events: none;
+          background: linear-gradient(180deg, transparent, rgba(255,176,0,.05), transparent);
+          animation: bsp-band 7s linear infinite;
+        }
+        .bsp-flicker {
+          position: absolute; inset: 0; pointer-events: none;
+          background: #ffb000; mix-blend-mode: overlay; opacity: 0;
+          animation: bsp-flicker 4s steps(1) infinite;
+        }
+        .bsp-vignette {
+          position: absolute; inset: 0; pointer-events: none;
+          background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%);
+        }
+        @keyframes bsp-band { from { top: -140px; } to { top: 110%; } }
+        @keyframes bsp-flicker {
+          0%, 96%, 100% { opacity: 0; }
+          97% { opacity: .02; } 98% { opacity: .04; } 99% { opacity: .02; }
+        }
+
+        @media (max-width: 640px) {
+          .bsp-crt { padding: 10px 8px; font-size: 8px; }
+        }
+        @media (max-width: 360px) {
+          .bsp-crt { padding: 8px 6px; font-size: 7px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .bsp-crt--flash, .bsp-crt--exit, .bsp-band, .bsp-flicker,
+          .bsp-btn, .bsp-jitter, .bsp-hint { animation: none !important; }
+        }

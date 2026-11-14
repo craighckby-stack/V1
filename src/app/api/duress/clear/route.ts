@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { clearSafeMode } from "@/lib/pipeline/core/duress";
+import { parseOptionalBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const duressClearSchema = z.object({
+  by: z.string().min(1).max(60).optional(),
+});
 
 /**
  * POST /api/duress/clear
@@ -18,15 +24,7 @@ export const runtime = "nodejs";
  */
 export async function POST(req: Request) {
   try {
-    let by = "operator";
-    try {
-      const body = await req.json();
-      if (body && typeof body.by === "string" && body.by.trim()) {
-        by = body.by.trim().slice(0, 60);
-      }
-    } catch {
-      /* no body — use default */
-    }
+    const { by } = await parseOptionalBody(req, duressClearSchema, { by: "operator" });
     const result = await clearSafeMode(by);
     return NextResponse.json({ ok: true, cleared: result.cleared });
   } catch (err) {

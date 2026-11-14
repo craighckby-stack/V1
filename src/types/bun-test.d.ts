@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- this stub's PURPOSE
+ * is loose typing for the test surface (see the matcher comment below);
+ * precision here would either be huge or wrong. */
 /**
  * Ambient type declarations for bun:test (the bun test runner's import
  * surface).

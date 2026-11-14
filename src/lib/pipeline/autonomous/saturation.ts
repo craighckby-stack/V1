@@ -77,6 +77,45 @@ export const TARGET_FILES: string[] = [];
 export const SCAN_SCOPES: Array<{ dir: string; extensions: string[] }> = [
   { dir: "src/lib/pipeline", extensions: [".ts"] },
   { dir: "src/app", extensions: [".ts", ".tsx"] },
+  // ── Audit 9 (scope widening): the loop is mature — per-range calibrated
+  // predictions, momentum-weighted targets, a probe-scored skip rule, and
+  // 460+ landed mutations behind the full gate chain (mutation-guard →
+  // syntax → structural → full-project typecheck → debate → test). The
+  // operator asked what else it can now safely own. Four additions, each
+  // verified to pass the SAME gate chain before being scoped:
+  //
+  // 1. ITS OWN DASHBOARD PANELS (src/components/pipeline, .tsx). The
+  //    visual-polish pre-pass (every 5th cycle) already touches these;
+  //    main-line scoping adds the refactor/bug-hunt treatment. page.tsx
+  //    (the control surface) stays protected — the loop improves how
+  //    things look and handle, never its own OFF switch.
+  { dir: "src/components/pipeline", extensions: [".tsx"] },
+  // 2. THE REAL-TIME + UI HOOKS (src/hooks, .ts). use-loop-socket.ts is
+  //    the WebSocket wiring the console depends on; small, hot-path, and
+  //    fully covered by the typecheck gate.
+  { dir: "src/hooks", extensions: [".ts"] },
+  // 3. ROOT UTILITIES (src/lib, .ts) — pipeline-store (the Zustand store
+  //    the whole UI reads), retro-boot-audio, utils. db.ts is in
+  //    PROTECTED_FILES (one mutation there breaks every db.* call site at
+  //    once). Overlaps src/lib/pipeline by construction; scanFiles
+  //    dedupes.
+  { dir: "src/lib", extensions: [".ts"] },
+  // 4. THE LOOP'S OWN HOST PROCESSES (mini-services, .ts). The worker
+  //    (port 3004) IS the loop's runtime body; the ws-service (3005) is
+  //    the console's real-time sidecar. Both are no-exports scripts — the
+  //    structural validator handles them (dropped-export set is empty),
+  //    and both were pipe-tested through verify-refactor BEFORE this
+  //    scope landed (ok:true). Mutations take effect at the next respawn
+  //    — the worker deliberately runs without --hot, so a landed change
+  //    can NEVER abort an in-flight gate chain. A boot-breaking mutation
+  //    is the one residual risk; it is loud (worker.log + the UI's worker
+  //    status) and recoverable (git revert / merge-back), and the
+  //    full-project typecheck makes it unlikely.
+  //    Scoped PER-SERVICE, not mini-services/ wholesale — the walker's
+  //    SKIP_DIRS now excludes node_modules, but per-service scoping also
+  //    keeps future mini-services out until they're vetted.
+  { dir: "mini-services/loop-worker", extensions: [".ts"] },
+  { dir: "mini-services/loop-ws-service", extensions: [".ts"] },
 ];
 
 /** The Prisma schema — handled as a special single-file scope. Not a

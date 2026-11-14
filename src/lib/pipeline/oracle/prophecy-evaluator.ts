@@ -24,7 +24,7 @@
  * generator and the debate tribunal.
  */
 
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { readFileSync, existsSync } from "fs";
 import { llmComplete } from "../llm/agent-llm";
 import { listDueProphecies, judgeProphecy } from "./prophecy-store";
@@ -89,14 +89,21 @@ async function gatherEvidenceFor(prophecy: Prophecy): Promise<string> {
   try {
     let log: string;
     if (prophecy.contextSha) {
-      log = execSync(
-        `git -C ${PROJECT_ROOT} log --oneline ${prophecy.contextSha}..HEAD 2>/dev/null | head -n ${MAX_NEW_COMMITS}`,
-        { encoding: "utf-8", timeout: 5000 },
-      ).trim();
+      // argv form — contextSha is DB-sourced and could be influenced by a
+      // malicious history-gather; execFileSync never interprets
+      // metacharacters.
+      log = execFileSync(
+        "git",
+        ["-C", PROJECT_ROOT, "log", "--oneline", `${prophecy.contextSha}..HEAD`],
+        { encoding: "utf-8", timeout: 5000, stdio: "pipe" },
+      ).split("\n").slice(0, MAX_NEW_COMMITS).join("\n").trim();
     } else {
-      log = execSync(
-        `git -C ${PROJECT_ROOT} log --oneline -n ${MAX_NEW_COMMITS} --since="${prophecy.createdAt.toISOString()}" 2>/dev/null`,
-        { encoding: "utf-8", timeout: 5000 },
+      // `--since` passed as an argv element, not interpolated into the
+      // shell — createdAt.toISOString() is type-safe (always ISO).
+      log = execFileSync(
+        "git",
+        ["-C", PROJECT_ROOT, "log", "--oneline", `-n`, String(MAX_NEW_COMMITS), `--since=${prophecy.createdAt.toISOString()}`],
+        { encoding: "utf-8", timeout: 5000, stdio: "pipe" },
       ).trim();
     }
     if (log) {

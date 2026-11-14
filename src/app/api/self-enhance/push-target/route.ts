@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import {
   getPushTargetPublic,
   setPushTarget,
   clearPushTarget,
 } from "@/lib/pipeline/autonomous/push-target";
+import { parseBody, REPO_REGEX } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -28,30 +30,34 @@ export async function GET() {
  * Verifies the token with GitHub, verifies (or auto-creates) the repo,
  * persists the target, and points the git `origin` remote at it.
  * createIfMissing defaults to true — when false, missing repos are rejected.
+ *
+ * Validation: `repo` is interpolated into `git remote add` URLs and GitHub
+ * REST URLs downstream — the old route took it as-is, so a value like
+ * `../victims/repo` could redirect API calls. The `^owner/name$` shape check
+ * blocks that. `token` is a PAT — capped at 500 chars to reject absurd
+ * inputs. `.strict()` rejects unknown keys so a body can't smuggle extra
+ * fields into the persisted target.
  */
+const pushTargetPostSchema = z.object({
+  repo: z.string().regex(REPO_REGEX, "repo must be 'owner/name'").max(100),
+  token: z.string().min(1).max(500),
+  isPublic: z.boolean().optional(),
+  createIfMissing: z.boolean().optional(),
+}).strict();
+
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as {
-      repo?: string;
-      token?: string;
-      isPublic?: boolean;
-      createIfMissing?: boolean;
-    };
+    const parsed = await parseBody(req, pushTargetPostSchema);
+    if (!parsed.ok) return parsed.response;
 
-    if (!body.repo || !body.token) {
-      return NextResponse.json(
-        { error: "Both repo and token are required" },
-        { status: 400 }
-      );
-    }
-
-    const createIfMissing = body.createIfMissing !== false; // default true
+    const { repo, token, isPublic, createIfMissing } = parsed.data;
+    const doCreate = createIfMissing !== false; // default true
 
     const result = await setPushTarget({
-      repo: body.repo,
-      token: body.token,
-      isPublic: Boolean(body.isPublic),
-      createIfMissing,
+      repo,
+      token,
+      isPublic: Boolean(isPublic),
+      createIfMissing: doCreate,
     });
 
     return NextResponse.json({
@@ -64,6 +70,8 @@ export async function POST(req: Request) {
         : `Connected to ${result.repo} as ${result.login}`,
     });
   } catch (err) {
+    // setPushTarget throws on auth/repo failures — 400 keeps the old
+    // contract the UI depends on (the panel reads `data.error`).
     return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 400 });
   }
 }

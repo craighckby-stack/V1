@@ -136,8 +136,9 @@ export function analyzeMergeBack(branchName: string): MergeBackPlan | null {
   const ref = `origin/${branch}`;
 
   try {
-    // Verify the ref exists (remote-tracking).
-    execSync(`git rev-parse --verify ${ref}`, {
+    // Verify the ref exists (remote-tracking). argv form — no shell, so
+    // a malformed branchName can't inject metacharacters.
+    execFileSync("git", ["rev-parse", "--verify", ref], {
       cwd: PROJECT_ROOT,
       encoding: "utf-8",
       timeout: 5000,
@@ -147,22 +148,22 @@ export function analyzeMergeBack(branchName: string): MergeBackPlan | null {
     return null;
   }
 
-  const branchSha = execSync(`git rev-parse --short ${ref}`, {
+  const branchSha = execFileSync("git", ["rev-parse", "--short", ref], {
     cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 5000, stdio: "pipe",
   }).trim();
-  const mainSha = execSync("git rev-parse --short main", {
+  const mainSha = execFileSync("git", ["rev-parse", "--short", "main"], {
     cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 5000, stdio: "pipe",
   }).trim();
 
   // Ahead/behind (left-right count: <main-unique> <ref-unique>).
-  const counts = execSync(`git rev-list --left-right --count main...${ref}`, {
+  const counts = execFileSync("git", ["rev-list", "--left-right", "--count", `main...${ref}`], {
     cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 10000, stdio: "pipe",
   }).trim().split(/\s+/);
   const commitsBehind = Number.parseInt(counts[0] ?? "0", 10) || 0;
   const commitsAhead = Number.parseInt(counts[1] ?? "0", 10) || 0;
 
   // Files that differ between main and the loop branch.
-  const diffOutput = execSync(`git diff --name-status main ${ref}`, {
+  const diffOutput = execFileSync("git", ["diff", "--name-status", "main", ref], {
     cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 10000, stdio: "pipe",
   }).trim();
 
@@ -208,8 +209,8 @@ export function analyzeMergeBack(branchName: string): MergeBackPlan | null {
   // ALL paths — augments the D-status src files captured above). These are
   // preserved by `theirs-for-source` (execute only checks out A/M src/ files
   // from the loop branch, never deletes main's files).
-  const mainOnlyOutput = execSync(
-    `git diff --name-only --diff-filter=A ${ref} main`,
+  const mainOnlyOutput = execFileSync(
+    "git", ["diff", "--name-only", "--diff-filter=A", ref, "main"],
     { cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 10000, stdio: "pipe" },
   ).trim();
   if (mainOnlyOutput.length > 0) {
@@ -265,7 +266,7 @@ export async function executeMergeBack(
   try {
     // 0. Verify the ref.
     try {
-      execSync(`git rev-parse --verify ${ref}`, {
+      execFileSync("git", ["rev-parse", "--verify", ref], {
         cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 5000, stdio: "pipe",
       });
     } catch {
@@ -301,8 +302,8 @@ export async function executeMergeBack(
     //    We capture per-file status (A vs M) so the abort path can restore
     //    correctly: M files get `git checkout main -- <f>`; A files (new on
     //    loop, don't exist on main) get `git reset HEAD -- <f>` + `rm <f>`.
-    const diffStatusOutput = execSync(
-      `git diff --name-status --diff-filter=AM main ${ref} -- src/`,
+    const diffStatusOutput = execFileSync(
+      "git", ["diff", "--name-status", "--diff-filter=AM", "main", ref, "--", "src/"],
       { cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 10000, stdio: "pipe" },
     ).trim();
     const fileStatus = new Map<string, "A" | "M">();

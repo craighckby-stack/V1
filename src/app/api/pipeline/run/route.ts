@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import {
   unifiedPipelineRunnerInstance,
   PipelineConfig,
   PipelineExecutionReport,
 } from "@/lib/pipeline/core/unified-pipeline";
 import { db } from "@/lib/db";
+import { parseBody, REPO_REGEX, isRepoRelativePath } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -17,17 +19,38 @@ export const runtime = "nodejs";
  * PipelineRun table (a durable audit trail queryable directly in the DB;
  * the unused /api/pipeline/history read route was removed in the endpoint
  * cleanup).
+ *
+ * Validation: `code` is arbitrary content that flows into the full pipeline
+ * (LLM, AST, sanitizer, sandbox tests). The old route did a bare cast — a
+ * missing `filePath` or a `../` traversal in it would flow downstream. The
+ * schema below caps `code` at 500KB (rejects absurd payloads), requires
+ * `targetRepo` to match `owner/name`, and forces `filePath` to be
+ * repo-relative. Optional fields with defaults remain optional; `.strict()`
+ * rejects unknown keys so a body can't smuggle extra fields into the
+ * persisted `PipelineRun` row.
  */
+const pipelineConfigSchema = z.object({
+  githubToken: z.string().max(500).optional(),
+  targetRepo: z.string().regex(REPO_REGEX, "targetRepo must be 'owner/name'").max(100),
+  targetBranch: z.string().min(1).max(100).optional(),
+  evolutionBranch: z.string().min(1).max(100).optional(),
+  filePath: z
+    .string()
+    .min(1)
+    .max(500)
+    .refine(isRepoRelativePath, "filePath must be repo-relative (no .. or leading /)"),
+  userPrompt: z.string().min(1).max(8000).optional(),
+  siphonSourceId: z.string().min(1).max(200).optional(),
+  code: z.string().min(1).max(500_000),
+  triggeredBy: z.enum(["manual", "autonomous", "watch", "continuous", "scheduled"]).optional(),
+}).strict();
+
 export async function POST(req: Request) {
   try {
-    const config = (await req.json()) as PipelineConfig;
+    const parsed = await parseBody(req, pipelineConfigSchema);
+    if (!parsed.ok) return parsed.response;
 
-    if (!config.targetRepo || !config.filePath || typeof config.code !== "string") {
-      return NextResponse.json(
-        { error: "targetRepo, filePath, and code are required" },
-        { status: 400 }
-      );
-    }
+    const config = parsed.data;
 
     // Apply sane defaults so callers can omit optional fields.
     const fullConfig: PipelineConfig = {

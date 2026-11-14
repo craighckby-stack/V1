@@ -1,23 +1,45 @@
 :81 {
-	@transform_port_query {
-		query XTransformPort=*
-	}
+		# Gateway reverse-proxy with port allowlist.
+		#
+		# The XTransformPort query param lets the frontend reach the
+		# mini-services (loop-ws-service on 3003, loop-worker on 3004) without
+		# writing the port into the URL. Without an allowlist ANY user could
+		# request ?XTransformPort=22 (or any internal service) and tunnel
+		# through the gateway to localhost — an SSRF pivot. The named matchers
+		# below pin the allowed ports; anything else falls through to the
+		# default Next.js handler.
 
-	handle @transform_port_query {
-		reverse_proxy localhost:{query.XTransformPort} {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
+		@transform_port_3003 {
+				query XTransformPort=3003
 		}
-	}
+		@transform_port_3004 {
+				query XTransformPort=3004
+		}
 
-	handle {
-		reverse_proxy localhost:3000 {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
+		handle @transform_port_3003 {
+				reverse_proxy localhost:3003 {
+						header_up Host {host}
+						header_up X-Forwarded-For {remote_host}
+						header_up X-Forwarded-Proto {scheme}
+						header_up X-Real-IP {remote_host}
+				}
 		}
-	}
+
+		handle @transform_port_3004 {
+				reverse_proxy localhost:3004 {
+						header_up Host {host}
+						header_up X-Forwarded-For {remote_host}
+						header_up X-Forwarded-Proto {scheme}
+						header_up X-Real-IP {remote_host}
+				}
+		}
+
+		handle {
+				reverse_proxy localhost:3000 {
+						header_up Host {host}
+						header_up X-Forwarded-For {remote_host}
+						header_up X-Forwarded-Proto {scheme}
+						header_up X-Real-IP {remote_host}
+				}
+		}
 }

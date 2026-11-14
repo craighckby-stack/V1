@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { runArchaeology, readArchaeologyReport } from "@/lib/pipeline/autonomous/archaeology";
+import { parseOptionalBody } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,15 +36,13 @@ export async function GET() {
   }
 }
 
+const archaeologyPostSchema = z.object({
+  force: z.boolean().optional(),
+});
+
 export async function POST(req: Request) {
   try {
-    let force = false;
-    try {
-      const body = (await req.json()) as { force?: boolean };
-      force = body.force === true;
-    } catch {
-      /* empty body is fine — force defaults to false */
-    }
+    const { force } = await parseOptionalBody(req, archaeologyPostSchema, { force: false });
     const report = await runArchaeology(force);
     return NextResponse.json({ ok: true, report });
   } catch (err) {

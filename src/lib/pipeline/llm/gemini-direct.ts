@@ -703,7 +703,12 @@ export async function geminiComplete(opts: {
           data: { lastError: result.error?.slice(0, 200) ?? "Gemini http error" },
         })
         .catch(() => {});
-      return { ...result, retries: attempt };
+      // Use the SAME accumulator as the sibling return paths above
+      // (L642, L655, L672). The old `attempt` was the INNER loop index,
+      // which resets to 0 per model in the cascade — a generic http error
+      // on the 3rd model after 4 total attempts would report `retries: 0`
+      // instead of the honest `retries: 3`.
+      return { ...result, retries: totalAttemptsUsed - 1 };
     }
     // Advanced to the next model in the cascade.
   }

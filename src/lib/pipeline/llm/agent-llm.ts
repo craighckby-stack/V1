@@ -93,7 +93,7 @@ function gateState(): LlmGateState {
     // needs the injection (one that booted before this change).
     g[LLM_GATE_SLOT].cortex = { state: "cold", injected: false };
   }
-  return g[LLM_GATE_SLOT]!;
+  return g[LLM_GATE_SLOT] as LlmGateState;
 }
 
 async function getZai(): Promise<ZAIType> {
@@ -192,6 +192,15 @@ export function llmGateInfo(): LlmGateInfo {
 // loop's own throttling (the LLM CORTEX splash line already reports
 // the gate). Never throws, never blocks: fire-and-forget.
 const CORTEX_PING_TIMEOUT_MS = 20_000;
+
+/** Minimal structural type for the SDK's chat-completion response (audit
+ *  H8 — the widened-view cast below used to return `Promise<any>`, which
+ *  left `completion` fully untyped through the choices/content extraction.
+ *  Only the fields we actually read are declared. */
+interface ZaiChatCompletion {
+  choices?: Array<{ message?: { content?: string } }>;
+  model?: string;
+}
 const CORTEX_ERROR_RETRY_MS = 30_000;
 
 /** Idempotent, throttled, fire-and-forget. Safe to call from
@@ -217,7 +226,7 @@ export function warmZaiCortex(): void {
       const createWithOptions = zai.chat.completions.create as unknown as (
         body: Parameters<typeof zai.chat.completions.create>[0],
         options?: { signal?: AbortSignal }
-      ) => Promise<any>;
+      ) => Promise<ZaiChatCompletion>;
       const signal = AbortSignal.timeout(CORTEX_PING_TIMEOUT_MS);
       const completion = await Promise.race([
         createWithOptions(
@@ -541,7 +550,7 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
       const createWithOptions = zai.chat.completions.create as unknown as (
         body: Parameters<typeof zai.chat.completions.create>[0],
         options?: { signal?: AbortSignal }
-      ) => Promise<any>;
+      ) => Promise<ZaiChatCompletion>;
       const callPromise = createWithOptions(
         createParams,
         // Not in the SDK's type surface (v0.0.18): standard fetch request

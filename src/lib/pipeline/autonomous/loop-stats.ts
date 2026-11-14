@@ -72,20 +72,20 @@ export function writeLoopStats(state: LoopStatsState): void {
   
   // Validate input state before attempting to write
   if (!state || typeof state !== "object" || state === null) {
-    console.error("writeLoopStats: invalid state object provided. State must be a non-null object.");
+    console.error("writeLoopStats: invalid state object provided");
     return;
   }
   
   // Check for presence of all required fields
   for (const field of NUMERIC_FIELDS) {
     if (!(field in state)) {
-      console.error(`writeLoopStats: missing required field ${field} in state object. State keys: ${Object.keys(state).join(', ')}`);
+      console.error(`writeLoopStats: missing required field ${field} in state object`);
       return;
     }
   }
   
   if (!('lastEnhancementAt' in state)) {
-    console.error("writeLoopStats: missing required field lastEnhancementAt in state object.");
+    console.error("writeLoopStats: missing required field lastEnhancementAt in state object");
     return;
   }
   
@@ -98,7 +98,7 @@ export function writeLoopStats(state: LoopStatsState): void {
       v < 0 ||
       !Number.isInteger(v)
     ) {
-      console.error(`writeLoopStats: invalid value for field ${field}: ${v}. Must be a finite, non-negative integer.`);
+      console.error(`writeLoopStats: invalid value for field ${field}: ${v}`);
       return;
     }
   }
@@ -106,7 +106,7 @@ export function writeLoopStats(state: LoopStatsState): void {
   // Validate lastEnhancementAt
   const ts = state.lastEnhancementAt;
   if (ts !== null && (typeof ts !== "string" || isNaN(Date.parse(ts)))) {
-    console.error(`writeLoopStats: invalid lastEnhancementAt value: ${ts}. Must be a valid ISO string or null.`);
+    console.error(`writeLoopStats: invalid lastEnhancementAt value: ${ts}`);
     return;
   }
   

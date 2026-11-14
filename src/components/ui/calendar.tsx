@@ -28,7 +28,7 @@ function Calendar({
   if (!["label", "rounded-md"].includes(captionLayout as CaptionLayout)) {
     throw new Error(`Invalid captionLayout provided: "${captionLayout}". Must be "label" or "rounded-md".`)
   }
-  if (!buttonVariant || !["default", "outline", "ghost", "link", "secondary", "destructive"].includes(buttonVariant as any)) {
+  if (!buttonVariant || !["default", "outline", "ghost", "link", "secondary", "destructive"].includes(buttonVariant as string)) {
     // Assuming standard button variants from shadcn/ui implementation
     throw new Error(`Invalid buttonVariant provided: "${buttonVariant}". Must be one of the supported variants (e.g., "ghost").`)
   }

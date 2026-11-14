@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getUsableToken, githubHeaders } from "@/lib/pipeline/api/github-helpers";
+import { parseBody, REPO_REGEX } from "@/lib/api/validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,32 +21,28 @@ interface GitHubTreeResponse {
   truncated: boolean;
 }
 
-interface RepoTreeRequest {
-  repo: string;
-  branch?: string;
-  token?: string;
-}
-
 interface RepoFileEntry {
   path: string;
   sha: string;
   size?: number;
 }
 
+const repoTreeSchema = z.object({
+  repo: z.string().regex(REPO_REGEX, "repo must be 'owner/name'").max(100),
+  branch: z.string().min(1).max(100).optional(),
+  token: z.string().min(1).max(500).optional(),
+}).strict();
+
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as RepoTreeRequest;
-    if (!body.repo) {
-      return NextResponse.json(
-        { error: "repo is required (format: owner/name)" },
-        { status: 400 }
-      );
-    }
+    const parsed = await parseBody(req, repoTreeSchema);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
     const branch = body.branch || "main";
     const token = getUsableToken(body.token);
 
     let res = await fetch(
-      `https://api.github.com/repos/${body.repo}/git/trees/${branch}?recursive=1`,
+      `https://api.github.com/repos/${encodeURIComponent(body.repo)}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
       { headers: githubHeaders(token) }
     );
     let resolvedBranch = branch;
@@ -52,7 +50,7 @@ export async function POST(req: Request) {
     if (!res.ok && branch === "main") {
       // Fall back to "master" if the default branch isn't "main".
       res = await fetch(
-        `https://api.github.com/repos/${body.repo}/git/trees/master?recursive=1`,
+        `https://api.github.com/repos/${encodeURIComponent(body.repo)}/git/trees/master?recursive=1`,
         { headers: githubHeaders(token) }
       );
       resolvedBranch = "master";

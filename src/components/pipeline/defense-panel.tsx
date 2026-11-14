@@ -401,7 +401,7 @@ export function DefensePanel({ open, onClose }: Props) {
                     <span style={{ color: verdictColor(p.verdict), fontWeight: "bold" }}>{p.verdict.padEnd(8)}</span>
                     <span style={{ color: PROMPT_COLOR }}> {p.probeName}</span>
                     <span style={{ color: DIM_COLOR }}> ({p.target}, {p.latencyMs}ms)</span>
-                    {p.refusalSignal && <span style={{ color: OK_COLOR }}> · refused: "{p.refusalSignal}"</span>}
+                    {p.refusalSignal && <span style={{ color: OK_COLOR }}> · refused: &quot;{p.refusalSignal}&quot;</span>}
                     {p.complySignal && <span style={{ color: ERROR_COLOR }}> · BYPASS: {p.complySignal}</span>}
                     {p.error && <span style={{ color: ERROR_COLOR }}> · err: {p.error.slice(0, 80)}</span>}
                   </div>
