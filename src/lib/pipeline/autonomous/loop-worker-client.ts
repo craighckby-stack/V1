@@ -145,12 +145,11 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     spawnSuccessful = true;
   } catch (error) {
     console.error("Failed to spawn loop worker:", error);
-    // If spawning fails, we must reset isSpawning if we set it to true
-    isSpawning = false;
+    // If spawning fails, isSpawning will be reset in finally block
     return false;
   } finally {
-    // Reset isSpawning only if it was set to true in this attempt and the attempt finished.
-    if (isSpawning && !spawnSuccessful) {
+    // Reset isSpawning if it was set to true at the start of this attempt.
+    if (isSpawning) {
         isSpawning = false;
     }
   }
@@ -170,10 +169,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     }
   }
   
-  // If loop finishes without success, ensure isSpawning is reset if it's still true
-  if (isSpawning) {
-      isSpawning = false;
-  }
+  // If loop finishes without success, isSpawning was already reset in finally block
   return false;
 }
 
