@@ -19,7 +19,7 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
     if (!start || text.length === 0 || ms <= 0) return;
     const total = text.length;
     const t0 = performance.now();
-    let raf = 0;
+    let raf: number;
     const tick = (now: number) => {
       const p = Math.min(1, (now - t0) / ms);
       const solved = Math.floor(p * total);
