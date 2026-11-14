@@ -70,6 +70,7 @@ export function ApiUnlock() {
     
     const checkHealthz = async () => {
       if (mutationGateConfigured !== null) return; // Already determined
+      if (typeof window === "undefined") return; // Safety check for async context
       
       abortController = new AbortController();
       try {
@@ -111,7 +112,7 @@ export function ApiUnlock() {
       }
       window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     };
-  }, []); // Removed mutationGateConfigured from dependency array as it is the state being set
+  }, [mutationGateConfigured]); // Added mutationGateConfigured to dependency array
 
   // Escape dismisses the panel until the next 401.
   useEffect(() => {
