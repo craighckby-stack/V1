@@ -32,9 +32,9 @@ export async function GET() {
     }
 
     const sources: CatalogEntry[] = SIPHON_SOURCES.map((source) => {
-      if (!source || !source.patterns) {
+      if (!source || !Array.isArray(source.patterns)) {
         // Throwing here will be caught by the outer try/catch
-        throw new Error(`Invalid siphon source found: source object is missing required 'patterns' property. Source data: ${JSON.stringify(source)}`);
+        throw new Error(`Invalid siphon source found: source object is missing required or invalid 'patterns' property. Source data: ${JSON.stringify(source)}`);
       }
       
       return {
