@@ -72,7 +72,7 @@ export async function workerFetch<T = unknown>(
     if (res.ok) {
         try {
           data = await res.json();
-        } catch (e) {
+        } catch {
           // Failed to parse JSON on a successful response. Data remains null.
           data = null;
         }
@@ -111,7 +111,6 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   if (Date.now() - lastSpawnAt < 10_000 || isSpawning) return false;
   
   lastSpawnAt = Date.now();
-  const wasSpawning = isSpawning;
   isSpawning = true;
 
   let spawnSuccessful = false;

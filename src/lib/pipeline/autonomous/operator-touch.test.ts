@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import * as fs from "fs";
 import * as path from "path";
 import { PROJECT_ROOT } from "../core/paths";
-import { markOperatorTouch, readOperatorTouch, isDeadMansTripped, DEFAULT_DEAD_MANS_THRESHOLD_MS, type OperatorTouchState } from "./operator-touch";
+import { markOperatorTouch, readOperatorTouch, isDeadMansTripped, DEFAULT_DEAD_MANS_THRESHOLD_MS } from "./operator-touch";
 
 describe("operator-touch", () => {
   test("DEFAULT_DEAD_MANS_THRESHOLD_MS is 24 hours in milliseconds", () => {

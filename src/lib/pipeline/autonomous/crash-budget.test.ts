@@ -7,7 +7,6 @@ import {
 } from "./crash-budget";
 import {
   existsSync,
-  readFileSync,
   writeFileSync,
   unlinkSync,
   copyFileSync,

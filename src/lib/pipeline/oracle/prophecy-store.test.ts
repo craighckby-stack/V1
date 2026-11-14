@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createProphecy, listPendingProphecies, listDueProphecies, listRecentProphecies, getProphecy, judgeProphecy, getProphecyCounts, getJudgedPropheciesForCalibration, type ProphecyRow } from "./prophecy-store";
+import { createProphecy, listPendingProphecies, listDueProphecies, listRecentProphecies, getProphecy, judgeProphecy, getProphecyCounts, getJudgedPropheciesForCalibration } from "./prophecy-store";
 
 describe("prophecy-store", () => {
   // Test createProphecy

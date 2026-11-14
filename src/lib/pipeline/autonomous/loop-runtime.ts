@@ -22,6 +22,7 @@ import { db } from "@/lib/db";
 import { postmortemStore, generatePostmortemFromReport } from "../postmortem/postmortem-store";
 import { autoProphecyAfterCycle } from "../oracle/oracle-auto";
 import { isSafeMode, getSafeModeState } from "../core/duress";
+import type { LoopSnapshot } from "../core/hot-swap";
 // Retention helpers (audit 4 — grow-only sweep): bounded growth for the
 // AutonomousCycle + PipelineRun tables the loop writes to. Fire-and-
 // forget; a prune failure never fails the cycle that triggered it.
@@ -375,13 +376,13 @@ class AutonomousLoopRuntime {
    * safe-mode fix (see core/duress.ts). */
   private static readonly AUTO_ARM_FLAG = "__loopAutoArmFired";
   private autoArmAlreadyFired(): boolean {
-    return !!(globalThis as any)[AutonomousLoopRuntime.AUTO_ARM_FLAG];
+    return !!(globalThis as unknown as Record<string, boolean>)[AutonomousLoopRuntime.AUTO_ARM_FLAG];
   }
   private markAutoArmFired(): void {
-    (globalThis as any)[AutonomousLoopRuntime.AUTO_ARM_FLAG] = true;
+    (globalThis as unknown as Record<string, boolean>)[AutonomousLoopRuntime.AUTO_ARM_FLAG] = true;
   }
   private resetAutoArmFlag(): void {
-    (globalThis as any)[AutonomousLoopRuntime.AUTO_ARM_FLAG] = false;
+    (globalThis as unknown as Record<string, boolean>)[AutonomousLoopRuntime.AUTO_ARM_FLAG] = false;
   }
 
   constructor() {
@@ -402,13 +403,13 @@ class AutonomousLoopRuntime {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { consumeStashedSnapshot } = require("../core/hot-swap") as {
-        consumeStashedSnapshot?: () => any;
+        consumeStashedSnapshot?: () => LoopSnapshot | null;
       };
       if (typeof consumeStashedSnapshot === "function") {
         const snap = consumeStashedSnapshot();
         if (snap) {
           if (snap.config) {
-            this.config = { ...this.config, ...snap.config };
+            this.config = { ...this.config, ...snap.config } as LoopConfig;
           }
           if (snap.stats) {
             this.stats = { ...this.stats, ...snap.stats };
@@ -489,7 +490,7 @@ class AutonomousLoopRuntime {
           // Re-check the pin: if another instance already armed + is
           // running, this one should no-op. The pin is set by the
           // singleton export below.
-          const g = globalThis as unknown as { __autonomousLoopRuntime?: any };
+          const g = globalThis as unknown as { __autonomousLoopRuntime?: AutonomousLoopRuntime };
           if (g.__autonomousLoopRuntime && g.__autonomousLoopRuntime !== this) {
             // Another instance won the race. Don't arm a second timer.
             return;
@@ -1908,7 +1909,6 @@ class AutonomousLoopRuntime {
       rawContent,
       evolvedCode,
       baseSha,
-      cycleId,
       cycleNumber,
       proofHash,
       astScore,

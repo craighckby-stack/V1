@@ -215,7 +215,6 @@ function kindInstruction(kind: string, evidence: string): string {
  * LLM: focused single-task fix. Output must be the COMPLETE updated file.
  */
 async function executeViaLlm(task: TaskRow, code: string): Promise<TaskExecutionResult> {
-  const absPath = join(PROJECT_ROOT, task.filePath);
   const postmortem = await postmortemStore.getConstraintsForFile("self", "main", task.filePath);
 
   const system = `You are a precise code-repair agent. You fix exactly ONE issue in a TypeScript file.

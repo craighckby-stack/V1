@@ -186,11 +186,11 @@ export function formatLessonsBlock(ls: LessonRow[]): string {
   if (ls.length === 0) return "";
   const sorted = [...ls].sort((a, b) => b.score - a.score);
   const demoted = new Set<string>();
-  let header =
+  const header =
     `\n--- LEARNED LESSONS (general rules this system distilled from its own history) ---\n` +
     `These rules were extracted from this codebase's accumulated failure and success history.\n` +
     `Follow them unless they directly contradict the file-specific constraints above.\n`;
-  let footer = `\n--- END LEARNED LESSONS ---\n`;
+  const footer = `\n--- END LEARNED LESSONS ---\n`;
   let body = renderLines(sorted, demoted).join("\n");
   while (header.length + body.length + footer.length > LESSONS_PROMPT_BUDGET && demoted.size < sorted.length) {
     // Demote the lowest-score lesson not yet demoted.

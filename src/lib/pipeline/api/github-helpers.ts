@@ -5,9 +5,6 @@ const API_ACCEPT_HEADER = "application/vnd.github.v3+json";
 const INVALID_TOKEN_PREFIXES = ["MY_"] as const;
 const INVALID_TOKEN_VALUES = ["undefined", "[REDACTED]"] as const;
 
-type InvalidTokenPrefix = typeof INVALID_TOKEN_PREFIXES[number];
-type InvalidTokenValue = typeof INVALID_TOKEN_VALUES[number];
-
 function isInvalidToken(token: string): boolean {
   if (typeof token !== 'string' || !token) {
     return true;

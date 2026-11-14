@@ -17,7 +17,6 @@ describe("Calendar", () => {
     // We can't test the actual rendering without a DOM, but we can verify the component accepts these props
     // In a real implementation, we might use a testing library to render and check the DOM
     expect(() => {
-      // @ts-expect-error - We're testing that the component accepts these props without error
       <Calendar {...calendarProps} />;
     }).not.toThrow();
   });
@@ -66,7 +65,6 @@ describe("Calendar", () => {
     };
     
     expect(() => {
-      // @ts-expect-error - We're testing that the component accepts these props without error
       <Calendar formatters={customFormatters} />;
     }).not.toThrow();
   });
@@ -80,7 +78,6 @@ describe("Calendar", () => {
     };
     
     expect(() => {
-      // @ts-expect-error - We're testing that the component accepts these props without error
       <Calendar components={customComponents} />;
     }).not.toThrow();
   });

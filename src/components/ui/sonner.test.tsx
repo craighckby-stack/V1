@@ -15,7 +15,6 @@ describe("Toaster", () => {
     // without throwing an error. We can't directly test the rendering in unit tests,
     // but we can verify the component accepts the props structure.
     expect(() => {
-      // @ts-expect-error - We're testing runtime behavior, not type checking
       const toaster = <Toaster {...testProps} />;
       return toaster;
     }).not.toThrow();
@@ -30,7 +29,6 @@ describe("Toaster", () => {
     
     // This verifies the theme prop structure is correctly passed
     expect(() => {
-      // @ts-expect-error - Testing runtime behavior
       const toaster = <Toaster {...themeProps} />;
       return toaster;
     }).not.toThrow();
@@ -55,7 +53,6 @@ describe("Toaster", () => {
   test("applies 'toaster group' className", () => {
     // The component always applies the "toaster group" className
     expect(() => {
-      // @ts-expect-error - Testing runtime behavior
       const toaster = <Toaster />;
       return toaster;
     }).not.toThrow();

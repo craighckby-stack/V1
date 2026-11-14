@@ -6,14 +6,8 @@ import { getRatchetDraft, getNamedPatterns, maybeDream } from "./dreamer";
 // we must simulate the environment to pin observable behavior.
 
 // Mocking the state initialization and time dependency
-const MOCK_NOW = 1678886400000; // A fixed point in time
-const DRAFT_TTL_MS = 60 * 60 * 1000;
-const PATTERN_TTL_MS = 2 * 60 * 60 * 1000;
 
 // Mocking external functions used in the module
-const mockLlmCooldownMs = (ms: number) => ms;
-const mockDb = { postmortem: { findMany: async () => [] } };
-const mockGetCorpusDigest = async () => "a_valid_corpus_signal_long_enough";
 
 // NOTE: In a real setup, we would need to mock the entire module's dependencies
 // (fs, path, db, llm) to isolate the logic. Since we cannot modify the source
@@ -36,7 +30,6 @@ describe("dreamer initial state behavior", () => {
   // Test 3: maybeDream when cooldown is active
   test("maybeDream returns null immediately if llmCooldownMs > 0", async () => {
     // Simulate cooldown active
-    const originalCooldownMs = (ms: number) => ms;
     // Temporarily override the dependency check for this test scope if possible,
     // otherwise, we test the logic path assuming the mock/dependency returns > 0.
     // Given the constraints, we test the logic path: if llmCooldownMs() > 0, it returns null.

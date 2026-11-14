@@ -31,7 +31,6 @@ import {
   TARGET_FILES,
   SCAN_SCOPES,
   SCHEMA_TARGET,
-  SATURATION_THRESHOLD,
   getSaturationThreshold,
   type FileSaturation,
   type SaturationMap,
@@ -118,16 +117,12 @@ import { isSafeMode } from "../core/duress";
 // dead after a dev-server reload without this persistence tier.
 import {
   readSelfEnhanceArmedState,
-  markSelfEnhanceArmed,
   type SelfEnhanceArmedState,
 } from "./self-enhance-armed-state";
 // Audit 3 (F10): serialize live-tree writes against chat-task's
 // applyTaskPlan — two independent writers previously raced (its rollback
 // could silently revert a gated, already-pushed enhancement).
 import { withTreeLock } from "../core/tree-lock";
-
-const PIPELINE_SRC_DIR = join(PROJECT_ROOT, "src/lib/pipeline");
-const DISPLAY_SRC_DIR = join(PROJECT_ROOT, "src/app/display");
 
 /** D4 (corpus): 16-hex sha of a source string — compact provenance for
  *  "what did the file look like when this was attempted". */
@@ -1358,7 +1353,6 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
     // the per-mode stats (visual-polish vs refactor) into the calibration
     // curve. Serial loop ⇒ safe instance-field hand-off.
     this.lastAttemptMode = mode;
-    const startTime = Date.now();
     // Capture the current run generation. If stop() fires during this
     // enhanceFile (incrementing runId), we abort at the next checkpoint
     // (after the ratchet, before the LLM enhance call) instead of running
