@@ -31,31 +31,34 @@ export async function GET() {
       );
     }
 
-    const sources: CatalogEntry[] = SIPHON_SOURCES.map((source) => {
-      if (!source || !Array.isArray(source.patterns)) {
-        // Throwing here will be caught by the outer try/catch
-        throw new Error(`Invalid siphon source found: source object is missing required or invalid 'patterns' property. Source data: ${JSON.stringify(source)}`);
-      }
-      
-      return {
-        source,
-        count: source.patterns.length,
-        complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
-        // Honest label: these are CONFIGURED siphon sources (declarative
-        // config), not verified-live remote repositories. No liveness probe
-        // is performed here, so we don't claim "active".
-        status: "configured",
-      };
-    });
+    const sources: CatalogEntry[] = SIPHON_SOURCES
+      .map((source) => {
+        if (!source || !Array.isArray(source.patterns)) {
+          // Log the issue but skip the invalid source instead of throwing and failing the whole request
+          console.warn(`Invalid siphon source found and skipped: source object is missing required or invalid 'patterns' property. Source data: ${JSON.stringify(source)}`);
+          return null;
+        }
+        
+        return {
+          source,
+          count: source.patterns.length,
+          complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
+          // Honest label: these are CONFIGURED siphon sources (declarative
+          // config), not verified-live remote repositories. No liveness probe
+          // is performed here, so we don't claim "active".
+          status: "configured",
+        } as CatalogEntry;
+      })
+      .filter((source): source is CatalogEntry => source !== null);
     
     return NextResponse.json({ sources });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during catalog retrieval.";
-    // Log the detailed error internally for debugging, but return a generic message to the client.
-    console.error("Error retrieving siphon catalog:", errorMessage, err);
+    // Log the detailed error internally for debugging, providing context about the operation.
+    console.error("Error retrieving siphon catalog: Operation failed. Details:", errorMessage, err);
     
     return NextResponse.json(
-      { error: "Failed to retrieve catalog. Please check server logs for specific details." },
+      { error: "Failed to retrieve catalog due to a server error. Please check server logs for specific details." },
       { status: 500 }
     );
   }
