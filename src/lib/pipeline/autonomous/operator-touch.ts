@@ -102,7 +102,7 @@ export function readOperatorTouch(): OperatorTouchState | null {
     try {
       parsed = JSON.parse(raw);
     } catch (jsonError) {
-      console.error(`Failed to parse operator touch JSON at ${OPERATOR_TOUCH_FILE}: ${jsonError instanceof Error ? jsonError.message : 'Unknown error'}`);
+      console.error(`Failed to parse operator touch JSON at ${OPERATOR_TOUCH_FILE}: ${jsonError instanceof Error ? jsonError.message : 'Unknown JSON parsing error'}`);
       return null;
     }
 
@@ -126,7 +126,7 @@ export function readOperatorTouch(): OperatorTouchState | null {
       by: parsed.by,
     };
   } catch (error) {
-    // Catches file not found, read errors, JSON parsing errors
+    // Catches file not found, read errors
     if (error instanceof Error) {
       console.error(`Failed to read operator touch file at ${OPERATOR_TOUCH_FILE}: ${error.message}`);
     } else {
