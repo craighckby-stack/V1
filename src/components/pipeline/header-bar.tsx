@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 export function HeaderBar() {
   const wsConnected = usePipelineStore((s) => s.wsConnected);
   const loopState = usePipelineStore((s) => s.loopState);
+  
   const status = loopState?.status ?? "idle";
   const stats = loopState?.stats;
 
@@ -113,12 +114,12 @@ export function HeaderBar() {
           </Badge>
 
           {/* Cycle count */}
-          {stats && (
+          {stats && stats.totalRuns !== undefined && (
             <Badge
               variant="outline"
               className="text-[10px] uppercase tracking-widest bg-slate-900/60 text-amber-300 border-amber-700/40 whitespace-nowrap"
             >
-              cycles: <span className="ml-1 font-mono tabular-nums">{stats.totalRuns ?? 0}</span>
+              cycles: <span className="ml-1 font-mono tabular-nums">{stats.totalRuns}</span>
             </Badge>
           )}
         </div>
