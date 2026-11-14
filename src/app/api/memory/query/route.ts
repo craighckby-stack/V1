@@ -93,10 +93,10 @@ export async function GET(req: Request) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during memory query execution.";
     console.error("Error executing memory query:", err); // Log full error internally
     
-    // Return a clear, actionable error message to the client with a consistent 500 status.
+    // Return a generic, actionable error message to the client to prevent leaking internal stack traces or implementation details.
     return NextResponse.json(
       { 
-        error: `Failed to execute memory query due to an internal service error. Details: ${errorMessage}. Please check the query parameters and try again.`
+        error: "Failed to execute memory query due to an internal service error. Please check the query parameters and try again."
       }, 
       { status: 500 }
     );
