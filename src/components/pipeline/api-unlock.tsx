@@ -69,6 +69,8 @@ export function ApiUnlock() {
     let abortController: AbortController | null = null;
     
     const checkHealthz = async () => {
+      if (mutationGateConfigured !== null) return; // Already determined
+      
       abortController = new AbortController();
       try {
         const response = await fetch("/api/healthz", { 
@@ -76,7 +78,7 @@ export function ApiUnlock() {
           signal: abortController.signal 
         });
         if (!response.ok) {
-          setMutationGateConfigured(null);
+          // Non-2xx response means we cannot confirm configuration, keep it null (fail-safe)
           return;
         }
         const data = await response.json();
@@ -87,19 +89,20 @@ export function ApiUnlock() {
         if (typeof cfg === "boolean") {
           setMutationGateConfigured(cfg);
         } else {
+          // If structure is unexpected, treat as unconfirmed/not configured
           setMutationGateConfigured(null);
         }
       } catch (error) {
         if (!cancelled && error instanceof Error && error.name !== "AbortError") {
-          setMutationGateConfigured(null);
+          // Transient network error, keep state null (fail-safe)
         }
       }
     };
 
     checkHealthz().catch(() => {
-      // Ensure we handle any uncaught promise rejections
-      if (!cancelled) {
-        setMutationGateConfigured(null);
+      // Ensure we handle any uncaught promise rejections, but only if state isn't set
+      if (!cancelled && mutationGateConfigured === null) {
+        // If we reach here and state is still null, it's likely a transient error, so we do nothing (keep null)
       }
     });
 
@@ -113,7 +116,7 @@ export function ApiUnlock() {
       }
       window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     };
-  }, []);
+  }, [mutationGateConfigured]);
 
   // Escape dismisses the panel until the next 401.
   useEffect(() => {
