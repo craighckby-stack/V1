@@ -63,7 +63,7 @@ export function LogStream() {
         </div>
       </CardHeader>
       <CardContent className="flex-1 overflow-hidden p-0">
-        <ScrollArea className="h-[420px] px-6 pb-6">
+        <ScrollArea className="flex-1 px-6 pb-6">
           <div className="font-mono text-xs space-y-1.5">
             {logs.length === 0 ? (
               <div className="text-slate-600 italic py-8 text-center">
@@ -73,25 +73,25 @@ export function LogStream() {
               <AnimatePresence initial={false}>
                 {logs.map((entry) => {
                   // Safely access type with fallback
-                  const typeKey = entry.type && typeof entry.type === 'string' 
-                    ? entry.type as keyof typeof TYPE_ICON 
+                  const typeKey = (entry.type && typeof entry.type === 'string' && Object.keys(TYPE_ICON).includes(entry.type))
+                    ? entry.type as keyof typeof TYPE_ICON
                     : 'info';
                   const Icon = TYPE_ICON[typeKey] || Info;
                   const color = TYPE_COLOR[typeKey] || "text-slate-400";
                   
                   // Safely access source with fallback
-                  const sourceKey = entry.source && typeof entry.source === 'string'
+                  const sourceKey = (entry.source && typeof entry.source === 'string' && Object.keys(SOURCE_COLOR).includes(entry.source))
                     ? entry.source as keyof typeof SOURCE_COLOR
                     : 'pipeline';
                   const sourceColor = SOURCE_COLOR[sourceKey] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
                   
                   // Validate timestamp and provide fallback
-                  const timestamp = entry.timestamp && typeof entry.timestamp === 'string'
+                  const timestamp = (entry.timestamp && typeof entry.timestamp === 'string')
                     ? entry.timestamp
-                    : 'invalid timestamp';
+                    : 'unknown';
                   
-                  // Use a stable identifier from the log entry instead of array index for AnimatePresence key
-                  const key = timestamp + (entry.message || ''); 
+                  // Use a stable identifier. If an ID exists, use it. Otherwise, combine timestamp and message for uniqueness.
+                  const key = (entry as any).id || timestamp + (entry.message || ''); 
                   
                   return (
                     <motion.div
