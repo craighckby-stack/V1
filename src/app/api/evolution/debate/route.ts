@@ -18,8 +18,17 @@ interface DebateRequest {
  * returned honestly as a 500.
  */
 export async function POST(req: Request) {
+  let body: DebateRequest;
   try {
-    const body = (await req.json()) as DebateRequest;
+    body = (await req.json()) as DebateRequest;
+  } catch (e) {
+    return NextResponse.json(
+      { error: "Invalid JSON format in request body." },
+      { status: 400 }
+    );
+  }
+
+  try {
     if (!body.filePath || typeof body.filePath !== "string" || body.filePath.length === 0 || !body.candidateCode || typeof body.candidateCode !== "string" || body.candidateCode.length === 0) {
       return NextResponse.json(
         { error: "filePath and candidateCode are required, and both must be non-empty strings." },
