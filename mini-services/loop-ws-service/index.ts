@@ -149,14 +149,21 @@ async function pollNextJsState() {
     lastPollAt = new Date().toISOString();
     if (!res.ok) {
       nextJsReachable = false;
-      console.warn(`[LOOP-WS] /api/autonomous/status returned ${res.status}`);
+      console.warn(`[LOOP-WS] /api/autonomous/status returned ${res.status} status code.`);
       return;
     }
-    nextJsReachable = true;
     const newState = await res.json();
+    
+    // Input validation: Ensure newState is an object before proceeding
+    if (typeof newState !== 'object' || newState === null) {
+        console.error(`[LOOP-WS] Failed to parse state: API returned non-object data from ${NEXTJS_STATUS_URL}`);
+        nextJsReachable = false;
+        return;
+    }
+
     const newJson = JSON.stringify(newState);
     if (newJson !== cachedStateJson) {
-      cachedState = newState;
+      cachedState = newState as CachedState;
       cachedStateJson = newJson;
       io.emit("state", newState);
       const summary = `status=${newState?.status} mode=${newState?.config?.mode} totalRuns=${newState?.stats?.totalRuns}`;
@@ -166,7 +173,7 @@ async function pollNextJsState() {
     nextJsReachable = false;
     const errorMessage = err instanceof Error ? err.message : String(err);
     if (pollFailureCount % 10 === 0) {
-      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}): ${errorMessage}`);
+      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}): ${errorMessage}. Check if Next.js server is running at ${NEXTJS_STATUS_URL}`);
     }
     pollFailureCount++;
   }
@@ -186,9 +193,9 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`[LOOP-WS] WebSocket service listening on 0.0.0.0:${PORT}`);
   console.log(`[LOOP-WS] /health available at http://localhost:${PORT}/health`);
   console.log(`[LOOP-WS] Polling ${NEXTJS_STATUS_URL} every ${POLL_INTERVAL_MS}ms`);
-  pollNextJsState().catch(() => {});
+  pollNextJsState().catch((e) => console.error("[LOOP-WS] Initial poll failed:", e));
   setInterval(() => {
-    pollNextJsState().catch(() => {});
+    pollNextJsState().catch((e) => console.error("[LOOP-WS] Interval poll failed:", e));
   }, POLL_INTERVAL_MS);
 });
 
