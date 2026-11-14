@@ -40,16 +40,23 @@ export function OracleTaskFeedPanel() {
     setError(null);
     try {
       const response = await fetch("/api/self-enhance/tasks?limit=50");
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch tasks: HTTP ${response.status} ${response.statusText || ''}`);
+      }
       const data = await response.json();
+      
+      if (typeof data !== 'object' || data === null || !Array.isArray(data.tasks)) {
+        throw new Error("Invalid API response structure: 'tasks' array missing or malformed in response body.");
+      }
+
       // The API returns { tasks: [...], queue: {...} } — filter for the
       // oracle-failed-prophecy kind (the audit-8 closure: failed
       // prophecies that queued SelfTasks on the same file).
-      const allTasks: SelfTask[] = Array.isArray(data.tasks) ? data.tasks : [];
+      const allTasks: SelfTask[] = data.tasks;
       const oracleTasks = allTasks.filter((t) => t.kind === "oracle-failed-prophecy");
       setTasks(oracleTasks);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
+      const msg = err instanceof Error ? err.message : "An unknown error occurred during task fetching.";
       setError(msg);
       // Keep existing tasks on error — don't wipe the list on a transient failure
     } finally {
