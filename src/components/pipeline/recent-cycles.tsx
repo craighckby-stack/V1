@@ -30,12 +30,12 @@ export function RecentCycles() {
       }
       const data = await res.json();
       const apiResponse = data as { cycles: AutonomousCycleSummary[] };
-      if (!apiResponse || typeof apiResponse !== 'object' || !Array.isArray(apiResponse.cycles)) {
+      if (typeof apiResponse !== 'object' || apiResponse === null || !Array.isArray(apiResponse.cycles)) {
         throw new Error("Invalid API response: expected object containing a 'cycles' array.");
       }
       setFetched(apiResponse.cycles);
     } catch (error) {
-      console.error("Error refreshing recent cycles from API:", error);
+      console.error("Error refreshing recent cycles from API:", error instanceof Error ? error.message : String(error));
       setFetched([]);
     } finally {
       setLoading(false);
