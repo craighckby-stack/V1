@@ -31,15 +31,22 @@ export async function GET() {
     // Log the actual error for debugging purposes before sending a generic response
     if (err instanceof Error) {
       console.error("Error retrieving memory entries:", err.message, err.stack);
+      
+      // Provide actionable error context based on the caught error
+      const errorMessage = `Failed to access memory store: ${err.message}. Please check service logs for details.`;
+      return NextResponse.json(
+        { error: errorMessage },
+        { status: 500 }
+      );
     } else {
       console.error("Error retrieving memory entries:", err);
+      
+      // Provide actionable error context for non-Error objects
+      const errorMessage = "An unknown error occurred while accessing the memory store.";
+      return NextResponse.json(
+        { error: errorMessage },
+        { status: 500 }
+      );
     }
-
-    let errorMessage = "An error occurred while accessing the memory store.";
-    
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
-    );
   }
 }
