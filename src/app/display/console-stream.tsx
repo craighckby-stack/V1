@@ -172,8 +172,17 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
     // non-object entry would throw here, before the render-path guard
     // (below) ever runs. Same validity contract as the render guard.
     if (!l || typeof l !== "object" || !l.id || !l.type) continue;
-    if (l.type === "log") buf.push(l);
-    else {
+    if (l.type === "log") {
+      // Ensure ts exists and is a string before pushing to buffer for sorting
+      if (typeof l.ts === 'string') {
+        buf.push(l);
+      } else {
+        // If log line is missing ts, treat it as an anchor for now, or skip based on strictness.
+        // Given the sorting logic relies on ts, we treat it as an anchor if ts is invalid/missing.
+        flush();
+        result.push(l);
+      }
+    } else {
       flush();
       result.push(l);
     }
