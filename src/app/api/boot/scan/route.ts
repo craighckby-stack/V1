@@ -69,11 +69,7 @@ function diskScarCount(): number {
       return 0; // Path exists but is not a directory
     }
   } catch (e) {
-    if (e instanceof Error) {
-      console.error(`Error accessing directory ${root}:`, e.message);
-    } else {
-      console.error(`Error accessing directory ${root}:`, String(e));
-    }
+    console.error(`Error accessing directory ${root}:`, e instanceof Error ? e.message : String(e));
     return 0; // Honesty rule: return 0 if path is inaccessible
   }
 
@@ -82,11 +78,7 @@ function diskScarCount(): number {
     try {
       entries = readdirSync(dir);
     } catch (e) {
-      if (e instanceof Error) {
-        console.error(`Error reading directory ${dir}:`, e.message);
-      } else {
-        console.error(`Error reading directory ${dir}:`, String(e));
-      }
+      console.error(`Error reading directory ${dir}:`, e instanceof Error ? e.message : String(e));
       return; // Stop walking this branch on read error
     }
     for (const e of entries) {
@@ -95,11 +87,7 @@ function diskScarCount(): number {
       try {
         st = statSync(p);
       } catch (e) {
-        if (e instanceof Error) {
-          console.warn(`Could not stat path ${p}:`, e.message);
-        } else {
-          console.warn(`Could not stat path ${p}:`, String(e));
-        }
+        console.warn(`Could not stat path ${p}:`, e instanceof Error ? e.message : String(e));
         continue; // Skip this entry if stat fails
       }
       if (st.isDirectory()) walk(p);
