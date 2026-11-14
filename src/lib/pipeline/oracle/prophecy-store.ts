@@ -76,7 +76,7 @@ export async function createProphecy(input: {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const claimSnippet = input.claim.substring(0, 30) + (input.claim.length > 30 ? '...' : '');
-    console.error(`Database error in createProphecy for claim "${claimSnippet}": DB operation failed. Error: ${errorMessage}`);
+    console.error(`Database error in createProphecy for claim "${claimSnippet}": DB operation failed. Input details: {claim: "${input.claim.substring(0, 30)}...", confidence: ${input.confidence}, evaluateBy: ${input.evaluateBy.toISOString()}}. Error: ${errorMessage}`);
     return null;
   }
 }
@@ -274,8 +274,9 @@ export async function getProphecyCounts(): Promise<{
     if (Array.isArray(result)) {
       result.forEach(item => {
         const status = item.status;
-        if (status && ["pending", "fulfilled", "failed", "retired"].includes(status as string)) {
-          counts[status as keyof typeof counts] = item._count.status;
+        if (status && ["pending", "fulfilled", "failed", "retired"].includes(status)) {
+          const key = status as keyof typeof counts;
+          counts[key] = item._count.status;
         }
       });
     }
