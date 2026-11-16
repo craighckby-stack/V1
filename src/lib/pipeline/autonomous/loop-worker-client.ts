@@ -130,6 +130,14 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     const { join } = await import("path");
     const { openSync } = await import("fs");
     
+    const workerLogPath = path.join("mini-services", "loop-worker", "worker.log");
+    const workerIndexPath = path.join("mini-services", "loop-worker", "index.ts");
+
+    // Input validation for path operations
+    if (typeof workerLogPath !== 'string' || typeof workerIndexPath !== 'string') {
+        throw new Error("Internal path construction failed for worker files.");
+    }
+
     // Capture the worker's stdout/stderr — its `[SELF-ENHANCE]` narration
     // is the only durable record of cycle progress now that the loop does
     // not log into dev.log anymore. Append mode; the detached child
@@ -137,7 +145,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     let outFd: number | "ignore" = "ignore";
     try {
       outFd = openSync(
-        path.join("mini-services", "loop-worker", "worker.log"),
+        workerLogPath,
         "a"
       );
     } catch (error) {
@@ -146,7 +154,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     }
     const child = spawn(
       "bun",
-      [path.join("mini-services", "loop-worker", "index.ts")],
+      [workerIndexPath],
       {
         cwd: process.cwd(), // project root — worker resolves .env + tsconfig paths
         stdio: ["ignore", outFd, outFd],
@@ -160,11 +168,12 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     // If spawning fails, isSpawning will be reset in finally block.
     return false;
   } finally {
-    if (!spawnSuccessful) {
+    if (spawnSuccessful) {
+      // If spawning succeeded, isSpawning remains true until health checks complete below.
+    } else {
       // If spawning failed, reset immediately.
       isSpawning = false;
     }
-    // If spawning succeeded, isSpawning remains true until health checks complete below.
   }
 
   // Wait up to ~5s for boot (pipeline import graph: Prisma + TS compiler
