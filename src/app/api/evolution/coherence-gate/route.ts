@@ -26,16 +26,24 @@ interface CoherenceGateResponse {
  */
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as CoherenceGateRequest;
-    if (typeof body.originalCode !== "string" || typeof body.proposedCode !== "string") {
+    const body = await req.json();
+    if (typeof body !== 'object' || body === null) {
+        return NextResponse.json(
+            { error: "Request body must be a valid JSON object." },
+            { status: 400 }
+        );
+    }
+    const typedBody = body as CoherenceGateRequest;
+
+    if (typeof typedBody.originalCode !== "string" || typeof typedBody.proposedCode !== "string") {
       return NextResponse.json(
         { error: "originalCode and proposedCode must be provided as strings" },
         { status: 400 }
       );
     }
 
-    const origLen = body.originalCode.length;
-    const propLen = body.proposedCode.length;
+    const origLen = typedBody.originalCode.length;
+    const propLen = typedBody.proposedCode.length;
     
     // Guard against division by zero if original code is empty
     const structuralDriftRatio = origLen === 0 
@@ -56,12 +64,16 @@ export async function POST(req: Request) {
   } catch (err) {
     if (err instanceof Error) {
       console.error("Coherence Gate POST error:", err.message, err);
+      return NextResponse.json(
+        { error: `Internal server error while processing coherence gate request: ${err.message}` },
+        { status: 500 }
+      );
     } else {
       console.error("Coherence Gate POST error:", err);
+      return NextResponse.json(
+        { error: "Internal server error while processing coherence gate request." },
+        { status: 500 }
+      );
     }
-    return NextResponse.json(
-      { error: "Internal server error while processing coherence gate request." },
-      { status: 500 }
-    );
   }
 }
