@@ -74,6 +74,9 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   }
   try {
     const infoDir = join(PROJECT_ROOT, ".git/info");
+    if (!PROJECT_ROOT) { // Redundant check, but safer inside try block if logic changes
+        throw new Error("PROJECT_ROOT is missing during file operation.");
+    }
     mkdirSync(infoDir, { recursive: true });
     const entry: SelfEnhanceArmedState = {
       armed,
