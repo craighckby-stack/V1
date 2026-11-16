@@ -157,6 +157,7 @@ export async function listRecentProphecies(limit: number = 50): Promise<Prophecy
 export async function getProphecy(id: string): Promise<ProphecyRow | null> {
   // Validate id parameter
   if (typeof id !== 'string' || !id.trim()) {
+    console.warn(`Attempted to get prophecy with invalid ID: ${id}`);
     return null;
   }
 
@@ -189,6 +190,7 @@ export async function judgeProphecy(
 ): Promise<ProphecyRow | null> {
   // Validate id parameter
   if (typeof id !== 'string' || !id.trim()) {
+    console.warn(`Attempted to judge prophecy with invalid ID: ${id}`);
     return null;
   }
   
@@ -281,7 +283,7 @@ export async function getProphecyCounts(): Promise<{
         }
       });
     } else {
-      console.error("Unexpected result type in getProphecyCounts groupBy operation");
+      console.error("Unexpected result type in getProphecyCounts groupBy operation, returning zero counts.");
     }
     
     // Calculate total by summing individual counts
