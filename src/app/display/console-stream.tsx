@@ -75,8 +75,8 @@ const DIM_COLOR = "#777777";
  * as "no sort key" and leave the line in its original position.
  */
 function parseTs(ts: string | undefined | null): number {
-  if (!ts) return NaN;
-  const s = ts.trim();
+  if (ts === null || ts === undefined) return NaN;
+  const s = String(ts).trim();
 
   // Full ISO-8601 with a date component, e.g. "2026-11-14T00:03:48.099Z"
   // or "2026-11-14T00:03:48.099+00:00". Date handles these natively.
@@ -149,7 +149,6 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
 
   const flush = () => {
     if (buf.length === 0) {
-      buf = [];
       return;
     }
     
