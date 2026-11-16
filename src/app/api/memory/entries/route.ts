@@ -34,6 +34,12 @@ export async function GET() {
     
     let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
     
+    // If the error message suggests a specific issue (e.g., database connection failure), 
+    // we might refine the response, but sticking to the original structure while ensuring context.
+    if (error.message.includes("connection") || error.message.includes("timeout")) {
+        errorMessage = "The memory store service is temporarily unavailable due to a connection issue. Please retry later.";
+    }
+    
     return NextResponse.json(
       { error: errorMessage },
       { status: 500 }
