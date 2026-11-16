@@ -14,7 +14,7 @@ export async function GET() {
   if (!emgRagInstance) {
     return NextResponse.json(
       { error: "Memory service is not properly initialized. Check service startup logs." },
-      { status: 500 }
+      { status: 503 } // Changed to 503 Service Unavailable for uninitialized dependency
     );
   }
 
@@ -29,7 +29,7 @@ export async function GET() {
     return NextResponse.json({ entries: entries || [] });
   } catch (err: unknown) {
     // Log the actual error for debugging purposes before sending a generic response
-    const error = err instanceof Error ? err : new Error("An unknown error occurred during memory retrieval.");
+    const error = err instanceof Error ? err : new Error("An unknown error occurred during memory retrieval from RAG store.");
     console.error("Error retrieving memory entries from RAG store:", error.message, error.stack ? error.stack : "No stack trace available");
     
     let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
