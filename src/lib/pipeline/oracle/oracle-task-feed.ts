@@ -107,7 +107,8 @@ function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
     }
   } catch (e) {
     // Log the parsing error with context instead of silently ignoring it
-    console.error(`Failed to parse historySnapshot for prophecy ID ${prophecy.id}: ${e instanceof Error ? e.message : String(e)}`);
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    console.error(`Failed to parse historySnapshot for prophecy ID ${prophecy.id} (Domain: ${prophecy.domain}): ${errorMsg}`);
   }
   return null;
 }
