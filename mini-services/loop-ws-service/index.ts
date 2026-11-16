@@ -50,10 +50,14 @@ const httpServer = createServer();
 const ALLOWED_ORIGINS = (() => {
   const raw = process.env.LOOP_WS_ALLOWED_ORIGIN?.trim();
   if (raw) {
-    return raw
+    const origins = raw
       .split(",")
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
+    if (origins.length === 0) {
+      console.warn("[LOOP-WS] LOOP_WS_ALLOWED_ORIGIN is set but contains no valid origins");
+    }
+    return origins;
   }
   if (process.env.NODE_ENV === "production") {
     // Fail-closed: no default in production.
@@ -149,7 +153,7 @@ async function pollNextJsState() {
     lastPollAt = new Date().toISOString();
     if (!res.ok) {
       nextJsReachable = false;
-      console.warn(`[LOOP-WS] /api/autonomous/status returned ${res.status}`);
+      console.warn(`[LOOP-WS] /api/autonomous/status returned ${res.status} ${res.statusText}`);
       return;
     }
     nextJsReachable = true;
@@ -165,7 +169,7 @@ async function pollNextJsState() {
   } catch (err) {
     nextJsReachable = false;
     if (pollFailureCount % 10 === 0) {
-      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}): ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}) for ${NEXTJS_STATUS_URL}: ${err instanceof Error ? err.message : String(err)}`);
     }
     pollFailureCount++;
   }
@@ -185,9 +189,13 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`[LOOP-WS] WebSocket service listening on 0.0.0.0:${PORT}`);
   console.log(`[LOOP-WS] /health available at http://localhost:${PORT}/health`);
   console.log(`[LOOP-WS] Polling ${NEXTJS_STATUS_URL} every ${POLL_INTERVAL_MS}ms`);
-  pollNextJsState().catch(() => {});
+  pollNextJsState().catch((err) => {
+    console.error("[LOOP-WS] Initial poll failed:", err);
+  });
   setInterval(() => {
-    pollNextJsState().catch(() => {});
+    pollNextJsState().catch((err) => {
+      console.error("[LOOP-WS] Poll interval error:", err);
+    });
   }, POLL_INTERVAL_MS);
 });
 
