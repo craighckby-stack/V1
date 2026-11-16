@@ -83,7 +83,7 @@ export const reducer = (state: State, action: Action): State => {
 
     case "UPDATE_TOAST": {
       const { toast } = action
-      if (!toast.id) {
+      if (!toast?.id) {
         return state // Skip update if no ID provided
       }
       return {
@@ -179,9 +179,10 @@ function useToast() {
   const [state, setState] = React.useState<State>(memoryState)
 
   React.useEffect(() => {
-    listeners.push(setState)
+    const listener = setState
+    listeners.push(listener)
     return () => {
-      const index = listeners.indexOf(setState)
+      const index = listeners.indexOf(listener)
       if (index > -1) {
         listeners.splice(index, 1)
       }
