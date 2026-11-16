@@ -35,6 +35,13 @@ export async function POST(req: Request) {
     );
   }
 
+  if (body.topic !== undefined && (typeof body.topic !== "string" || body.topic.length === 0)) {
+    return NextResponse.json(
+      { error: "If provided, topic must be a non-empty string." },
+      { status: 400 }
+    );
+  }
+
   try {
     const topic = body.topic ?? `Code Review for ${body.filePath}`;
     const { verdict, usedLlm, llmError } = await conductLlmDebate(
@@ -54,6 +61,9 @@ export async function POST(req: Request) {
     } else if (typeof err === 'object' && err !== null && 'message' in err) {
       // Handle cases where err is an object but not an instance of Error
       errorMessage = `Debate execution failed: ${(err as { message: string }).message}`;
+    } else {
+      // Handle primitive or unexpected error types gracefully
+      errorMessage = "Debate execution failed due to an unidentifiable error type.";
     }
     return NextResponse.json(
       { error: errorMessage },
