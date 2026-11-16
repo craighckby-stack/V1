@@ -49,10 +49,14 @@ export async function POST(req: Request) {
   let force = false;
   let body: { force?: boolean } | null = null;
 
+  if (!req) {
+    return NextResponse.json(
+      { error: "Request object is missing." },
+      { status: 400 }
+    );
+  }
+
   try {
-    if (!req) {
-      throw new Error("Request object is missing.");
-    }
     body = await req.json();
     
     // Validate body is an object
