@@ -28,7 +28,13 @@ export function MemoryBank() {
           throw new Error(`Failed to fetch memory entries: HTTP status ${res.status}`);
         }
         const data = await res.json();
-        if (!cancelled && data && Array.isArray(data.entries)) {
+        
+        // Validate API response structure
+        if (!data || !Array.isArray(data.entries)) {
+          throw new Error("Invalid API response: expected entries array");
+        }
+        
+        if (!cancelled) {
           setEntries(data.entries);
         }
       } catch (error) {
@@ -58,6 +64,12 @@ export function MemoryBank() {
           <ScrollArea className="h-[280px] pr-3">
             <div className="space-y-2">
               {entries.map((entry) => {
+                // Validate entry structure
+                if (!entry || !entry.id) {
+                  console.warn("Invalid memory entry missing required fields:", entry);
+                  return null;
+                }
+
                 const meta = PROVENANCE_META[entry.provenance] ?? PROVENANCE_META.clean;
                 const Icon = meta.icon;
                 return (
