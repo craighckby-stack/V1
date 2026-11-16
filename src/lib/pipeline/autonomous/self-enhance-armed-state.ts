@@ -84,7 +84,7 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   } catch (error) {
     const infoDir = join(PROJECT_ROOT, ".git/info");
     console.error(
-      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}`,
+      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}. PROJECT_ROOT: ${PROJECT_ROOT}`,
       error instanceof Error ? error.message : String(error)
     );
   }
