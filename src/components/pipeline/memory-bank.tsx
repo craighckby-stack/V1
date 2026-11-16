@@ -97,7 +97,7 @@ export function MemoryBank() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-200 leading-relaxed">{entry.content}</p>
+                    <p className="text-xs text-slate-200 leading-relaxed">{entry.content ?? ""}</p>
                     {entry.diagnosis && (
                       <p className="text-[11px] text-slate-400 mt-1 italic">→ {entry.diagnosis}</p>
                     )}

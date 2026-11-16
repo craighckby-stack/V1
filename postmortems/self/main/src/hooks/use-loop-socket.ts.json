@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/hooks/use-loop-socket.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 2 → evolved 4), no behavioral signal, 12 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "evidence": "Original: 1962 bytes, Refactored: 2229 bytes. Errors: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 2 → evolved 4), no behavioral signal, 12 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "constraints": "The previous refactor of src/hooks/use-loop-socket.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 3,
+  "parentHash": "f13dbeb454d27834089d2cb15b1fca0519bebeac818f25e62359afe501ab5517",
+  "hash": "540b00a7fab54cedaf85637415286ad6209799f10bb9a0296bef3211a48981fa",
+  "lastAttemptAt": "2026-11-16T00:54:58.961Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-15T23:13:05.906Z",
+  "updatedAt": "2026-11-16T00:54:58.961Z",
+  "schema": 2
+}
