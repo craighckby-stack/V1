@@ -70,45 +70,50 @@ class LoopEventBus {
     }
 
     // Input validation based on kind using type guards
-    if (evt.kind === "state") {
-      if (!evt.state) {
-        throw new Error("LoopEventBus.emit() for kind 'state' requires a defined state object.");
-      }
-    } else if (evt.kind === "log") {
-      if (!evt.log) {
-        throw new Error("LoopEventBus.emit() for kind 'log' requires a defined log entry.");
-      }
-    } else if (evt.kind === "stage") {
-      if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0) {
-        throw new Error(`LoopEventBus.emit() for kind 'stage' requires a non-empty string cycleId.`);
-      }
-      if (!evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
-        throw new Error(`LoopEventBus.emit() for kind 'stage' requires a non-empty string filePath.`);
-      }
-      if (!evt.stage) {
-        throw new Error(`LoopEventBus.emit() for kind 'stage' requires a defined stage object.`);
-      }
-    } else if (evt.kind === "push") {
-      if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0) {
-        throw new Error(`LoopEventBus.emit() for kind 'push' requires a non-empty string cycleId.`);
-      }
-      if (!evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
-        throw new Error(`LoopEventBus.emit() for kind 'push' requires a non-empty string filePath.`);
-      }
-      
-      const validOutcomes = ["committed", "toctou_conflict", "toctou_healed", "skipped_remote_changed", "failed"];
-      if (typeof evt.outcome !== 'string' || !validOutcomes.includes(evt.outcome)) {
-        throw new Error(`LoopEventBus.emit() for kind 'push' has invalid or missing outcome: ${evt.outcome}. Valid outcomes are: ${validOutcomes.join(', ')}`);
-      }
-
-      if (evt.attempt !== undefined) {
-        if (typeof evt.attempt !== "number" || !Number.isInteger(evt.attempt) || evt.attempt < 0) {
-          throw new Error(`LoopEventBus.emit() for kind 'push' has invalid attempt: ${evt.attempt}. Must be a non-negative integer.`);
+    switch (evt.kind) {
+      case "state":
+        if (!evt.state) {
+          throw new Error("LoopEventBus.emit() for kind 'state' requires a defined state object.");
         }
-      }
-      if (evt.sha !== undefined && typeof evt.sha !== 'string') {
-        throw new Error(`LoopEventBus.emit() for kind 'push' has invalid sha: ${evt.sha}. Must be a string if provided.`);
-      }
+        break;
+      case "log":
+        if (!evt.log) {
+          throw new Error("LoopEventBus.emit() for kind 'log' requires a defined log entry.");
+        }
+        break;
+      case "stage":
+        if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0) {
+          throw new Error(`LoopEventBus.emit() for kind 'stage' requires a non-empty string cycleId.`);
+        }
+        if (!evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
+          throw new Error(`LoopEventBus.emit() for kind 'stage' requires a non-empty string filePath.`);
+        }
+        if (!evt.stage) {
+          throw new Error(`LoopEventBus.emit() for kind 'stage' requires a defined stage object.`);
+        }
+        break;
+      case "push":
+        if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0) {
+          throw new Error(`LoopEventBus.emit() for kind 'push' requires a non-empty string cycleId.`);
+        }
+        if (!evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
+          throw new Error(`LoopEventBus.emit() for kind 'push' requires a non-empty string filePath.`);
+        }
+        
+        const validOutcomes = ["committed", "toctou_conflict", "toctou_healed", "skipped_remote_changed", "failed"];
+        if (typeof evt.outcome !== 'string' || !validOutcomes.includes(evt.outcome)) {
+          throw new Error(`LoopEventBus.emit() for kind 'push' has invalid or missing outcome: ${evt.outcome}. Valid outcomes are: ${validOutcomes.join(', ')}`);
+        }
+
+        if (evt.attempt !== undefined) {
+          if (typeof evt.attempt !== "number" || !Number.isInteger(evt.attempt) || evt.attempt < 0) {
+            throw new Error(`LoopEventBus.emit() for kind 'push' has invalid attempt: ${evt.attempt}. Must be a non-negative integer.`);
+          }
+        }
+        if (evt.sha !== undefined && typeof evt.sha !== 'string') {
+          throw new Error(`LoopEventBus.emit() for kind 'push' has invalid sha: ${evt.sha}. Must be a string if provided.`);
+        }
+        break;
     }
 
     // EventEmitter.emit returns boolean | null. We return true if it didn't return null, false otherwise.

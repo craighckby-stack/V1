@@ -1369,37 +1369,31 @@ export async function pushCurrentState(opts?: {
         // If the diverged branch is a loop-NN mutation branch, the most
         // likely cause is a stale local counter targeting an EXISTING
         // remote branch (observed live: loop-187 while remote held
-        // loop-198). Heal immediately: adopt the remote max so the NEXT
-        // mutation pushes to a fresh branch instead of burning more
-        // cycles against the same diverged ref (which escalates the
-        // push-failure circuit breaker into safe-mode).
+        // loop-198).
+        //
+        // RECLAIM-AWARE (since branch-number reclaim): the self-heal
+        // used to adopt `remoteMax` as the COUNTER (which was also the
+        // next branch number pre-reclaim). With reclaim, the counter is
+        // a LIFETIME TALLY decoupled from the branch slot — adopting
+        // `remoteMax` (~100) would RESET the tally backwards from ~1012
+        // to ~100, destroying the lifetime metric. So the tally is NO
+        // LONGER touched here.
+        //
+        // Instead, we only INVALIDATE the lowest-free-slot cache so the
+        // NEXT enhanceFile does a fresh live walk (the stale cache was
+        // the likely cause of the collision). The slot fallback on the
+        // next attempt is automatic: findLowestFreeBranchSlot() re-scans
+        // and finds a genuinely-free slot. A diverged push is a SOFT
+        // failure — the push didn't land, the tally wasn't bumped, the
+        // slot is still "free" from the tally's perspective.
         if (/^loop-\d+$/.test(pushBranch)) {
-          try {
-            const remoteMax = await reconcileBranchNumberFromGitHub();
-            let localCount = 0;
-            try {
-              const rowNow = await db.gitPushTarget.findUnique({ where: { id: SINGLETON_ID } });
-              localCount = rowNow?.lastBranchNumber ?? 0;
-            } catch { /* best-effort */ }
-            if (remoteMax > localCount) {
-              try {
-                await db.gitPushTarget
-                  .update({ where: { id: SINGLETON_ID }, data: { lastBranchNumber: remoteMax } })
-                  .catch(() => { /* best-effort tier-1 */ });
-                const st = readStateFile() ?? readPersistentStateFile();
-                if (st) {
-                  writeStateFile({
-                    ...st,
-                    lastBranchNumber: remoteMax,
-                    savedAt: new Date().toISOString(),
-                  });
-                }
-                console.warn(
-                  `[PUSH-TARGET] stale branch counter healed on divergence: was loop-${localCount}, remote max loop-${remoteMax} — next mutation targets loop-${remoteMax + 1}`
-                );
-              } catch { /* best-effort */ }
-            }
-          } catch { /* best-effort — the warn above is diagnostic */ }
+          // Invalidate the slot cache: the collision means our view of
+          // "free slots" was stale. The next findLowestFreeBranchSlot()
+          // call will do a live walk and find a genuinely-free slot.
+          cachedLowestFreeSlot = null;
+          console.warn(
+            `[PUSH-TARGET] diverged push to ${pushBranch} — slot cache invalidated (reclaim-aware; tally untouched at ~${await getLastBranchNumber()}). Next mutation re-scans for a free slot.`
+          );
         }
         return {
           pushed: false,
@@ -1514,30 +1508,179 @@ export async function reconcileBranchNumberFromGitHub(): Promise<number> {
   }
 }
 
-/**
- * Read the last successful enhancement's branch number from the DB.
- * Returns 0 when no push target is configured or the counter has never
- * been bumped (i.e. no enhancement has fully succeeded yet).
+// ── BRANCH-NUMBER RECLAIM (true numeric reclaim) ─────────────────────
+// The original design burned a monotonically-increasing integer per
+// mutation: mutation #1 → loop-1, #2 → loop-2, ... #1011 → loop-1011.
+// The retention drain kept the HIGHEST-numbered 50 (keepFloor =
+// maxNumber - keep + 1), so ~961 branches were created, merged/rejected,
+// and pruned — but their NUMBERS were never recycled. The counter
+// climbed past 1000 while only 50 branches were alive, and an operator
+// reading "loop-1011" reasonably — but wrongly — inferred ~1000 live
+// branches.
+//
+// The reclaim design DECOUPLES the branch NUMBER from the lifetime
+// COUNTER:
+//   - `lastBranchNumber` (DB) stays a MONOTONIC LIFETIME TALLY — counts
+//     "how many mutations have ever succeeded," NOT "next branch number."
+//   - The branch NAME comes from `findLowestFreeBranchSlot()` — the
+//     smallest positive integer NOT held by a live loop-NN branch. With
+//     50 live branches, stays bounded in a ~100-wide window.
+//   - Retention switches from "keep highest-numbered N" to "keep N
+//     MOST-RECENTLY-PUSHED" (sort by commit date). A low-numbered branch
+//     just pushed (loop-3) is most-recent → SURVIVES the drain. Under the
+//     old "keep highest N by number" strategy it would be immediately
+//     re-deleted (keepFloor ≈ 962).
+//
+// RATE-LIMIT COST: date-sort needs a commit-date fetch per loop branch
+// (the branches LIST returns sha but NOT commit.author.date — verified
+// live 2026-11-16). ~60 branches × 150ms sequential = ~9s per prune.
+// Fire-and-forget on the post-push path (doesn't block the cycle).
+// ~360 calls/hour against GitHub's 5000/hour authenticated budget.
+
+/** Fetch the set of live `loop-NN` branch numbers from the remote.
+ *  Paginated walk (same shape as reconcileBranchNumberFromGitHub).
+ *  Returns the list of {number, name, sha} + maxNumber + truncated. */
+async function fetchLiveLoopBranches(): Promise<
+  Array<{ number: number; name: string; sha: string }> & { maxNumber: number; truncated: boolean }
+> {
+  const target = await getStoredTarget();
+  const empty = Object.assign([], { maxNumber: 0, truncated: false }) as Array<{ number: number; name: string; sha: string }> & { maxNumber: number; truncated: boolean };
+  if (!target || !target.token) return empty;
+  const out: Array<{ number: number; name: string; sha: string }> = [];
+  let maxNumber = 0;
+  let truncated = false;
+  try {
+    for (let page = 1; page <= 30; page++) {
+      const res = await fetch(
+        `https://api.github.com/repos/${target.repo}/branches?per_page=100&page=${page}`,
+        {
+          headers: {
+            Authorization: `Bearer ${target.token}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Architecture-Helper-Pipeline",
+          },
+        }
+      );
+      if (!res.ok) return Object.assign(out, { maxNumber, truncated });
+      const branches = (await res.json()) as Array<{ name: string; commit?: { sha?: string } }>;
+      for (const b of branches) {
+        const m = /^loop-(\d+)$/.exec(b.name);
+        if (!m) continue;
+        const n = parseInt(m[1], 10);
+        if (n > maxNumber) maxNumber = n;
+        out.push({ number: n, name: b.name, sha: b.commit?.sha ?? "" });
+      }
+      if (branches.length < 100) break;
+      if (page === 30) truncated = true;
+    }
+  } catch {
+    /* fail-open */
+  }
+  return Object.assign(out, { maxNumber, truncated });
+}
+
+/** Find the lowest positive integer NOT held by a live `loop-NN` branch.
+ *  This is the "reclaimed slot" for the next mutation. With 50 live
+ *  branches (the retention keep count), this stays bounded in a ~100-wide
+ *  window — pruned numbers are immediately reusable.
  *
- * The next enhancement will push to `loop-{N+1}` (zero-padded to 2).
+ *  IMPORTANT: remote read on the hot path (once per enhanceFile). A
+ *  process-local cache (30s TTL) is refreshed by the retention drain
+ *  after each prune, so the common path reads the cache (sub-ms). A
+ *  cache miss (first cycle after boot) does the live walk (~1s). */
+let cachedLowestFreeSlot: { slot: number; at: number } | null = null;
+const LOWEST_FREE_SLOT_CACHE_MS = 30_000;
+
+export async function findLowestFreeBranchSlot(): Promise<number> {
+  if (cachedLowestFreeSlot && Date.now() - cachedLowestFreeSlot.at < LOWEST_FREE_SLOT_CACHE_MS) {
+    return cachedLowestFreeSlot.slot;
+  }
+  const live = await fetchLiveLoopBranches();
+  if (live.length === 0) {
+    cachedLowestFreeSlot = { slot: 1, at: Date.now() };
+    return 1;
+  }
+  const taken = new Set(live.map((b) => b.number));
+  let slot = 1;
+  while (taken.has(slot)) slot++;
+  cachedLowestFreeSlot = { slot, at: Date.now() };
+  return slot;
+}
+
+/** Refresh the lowest-free-slot cache after a prune (called from
+ *  pruneOldLoopBranches' success path so the next enhanceFile reads the
+ *  cache instead of doing a live walk). */
+function refreshLowestFreeSlotCache(live: Array<{ number: number }>): void {
+  if (live.length === 0) {
+    cachedLowestFreeSlot = { slot: 1, at: Date.now() };
+    return;
+  }
+  const taken = new Set(live.map((b) => b.number));
+  let slot = 1;
+  while (taken.has(slot)) slot++;
+  cachedLowestFreeSlot = { slot, at: Date.now() };
+}
+
+/** Fetch the commit date for a branch (one GitHub GET per branch). Used
+ *  by the retention drain to sort by recency. The branches LIST returns
+ *  sha but NOT commit.author.date (verified live), so this follow-up is
+ *  required. Returns null on any failure (treated as oldest by the sort,
+ *  so undated branches are pruned first — safe). */
+async function fetchBranchCommitDate(
+  target: { repo: string; token: string },
+  sha: string,
+  delayMs: number
+): Promise<string | null> {
+  if (!sha) return null;
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${target.repo}/commits/${sha}`,
+      {
+        headers: {
+          Authorization: `Bearer ${target.token}`,
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "Architecture-Helper-Pipeline",
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { commit?: { author?: { date?: string } } };
+    return data.commit?.author?.date ?? null;
+  } catch {
+    return null;
+  } finally {
+    if (delayMs > 0) await new Promise<void>((r) => setTimeout(r, delayMs));
+  }
+}
+
+/**
+ * Read the lifetime mutation tally from the DB. Returns 0 when no push
+ * target is configured or the counter has never been bumped.
+ *
+ * NOTE (since branch-number reclaim): this is a MONOTONIC LIFETIME TALLY
+ * — "how many mutations have ever succeeded." It is NOT the next branch
+ * number. The branch NAME for each mutation comes from
+ * `findLowestFreeBranchSlot()` (the smallest free integer on the remote).
+ * The tally and the branch number are now DECOUPLED: the tally climbs
+ * forever (~1011, 1012...), the branch numbers stay bounded (~1-100).
  *
  * RECONCILIATION: if the local counter is 0 (DB wiped + state files
  * wiped/stale — the exact scenario after a hard sandbox reboot), we
  * fall back to querying GitHub for the highest existing `loop-NN`
- * branch. This prevents the loop from reusing a completed mutation's
- * branch. See `reconcileBranchNumberFromGitHub`.
+ * branch. With reclaim, `remoteMax` (~100) is a LOWER BOUND on the
+ * tally (the true tally is lost), but it's better than 0 — at least
+ * the UI shows "N pushed" instead of "0 pushed." See
+ * `reconcileBranchNumberFromGitHub`.
  *
- * STALE-COUNTER SELF-HEAL (audit 7): the old code had a hole — if the
- * DB held a STALE NON-ZERO value (a sandbox rollback restored an old
- * counter, e.g. 186, while the remote already holds loop-198), it
- * returned the stale value unconditionally. Every push then targeted
- * an EXISTING, diverged loop-187 branch → non-fast-forward rejection →
- * push-failure circuit breaker → safe-mode. Observed live: the loop
- * burned a full day of mutations against loop-187. Now the DB value is
- * verified against the remote ONCE per process (rate-limit friendly)
- * and the max is written through to all tiers. The push-failure path
- * (see the divergence handler in pushCurrentState) also re-verifies,
- * healing the counter at the exact moment of failure.
+ * STALE-COUNTER SELF-HEAL (audit 7): if the DB holds a stale non-zero
+ * value (rollback restored an old counter), it's verified against the
+ * remote once per process. NOTE (since reclaim): with reclaim active,
+ * the tally (DB) will generally be GREATER than remoteMax (live
+ * branches are bounded ~100, tally is ~1000+), so the
+ * `remoteMax > localCount` branch rarely fires. It remains as a
+ * safety net for the rollback scenario where the DB was restored to a
+ * value LOWER than the remote's highest live branch — in that case the
+ * tally is clearly stale and remoteMax is a safe lower bound.
  */
 let remoteBranchNumberVerified = false;
 
@@ -1759,55 +1902,27 @@ export async function pruneOldLoopBranches(
     return empty("", "No push target configured — nothing to prune.");
   }
 
-  // 1. Walk every page of the branch list (same paginated walk as
-  //    reconcileBranchNumberFromGitHub — the repo already holds 100+ loop
-  //    branches, so a single page would silently undercount the max and
-  //    the retention floor would be wrong).
-  const loopBranches: Array<{ name: string; number: number }> = [];
-  let maxNumber = 0;
-  let truncated = false;
-  try {
-    for (let page = 1; page <= 30; page++) {
-      const res = await fetch(
-        `https://api.github.com/repos/${target.repo}/branches?per_page=100&page=${page}`,
-        {
-          headers: {
-            Authorization: `Bearer ${target.token}`,
-            Accept: "application/vnd.github.v3+json",
-            "User-Agent": "Architecture-Helper-Pipeline",
-          },
-        }
-      );
-      if (!res.ok) {
-        return empty(
-          target.repo,
-          `GitHub branch list returned ${res.status} — prune aborted.`
-        );
-      }
-      const pageData = (await res.json()) as Array<{ name: string }>;
-      for (const b of pageData) {
-        const m = /^loop-(\d+)$/.exec(b.name);
-        if (!m) continue; // protect main / any non-loop branch
-        const n = parseInt(m[1], 10);
-        if (n > maxNumber) maxNumber = n;
-        loopBranches.push({ name: b.name, number: n });
-      }
-      if (pageData.length < 100) break;
-      if (page === 30) truncated = true;
-    }
-  } catch (err) {
-    return empty(target.repo, `Branch list fetch failed: ${(err as Error).message.slice(0, 200)}`);
-  }
+  // 1. Fetch all live loop-NN branches (paginated). Reuses
+  //    fetchLiveLoopBranches which walks pages the same way and returns
+  //    {number, name, sha} + maxNumber + truncated. We need the SHAs for
+  //    the date-fetch phase (the branches LIST returns sha but NOT
+  //    commit.author.date — verified live 2026-11-16).
+  const liveRaw = await fetchLiveLoopBranches();
+  const loopBranches: Array<{ name: string; number: number; sha: string }> = liveRaw;
+  const maxNumber = liveRaw.maxNumber;
+  const truncated = liveRaw.truncated;
 
-  // 2. Hysteresis: only prune once the count exceeds keep + margin. Within
-  //    the band, return a no-op so the post-push call stays cheap (one
-  //    paginated list, zero deletes) on the vast majority of cycles.
-  if (maxNumber <= keep + margin) {
+  // 2. Hysteresis: only prune once the COUNT exceeds keep + margin (NOT
+  //    the max number — with reclaim, branch numbers stay bounded ~100
+  //    while the live count is what matters). Within the band, return a
+  //    no-op so the post-push call stays cheap (one paginated list, zero
+  //    date-fetches, zero deletes) on the vast majority of cycles.
+  if (loopBranches.length <= keep + margin) {
     return {
       ran: false,
       reason: truncated
-        ? `Within retention band (max loop-${maxNumber} ≤ keep+margin=${keep + margin}); hit 30-page cap, true max may be higher.`
-        : `Within retention band (max loop-${maxNumber} ≤ keep+margin=${keep + margin}); nothing to prune.`,
+        ? `Within retention band (${loopBranches.length} live ≤ keep+margin=${keep + margin}); hit 30-page cap, true count may be higher.`
+        : `Within retention band (${loopBranches.length} live ≤ keep+margin=${keep + margin}); nothing to prune.`,
       repo: target.repo,
       totalLoopBranches: loopBranches.length,
       maxNumber,
@@ -1824,13 +1939,51 @@ export async function pruneOldLoopBranches(
     };
   }
 
-  // 3. Compute the retention floor. Keep branches numbered keepFloor..max
-  //    (the top `keep`); everything below is a deletion candidate.
-  const keepFloor = maxNumber - keep + 1;
-  const candidates = loopBranches
-    .filter((b) => b.number < keepFloor && b.number >= 1)
-    .sort((a, b) => a.number - b.number)
-    .map((b) => b.name);
+  // 3. Fetch commit dates (one GET per loop branch, sequential with the
+  //    same 150ms delay as the delete loop). The branches LIST returns
+  //    sha but NOT commit.author.date, so this follow-up is required to
+  //    sort by recency. With ~60 branches this is ~9s — fire-and-forget
+  //    on the post-push path (doesn't block the cycle). A date fetch
+  //    failure → null → treated as oldest by the sort (pruned first),
+  //    which is safe (undated branches are the riskiest to keep).
+  const dateDelayMs = 120; // slightly under the delete delay (reads are cheaper)
+  const withDates: Array<{ name: string; number: number; date: string | null }> = [];
+  for (const b of loopBranches) {
+    const date = await fetchBranchCommitDate(target, b.sha, dateDelayMs);
+    withDates.push({ name: b.name, number: b.number, date });
+  }
+
+  // 4. Sort by commit date DESCENDING (most-recent first), keep the top
+  //    `keep`. Everything else is a deletion candidate. Null dates sort
+  //    last (oldest) — they get pruned before any dated branch.
+  const sorted = withDates.sort((a, b) => {
+    if (a.date === null && b.date === null) return b.number - a.number; // tiebreak: higher number = newer assumption
+    if (a.date === null) return 1; // a is "older" (null → bottom)
+    if (b.date === null) return -1; // b is "older"
+    return b.date.localeCompare(a.date); // DESC: recent first
+  });
+  const survivors = sorted.slice(0, keep);
+  const candidates = sorted
+    .slice(keep)
+    .map((b) => b.name)
+    .sort((a, b) => {
+      // Sort candidates oldest-first for deletion (prune the oldest
+      // before the newer candidates, so a rate-limit abort keeps the
+      // most-recent candidates alive for the next drain).
+      const ad = withDates.find((x) => x.name === a)?.date ?? null;
+      const bd = withDates.find((x) => x.name === b)?.date ?? null;
+      if (ad === null && bd === null) return 0;
+      if (ad === null) return -1; // a oldest → delete first
+      if (bd === null) return 1;
+      return ad.localeCompare(bd); // oldest first
+    });
+
+  // keepFloor is now informational only (the number floor is no longer
+  // the retention criterion — recency is). We report the lowest-numbered
+  // survivor for operator visibility, but it's NOT used for filtering.
+  const keepFloor = survivors.length > 0
+    ? Math.min(...survivors.map((s) => s.number))
+    : 0;
 
   // Belt-and-braces: never let the seed branch into the candidate set even
   // if someone configured branch="loop-01" (they shouldn't, but a hostile
@@ -1915,6 +2068,20 @@ export async function pruneOldLoopBranches(
     }
     if (deleteDelayMs > 0) await sleep(deleteDelayMs);
   }
+
+  // 5. Refresh the lowest-free-slot cache from the post-prune survivor
+  //    set. The survivors are the branches still live after this drain;
+  //    the next enhanceFile reads the cache (sub-ms) instead of doing a
+  //    live walk (~1s). On a rate-limited abort (partial drain), the
+  //    survivors include the not-yet-deleted candidates — the cache will
+  //    be slightly stale (some candidates are still alive) but the next
+  //    drain will correct it. A stale cache is SAFE: the worst case is
+  //    the slot collides with a still-live branch, and the diverged-push
+  //    handler falls back to remoteMax+1.
+  const postPruneLive = sorted
+    .filter((s) => !result.deleted.includes(s.name))
+    .map((s) => ({ number: s.number }));
+  refreshLowestFreeSlotCache(postPruneLive);
 
   return result;
 }

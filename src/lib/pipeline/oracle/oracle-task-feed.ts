@@ -82,11 +82,12 @@ function hashProphecyIdToLine(prophecyId: string): number {
   }
   // Mask to 2^31 - 1 (positive int32) — Prisma Int field is 32-bit signed,
   // and SelfTask.line is a 1-based line number, so positive only.
-  const line = h & 0x7fffffff;
+  let line = h & 0x7fffffff;
   if (line === 0) {
-    // Although the mask should prevent 0 if the hash calculation is correct,
-    // we enforce the positive constraint explicitly for robustness.
-    throw new Error(`Hashing resulted in a non-positive line number (0) for prophecy ID ${prophecyId}.`);
+    // If the hash results in 0 after masking, we must ensure a positive line number
+    // by incrementing, as 0 is invalid for a 1-based line number, while maintaining
+    // stability relative to the hash result.
+    line = 1;
   }
   return line;
 }
@@ -127,13 +128,7 @@ function buildEvidence(prophecy: Prophecy): string {
   const claim = prophecy.claim ?? "N/A";
   const criterion = prophecy.falsifiabilityCriterion ?? "N/A";
 
-  return (
-    `Oracle self-prophecy FAILED by deadline. ` +
-    `Claim: "${claim}". ` +
-    `Confidence when made: ${confidenceStr}. ` +
-    `Made at ${createdAtStr}, deadline ${evaluateByStr}. ` +
-    `Criterion: ${criterion}`
-  );
+  return `Oracle self-prophecy FAILED by deadline. Claim: "${claim}". Confidence when made: ${confidenceStr}. Made at ${createdAtStr}, deadline ${evaluateByStr}. Criterion: ${criterion}`;
 }
 
 /** Queue a SelfTask for a failed self-prophecy. Idempotent: the

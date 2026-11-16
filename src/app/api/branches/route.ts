@@ -167,12 +167,25 @@ export async function GET(req: Request) {
         message: "", // not fetched for non-loop branches (not interesting)
       }));
 
+    // BRANCH-NUMBER RECLAIM: the next mutation targets the LOWEST FREE
+    // slot (smallest positive integer NOT held by a live loop-NN branch),
+    // NOT maxNumber+1. With 50 live branches, this stays bounded ~1-100.
+    // We compute it from the loopMeta we already have (the branch list
+    // is fully walked above) — no extra GitHub calls. If the branch set
+    // is empty (genuinely first run), the next slot is 1.
+    const takenNumbers = new Set(loopMeta.map((lm) => lm.number));
+    let nextSlot = 1;
+    while (takenNumbers.has(nextSlot)) nextSlot++;
+
     return NextResponse.json({
       ok: true,
       repo: target.repo,
       total: loopBranches.length,
       maxLoopNumber: maxNumber,
-      nextMutationBranch: `loop-${String(maxNumber + 1).padStart(2, "0")}`,
+      // RECLAIM: next mutation targets the lowest free slot, NOT
+      // maxNumber+1. Pruned numbers are immediately reusable.
+      nextMutationBranch: `loop-${String(nextSlot).padStart(2, "0")}`,
+      nextMutationSlot: nextSlot,
       truncated: hitCap,
       branches: loopBranches,
       otherBranches,

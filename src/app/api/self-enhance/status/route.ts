@@ -46,5 +46,9 @@ export async function GET() {
     currentFile: null,
     llmGate: llmGateInfo(),
     saturation: {},
+    // Shape parity with the worker's /status payload — null when the worker
+    // (which owns the retention cache) is down, so the dashboard's branch
+    // counter renders "unknown" rather than undefined.
+    branchRetention: null,
   });
 }

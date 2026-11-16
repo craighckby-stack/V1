@@ -119,40 +119,63 @@ export function emitOracleEvent(
   // write each event to the server's ingest endpoint so the console keeps
   // ONE ring and ONE sequence space. Fire-and-forget: a slow or down
   // server must never block or throw inside the loop's oracle paths.
-  // The ingest route validates the shared token — this is display-stream
-  // tamper resistance, not a security boundary.
+  //
+  // SHARED TOKEN (LOOP_WORKER_TOKEN): the ingest route fails CLOSED when
+  // the token is unset (a source-readable default was deliberately removed
+  // — see ingest/route.ts). Do NOT fall back to a hard-coded default here:
+  // in any environment where .env doesn't carry the real token, posting
+  // the stale default just earns a 401 per event (the worker's oracle
+  // stream silently disappears from the UI while dev.log floods with
+  // 401s). Instead: no token → no POST + ONE local warning per process.
+  // A correct .env (LOOP_WORKER_TOKEN on both server and worker) restores
+  // the bridge.
   if (process.env.LOOP_WORKER === "1") {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-    fetch(
-      `${process.env.LOOP_SERVER_URL ?? "http://localhost:3000"}/api/oracle/events/ingest`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-loop-worker-token":
-            process.env.LOOP_WORKER_TOKEN ?? "loop-worker-ingest-v1",
-        },
-        body: JSON.stringify(event),
-        signal: controller.signal,
+    const token = process.env.LOOP_WORKER_TOKEN;
+    if (!token) {
+      if (!bridgeTokenWarnedOnce) {
+        bridgeTokenWarnedOnce = true;
+        console.warn(
+          "[oracle-events] LOOP_WORKER_TOKEN is unset — worker→server event bridge is DISABLED. " +
+          "Set LOOP_WORKER_TOKEN in .env (same value on dev server and worker) to restore."
+        );
       }
-    )
-    .then(() => {
-      clearTimeout(timeoutId);
-    })
-    .catch((error) => {
-      // Log the error for debugging but don't block the main flow
-      console.error(`Failed to send oracle event to server (source: ${source}, type: ${type}, message: "${message}"):`, error);
-    })
-    .finally(() => {
-      // Ensure the timeout is cleared even if the request was aborted
-      clearTimeout(timeoutId);
-    });
+    } else {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+      fetch(
+        `${process.env.LOOP_SERVER_URL ?? "http://localhost:3000"}/api/oracle/events/ingest`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-loop-worker-token": token,
+          },
+          body: JSON.stringify(event),
+          signal: controller.signal,
+        }
+      )
+      .then(() => {
+        clearTimeout(timeoutId);
+      })
+      .catch((error) => {
+        // Log the error for debugging but don't block the main flow
+        console.error(`Failed to send oracle event to server (source: ${source}, type: ${type}, message: "${message}"):`, error);
+      })
+      .finally(() => {
+        // Ensure the timeout is cleared even if the request was aborted
+        clearTimeout(timeoutId);
+      });
+    }
   }
 
   return event;
 }
+
+/** One-shot guard so the missing-TOKEN warning fires once per process
+ *  rather than on every emitted event (the bridge is hot on every oracle
+ *  event; a per-event warning would be its own noise flood). */
+let bridgeTokenWarnedOnce = false;
 
 /** Read events, optionally only those after a given sequence number.
  *  Returns the events and the current high-water sequence — the caller
@@ -171,14 +194,20 @@ export function readOracleEvents(afterSeq?: number): {
       return { events: [], seq: currentSeq };
     }
 
-    // Find the starting index of the first event whose sequence is > afterSeq.
     const bufferLength = s.buffer.length;
-    let startIndex = -1;
 
     if (bufferLength === 0) {
+        // Should not happen if afterSeq < currentSeq, but guard against state inconsistency.
         s.lastReadAt = Date.now();
         return { events: [], seq: currentSeq };
     }
+
+    // Calculate the expected sequence of the first element (index 0) in the buffer.
+    // If the buffer is full (length=MAX_EVENTS), the oldest event sequence is currentSeq - MAX_EVENTS.
+    // If the buffer is not full, the oldest event sequence is currentSeq - bufferLength + 1.
+    // A simpler, robust calculation for the sequence at index i is: currentSeq - bufferLength + i
+    
+    let startIndex = -1;
 
     // Iterate through the buffer to find the first event whose sequence > afterSeq.
     for (let i = 0; i < bufferLength; i++) {
@@ -189,7 +218,6 @@ export function readOracleEvents(afterSeq?: number): {
             break;
         }
     }
-
 
     if (startIndex === -1) {
       // No new events found in the current buffer snapshot greater than afterSeq.

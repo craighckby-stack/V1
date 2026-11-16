@@ -15,7 +15,6 @@
  * instrumentation boot AND from every control route without racing
  * doubles — all callers live in this same server process.
  */
-import * as fs from 'fs';
 import * as path from 'path';
 
 const WORKER_URL = process.env.LOOP_WORKER_URL ?? "http://localhost:3004";
@@ -127,7 +126,6 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   try {
     // Use imported modules directly since we imported them at the top level
     const { spawn } = await import("child_process");
-    const { join } = await import("path");
     const { openSync } = await import("fs");
     
     const workerLogPath = path.join("mini-services", "loop-worker", "worker.log");

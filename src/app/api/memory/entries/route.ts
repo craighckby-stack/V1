@@ -19,11 +19,11 @@ export async function GET() {
   }
 
   try {
-    // Ensure the RAG memory store is seeded
-    await emgRagInstance.ensureSeeded();
-    
-    // Get all entries
-    const entries: VectorEntry[] | null | undefined = emgRagInstance.getAll();
+    // Run seeding and fetching in parallel to reduce latency
+    const [seedResult, entries] = await Promise.all([
+      emgRagInstance.ensureSeeded(),
+      emgRagInstance.getAll(),
+    ]);
     
     // Ensure we return an array, defaulting to empty array if null or undefined
     return NextResponse.json({ entries: entries || [] });
@@ -33,16 +33,18 @@ export async function GET() {
     console.error("Error retrieving memory entries from RAG store:", error.message, error.stack ? error.stack : "No stack trace available");
     
     let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
-    
+    let statusCode = 500;
+
     // If the error message suggests a specific issue (e.g., database connection failure), 
     // we might refine the response, but sticking to the original structure while ensuring context.
     if (error.message.includes("connection") || error.message.includes("timeout")) {
         errorMessage = "The memory store service is temporarily unavailable due to a connection issue. Please retry later.";
+        statusCode = 503; // Use 503 for transient service unavailability
     }
     
     return NextResponse.json(
       { error: errorMessage },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }

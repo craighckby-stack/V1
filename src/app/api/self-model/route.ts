@@ -26,22 +26,27 @@ export const runtime = "nodejs";
  *   GET → { files, calibration, modeStats, totals }
  *   POST { force? } → same (bootstrap is idempotent; force re-runs it)
  */
+const ERROR_RESPONSE_BASE = {
+  files: [],
+  calibration: { buckets: [], resolvedPredictions: 0, pendingPredictions: 0, brierScore: null, reliability: null, verdict: "error" },
+  modeStats: { refactor: { attempts: 0, passes: 0 }, visualPolish: { attempts: 0, passes: 0 } },
+  totals: { attempts: 0, passes: 0, fails: 0, zeroDiffs: 0 },
+};
+
+const createErrorResponse = (message: string, status: number = 500) => {
+  return NextResponse.json(
+    { ...ERROR_RESPONSE_BASE, error: message },
+    { status }
+  );
+};
+
 export async function GET() {
   try {
     const summary = await getSelfModelSummary();
     return NextResponse.json(summary);
   } catch (err) {
     const errorMessage = (err as Error)?.message || "An unknown error occurred while fetching self-model summary.";
-    return NextResponse.json(
-      { 
-        files: [], 
-        calibration: { buckets: [], resolvedPredictions: 0, pendingPredictions: 0, brierScore: null, reliability: null, verdict: "error" }, 
-        modeStats: { refactor: { attempts: 0, passes: 0 }, visualPolish: { attempts: 0, passes: 0 } }, 
-        totals: { attempts: 0, passes: 0, fails: 0, zeroDiffs: 0 }, 
-        error: `Failed to retrieve self-model summary: ${errorMessage}` 
-      },
-      { status: 500 }
-    );
+    return createErrorResponse(`Failed to retrieve self-model summary: ${errorMessage}`);
   }
 }
 
@@ -58,12 +63,12 @@ export async function POST(req: Request) {
 
   try {
     body = await req.json();
-    
+
     // Validate body is an object
     if (typeof body !== 'object' || body === null) {
       throw new Error("Request body must be a non-null object.");
     }
-    
+
     // Validate force parameter if present
     if ('force' in body) {
       if (typeof body.force === 'boolean') {
@@ -80,7 +85,7 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    
+
     // Handle other validation/runtime errors
     if (e instanceof Error) {
       return NextResponse.json(
@@ -88,7 +93,7 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    
+
     // Fallback for unknown error types during parsing/validation
     return NextResponse.json(
       { error: "Invalid request body: Unknown error during parsing or validation." },
@@ -99,12 +104,7 @@ export async function POST(req: Request) {
   if (force) {
     try {
       const { bootstrapSelfModel } = await import("@/lib/pipeline/autonomous/self-model");
-      // The module-level `bootstrapped` guard prevents re-running even
-      // with force — but a fresh import in dev (Turbopack re-eval) gives
-      // a fresh module scope, so force works after a server-side re-eval.
-      // In a long-running process without re-eval, force is a no-op
-      // (the model already has rows). Both are safe.
-      await bootstrapSelfModel(); 
+      await bootstrapSelfModel();
     } catch (bootstrapError) {
       // Log bootstrap failure with context and return an error response
       const errorToLog = bootstrapError instanceof Error ? bootstrapError : new Error(String(bootstrapError));
@@ -115,21 +115,13 @@ export async function POST(req: Request) {
       );
     }
   }
-  
+
+  // Performance improvement: Only fetch summary once, after potential bootstrap.
   try {
     const summary = await getSelfModelSummary();
     return NextResponse.json(summary);
   } catch (err) {
     const errorMessage = (err as Error)?.message || "An unknown error occurred while fetching self-model summary after POST operation.";
-    return NextResponse.json(
-      { 
-        files: [], 
-        calibration: { buckets: [], resolvedPredictions: 0, pendingPredictions: 0, brierScore: null, reliability: null, verdict: "error" }, 
-        modeStats: { refactor: { attempts: 0, passes: 0 }, visualPolish: { attempts: 0, passes: 0 } }, 
-        totals: { attempts: 0, passes: 0, fails: 0, zeroDiffs: 0 }, 
-        error: `Failed to retrieve self-model summary after POST operation: ${errorMessage}` 
-      },
-      { status: 500 }
-    );
+    return createErrorResponse(`Failed to retrieve self-model summary after POST operation: ${errorMessage}`);
   }
 }

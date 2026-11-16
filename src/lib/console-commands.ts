@@ -311,11 +311,12 @@ export async function executeCommand(
         }
         const t = pushTarget;
         if (t?.configured) {
-          const nextN = (t.lastBranchNumber ?? 0) + 1;
-          const nextBranch = `loop-${String(nextN).padStart(2, "0")}`;
+          // RECLAIM: lastBranchNumber is a lifetime tally, not the next
+          // branch number. Branch slots are reclaimed (bounded ~1-100).
+          const tally = t.lastBranchNumber ?? 0;
           lines.push(
             `Push target:    github.com/${t.repo} (seed: ${t.branch})`,
-            `Mutations:      ${t.lastBranchNumber ?? 0} pushed — next will be ${nextBranch}`,
+            `Mutations:      ${tally} pushed (lifetime tally — branch slots reclaimed, bounded ~1-100)`,
             `Last push:      ${t.lastPushSha ? `commit ${t.lastPushSha}` : "never"}${t.lastPushAt ? ` at ${t.lastPushAt}` : ""}`
           );
           if (t.lastPushError) lines.push(`Last error:     ${t.lastPushError}`);

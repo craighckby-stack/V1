@@ -76,21 +76,12 @@ export function writeLoopStats(state: LoopStatsState): void {
     return;
   }
   
-  // Check for presence of all required fields
+  // Check for presence of all required fields and validate types/values in one pass
   for (const field of NUMERIC_FIELDS) {
     if (!(field in state)) {
       console.error(`writeLoopStats: missing required field ${field} in state object`);
       return;
     }
-  }
-  
-  if (!('lastEnhancementAt' in state)) {
-    console.error("writeLoopStats: missing required field lastEnhancementAt in state object");
-    return;
-  }
-  
-  // Validate numeric fields
-  for (const field of NUMERIC_FIELDS) {
     const v = state[field];
     if (
       typeof v !== "number" ||
@@ -101,6 +92,11 @@ export function writeLoopStats(state: LoopStatsState): void {
       console.error(`writeLoopStats: invalid value for field ${field}: ${v}`);
       return;
     }
+  }
+  
+  if (!('lastEnhancementAt' in state)) {
+    console.error("writeLoopStats: missing required field lastEnhancementAt in state object");
+    return;
   }
   
   // Validate lastEnhancementAt

@@ -11,7 +11,6 @@ import {
   warmZaiCortex,
   zaiCortexStatus,
   llmGateInfo,
-  type ZaiCortexInfo,
 } from "@/lib/pipeline/llm/agent-llm";
 import { autonomousLoopRuntime } from "@/lib/pipeline/autonomous/loop-runtime";
 import { getPassRateTrend } from "@/lib/pipeline/autonomous/mutation-corpus";
@@ -134,7 +133,7 @@ async function checkGitHubAuth(
         return { ok: false, error: "No login found or invalid response structure in /user response body" };
       }
       return { ok: true, login: user.login as string };
-    } catch (e) {
+    } catch {
       return { ok: false, error: "Failed to parse JSON response from GitHub API (response body might be empty or malformed)" };
     }
   } catch (e) {
@@ -172,127 +171,102 @@ export async function GET() {
     auth = null;
   }
 
-  // 2. Corpus counts (DB) — 0 rows reads as 0, honestly.
-  let corpus: { attempts: number; failed: number; enhanced: number } | null = null;
-  try {
-    const [attempts, failed, enhanced] = await Promise.all([
-      db.mutationCorpus.count(),
-      db.mutationCorpus.count({ where: { failureType: { not: null } } }),
-      db.mutationCorpus.count({ where: { gateOutcome: "enhanced" } }),
-    ]);
-    corpus = { attempts, failed, enhanced };
-  } catch (e) {
-    if (e instanceof Error) {
-      console.error("Error querying mutation corpus from DB:", e.message);
-    } else {
-      console.error("Unknown error querying mutation corpus from DB:", e);
+  // Prepare independent async tasks for parallel execution
+  const corpusPromise = (async () => {
+    try {
+      const [attempts, failed, enhanced] = await Promise.all([
+        db.mutationCorpus.count(),
+        db.mutationCorpus.count({ where: { failureType: { not: null } } }),
+        db.mutationCorpus.count({ where: { gateOutcome: "enhanced" } }),
+      ]);
+      return { attempts, failed, enhanced };
+    } catch (e) {
+      if (e instanceof Error) {
+        console.error("Error querying mutation corpus from DB:", e.message);
+      } else {
+        console.error("Unknown error querying mutation corpus from DB:", e);
+      }
+      return null;
     }
-    corpus = null;
-  }
+  })();
 
-  // 2b. Pass-rate trend (DB) — the "is compounding compounding?" vital.
-  // Same corpus, derived view: headline = last ≤20 resolvable attempts;
-  // trend = improving/declining/flat/insufficient (halves ±10pp). Null
-  // when the corpus is unreadable — the splash stamps ?? honestly.
-  let passRate: {
-    lastWindowPct: number | null;
-    overallPct: number | null;
-    lastWindowAttempts: number;
-    trend: string;
-  } | null = null;
-  try {
-    const t = await getPassRateTrend();
-    if (t) {
-      passRate = {
-        lastWindowPct: t.lastWindow.passRate === null ? null : Math.round(t.lastWindow.passRate * 100),
-        overallPct: t.overallPassRate === null ? null : Math.round(t.overallPassRate * 100),
-        lastWindowAttempts: t.lastWindow.attempts,
-        trend: t.trend,
+  const passRatePromise = (async () => {
+    try {
+      const t = await getPassRateTrend();
+      if (t) {
+        return {
+          lastWindowPct: t.lastWindow.passRate === null ? null : Math.round(t.lastWindow.passRate * 100),
+          overallPct: t.overallPassRate === null ? null : Math.round(t.overallPassRate * 100),
+          lastWindowAttempts: t.lastWindow.attempts,
+          trend: t.trend,
+        };
+      }
+      return null;
+    } catch (e) {
+      if (e instanceof Error) {
+        console.error("Error fetching pass rate trend:", e.message);
+      } else {
+        console.error("Unknown error fetching pass rate trend:", e);
+      }
+      return null;
+    }
+  })();
+
+  const scars = diskScarCount(); // Synchronous, kept as is
+
+  const hotSwapPromise = (async () => {
+    try {
+      return { lifetime: await getHotSwapSuccessCount(), thisBoot: getSwapCount() };
+    } catch (e) {
+      if (e instanceof Error) {
+        console.error("Error retrieving hot-swap counts:", e.message);
+      } else {
+        console.error("Unknown error retrieving hot-swap counts:", e);
+      }
+      return null;
+    }
+  })();
+
+  const autonomyPromise = (async () => {
+    try {
+      const state = autonomousLoopRuntime.getState();
+      return {
+        status: state.status,
+        livePhase: state.livePhase,
+        recoveryRemainingMs: state.recoveryRemainingMs,
       };
+    } catch (e) {
+      if (e instanceof Error) {
+        console.error("Error getting autonomous loop state:", e.message);
+      } else {
+        console.error("Unknown error getting autonomous loop state:", e);
+      }
+      return null;
     }
-  } catch (e) {
-    if (e instanceof Error) {
-      console.error("Error fetching pass rate trend:", e.message);
-    } else {
-      console.error("Unknown error fetching pass rate trend:", e);
-    }
-    passRate = null;
-  }
+  })();
 
-  // 3. Disk scars — wipe-proof failure record.
-  let scars: number | null = null;
-  try {
-    scars = diskScarCount();
-  } catch (e) {
-    if (e instanceof Error) {
-      console.error("Error counting disk scars:", e.message);
-    } else {
-      console.error("Unknown error counting disk scars:", e);
+  const zaiPromise = (async () => {
+    try {
+      warmZaiCortex();
+      return zaiCortexStatus();
+    } catch (e) {
+      if (e instanceof Error) {
+        console.error("Error warming or checking Zai Cortex status:", e.message);
+      } else {
+        console.error("Unknown error warming or checking Zai Cortex status:", e);
+      }
+      return null;
     }
-    scars = null;
-  }
+  })();
 
-  // 4. Hot-swap: lifetime (persistent) + this boot (in-memory).
-  let hotSwap: { lifetime: number; thisBoot: number } | null = null;
-  try {
-    hotSwap = { lifetime: await getHotSwapSuccessCount(), thisBoot: getSwapCount() };
-  } catch (e) {
-    if (e instanceof Error) {
-      console.error("Error retrieving hot-swap counts:", e.message);
-    } else {
-      console.error("Unknown error retrieving hot-swap counts:", e);
-    }
-    hotSwap = null;
-  }
-
-  // 5. Autonomy — the live status word from the same source
-  // /api/autonomous/status serves. Now carries the derived `livePhase`
-  // (DISARMED / ARMED-RUNNING / ARMED-THROTTLED / ARMED-RECOVERING /
-  // ARMED-PAUSED) — the splash renders this instead of the raw
-  // `status`, so the operator sees what the loop is actually DOING
-  // (throttled vs. running vs. paused) instead of the scheduler's
-  // internal word. `recoveryRemainingMs` is the ARMED-RECOVERING
-  // countdown (a RELATIVE duration, accurate at response time — the
-  // splash re-anchors to its own clock, same skew-free pattern as the
-  // quota gate's remainingMs).
-  let autonomy:
-    | { status: string; livePhase: string; recoveryRemainingMs: number }
-    | null = null;
-  try {
-    const state = autonomousLoopRuntime.getState();
-    autonomy = {
-      status: state.status,
-      livePhase: state.livePhase,
-      recoveryRemainingMs: state.recoveryRemainingMs,
-    };
-  } catch (e) {
-    if (e instanceof Error) {
-      console.error("Error getting autonomous loop state:", e.message);
-    } else {
-      console.error("Unknown error getting autonomous loop state:", e);
-    }
-    autonomy = null;
-  }
-
-  // 6. Z.ai cortex — the auto-injected provider connection. Normally
-  // already warming/ready (instrumentation injected it at server boot,
-  // BEFORE this request); the kick is the belt-and-suspenders path for
-  // processes that started before the hook existed. Idempotent +
-  // throttled inside warmZaiCortex — a dead provider is not hammered.
-  // The status read is instant (no await on the ping) — this endpoint
-  // never blocks on the provider.
-  let zai: ZaiCortexInfo | null = null;
-  try {
-    warmZaiCortex();
-    zai = zaiCortexStatus();
-  } catch (e) {
-    if (e instanceof Error) {
-      console.error("Error warming or checking Zai Cortex status:", e.message);
-    } else {
-      console.error("Unknown error warming or checking Zai Cortex status:", e);
-    }
-    zai = null;
-  }
+  // Await all independent tasks in parallel
+  const [corpus, passRate, hotSwap, autonomy, zai] = await Promise.all([
+    corpusPromise,
+    passRatePromise,
+    hotSwapPromise,
+    autonomyPromise,
+    zaiPromise,
+  ]);
 
   return NextResponse.json({
     ok: true,

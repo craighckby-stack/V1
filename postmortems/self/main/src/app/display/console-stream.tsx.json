@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/display/console-stream.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/display/console-stream.tsx(195,38): error TS2693: 'RefObject' only refers to a type, but is being used as a value here.",
@@ -12,8 +12,8 @@
   "parentHash": "9f6f0287219c931b17a260241824d16ee2f7486c370e124d09580991f94fbebf",
   "hash": "9f395c6379b4f4ebda5095ec923e2c024244828d63504d88c8d5ad65ddb5acf4",
   "lastAttemptAt": "2026-11-16T07:56:07.008Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-16T12:14:01.491Z",
   "createdAt": "2026-11-16T05:17:10.261Z",
-  "updatedAt": "2026-11-16T07:56:07.008Z",
+  "updatedAt": "2026-11-16T12:14:01.491Z",
   "schema": 2
 }

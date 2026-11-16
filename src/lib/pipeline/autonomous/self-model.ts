@@ -23,6 +23,7 @@
  *      score = empirical success rate (Laplace-smoothed)
  *            + exploration bonus (classic UCB1: untried files get a look)
  *            + recency bonus (long-untouched files resurface)
+ *            + complexity bonus (decision-dense files carry more room)
  *            - exhaustion penalty (files that keep zero-diffing sink)
  *      This replaces tree-order scanning with actual DECISION-MAKING, and
  *      every selection is self-explained in the log: "targeting X because
@@ -47,6 +48,7 @@
  */
 
 import { db } from "@/lib/db";
+import { readFileSync } from "fs";
 // NOTE: readArchaeologyReport is imported LAZILY inside bootstrapSelfModel
 // (not at module top-level). This keeps the import chain of getSelfModelSummary
 // (the function the /api/self-model route calls) lightweight — just `db` —
@@ -587,6 +589,47 @@ export function momentumFromStreak(streak: number): number {
   return Math.min(MOMENTUM_CAP, Math.max(0, streak) * MOMENTUM_STEP);
 }
 
+// ── COMPLEXITY WEIGHTING (operator-directed) ──────────────────────────
+// Operator ask: "weight files that have higher complexity". A tiny leaf
+// module (a hook, a const table) offers one null-guard's worth of change
+// before it zero-diffs forever; an orchestrator dense with decision logic
+// has real algorithmic room — batching, back-pressure, state efficiency.
+// The metric is deliberately CHEAP: count branch keywords + logical
+// operators in the source text (no AST — this runs on every candidate
+// every cycle, and the score only needs to separate "5 decisions" from
+// "80 decisions", not measure true cyclomatic complexity). The bonus
+// saturates so one giant file can't dominate purely on size; DENSITY of
+// decision logic is what earns the weight.
+export const COMPLEXITY_MAX_BONUS = 0.15;
+/** Decision points at which the complexity bonus saturates (full +0.15).
+ *  ~60 branch points ≈ a busy 250-400 line orchestrator in this codebase. */
+export const COMPLEXITY_SATURATION = 60;
+
+function decisionPointCount(source: string): number {
+  const matches = source.match(/\b(?:if|for|while|case|catch)\b|&&|\|\|/g);
+  return matches ? matches.length : 0;
+}
+
+/** Complexity bonus for one candidate file (0..COMPLEXITY_MAX_BONUS).
+ *  Results are cached per orderTargetsByBandit call — the map is created
+ *  by the caller and dies with it. Read failure degrades to 0 (the score
+ *  proceeds without the bonus rather than failing the ordering). */
+function complexityBonusFor(absPath: string, cache: Map<string, number>): number {
+  const hit = cache.get(absPath);
+  if (hit !== undefined) return hit;
+  let bonus = 0;
+  try {
+    const src = readFileSync(absPath, "utf-8");
+    bonus =
+      Math.min(1, decisionPointCount(src) / COMPLEXITY_SATURATION) *
+      COMPLEXITY_MAX_BONUS;
+  } catch {
+    bonus = 0;
+  }
+  cache.set(absPath, bonus);
+  return bonus;
+}
+
 /** Score every candidate file with the UCB1-style bandit and return them
  *  sorted best-first. The loop iterates THIS order instead of tree order
  *  — its choice of what to work on becomes a decision, self-explained. */
@@ -605,6 +648,9 @@ export async function orderTargetsByBandit(
     const byPath = new Map(modelRows.map((r) => [r.filePath, r]));
     const totalAttempts = modelRows.reduce((a, r) => a + r.attempts, 0);
     const now = Date.now();
+    // Per-call cache for complexity bonuses (one readFileSync per candidate
+    // per ordering pass — the cache guards against duplicate paths).
+    const complexityCache = new Map<string, number>();
 
     const scored: Array<{ abs: string; s: TargetScore }> = rel.map((r, i) => {
       const m = byPath.get(r);
@@ -627,11 +673,16 @@ export async function orderTargetsByBandit(
       // Hot files rise; the cap keeps a streak from stacking past the
       // point where it drowns out exploration of everything else.
       const momentum = momentumFromStreak(m?.streak ?? 0);
-      const score = empirical + exploration + recency + momentum - exhaustion;
+      // Complexity (operator-directed): decision-dense files carry more
+      // improvable logic (max +0.15). Sits BELOW exhaustion in magnitude
+      // on purpose — a complex file that keeps zero-diffing is finished,
+      // and complexity must not un-sink it.
+      const complexity = complexityBonusFor(candidateAbsPaths[i], complexityCache);
+      const score = empirical + exploration + recency + momentum + complexity - exhaustion;
       const reason =
         attempts > 0
-          ? `${passes}/${attempts} passed, ${daysSince < 1 ? "touched today" : `${Math.round(daysSince)}d untouched`}, exhaustion ${finished.toFixed(2)}, momentum +${(momentum * 100).toFixed(0)}% (streak ${m?.streak ?? 0})`
-          : "no history — exploring";
+          ? `${passes}/${attempts} passed, ${daysSince < 1 ? "touched today" : `${Math.round(daysSince)}d untouched`}, complexity +${(complexity * 100).toFixed(0)}%, exhaustion ${finished.toFixed(2)}, momentum +${(momentum * 100).toFixed(0)}% (streak ${m?.streak ?? 0})`
+          : `no history — exploring (complexity +${(complexity * 100).toFixed(0)}%)`;
       return { abs: candidateAbsPaths[i], s: { filePath: r, score, reason } };
     });
 

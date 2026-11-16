@@ -1,5 +1,4 @@
 import { describe, test, expect } from "bun:test";
-import { PostmortemPanel } from "./postmortem-panel";
 
 describe("PostmortemPanel", () => {
   test("initially has empty postmortems array", () => {

@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/hooks/use-mobile.ts",
+  "status": "resolved",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 0 → evolved 2), no behavioral signal, 20 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "evidence": "Original: 565 bytes, Refactored: 1049 bytes. Errors: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 0 → evolved 2), no behavioral signal, 20 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "constraints": "The previous refactor of src/hooks/use-mobile.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "f0690de3cb554acaf55d275eabcd0ca7a2708807e33d9f96ce7cba5867d7c434",
+  "hash": "4816aa31fa570c7e8a98be74c589aa6e0a74899709a51ce0e7904caa2b2c5a63",
+  "lastAttemptAt": "2026-11-15T00:23:24.766Z",
+  "resolvedAt": "2026-11-15T01:17:33.049Z",
+  "createdAt": "2026-11-15T00:23:24.767Z",
+  "updatedAt": "2026-11-15T01:17:33.049Z",
+  "schema": 2
+}

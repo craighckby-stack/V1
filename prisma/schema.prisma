@@ -633,3 +633,53 @@ model SelfPrediction {
   // Built on every self-model summary read.
   @@index([outcome])
 }
+
+/// ── GOAL ENGINE — the loop's self-set SYSTEM DIRECTION (the goal loop,
+/// the last operator-owned piece of loop cognition handed over) ────────
+/// Higher-level goals used to be hardcoded operator text inside the
+/// mutation prompt ("reduce polling latency", "improve back-pressure",
+/// "make state updates more efficient"). The loop could PURSUE goals but
+/// never SET them. This table makes goals ROWS: seeded with the three
+/// operator goals (provenance "operator-seed"), then reviewed on a fixed
+/// cadence by goal-engine.ts — an LLM pass over recent evidence that may
+/// retire one goal (met/unproductive) and mint one new goal per review,
+/// under hard clamps (max 5 active, operator seeds only retire-able as
+/// "met", min lifetime, no re-minting retired texts, one change of each
+/// kind per review). The mutation prompt renders the active rows as its
+/// SYSTEM DIRECTION block, and the debate topic carries the active goal
+/// texts so the tribunal can credit goal-advancing changes.
+///
+/// The engine itself (goal-engine.ts) is in PROTECTED_FILES — the loop
+/// can never rewrite its own goal governance. Protected in
+/// SCHEMA_PROTECTED_MODELS so the loop can't drop or alter the table.
+model LoopGoal {
+  id        String    @id @default(cuid())
+  /// The directive, ALL-CAPS imperative, ≤120 chars (e.g. "REDUCE
+  /// POLLING LATENCY"). Unique across ALL rows (active and retired) —
+  /// a retired text can never be re-minted, which kills goal
+  /// flip-flop at the schema level.
+  text      String    @unique
+  /// Why this goal exists / what "done" looks like. Shown to the
+  /// mutation LLM as the bullet's explanation.
+  rationale String    @default("")
+  /// operator-seed | self — self-set goals retire on the loop's own
+  /// judgment; operator-seeded goals can only be retired as "met"
+  /// (with evidence), never quietly dropped.
+  provenance String   @default("self")
+  /// active | met | dropped
+  status    String    @default("active")
+  /// cyclesCompleted when the goal entered the active set. Age in
+  /// cycles = current - activated. Min-lifetime clamps read this.
+  activatedCycle Int  @default(0)
+  retiredCycle   Int?
+  /// The reviewer's evidence/reason for the retirement. The audit
+  /// trail for "why did the loop stop pursuing X".
+  retiredReason  String?
+  /// The minting review's one-line commentary — provenance for "why
+  /// did the loop start pursuing Y" (self-minted rows only).
+  reviewNote     String?
+  createdAt DateTime  @default(now())
+  retiredAt DateTime?
+
+  @@index([status])
+}

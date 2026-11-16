@@ -118,10 +118,34 @@ interface Props {
   onClose: () => void;
 }
 
+/** A row from the LoopGoal table — the loop's self-set direction. */
+interface GoalRow {
+  id: string;
+  text: string;
+  rationale: string;
+  provenance: string; // operator-seed | self
+  status: string; // active | met | dropped
+  activatedCycle: number;
+  retiredCycle: number | null;
+  retiredReason: string | null;
+  createdAt: string;
+  retiredAt: string | null;
+}
+
+interface GoalsSnapshot {
+  active: GoalRow[];
+  retired: GoalRow[];
+  error?: string;
+}
+
 export function SelfModelPanel({ open, onClose }: Props) {
   const [status, setStatus] = useState<SelfModelStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // The goal engine snapshot — the loop's self-set SYSTEM DIRECTION.
+  // Polled alongside the self-model (same 8s cadence, one extra fetch —
+  // the goals are a handful of rows, the response is tiny).
+  const [goals, setGoals] = useState<GoalsSnapshot | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -144,11 +168,25 @@ export function SelfModelPanel({ open, onClose }: Props) {
       }
     }
 
+    async function pollGoals() {
+      try {
+        const res = await fetch("/api/self-enhance/goals");
+        if (!res.ok) return; // goals are an overlay, not a gate — silent
+        const data = (await res.json()) as GoalsSnapshot;
+        if (active) setGoals(data);
+      } catch {
+        /* goal fetch failure never blocks the panel */
+      }
+    }
+
     poll();
+    pollGoals();
     const timer = setInterval(poll, 8000);
+    const goalsTimer = setInterval(pollGoals, 8000);
     return () => {
       active = false;
       clearInterval(timer);
+      clearInterval(goalsTimer);
     };
   }, [open]);
 
@@ -256,6 +294,59 @@ export function SelfModelPanel({ open, onClose }: Props) {
         {error && (
           <div style={{ color: ERROR_COLOR, marginBottom: "8px" }}>error: {error}</div>
         )}
+
+        {/* System direction — the loop's self-set goals. Top placement:
+            direction is the most strategic surface of self-knowledge.
+            Seeded by the operator, then owned by the loop: it reviews
+            the active set on a fixed cadence and may retire/mint under
+            the goal-engine's clamps. */}
+        <div style={{ marginBottom: "16px", padding: "8px", border: `1px solid ${DIM_COLOR}` }}>
+          <div style={{ color: DIM_COLOR, marginBottom: "4px" }}>
+            SYSTEM DIRECTION — the loop&apos;s goals (self-governed)
+          </div>
+          {goals === null ? (
+            <div style={{ color: DIM_COLOR }}>loading goals…</div>
+          ) : goals.active.length === 0 ? (
+            <div style={{ color: WARN_COLOR }}>no active goals (goal store empty)</div>
+          ) : (
+            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+              {goals.active.map((g) => (
+                <li key={g.id} style={{ marginBottom: "6px" }}>
+                  <span style={{ color: GOOD_COLOR, fontWeight: "bold" }}>{g.text}</span>{" "}
+                  <span
+                    style={{
+                      color: g.provenance === "operator-seed" ? DIM_COLOR : ACCENT_COLOR,
+                      fontSize: "11px",
+                    }}
+                  >
+                    [{g.provenance === "operator-seed" ? "operator-seeded" : "self-set"}]
+                  </span>
+                  <div style={{ color: PROMPT_COLOR, fontSize: "11px", marginTop: "2px" }}>
+                    {g.rationale}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {goals && goals.retired.length > 0 && (
+            <div style={{ marginTop: "6px", paddingTop: "6px", borderTop: `1px solid ${DIM_COLOR}` }}>
+              <div style={{ color: DIM_COLOR, fontSize: "11px", marginBottom: "4px" }}>
+                RETIRED (the loop&apos;s own judgment — graduated or dropped)
+              </div>
+              {goals.retired.map((g) => (
+                <div key={g.id} style={{ fontSize: "11px", marginBottom: "2px" }}>
+                  <span style={{ color: g.status === "met" ? GOOD_COLOR : WARN_COLOR }}>
+                    {g.status === "met" ? "✓ met" : "✗ dropped"}
+                  </span>{" "}
+                  <span style={{ color: DIM_COLOR, textDecoration: "line-through" }}>{g.text}</span>
+                  {g.retiredReason ? (
+                    <span style={{ color: DIM_COLOR }}> — {g.retiredReason.slice(0, 120)}</span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Verdict */}
         <div style={{ marginBottom: "16px", padding: "8px", border: `1px solid ${DIM_COLOR}` }}>

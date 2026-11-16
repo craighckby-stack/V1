@@ -80,7 +80,7 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
     const dirPath = dirname(OPERATOR_TOUCH_FILE);
     mkdirSync(dirPath, { recursive: true });
     const entry: OperatorTouchState = { at: now.toISOString(), by };
-    writeFileSync(OPERATOR_TOUCH_FILE, JSON.stringify(entry, null, 2), "utf8");
+    writeFileSync(OPERATOR_TOUCH_FILE, JSON.stringify(entry), "utf8");
   } catch (error) {
     /* best-effort - log the error for debugging if needed, but never throw */
     if (error instanceof Error) {
@@ -157,11 +157,12 @@ export function isDeadMansTripped(
     return true;
   }
 
+  const nowTime = now.getTime();
   const state = readOperatorTouch();
   if (!state) return true; // never touched, unreadable, or malformed → tripped
 
   const lastTouch = Date.parse(state.at);
   if (isNaN(lastTouch)) return true; // bad timestamp → tripped
 
-  return now.getTime() - lastTouch > thresholdMs;
+  return nowTime - lastTouch > thresholdMs;
 }

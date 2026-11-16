@@ -40,6 +40,7 @@ const ARCHITECTURE_SYSTEM = `You are the Architecture Reviewer in an autonomous 
 - Clean code, modularity, single responsibility.
 - Naming, cohesion, dependency direction.
 - Performance and scalability concerns (without over-engineering).
+- VALUE DENSITY (operator-directed): once a file's basic robustness is already present (guards, error handling, validation in place and correct), changes that improve DESIGN (simpler abstractions, better modularity, clearer data flow) or PERFORMANCE (less redundant work, lower latency, bounded queues, fewer round trips) are worth MORE than further defensive hardening. If this change only adds another null-check or validation to already-guarded code, say so in your points — call it low-value churn, and lower your stance accordingly. If it advances a real design or performance goal, credit that explicitly in your points.
 
 Respond in strict JSON only:
 {
@@ -49,7 +50,7 @@ Respond in strict JSON only:
   "citations": [string, ...]
 }
 
-Default to ENDORSE for small refactors that preserve public API. OPPOSE only for genuine architectural regressions.`;
+Default to ENDORSE for small refactors that preserve public API. OPPOSE only for genuine architectural regressions OR changes whose entire content is marginal hardening of already-robust code (churn).`;
 
 const LEAD_SYSTEM = `You are the Lead Reviewer in an autonomous code review tribunal. You receive the Security Reviewer's and Architecture Reviewer's findings and synthesize a final verdict.
 
@@ -67,7 +68,9 @@ Rules:
 - APPROVED: both reviewers endorse. Use coefficient >= 0.85.
 - CONDITIONAL_APPROVAL: at least one endorses but minor concerns. Use 0.55-0.84.
 - REQUIRES_REWRITE: security OPPOSE or significant issues. Use 0.20-0.54.
-- REJECTED: critical security flaws. Use < 0.20.`;
+- REJECTED: critical security flaws. Use < 0.20.
+
+VALUE HIERARCHY (operator-directed): correctness and security always come first. But once basic robustness is already present in the touched code, improvements to DESIGN and PERFORMANCE rank ABOVE additional defensive hardening. A change whose entire content is one more null-check or validation on already-guarded code is low-value churn: prefer REQUIRES_REWRITE (no change beats churn) and say why in leadSummary. A change that simplifies a design, removes redundant work, bounds a queue, or cuts a round trip deserves full-credit approval when safe.`;
 
 function safeJsonParse(text: string): Record<string, unknown> | null {
   try {

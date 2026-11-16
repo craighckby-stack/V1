@@ -109,14 +109,14 @@ export async function oracleSchedulerTick(): Promise<{
     const errorMessage = err instanceof Error ? err.message : `Unknown error during prophecy listing: ${String(err)}`;
     const stackTrace = err instanceof Error ? err.stack : 'No stack trace available';
     emitOracleEvent(
-      `Oracle scheduler tick failed while listing due prophecies. Error: ${errorMessage}\n${stackTrace}`,
+      `Oracle scheduler tick failed while listing due prophecies. Error: ${errorMessage}`,
       "error",
       "scheduler",
     );
     return { ran: false, reason: "failed to list due prophecies" };
   }
 
-  s.lastTickAt = Date.now(); // Update tick time even if no prophecies are due
+  s.lastTickAt = Date.now(); // Update tick time
   s.ticks += 1;
 
   if (due.length === 0) {
@@ -129,13 +129,6 @@ export async function oracleSchedulerTick(): Promise<{
     // Validate the result structure. CONTRACT: evaluateDueProphecies()
     // returns per-prophecy outcome ARRAYS —
     //   { judged: Array<{id, claim, verdict}>, skipped: Array<{id, claim, reason, error}> }
-    // (see prophecy-evaluator.ts). The tick's job is to reduce them to
-    // COUNTS for the status surface (lastJudgedCount) and the tick return
-    // type below. The old validation demanded `typeof judged === "number"`
-    // — an array is never a number, so EVERY tick with due prophecies
-    // threw "returned non-finite numeric values" and no prophecy was ever
-    // adjudicated by the background scheduler (the manual /api/oracle/
-    // evaluate route worked because it consumes the arrays directly).
     if (typeof result !== 'object' || result === null || !('judged' in result) || !('skipped' in result)) {
       throw new Error('evaluateDueProphecies() returned invalid result structure: missing "judged" or "skipped" properties.');
     }
@@ -183,8 +176,7 @@ function bootOracleScheduler(): void {
   
   s.booted = true;
 
-  // First tick after a short delay (not immediately) — gives the
-  // server a moment to finish booting before we touch the DB/LLM.
+  // Check for valid TICK_MS before proceeding
   if (TICK_MS <= 0) {
     emitOracleEvent(
       `Scheduler configuration error: TICK_MS (${TICK_MS}) must be positive. Scheduler not started.`,
@@ -194,12 +186,14 @@ function bootOracleScheduler(): void {
     return;
   }
 
+  // First tick after a short delay (not immediately) — gives the
+  // server a moment to finish booting before we touch the DB/LLM.
   const timer = setInterval(() => {
     oracleSchedulerTick().catch((err) => {
       // A background bookkeeper must never crash the process.
       const error = err instanceof Error ? err : new Error(`Unhandled error in scheduler tick: ${String(err)}`);
       emitOracleEvent(
-        `Oracle scheduler tick error: ${error.message}\n${error.stack || ''}`,
+        `Oracle scheduler tick error: ${error.message}`,
         "error",
         "scheduler",
       );

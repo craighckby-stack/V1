@@ -342,6 +342,23 @@ export default function Home() {
   } | null>(null);
 
   const logRef = useRef<HTMLDivElement>(null);
+  // "Stick to bottom" tail-follow: the auto-scroll effect below yanks the
+  // console to the bottom ONLY when the user is already at (or near) the
+  // bottom. Once the user scrolls up to read history, we stop fighting
+  // them — new lines still append at the bottom of the scrollback, but
+  // the viewport stays where they put it. A ref (not state) is enough
+  // because the effect reads it synchronously and we never re-render
+  // from it. The threshold (40px) tolerates sub-pixel rounding so the
+  // last line stays visible without re-snapping.
+  const stickToBottomRef = useRef(true);
+  const STICK_BOTTOM_THRESHOLD_PX = 40;
+  const onConsoleScroll = () => {
+    const el = logRef.current;
+    if (!el) return;
+    const distanceFromBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = distanceFromBottom <= STICK_BOTTOM_THRESHOLD_PX;
+  };
   const inputRef = useRef<HTMLInputElement>(null);
   const cfgTokenRef = useRef<HTMLInputElement>(null);
   const cfgRepoRef = useRef<HTMLInputElement>(null);
@@ -625,12 +642,24 @@ export default function Home() {
 
   // Auto-scroll to bottom whenever the unified stream grows — whether from a
   // new command, command output, or a new server log. One stream, one scroll.
-  const consoleLineCount = consoleLines.length;
+  //
+  // FIX ("on long runs, the on-screen logs freeze so I can scroll"): the
+  // effect used to depend on `consoleLines.length`, which stops changing
+  // once the buffer hits the 400-line cap (CONSOLE_LINE_CAP — .slice(-400)
+  // pins the length). The effect stopped firing, auto-scroll silently
+  // broke, and the stream appeared frozen even though new lines kept
+  // appending. Depending on the LAST LINE'S ID keeps tail-follow alive
+  // past the cap — the id changes on every append regardless.
+  //
+  // The stickToBottomRef check makes follow-tail POLITE: scroll up to
+  // read history and the stream stops yanking you back; return to the
+  // bottom and auto-follow re-engages (onConsoleScroll tracks position).
+  const lastLogId = consoleLines[consoleLines.length - 1]?.id;
   useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight;
-    }
-  }, [consoleLineCount]);
+    if (!logRef.current) return;
+    if (!stickToBottomRef.current) return;
+    logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [lastLogId]);
 
   // Any modal panel open? When one is, the click-to-focus + Escape handlers
   // below must NOT steal focus to the terminal or swallow keys — the panel's
@@ -1104,11 +1133,15 @@ export default function Home() {
         }
         const t = pushTarget;
         if (t?.configured) {
-          const nextN = (t.lastBranchNumber ?? 0) + 1;
-          const nextBranch = `loop-${String(nextN).padStart(2, "0")}`;
+          // RECLAIM: lastBranchNumber is now a LIFETIME TALLY (how many
+          // mutations have ever succeeded), NOT the next branch number.
+          // The next branch slot comes from findLowestFreeBranchSlot()
+          // (bounded ~1-100, reclaimable). We show the tally as "lifetime"
+          // and the next slot from the branches API (if cached).
+          const tally = t.lastBranchNumber ?? 0;
           lines.push(
             `Push target:    github.com/${t.repo} (seed: ${t.branch})`,
-            `Mutations:      ${t.lastBranchNumber ?? 0} pushed — next will be ${nextBranch}`,
+            `Mutations:      ${tally} pushed (lifetime tally — branch slots are reclaimed, bounded ~1-100)`,
             `Last push:      ${t.lastPushSha ? `commit ${t.lastPushSha}` : "never"}${t.lastPushAt ? ` at ${t.lastPushAt}` : ""}`
           );
           if (t.lastPushError) lines.push(`Last error:     ${t.lastPushError}`);
@@ -2232,7 +2265,11 @@ export default function Home() {
           display component freely — colors, layout, formatting, new panels.
           page.tsx owns the state (consoleLines) and the control surface; the
           display layer only renders what it's given. */}
-      <ConsoleStream lines={consoleLines} logRef={logRef} />
+      <ConsoleStream
+        lines={consoleLines}
+        logRef={logRef}
+        onScroll={onConsoleScroll}
+      />
 
       {/* Prompt */}
       <div

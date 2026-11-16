@@ -439,7 +439,10 @@ function scanPostLines(v: Vitals, nowMs: number): PostLine[] {
     },
     {
       label: "MUTATION TOTALS",
-      value: `${v.branchesTotal} SUCCEEDED · ${v.scars} FAILED`,
+      // RECLAIM: branchesTotal is the LIVE count (bounded ~50 by retention),
+      // not the lifetime tally (~1012+). Label says "LIVE" to avoid the
+      // misread "1012 branches exist" that prompted the reclaim overhaul.
+      value: `${v.branchesTotal} LIVE · ${v.scars} FAILED`,
       stamp: "OK",
       warn: v.branchesTotal === "??" || v.scars === "??",
     },

@@ -82,11 +82,7 @@ export function markArmed(armed: boolean, by: string): void {
       try {
         mkdirSync(infoDir, { recursive: true });
       } catch (mkdirError) {
-        if (mkdirError instanceof Error) {
-          console.error(`markArmed: Failed to create directory ${infoDir}. Check file system permissions. Error: ${mkdirError.message}`);
-        } else {
-          console.error(`markArmed: Failed to create directory ${infoDir}. Unknown error during directory creation.`);
-        }
+        console.error(`markArmed: Failed to create directory ${infoDir}. Check file system permissions. Error: ${mkdirError instanceof Error ? mkdirError.message : String(mkdirError)}`);
         return; // Cannot proceed without directory
       }
     }
@@ -134,13 +130,13 @@ export function readArmedState(): ArmedState | null {
 
     const state = parsed as Partial<ArmedState>;
 
-    // Validate that parsed is an object and matches ArmedState structure
+    // Validate that parsed matches ArmedState structure and data integrity
     if (typeof state.armed !== "boolean" || 
         typeof state.at !== "string" || 
         typeof state.by !== "string" ||
         state.by.trim() === "" ||
-        state.at.length === 0 || // Check for empty timestamp string first
-        isNaN(Date.parse(state.at))) { // Validate ISO timestamp format
+        state.at.length === 0 || 
+        isNaN(Date.parse(state.at))) {
       
       console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure.`);
       return null;

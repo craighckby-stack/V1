@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline-store.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: [AST_SYMBOL_DROPPED] Dropped 1 original symbol(s): PipelineStore",
+  "evidence": "Original: 5838 bytes, Refactored: 5844 bytes. Errors: [AST_SYMBOL_DROPPED] Dropped 1 original symbol(s): PipelineStore",
+  "constraints": "The previous refactor of src/lib/pipeline-store.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 7,
+  "parentHash": "92d054e58cfa43f87481522dcf83e6a4befeacc48dd4af0d3e5fc04a44625cb1",
+  "hash": "8b6f2c0f6efd21be077e387b0c65a4f6ba366243fbad58bf703f9c5e63d52ddf",
+  "lastAttemptAt": "2026-11-14T14:38:05.375Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-14T11:33:37.585Z",
+  "updatedAt": "2026-11-14T14:38:05.375Z",
+  "schema": 2
+}

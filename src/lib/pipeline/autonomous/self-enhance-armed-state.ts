@@ -84,7 +84,7 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   } catch (error) {
     const infoDir = join(PROJECT_ROOT, ".git/info");
     console.error(
-      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}. PROJECT_ROOT: ${PROJECT_ROOT}`,
+      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}. PROJECT_ROOT: ${PROJECT_ROOT}. Error details:`,
       error instanceof Error ? error.message : String(error)
     );
   }
@@ -105,12 +105,14 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
     const parsed: unknown = JSON.parse(raw);
 
+    if (typeof parsed !== 'object' || parsed === null) {
+        return null;
+    }
+
     const state = parsed as SelfEnhanceArmedState;
 
     // Validate the parsed object structure strictly against the interface
     if (
-      typeof state === 'object' &&
-      state !== null &&
       'armed' in state &&
       'at' in state &&
       'by' in state &&

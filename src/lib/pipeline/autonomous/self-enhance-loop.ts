@@ -19,9 +19,10 @@ import { join, relative, resolve, basename, dirname } from "path";
 import { createHash } from "crypto";
 import { llmComplete, extractSummaryAndCode, llmCooldownMs } from "../llm/agent-llm";
 import { conductLlmDebate } from "../llm/debate-llm";
+import { renderGoalsBullets, renderGoalsTopicLine, maybeReviewGoals } from "./goal-engine";
 import { postmortemStore } from "../postmortem/postmortem-store";
 import { queryRelevantPostmortems, formatAncestralPromptBlock } from "../postmortem/ancestral-rag";
-import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, formatLoopBranch, validateCommitMessage, amendUuidHeadCommit, pruneOldLoopBranches } from "./push-target";
+import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, findLowestFreeBranchSlot, formatLoopBranch, validateCommitMessage, amendUuidHeadCommit, pruneOldLoopBranches } from "./push-target";
 import { db } from "@/lib/db";
 import { generateTasks, claimNextTask } from "./self-task-generator";
 import { executeTask, type TaskExecutionResult } from "./task-executor";
@@ -523,6 +524,31 @@ class SelfEnhanceLoop {
     tasksGenerated: 0,
     lastEnhancementAt: null as string | null,
   };
+  /** Cached snapshot of the last retention-drain result, exposed via
+   *  getBranchRetention() so /api/self-enhance/status can surface the
+   *  TRUE live branch count, the lifetime tally, and the next reclaim
+   *  slot — the three numbers an operator needs to not misread the
+   *  branch state.
+   *
+   *  WHY THIS EXISTS (since branch-number reclaim): `lastBranchNumber`
+   *  (the DB field) is now a MONOTONIC LIFETIME TALLY (~1011+), NOT a
+   *  branch count. The actual branch NAMES come from
+   *  `findLowestFreeBranchSlot()` and stay bounded ~1-100. An operator
+   *  reading "loop-1011" used to — wrongly — infer ~1000 live branches.
+   *  This field carries the honest trio: live count, max number alive,
+   *  and the next slot the loop will target. Updated only when
+   *  pruneOldLoopBranches actually ran (pr.ran); null before the first
+   *  drain or after a process boot (refreshes on the next push). */
+  private lastBranchRetention: {
+    liveBranches: number;
+    maxNumber: number;
+    keep: number;
+    keepFloor: number;
+    /** The lowest free slot the next mutation will target (from the
+     *  post-prune survivor set). Bounded ~1-100 with reclaim active. */
+    lowestFreeSlot: number;
+    at: string;
+  } | null = null;
   // Durable-stats hydration gate (see hydrateStats). Created in the
   // constructor; awaited at the top of runCycle so the FIRST cycle after
   // a boot waits for the persisted counters (or the one-time DB seed)
@@ -938,7 +964,13 @@ class SelfEnhanceLoop {
     changeSummary: string
   ): Promise<{ approved: boolean; reason: string; verdict?: string; deferred?: boolean }> {
     try {
-      const topic = `Proposed refactor of ${relative(PROJECT_ROOT, filePath)}: ${changeSummary.slice(0, 200)}`;
+      // GOAL ENGINE — the topic carries the active goal texts so the
+      // tribunal can credit goal-advancing changes explicitly ("this
+      // bounds a queue — advances IMPROVE BACK-PRESSURE") and judge
+      // pure-churn changes against the system's actual direction.
+      // Fail-soft: an empty line on renderer failure is harmless here.
+      const goalsLine = await renderGoalsTopicLine().catch(() => "");
+      const topic = `Proposed refactor of ${relative(PROJECT_ROOT, filePath)}: ${changeSummary.slice(0, 200)}\nActive system goals: ${goalsLine}`;
       const result = await conductLlmDebate(topic, refactoredCode, filePath);
       const consensus = result.verdict.consensus;
 
@@ -1368,14 +1400,25 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       return this.enhanceSchema(filePath, myRun);
     }
 
-    // Compute this enhancement's branch: loop-{N+1} where N is the last
-    // successful enhancement's number. Stored on the instance so every
-    // gitPush in this enhanceFile (test pin + enhancement) targets the
-    // same branch — one full mutation = one branch.
+    // Compute this enhancement's branch slot + the lifetime tally.
+    //
+    // BRANCH-NUMBER RECLAIM (decoupled from the counter):
+    //   - `thisN` = findLowestFreeBranchSlot() — the smallest free
+    //     loop-NN on the remote. With 50 live branches, stays bounded
+    //     ~1-100. Pruned numbers are immediately reusable.
+    //   - `lastN` = getLastBranchNumber() — the LIFETIME TALLY (how
+    //     many mutations have ever succeeded). Monotonic, ~1011+.
+    //   - The branch is named loop-{thisN}; the tally bumps to lastN+1
+    //     after a successful push. The two are DECOUPLED: the branch
+    //     number stays bounded, the tally climbs forever.
+    //
+    // Stored on the instance so every gitPush in this enhanceFile (test
+    // pin + enhancement) targets the same branch — one full mutation =
+    // one branch.
     const lastN = await getLastBranchNumber();
-    const thisN = lastN + 1;
+    const thisN = await findLowestFreeBranchSlot();
     this.currentCycleBranch = formatLoopBranch(thisN);
-    this.log(`Branch for this mutation: ${this.currentCycleBranch}`, "info");
+    this.log(`Branch for this mutation: ${this.currentCycleBranch} (tally: ${lastN} → ${lastN + 1} on success)`, "info");
 
     const result: SelfEnhanceResult = {
       filePath: relPath,
@@ -1582,6 +1625,15 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
         /* arch context is a vision amplifier, not a gate — fail-soft */
       }
 
+      // GOAL ENGINE — the SYSTEM DIRECTION bullets render from the
+      // LoopGoal table: operator-seeded, then reviewed and updated by
+      // the loop's own goal review (retire met/unproductive goals, mint
+      // new ones from observed evidence — clamped; see goal-engine.ts).
+      // The loop pursues goals it OWNS. Fail-soft: any goal-store error
+      // falls back to the static operator seed bullets inside the
+      // renderer, so the enhance prompt can never fail on this path.
+      const goalsBullets = await renderGoalsBullets();
+
       const refactorSystem = `You are a senior code reviewer improving a TypeScript file inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
 
 Your job: find and fix REAL issues. Do NOT make cosmetic changes (type annotations, magic numbers, syntax modernization). Those are pointless. Instead, look for:
@@ -1592,6 +1644,11 @@ Your job: find and fix REAL issues. Do NOT make cosmetic changes (type annotatio
 4. PERFORMANCE: obvious inefficiencies — O(n²) where O(n) works, repeated computations in loops, unnecessary allocations, synchronous I/O that could be async.
 5. SECURITY: injection risks, unsafe eval, hardcoded secrets, missing input sanitization.
 6. DEAD CODE: unused imports, unreachable branches, commented-out code.
+
+SYSTEM DIRECTION — higher-level goals (self-governed: seeded by the operator, owned, reviewed and updated by the loop's own goal review; rank above more hardening):
+This codebase is a live, long-running autonomous pipeline: a Next.js dashboard polling many APIs on timers, a background loop worker, and a WebSocket state stream. When the file offers the opportunity, spend your change budget moving these goals forward:
+${goalsBullets}
+Robustness budget rule: if this file ALREADY has its basic robustness in place (guards, error handling, validation present and correct), do NOT add more defensive null-checks — improve the design or performance instead. A fourth null-guard on already-guarded code is churn, not improvement.
 
 HARD RULES (violating any rule fails the pipeline):
 - Preserve EVERY top-level exported symbol (function, class, interface, type, const). Do not rename or remove them.
@@ -1615,7 +1672,7 @@ OUTPUT FORMAT (mandatory):
 \`\`\`
 ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${rejectedBlock}${ancestralBlock}${lessonsBlock}`;
 
-      const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n${archContextBlock}\nFind real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in this file. Fix them. If nothing needs fixing, return the file unchanged. Use the architecture context above (if present) to avoid breaking changes that would affect importing modules. Output the summary first, then the code.`;
+      const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n${archContextBlock}\nFind real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in this file. Fix them. Where the file's basic robustness is already in place, pursue the SYSTEM DIRECTION goals above instead (design or performance work) rather than adding more defensive checks. If nothing needs fixing, return the file unchanged. Use the architecture context above (if present) to avoid breaking changes that would affect importing modules. Output the summary first, then the code.`;
 
       // ── VISUAL-POLISH MODE (audit 6 — the user flagged "still not
       //    enhancing its own ui look") ────────────────────────────────
@@ -1936,12 +1993,14 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
 
       if (writeOutcome.pushed) {
         this.stats.totalPushed++;
-        // Bump the per-cycle branch counter — this mutation now lives on
-        // `loop-{thisN}` on the remote. The next enhanceFile will compute
-        // `loop-{thisN+1}`. Failed attempts (this block not reached) leave
-        // the counter untouched, so the next attempt reuses the same number.
-        await setLastBranchNumber(thisN);
-        this.log(`Mutation #${thisN} pinned to branch ${this.currentCycleBranch}`, "success");
+        // Bump the LIFETIME TALLY (NOT the branch slot — that's decoupled
+        // since reclaim). `lastN` was the tally before this push; the
+        // branch slot `thisN` came from findLowestFreeBranchSlot(). The
+        // tally bumps to lastN+1 regardless of which slot was used. A
+        // failed attempt (this block not reached) leaves the tally
+        // untouched — the slot is still free for the next attempt.
+        await setLastBranchNumber(lastN + 1);
+        this.log(`Mutation tally ${lastN} → ${lastN + 1} pinned to branch ${this.currentCycleBranch} (slot ${thisN})`, "success");
 
         // ── BRANCH RETENTION (audit: branch accumulation) ───────────────
         // Each successful push pins a new loop-NN branch on the remote and
@@ -1952,7 +2011,28 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         // failure must NOT fail this enhancement (the commit + push already
         // succeeded; retention is housekeeping), mirroring the hot-swap below.
         void pruneOldLoopBranches({ keep: 50, margin: 10 })
-          .then((pr) => {
+          .then(async (pr) => {
+            // Cache the drain result for /api/self-enhance/status so the
+            // dashboard can show the TRUE live branch count, not just the
+            // monotonic counter (see lastBranchRetention above). liveBranches
+            // after this drain = branches found − branches actually deleted
+            // (rate-limited/failed ones remain live). Only set when pr.ran;
+            // a hysteresis no-op leaves the previous snapshot intact.
+            if (pr.ran) {
+              this.lastBranchRetention = {
+                liveBranches: Math.max(0, pr.totalLoopBranches - pr.deleted.length),
+                maxNumber: pr.maxNumber,
+                keep: pr.keep,
+                keepFloor: pr.keepFloor,
+                // The next slot the loop will target, from the post-prune
+                // survivor set. findLowestFreeBranchSlot() is cached (30s
+                // TTL) and was just refreshed by the prune, so this read is
+                // sub-ms. If the cache is stale (edge case), it does a live
+                // walk (~1s) — acceptable in a fire-and-forget .then().
+                lowestFreeSlot: await findLowestFreeBranchSlot(),
+                at: new Date().toISOString(),
+              };
+            }
             if (!pr.ran) return;
             const note = pr.rateLimited
               ? `Pruned ${pr.deleted.length} old branches, rate-limited with ${pr.failed.length} pending (floor loop-${pr.keepFloor})`
@@ -2058,12 +2138,13 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
    */
   private async enhanceSchema(filePath: string, myRun: number): Promise<SelfEnhanceResult> {
     const relPath = relative(PROJECT_ROOT, filePath);
-    // Same branch contract as enhanceFile: this mutation targets
-    // loop-{N+1}, bumped only on successful push.
+    // Same branch contract as enhanceFile (reclaim-aware): the branch
+    // slot comes from findLowestFreeBranchSlot(), the lifetime tally
+    // from getLastBranchNumber(). See enhanceFile for the full rationale.
     const lastN = await getLastBranchNumber();
-    const thisN = lastN + 1;
+    const thisN = await findLowestFreeBranchSlot();
     this.currentCycleBranch = formatLoopBranch(thisN);
-    this.log(`Branch for this mutation: ${this.currentCycleBranch}`, "info");
+    this.log(`Branch for this mutation: ${this.currentCycleBranch} (tally: ${lastN} → ${lastN + 1} on success)`, "info");
     const result: SelfEnhanceResult = {
       filePath: relPath,
       enhanced: false,
@@ -2284,8 +2365,10 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       result.commitSha = pushResult.commitSha;
       if (pushResult.pushed) {
         this.stats.totalPushed++;
-        await setLastBranchNumber(thisN);
-        this.log(`Schema mutation pinned to branch ${this.currentCycleBranch}`, "success");
+        // Bump the lifetime tally (decoupled from the slot — same as
+        // the enhanceFile path). See the reclaim comment in enhanceFile.
+        await setLastBranchNumber(lastN + 1);
+        this.log(`Schema mutation tally ${lastN} → ${lastN + 1} pinned to branch ${this.currentCycleBranch} (slot ${thisN})`, "success");
       } else {
         // The schema is LIVE locally but the remote proof didn't land
         // (external audit, finding 5). This is a real divergence: the
@@ -2723,6 +2806,7 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       //   empirical success rate (Laplace-smoothed)
       //   + exploration bonus (untried files get a look)
       //   + recency bonus (long-untouched files resurface)
+      //   + complexity bonus (decision-dense files carry more room)
       //   - exhaustion penalty (files that keep zero-diffing sink)
       // This replaces the old alphabetical tree-order scan with actual
       // DECISION-MAKING. The bandit self-explains its top 3 picks in the
@@ -3323,6 +3407,56 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
           /* distillation is best-effort */
         });
 
+      // ── GOAL REVIEW (the loop judges its own direction) ──────────
+      // Every GOAL_REVIEW_INTERVAL cycles: one LLM pass over the
+      // evidence (this cycle's outcomes, recent corpus attempts, goal
+      // ages) may retire ONE goal and mint ONE — under goal-engine
+      // clamps (operator seeds retire only as "met" with evidence,
+      // min lifetime for self-set goals, no re-minting retired texts,
+      // max 5 active). Self-skips while the LLM gate is closed (the
+      // quota contract: mutations own the quota first) and retries on
+      // the next cycle. Fire-and-forget — a review failure must never
+      // fail the cycle, same contract as distillation above.
+      {
+        const goalEvidence = {
+          cycle: cycleNow,
+          enhancedThisCycle: results.filter((r) => r.enhanced).length,
+          filesThisCycle: results.length,
+          deferredThisCycle: results.filter(
+            (r) => !r.enhanced && r.reason.startsWith("Deferred")
+          ).length,
+          topReasons: [
+            ...new Set(
+              results.filter((r) => !r.enhanced).map((r) => r.reason)
+            ),
+          ].slice(0, 6),
+          totalEnhanced: this.stats.totalEnhanced,
+          totalReverted: this.stats.totalReverted,
+        };
+        void maybeReviewGoals(goalEvidence, (line, level) => this.log(line, level))
+          .then((outcome) => {
+            if (outcome.error) {
+              this.log(`🎯 goal review skipped: ${outcome.error}`, "warn");
+            } else if (outcome.ran && !outcome.retired && !outcome.minted) {
+              this.log(
+                `🎯 goal review (cycle ${cycleNow}): no change — ${outcome.commentary ?? ""}`.slice(0, 300),
+                "info"
+              );
+            } else if (outcome.ran) {
+              this.log(
+                `🎯 goal review (cycle ${cycleNow}): direction updated — ${outcome.commentary ?? ""}`.slice(0, 300),
+                "success"
+              );
+            }
+          })
+          .catch((err) => {
+            this.log(
+              `🎯 goal review failed (best-effort): ${err instanceof Error ? err.message : err}`,
+              "warn"
+            );
+          });
+      }
+
       // ── AUDIT 4 (P1 + P2a + P3) RETENTION PRUNES ─────────────────
       // Three best-effort, fire-and-forget prunes for the loop's grow-
       // only DB tables. A prune failure is swallowed inside the helper
@@ -3625,6 +3759,17 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
     return { ...this.stats };
   }
 
+  /** Snapshot of the last retention-drain result, for /api/self-enhance/status.
+   *  Carries the TRUE live branch count (e.g. 50) vs the monotonic branch
+   *  counter (which is a lifetime mutation tally, not a live count). Null
+   *  before the first drain that actually ran, or after a process boot
+   *  until the next push triggers prune. */
+  getBranchRetention() {
+    return this.lastBranchRetention
+      ? { ...this.lastBranchRetention }
+      : null;
+  }
+
   /** Public gate for the hydration promise. Status endpoints await this
    *  before snapshotting getStats() so the UI never sees the
    *  pre-hydration zeros (cycles:0 vs the self-model's historical
@@ -3762,6 +3907,26 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
 
   /** Manual rescan: regenerate the task queue from code findings. */
   async rescan() {
+    // Best-effort prune of stale local remote-tracking refs. The retention
+    // drain deletes branches on the GitHub remote, but nothing here ever
+    // runs `git fetch --prune`, so `git branch -r` accumulates ghosts of
+    // long-deleted loop-NN branches (observed: 219 local refs vs 50 on the
+    // remote). This is cosmetic — the loop itself uses ls-remote + the API,
+    // never local refs — but it keeps the operator's local view honest so
+    // "I see 997 branches" stops happening. Fire-and-forget on rescan
+    // (operator-triggered, not per-cycle) so we never add network latency
+    // to the hot path; a failure logs and falls through to the task scan.
+    try {
+      execSync("git fetch --prune --quiet", {
+        cwd: PROJECT_ROOT,
+        encoding: "utf-8",
+        timeout: 20000,
+        stdio: "pipe",
+      });
+      this.log("Rescan: pruned stale local remote-tracking refs (git fetch --prune)", "info");
+    } catch (e) {
+      this.log(`Rescan: git fetch --prune skipped (${(e as Error).message.slice(0, 120)})`, "info");
+    }
     const scan = await generateTasks();
     this.stats.tasksGenerated += scan.newTasks;
     this.log(

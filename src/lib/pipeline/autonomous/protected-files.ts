@@ -55,6 +55,13 @@ export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/lapse-detector.ts", // D1: writes the lapse counts that drive promotion
   "src/lib/pipeline/autonomous/meta-params.ts", // D8: the knob table the tuner writes
   "src/lib/pipeline/autonomous/meta-tuner.ts", // D8: the loop can never rewrite its own tuner
+  // The goal engine — the loop's self-set SYSTEM DIRECTION. Same rule as
+  // meta-tuner ("never rewrite your own tuner"): a loop that could edit
+  // goal-engine.ts could drop the clamps (retire operator goals freely,
+  // mint trivial goals, flip-flop) — it would own the RULES of goal-
+  // setting, not just the goals. The loop writes LoopGoal ROWS through
+  // this module's clamped API; the governance itself is operator-only.
+  "src/lib/pipeline/autonomous/goal-engine.ts",
   "src/lib/pipeline/autonomous/mutation-corpus.ts", // D4: the audit trail of every attempt
   "src/lib/pipeline/autonomous/lessons-markdown.ts", // D6: writes a file that gets committed and pushed
   // audit 5 — protect the retention + merge-back + task-execution path.
@@ -90,6 +97,16 @@ export const PROTECTED_FILES = new Set([
   // module's integrity, so it gets the same protection as the gates
   // and the protected-list itself.
   "src/lib/pipeline/autonomous/arch-context.ts",
+  // The self-model — the loop's measured self-knowledge, INCLUDING the
+  // bandit target-selection formula (empirical + exploration + recency +
+  // MOMENTUM + COMPLEXITY − exhaustion). This is selection POLICY, same
+  // category as meta-tuner.ts ("the loop can never rewrite its own
+  // tuner"): a mutation here could re-weight the bandit to favor trivial
+  // files (drop the complexity term), silence the exhaustion penalty
+  // (keep zero-diffing the same file forever), or corrupt the
+  // self-prediction calibration the oracle adjudicates against. The
+  // operator's selection priorities ride in this formula — protect them.
+  "src/lib/pipeline/autonomous/self-model.ts",
   // Hot-swap core — protect the swapper. If the loop could rewrite its
   // own hot-swap module, a bad mutation could break the swap mechanism
   // and the running process would never benefit from future fixes.

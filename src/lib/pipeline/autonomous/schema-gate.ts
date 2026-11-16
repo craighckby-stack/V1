@@ -51,6 +51,10 @@ export const SCHEMA_PROTECTED_MODELS = new Set([
   "SystemFlag",
   "MutationCorpus",
   "MetaParam",
+  // The goal table — the loop's self-set SYSTEM DIRECTION. A corrupted
+  // schema proposal could drop the goal loop's substrate (same class as
+  // MetaParam: the loop must not be able to edit its own governance).
+  "LoopGoal",
 ]);
 
 export interface SchemaCheckResult {

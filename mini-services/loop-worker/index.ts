@@ -125,6 +125,13 @@ async function main() {
             // process now — the UI's 429 countdown reads it from here.
             llmGate: agentLlm.llmGateInfo?.(),
             saturation: loop.getSaturation(),
+            // Honest live-branch accounting vs the monotonic loop-NN
+            // counter (which is a lifetime mutation tally, not a live
+            // count). Surfaces the retention drain's last result so the
+            // dashboard can show "N live / max loop-M" instead of letting
+            // "loop-1012" read as ~1000 branches. Null before the first
+            // drain that ran; refreshes on the next push.
+            branchRetention: loop.getBranchRetention(),
           });
         }
 
@@ -192,7 +199,7 @@ async function main() {
           let body;
           try {
             body = await req.json();
-          } catch (err) {
+          } catch {
             return json({ ok: false, error: "Invalid JSON in request body" }, 400);
           }
           

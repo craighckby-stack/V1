@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "mini-services/loop-worker/index.ts",
+  "status": "resolved",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 4 → evolved 6), no behavioral signal, 10 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "evidence": "Original: 9420 bytes, Refactored: 9582 bytes. Errors: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 4 → evolved 6), no behavioral signal, 10 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "constraints": "The previous refactor of mini-services/loop-worker/index.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "51835aa172b748d8a29c4ffa454f3cf26fa8d733a52e8a7b78e1f54253eea679",
+  "hash": "16bb4561e9502fd71d8f2b8880d6a2e55946adfa5d2bf645d65f5a8425525861",
+  "lastAttemptAt": "2026-11-15T00:49:05.677Z",
+  "resolvedAt": "2026-11-15T16:36:42.435Z",
+  "createdAt": "2026-11-15T00:49:05.678Z",
+  "updatedAt": "2026-11-15T16:36:42.436Z",
+  "schema": 2
+}

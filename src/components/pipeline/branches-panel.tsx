@@ -214,13 +214,13 @@ export function BranchesPanel({ open, onClose }: Props) {
               }}
             >
               repo: <span style={{ color: PROMPT_COLOR }}>{data.repo}</span>
-              {" | "}total mutation branches:{" "}
+              {" | "}live branches:{" "}
               <span style={{ color: OK_COLOR }}>{data.total}</span>
-              {" | "}highest:{" "}
+              {" | "}highest live:{" "}
               <span style={{ color: PROMPT_COLOR }}>
                 loop-{String(data.maxLoopNumber).padStart(2, "0")}
               </span>
-              {" | "}next mutation will target:{" "}
+              {" | "}next slot (reclaimed):{" "}
               <span style={{ color: OK_COLOR }}>
                 {data.nextMutationBranch}
               </span>
