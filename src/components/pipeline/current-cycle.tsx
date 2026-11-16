@@ -101,9 +101,15 @@ export function CurrentCycle() {
             <GitBranch className="h-3 w-3 text-slate-500" aria-hidden="true" />
             {cycle.targetRepo}:{cycle.branch}
           </span>
-          <span aria-label={`Started at ${new Date(cycle.startedAt).toLocaleTimeString()}`}>started: {new Date(cycle.startedAt).toLocaleTimeString()}</span>
-          <span aria-label={`Scanned ${cycle.filesScanned} files`}>scanned: {cycle.filesScanned}</span>
-          <span aria-label={`Committed ${cycle.filesCommitted} files`}>committed: {cycle.filesCommitted}</span>
+          <span aria-label={`Started at ${cycle.startedAt ? new Date(cycle.startedAt).toLocaleTimeString() : 'unknown time'}`}>
+            started: {cycle.startedAt ? new Date(cycle.startedAt).toLocaleTimeString() : 'unknown'}
+          </span>
+          <span aria-label={`Scanned ${cycle.filesScanned || 0} files`}>
+            scanned: {cycle.filesScanned || 0}
+          </span>
+          <span aria-label={`Committed ${cycle.filesCommitted || 0} files`}>
+            committed: {cycle.filesCommitted || 0}
+          </span>
         </div>
       </CardHeader>
       <CardContent>
@@ -137,7 +143,7 @@ export function CurrentCycle() {
                   >
                     {getConsensusDisplay(r.consensus)}
                   </span>
-                  <span className="text-xs font-mono text-slate-500 shrink-0 hidden md:block">{r.proofHash}</span>
+                  <span className="text-xs font-mono text-slate-500 shrink-0 hidden md-block">{r.proofHash}</span>
                   <span className="shrink-0" aria-hidden="true">
                     {r.pushed ? (
                       <Check className="h-3.5 w-3.5 text-emerald-400" />
@@ -154,7 +160,9 @@ export function CurrentCycle() {
           <Cpu className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
           <span className="text-sm">
             {cycle.fileResults?.length || 0} file(s) processed · {cycle.fileResults?.filter(r => r.pushed).length || 0} pushed
-            · proof {cycle.fileResults && cycle.fileResults.length > 0 ? cycle.fileResults[0].proofHash.substring(0, 8) + '...' : "—"}
+            · proof {cycle.fileResults && cycle.fileResults.length > 0 && cycle.fileResults[0].proofHash 
+              ? cycle.fileResults[0].proofHash.substring(0, 8) + '...' 
+              : "—"}
           </span>
         </div>
       </CardContent>
