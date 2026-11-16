@@ -140,7 +140,8 @@ export function readArmedState(): ArmedState | null {
         typeof state.by !== "string" ||
         state.by.trim() === "" ||
         // Validate ISO timestamp format (basic check)
-        isNaN(Date.parse(state.at))) {
+        isNaN(Date.parse(state.at)) ||
+        state.at.length === 0) { // Added check for empty timestamp string
       
       console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure.`);
       return null;
