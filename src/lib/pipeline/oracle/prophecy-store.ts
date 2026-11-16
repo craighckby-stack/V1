@@ -169,8 +169,9 @@ export async function getProphecy(id: string): Promise<ProphecyRow | null> {
     const prophecy = await db.prophecy.findUnique({ where: { id } });
     if (!prophecy) {
       console.warn(`Prophecy not found with ID: ${id}`);
+      return null; // Explicitly return null if not found, avoiding unnecessary catch block reliance
     }
-    return prophecy || null;
+    return prophecy;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`Failed to get prophecy with ID ${id} in getProphecy: DB operation failed. Error: ${errorMessage}`);
