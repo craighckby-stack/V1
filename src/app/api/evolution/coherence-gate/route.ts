@@ -54,10 +54,14 @@ export async function POST(req: Request) {
   const origLen = typedBody.originalCode.length;
   const propLen = typedBody.proposedCode.length;
   
+  let structuralDriftRatio: number;
+
   // Guard against division by zero if original code is empty
-  const structuralDriftRatio = origLen === 0 
-    ? propLen === 0 ? 0 : Infinity // If orig is 0 and prop is not, drift is infinite (fails coherence)
-    : Math.abs(propLen - origLen) / origLen;
+  if (origLen === 0) {
+    structuralDriftRatio = propLen === 0 ? 0 : Infinity;
+  } else {
+    structuralDriftRatio = Math.abs(propLen - origLen) / origLen;
+  }
       
   const passed = structuralDriftRatio < 0.7;
   const saturationScore = Math.max(0, 1 - structuralDriftRatio);
