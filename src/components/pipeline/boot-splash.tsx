@@ -554,11 +554,33 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     // marks the handoff (the one piece of the old rite worth keeping —
     // it's the audio equivalent of the POST stamping OK).
     setPhase("exit");
+    // AUDIO HANDOFF (fix for the "system fixed the sound" observation):
+    //   The splash's unmount cleanup (useEffect(() => () => stopAllAudio(), []))
+    //   calls s.stop() with NO `when` argument on every tracked oscillator —
+    //   which per the WebAudio spec stops them IMMEDIATELY (time 0). If
+    //   onEnterRef.current() runs in the same JS tick as powerOnThunk() /
+    //   postBeep(), React unmounts the splash in that same tick and the
+    //   cleanup cuts off the very tones we just scheduled (start at
+    //   currentTime + 0.02; cleanup fires in the same microtask). The user
+    //   heard nothing — or a 20ms click — and the "boot sound" was
+    //   intermittently silent. (You could sometimes hear it because the
+    //   audio thread rendered a block before the stop arrived; the result
+    //   was inconsistent across reloads.)
+    //
+    //   Fix: schedule the audio, then defer the unmount by enough time for
+    //   the longest tone to actually render. powerOnThunk's tail runs to
+    //   ~0.92s; postBeep to ~0.34s. Reduced-motion users get a shorter
+    //   handoff (no CRT animation to wait for). The unmount fires AFTER
+    //   the audio is in flight, so stopAllAudio() (when it finally runs
+    //   on real unmount) only reaps already-finished nodes — exactly the
+    //   mercy-escape role it was always meant for.
     later(() => {
       powerOnThunk();
       postBeep();
-      onEnterRef.current();
     }, reducedRef.current ? 120 : 720);
+    later(() => {
+      onEnterRef.current();
+    }, reducedRef.current ? 240 : 1400);
   }, [clearTimers, later]);
 
   const skip = useCallback(() => {
