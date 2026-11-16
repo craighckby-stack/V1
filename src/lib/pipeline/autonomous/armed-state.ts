@@ -124,20 +124,22 @@ export function readArmedState(): ArmedState | null {
       return null;
     }
     
+    const state = parsed as Partial<ArmedState>;
+
     // Validate that parsed is an object and matches ArmedState structure
-    if (typeof parsed === "object" && parsed !== null && 
-        'armed' in parsed && 'at' in parsed && 'by' in parsed &&
-        typeof (parsed as ArmedState).armed === "boolean" && 
-        typeof (parsed as ArmedState).at === "string" && 
-        typeof (parsed as ArmedState).by === "string" &&
-        (parsed as ArmedState).by.trim() !== "" &&
+    if (typeof parsed !== "object" || parsed === null || 
+        typeof state.armed !== "boolean" || 
+        typeof state.at !== "string" || 
+        typeof state.by !== "string" ||
+        state.by.trim() === "" ||
         // Validate ISO timestamp format (basic check)
-        !isNaN(Date.parse((parsed as ArmedState).at))) {
-      return parsed as ArmedState;
+        isNaN(Date.parse(state.at))) {
+      
+      console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure.`);
+      return null;
     }
     
-    console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure.`);
-    return null;
+    return parsed as ArmedState;
   } catch (error) {
     // Log the error for debugging but return null to maintain the contract
     const errorMessage = error instanceof Error ? error.message : String(error);
