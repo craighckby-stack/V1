@@ -144,14 +144,14 @@ function StageCard({ stage }: { stage: PipelineStageState }) {
             {stage.durationMs !== undefined && (
               <div className="text-[10px] text-slate-500 font-mono">{stage.durationMs}ms</div>
             )}
-            {stage.id === "stage2_reasoning" &&
-              details?.llmUsed && (
+            {details && stage.id === "stage2_reasoning" &&
+              details.llmUsed && (
                 <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-emerald-500/15 text-emerald-300 border-emerald-500/40">
                   LLM
                 </span>
               )}
-            {stage.id === "stage3_ast_gate" &&
-              details?.parserUsed && (
+            {details && stage.id === "stage3_ast_gate" &&
+              details.parserUsed && (
                 <span
                   className={cn(
                     "text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border",
@@ -165,14 +165,14 @@ function StageCard({ stage }: { stage: PipelineStageState }) {
                     : "Regex fallback"}
                 </span>
               )}
-            {stage.id === "stage4_review" &&
-              details?.usedLlm && (
+            {details && stage.id === "stage4_review" &&
+              details.usedLlm && (
                 <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-emerald-500/15 text-emerald-300 border-emerald-500/40">
                   LLM Tribunal
                 </span>
               )}
-            {stage.id === "stage4_review" &&
-              details?.usedLlm === false && (
+            {details && stage.id === "stage4_review" &&
+              details.usedLlm === false && (
                 <span className="text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded border bg-amber-500/15 text-amber-300 border-amber-500/40">
                   Rule-based
                 </span>
