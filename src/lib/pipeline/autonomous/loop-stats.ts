@@ -119,8 +119,9 @@ export function writeLoopStats(state: LoopStatsState): void {
     writeFileSync(STATS_FILE, JSON.stringify(state, null, 2), "utf8");
   } catch (error) {
     // Best-effort by contract: log, never throw.
+    const stateString = JSON.stringify(state);
     console.error(
-      `writeLoopStats: failed to persist stats to ${STATS_FILE}. State provided: ${JSON.stringify(state)}. Error details: ${(error instanceof Error ? error.message : String(error))}`
+      `writeLoopStats: failed to persist stats to ${STATS_FILE}. State provided: ${stateString}. Error details: ${(error instanceof Error ? error.message : String(error))}`
     );
   }
 }
