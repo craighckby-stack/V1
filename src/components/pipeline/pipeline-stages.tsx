@@ -139,7 +139,7 @@ function StageCard({ stage }: { stage: PipelineStageState }) {
               className={cn("h-4 w-4 shrink-0", color, isRunning && "animate-spin")}
             />
           </div>
-          <p className="text-xs text-slate-400 mt-1 leading-snug line-clamp-2">{stage.summary}</p>
+          <p className="text-xs text-slate-400 mt-1 leading-snug line-clamp-2">{stage.summary || "No summary available"}</p>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             {stage.durationMs !== undefined && (
               <div className="text-[10px] text-slate-500 font-mono">{stage.durationMs}ms</div>
