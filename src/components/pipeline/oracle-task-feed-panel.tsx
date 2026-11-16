@@ -77,7 +77,7 @@ export function OracleTaskFeedPanel() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-xs text-muted-foreground">Loading failed-prophecy tasks...</p>
+          <p className="text-xs text-gray-400">Loading failed-prophecy tasks...</p>
         </CardContent>
       </Card>
     );
@@ -100,7 +100,7 @@ export function OracleTaskFeedPanel() {
           size="sm"
           onClick={fetchTasks}
           disabled={refreshing}
-          className="h-7 px-2"
+          className="h-8 px-2 transition-colors duration-150 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-gray-400"
           aria-label="Refresh oracle task feed"
         >
           <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
@@ -113,35 +113,36 @@ export function OracleTaskFeedPanel() {
           </p>
         )}
         {tasks.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-gray-400">
             No failed prophecies feeding tasks. The oracle&apos;s predictions are
             either unjudged, fulfilled, or not yet past their deadline.
           </p>
         ) : (
           <ScrollArea className="max-h-72">
-            <ul className="space-y-2 pr-2">
+            <ul className="space-y-2 pr-2 sm:space-y-3">
               {tasks.map((task) => {
                 const style = STATUS_STYLES[task.status] ?? STATUS_STYLES.pending;
                 const StatusIcon = style.icon;
                 return (
                   <li
                     key={task.id}
-                    className="border rounded p-2 space-y-1"
+                    className="border rounded p-2 space-y-1 transition-colors duration-150 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-mono text-muted-foreground truncate" title={task.filePath}>
+                      <span className="text-[11px] font-mono text-gray-400 truncate" title={task.filePath}>
                         {task.filePath}
                       </span>
                       <Badge variant={style.variant} className="text-[9px] uppercase tracking-wide flex items-center gap-1">
                         <StatusIcon className="h-2.5 w-2.5" />
+                        <span className="sr-only">{style.label} status</span>
                         {style.label}
                       </Badge>
                     </div>
-                    <p className="text-[10px] text-muted-foreground line-clamp-2" title={task.evidence}>
+                    <p className="text-[10px] text-gray-400 line-clamp-2" title={task.evidence}>
                       {task.evidence}
                     </p>
                     {(task.attempts > 0 || task.lastError) && (
-                      <div className="flex items-center gap-2 text-[9px] text-muted-foreground">
+                      <div className="flex items-center gap-2 text-[9px] text-gray-400">
                         {task.attempts > 0 && <span>attempts: {task.attempts}</span>}
                         {task.deferred > 0 && <span>deferred: {task.deferred}</span>}
                         {task.lastError && (
