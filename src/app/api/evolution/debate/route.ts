@@ -55,19 +55,20 @@ export async function POST(req: Request) {
       llmError,
     });
   } catch (err) {
-    let errorMessage = "An unknown error occurred during debate execution.";
+    let errorMessage = "An error occurred during the LLM debate execution.";
+    
     if (err instanceof Error) {
+      // Use the error message from the actual Error object
       errorMessage = `Debate execution failed: ${err.message}`;
-    } else if (typeof err === 'object' && err !== null && 'message' in err) {
-      // Handle cases where err is an object but not an instance of Error
-      errorMessage = `Debate execution failed: ${(err as { message: string }).message}`;
     } else if (typeof err === 'string') {
       // Handle case where error is a string primitive
       errorMessage = `Debate execution failed: ${err}`;
     } else {
-      // Handle primitive or unexpected error types gracefully
+      // Handle other unexpected types (null, undefined, objects without message)
       errorMessage = "Debate execution failed due to an unidentifiable error type.";
     }
+    
+    // Return a standardized 500 response without exposing internal error structure unless necessary for debugging
     return NextResponse.json(
       { error: errorMessage },
       { status: 500 }
