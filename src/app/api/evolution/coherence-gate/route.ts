@@ -54,8 +54,11 @@ export async function POST(req: Request) {
     };
     return NextResponse.json(response);
   } catch (err) {
-    // Provide a generic, safe error message for 500 responses
-    console.error("Coherence Gate POST error:", err);
+    if (err instanceof Error) {
+      console.error("Coherence Gate POST error:", err.message, err);
+    } else {
+      console.error("Coherence Gate POST error:", err);
+    }
     return NextResponse.json(
       { error: "Internal server error while processing coherence gate request." },
       { status: 500 }
