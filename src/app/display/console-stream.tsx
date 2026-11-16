@@ -250,6 +250,10 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
           // Safely determine color using COLOR_MAP, defaulting to TEXT_COLOR if logType is unknown
           const logTypeKey = line.logType as keyof typeof COLOR_MAP;
           color = COLOR_MAP[logTypeKey] || TEXT_COLOR;
+        } else if (line.type === "log" && !line.logType) {
+          // Handle 'log' type lines missing logType property gracefully
+          console.error("ConsoleStream: Log line encountered without a logType. Defaulting to text color.", line);
+          color = TEXT_COLOR;
         }
 
         return (
