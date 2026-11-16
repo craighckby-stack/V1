@@ -134,7 +134,7 @@ async function checkGitHubAuth(
         return { ok: false, error: "No login found in /user response body" };
       }
       return { ok: true, login: user.login };
-    } catch {
+    } catch (e) {
       return { ok: false, error: "Failed to parse JSON response from GitHub API" };
     }
   } catch (e) {
