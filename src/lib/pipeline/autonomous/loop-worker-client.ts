@@ -146,12 +146,15 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     spawnSuccessful = true;
   } catch (error) {
     console.error("Failed to spawn loop worker:", error);
-    // If spawning fails, we must reset isSpawning immediately
-    isSpawning = false;
+    // If spawning fails, isSpawning will be reset in finally block.
     return false;
   } finally {
-    // If spawning succeeded, we keep isSpawning true until health checks are done.
-    // If spawning failed, it was already reset above.
+    if (spawnSuccessful) {
+      // If spawning succeeded, we keep isSpawning true until health checks are done.
+    } else {
+      // If spawning failed, reset immediately.
+      isSpawning = false;
+    }
   }
 
   // Wait up to ~5s for boot (pipeline import graph: Prisma + TS compiler
