@@ -128,11 +128,15 @@ export function readArmedState(): ArmedState | null {
       return null;
     }
     
+    if (typeof parsed !== "object" || parsed === null) {
+        console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - root element is not an object.`);
+        return null;
+    }
+
     const state = parsed as Partial<ArmedState>;
 
     // Validate that parsed is an object and matches ArmedState structure
-    if (typeof parsed !== "object" || parsed === null || 
-        typeof state.armed !== "boolean" || 
+    if (typeof state.armed !== "boolean" || 
         typeof state.at !== "string" || 
         typeof state.by !== "string" ||
         state.by.trim() === "" ||
