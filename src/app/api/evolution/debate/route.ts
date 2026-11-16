@@ -58,13 +58,11 @@ export async function POST(req: Request) {
     let errorMessage = "An error occurred during the LLM debate execution.";
     
     if (err instanceof Error) {
-      // Use the error message from the actual Error object
       errorMessage = `Debate execution failed: ${err.message}`;
     } else if (typeof err === 'string') {
-      // Handle case where error is a string primitive
       errorMessage = `Debate execution failed: ${err}`;
-    } else {
-      // Handle other unexpected types (null, undefined, objects without message)
+    } else if (err !== null && typeof err !== 'undefined') {
+      // Handle other unexpected types (objects without message, numbers, etc.)
       errorMessage = "Debate execution failed due to an unidentifiable error type.";
     }
     
