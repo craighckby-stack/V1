@@ -82,8 +82,12 @@ export function markArmed(armed: boolean, by: string): void {
       try {
         mkdirSync(infoDir, { recursive: true });
       } catch (mkdirError) {
-        const errorMessage = mkdirError instanceof Error ? mkdirError.message : String(mkdirError);
-        console.error(`markArmed: Failed to create directory ${infoDir}. Check file system permissions. Error: ${errorMessage}`);
+        if (mkdirError instanceof Error) {
+          const errorMessage = mkdirError.message;
+          console.error(`markArmed: Failed to create directory ${infoDir}. Check file system permissions. Error: ${errorMessage}`);
+        } else {
+          console.error(`markArmed: Failed to create directory ${infoDir}. Unknown error during directory creation.`);
+        }
         return; // Cannot proceed without directory
       }
     }
