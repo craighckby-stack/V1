@@ -215,6 +215,7 @@ export function PostmortemPanel() {
                           <span className="text-[10px] text-slate-500 font-mono ml-auto">
                             {(() => {
                               try {
+                                if (!pm.lastAttemptAt) return "No date available";
                                 return new Date(pm.lastAttemptAt).toLocaleString();
                               } catch {
                                 return "Invalid date";
