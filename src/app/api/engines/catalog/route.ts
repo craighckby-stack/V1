@@ -35,14 +35,18 @@ export async function GET() {
 
   for (let i = 0; i < SIPHON_SOURCES.length; i++) {
     const source = SIPHON_SOURCES[i];
-    if (!source || !Array.isArray((source as any).patterns)) {
+    
+    if (!source || !('patterns' in source) || !Array.isArray(source.patterns)) {
       invalidSources.push({ index: i, reason: "Source is null/undefined or missing 'patterns' array." });
       continue; // Skip invalid entry
     }
     
+    // Since we checked for 'patterns' and array type, we can safely cast/use properties
+    const typedSource = source as SiphonSource;
+
     validSources.push({
-      source: source as SiphonSource,
-      count: (source as any).patterns.length,
+      source: typedSource,
+      count: (typedSource as any).patterns.length, // Keeping 'as any' here only because SiphonSource definition might not guarantee 'patterns' structure, but the check above validates it for array access.
       complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
       // Honest label: these are CONFIGURED siphon sources (declarative
       // config), not verified-live remote repositories. No liveness probe
