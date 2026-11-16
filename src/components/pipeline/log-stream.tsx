@@ -73,25 +73,25 @@ export function LogStream() {
               <AnimatePresence initial={false}>
                 {logs.map((entry) => {
                   // Safely access type with fallback
-                  const typeKey = entry.type && typeof entry.type === 'string' 
+                  const typeKey = entry && typeof entry.type === 'string' 
                     ? entry.type as keyof typeof TYPE_ICON 
                     : 'info';
                   const Icon = TYPE_ICON[typeKey] || Info;
                   const color = TYPE_COLOR[typeKey] || "text-slate-400";
                   
                   // Safely access source with fallback
-                  const sourceKey = entry.source && typeof entry.source === 'string'
+                  const sourceKey = entry && typeof entry.source === 'string'
                     ? entry.source as keyof typeof SOURCE_COLOR
                     : 'pipeline';
                   const sourceColor = SOURCE_COLOR[sourceKey] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
                   
                   // Validate timestamp and provide fallback
-                  const timestamp = entry.timestamp && typeof entry.timestamp === 'string'
+                  const timestamp = entry && typeof entry.timestamp === 'string'
                     ? entry.timestamp
                     : 'invalid timestamp';
                   
                   // Use a stable identifier from the log entry instead of array index for AnimatePresence key
-                  const key = timestamp + (entry.message || ''); 
+                  const key = timestamp + (entry?.message || ''); 
                   
                   return (
                     <motion.div
@@ -111,7 +111,7 @@ export function LogStream() {
                       >
                         {sourceKey}
                       </span>
-                      <span className="text-slate-200 leading-relaxed break-all flex-1">{entry.message || ''}</span>
+                      <span className="text-slate-200 leading-relaxed break-all flex-1">{entry?.message || ''}</span>
                     </motion.div>
                   );
                 })}
