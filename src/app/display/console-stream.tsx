@@ -74,7 +74,7 @@ const DIM_COLOR = "#777777";
  * Returns NaN when the string cannot be parsed — callers treat NaN
  * as "no sort key" and leave the line in its original position.
  */
-function parseTs(ts: string): number {
+function parseTs(ts: string | undefined | null): number {
   if (!ts) return NaN;
   const s = ts.trim();
 
@@ -162,7 +162,7 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
     // Stable sort: key = parsed epoch (NaN → +∞ so unparseable log
     // lines sink to the bottom of their run, preserving arrival order
     // among themselves via the index tiebreak).
-    const keyed = buf.map((l, i) => ({ l, k: parseTs(l.ts ?? ""), i }));
+    const keyed = buf.map((l, i) => ({ l, k: parseTs(l.ts), i }));
     keyed.sort((a, b) => {
       const ka = Number.isNaN(a.k) ? Infinity : a.k;
       const kb = Number.isNaN(b.k) ? Infinity : b.k;
