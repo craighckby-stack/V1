@@ -77,12 +77,13 @@ const DIM_COLOR = "#777777";
 function parseTs(ts: string | undefined | null): number {
   if (ts === null || ts === undefined) return NaN;
   const s = String(ts).trim();
+  if (s.length === 0) return NaN;
 
   // Full ISO-8601 with a date component, e.g. "2026-11-14T00:03:48.099Z"
   // or "2026-11-14T00:03:48.099+00:00". Date handles these natively.
   if (/\d{4}-\d{2}-\d{2}T/.test(s) || /Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
     const t = new Date(s).getTime();
-    return Number.isNaN(t) || isNaN(t) ? NaN : t;
+    return Number.isNaN(t) ? NaN : t;
   }
 
   // 12-hour AM/PM, time only — server is UTC, infer today (UTC).
@@ -154,19 +155,13 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
       return;
     }
     
-    if (buf.length === 1) {
-      result.push(buf[0]);
-      buf = [];
-      return;
-    }
-    
-    // Stable sort: key = parsed epoch (NaN → +∞ so unparseable log
+    // Stable sort: key = parsed epoch (NaN → -∞ so unparseable log
     // lines sink to the bottom of their run, preserving arrival order
     // among themselves via the index tiebreak).
     const keyed = buf.map((l, i) => ({ l, k: l.ts ? parseTs(l.ts) : NaN, i }));
     keyed.sort((a, b) => {
-      const ka = Number.isNaN(a.k) ? Infinity : a.k;
-      const kb = Number.isNaN(b.k) ? Infinity : b.k;
+      const ka = Number.isNaN(a.k) ? -Infinity : a.k;
+      const kb = Number.isNaN(b.k) ? -Infinity : b.k;
       if (ka !== kb) return ka - kb;
       return a.i - b.i;
     });
@@ -197,8 +192,8 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
   }
 
   // Validate logRef
-  if (!logRef) {
-    console.error("ConsoleStream: Input validation failed. 'logRef' prop is required.");
+  if (!logRef || typeof logRef.current === 'undefined' && !('current' in logRef)) {
+    console.error("ConsoleStream: Input validation failed. 'logRef' prop must be a valid React RefObject.");
     return null;
   }
 
@@ -274,7 +269,7 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
             }}
           >
             {line.type === "command" && "> "}
-            {line.type === "log" && typeof line.ts === 'string' && line.ts && (
+            {line.type === "log" && typeof line.ts === 'string' && line.ts.length > 0 && (
               <span style={{ color: DIM_COLOR }}>[{formatTs(line.ts)}]{" "}</span>
             )}
             {line.text || "\u00a0"}
