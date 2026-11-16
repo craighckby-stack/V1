@@ -18,7 +18,7 @@ interface CatalogEntry {
 export async function GET() {
   if (!SIPHON_SOURCES) {
     return NextResponse.json(
-      { error: "Catalog sources not available - SIPHON_SOURCES is undefined or null" },
+      { error: "Catalog sources not available: SIPHON_SOURCES is undefined or null." },
       { status: 500 }
     );
   }
@@ -34,7 +34,7 @@ export async function GET() {
   let hasInvalidSource = false;
 
   for (const source of SIPHON_SOURCES) {
-    if (!source || !source.patterns) {
+    if (!source || !Array.isArray(source.patterns)) {
       hasInvalidSource = true;
       continue; // Skip invalid entry instead of throwing
     }
@@ -52,7 +52,7 @@ export async function GET() {
 
   if (hasInvalidSource) {
     return NextResponse.json(
-      { error: "Input validation failed: One or more siphon sources are missing required 'patterns' property." },
+      { error: "Input validation failed: One or more siphon sources are missing or have non-array 'patterns' property." },
       { status: 400 }
     );
   }
