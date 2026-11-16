@@ -31,12 +31,13 @@ export async function GET() {
   }
 
   const validSources: CatalogEntry[] = [];
-  let hasInvalidSource = false;
+  const invalidSources: { index: number; reason: string }[] = [];
 
-  for (const source of SIPHON_SOURCES) {
+  for (let i = 0; i < SIPHON_SOURCES.length; i++) {
+    const source = SIPHON_SOURCES[i];
     if (!source || !Array.isArray(source.patterns)) {
-      hasInvalidSource = true;
-      continue; // Skip invalid entry instead of throwing
+      invalidSources.push({ index: i, reason: "Source is null/undefined or missing 'patterns' array." });
+      continue; // Skip invalid entry
     }
     
     validSources.push({
@@ -50,9 +51,12 @@ export async function GET() {
     });
   }
 
-  if (hasInvalidSource) {
+  if (invalidSources.length > 0) {
     return NextResponse.json(
-      { error: "Input validation failed: One or more siphon sources are missing or have non-array 'patterns' property." },
+      { 
+        error: "Input validation failed: One or more siphon sources are invalid.", 
+        invalidSources: invalidSources.map(inv => ({ index: inv.index, reason: inv.reason }))
+      },
       { status: 400 }
     );
   }
