@@ -83,48 +83,55 @@ export function RecentCycles() {
         ) : (
           <ScrollArea className="h-[300px] pr-4">
             <div className="space-y-2">
-              {merged.map((c) => (
-                <div
-                  key={c.id}
-                  className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3 hover:bg-slate-900/70 transition-all duration-150 focus-visible:ring-2 focus-visible:ring-violet-500"
-                >
-                  <div className="flex items-center gap-3 mb-1">
-                    <span className="text-sm font-mono text-amber-300 shrink-0">#{c.cycleNumber}</span>
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] uppercase tracking-wider bg-slate-700/40 text-slate-300 border-slate-600/40"
-                    >
-                      {c.mode}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "text-[10px] uppercase tracking-wider",
-                        STATUS_COLOR[c.status] ?? "bg-slate-500/15 text-slate-300 border-slate-500/40"
-                      )}
-                    >
-                      {c.status}
-                    </Badge>
-                    <span className="ml-auto text-xs text-slate-300 font-mono shrink-0">
-                      {c.startedAt ? new Date(c.startedAt).toLocaleString() : "Invalid date"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm text-slate-300 font-mono mt-1">
-                    <span className="truncate flex-1" title={c.targetRepo}>
-                      {c.targetRepo}:{c.branch}
-                    </span>
-                    <span className="text-cyan-300 shrink-0">scanned {c.filesScanned}</span>
-                    <span className="text-emerald-300 shrink-0">committed {c.filesCommitted}</span>
-                    {c.proofHash && (
-                      <span className="inline-flex items-center gap-1 text-fuchsia-300 shrink-0">
-                        <GitCommit className="h-3 w-3" aria-hidden="true" />
-                        <span className="sr-only">Proof hash:</span>
-                        {c.proofHash}
+              {merged.map((c) => {
+                if (!c || !c.id) return null;
+                
+                const statusColor = STATUS_COLOR[c.status] || "bg-slate-500/15 text-slate-300 border-slate-500/40";
+                const dateStr = c.startedAt ? new Date(c.startedAt).toLocaleString() : "Invalid date";
+                
+                return (
+                  <div
+                    key={c.id}
+                    className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3 hover:bg-slate-900/70 transition-all duration-150 focus-visible:ring-2 focus-visible:ring-violet-500"
+                  >
+                    <div className="flex items-center gap-3 mb-1">
+                      <span className="text-sm font-mono text-amber-300 shrink-0">#{c.cycleNumber}</span>
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] uppercase tracking-wider bg-slate-700/40 text-slate-300 border-slate-600/40"
+                      >
+                        {c.mode}
+                      </Badge>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-[10px] uppercase tracking-wider",
+                          statusColor
+                        )}
+                      >
+                        {c.status}
+                      </Badge>
+                      <span className="ml-auto text-xs text-slate-300 font-mono shrink-0">
+                        {dateStr}
                       </span>
-                    )}
+                    </div>
+                    <div className="flex items-center gap-3 text-sm text-slate-300 font-mono mt-1">
+                      <span className="truncate flex-1" title={c.targetRepo}>
+                        {c.targetRepo}:{c.branch}
+                      </span>
+                      <span className="text-cyan-300 shrink-0">scanned {c.filesScanned}</span>
+                      <span className="text-emerald-300 shrink-0">committed {c.filesCommitted}</span>
+                      {c.proofHash && (
+                        <span className="inline-flex items-center gap-1 text-fuchsia-300 shrink-0">
+                          <GitCommit className="h-3 w-3" aria-hidden="true" />
+                          <span className="sr-only">Proof hash:</span>
+                          {c.proofHash}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </ScrollArea>
         )}
