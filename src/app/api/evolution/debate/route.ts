@@ -30,7 +30,7 @@ export async function POST(req: Request) {
 
   if (!body.filePath || typeof body.filePath !== "string" || body.filePath.length === 0 || typeof body.candidateCode !== "string" || body.candidateCode.length === 0) {
     return NextResponse.json(
-      { error: "filePath and candidateCode are required, and candidateCode cannot be empty" },
+      { error: "filePath and candidateCode are required and must be non-empty strings." },
       { status: 400 }
     );
   }
@@ -61,6 +61,9 @@ export async function POST(req: Request) {
     } else if (typeof err === 'object' && err !== null && 'message' in err) {
       // Handle cases where err is an object but not an instance of Error
       errorMessage = `Debate execution failed: ${(err as { message: string }).message}`;
+    } else if (typeof err === 'string') {
+      // Handle case where error is a string primitive
+      errorMessage = `Debate execution failed: ${err}`;
     } else {
       // Handle primitive or unexpected error types gracefully
       errorMessage = "Debate execution failed due to an unidentifiable error type.";
