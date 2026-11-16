@@ -144,15 +144,15 @@ export function AstInspectorModal() {
               <div className="text-xs text-slate-300 font-mono space-y-1">
                 <div className="flex justify-between">
                   <span className="text-slate-300">Original:</span>
-                  <span className="text-amber-300 font-medium">{ast?.symbolMap?.originalCount}</span>
+                  <span className="text-amber-300 font-medium">{ast?.symbolMap?.originalCount ?? 0}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-300">Proposed:</span>
-                  <span className="text-cyan-300 font-medium">{ast?.symbolMap?.proposedCount}</span>
+                  <span className="text-cyan-300 font-medium">{ast?.symbolMap?.proposedCount ?? 0}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-300">Retained:</span>
-                  <span className="text-emerald-300 font-medium">{ast?.symbolMap?.retainedCount}</span>
+                  <span className="text-emerald-300 font-medium">{ast?.symbolMap?.retainedCount ?? 0}</span>
                 </div>
               </div>
               <div className="text-[10px] text-slate-500 pt-1">
@@ -184,7 +184,7 @@ export function AstInspectorModal() {
                 </div>
               ) : (
                 <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
-                  {ast?.violations?.map((v, i) => {
+                  {(ast?.violations || []).map((v, i) => {
                     // Add fallback for unknown severity values
                     const Icon = violationIcon[v.severity] || AlertTriangle;
                     return (
