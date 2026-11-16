@@ -126,7 +126,7 @@ export function DebateChamber() {
       <CardContent>
         <div className="space-y-4">
           <AnimatePresence>
-            {verdict.arguments?.length > 0 ? (
+            {verdict.arguments && verdict.arguments.length > 0 ? (
               verdict.arguments.map((arg, idx) => (
                 <motion.div
                   key={`${arg.speaker}-${idx}`}
@@ -182,7 +182,7 @@ export function DebateChamber() {
             <div className="flex-1 min-w-0">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Security Findings</div>
               <ul className="text-sm text-slate-300 space-y-1 mt-1 list-disc list-inside">
-                {verdict.securityPoints?.length > 0 ? (
+                {verdict.securityPoints && verdict.securityPoints.length > 0 ? (
                   verdict.securityPoints.map((p, i) => (
                     <li key={i} className="pl-1">{p}</li>
                   ))
@@ -197,7 +197,7 @@ export function DebateChamber() {
             <div className="flex-1 min-w-0">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Architecture Findings</div>
               <ul className="text-sm text-slate-300 space-y-1 mt-1 list-disc list-inside">
-                {verdict.architecturePoints?.length > 0 ? (
+                {verdict.architecturePoints && verdict.architecturePoints.length > 0 ? (
                   verdict.architecturePoints.map((p, i) => (
                     <li key={i} className="pl-1">{p}</li>
                   ))
