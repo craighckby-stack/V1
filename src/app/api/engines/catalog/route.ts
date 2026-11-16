@@ -35,14 +35,14 @@ export async function GET() {
 
   for (let i = 0; i < SIPHON_SOURCES.length; i++) {
     const source = SIPHON_SOURCES[i];
-    if (!source || !Array.isArray(source.patterns)) {
+    if (!source || !Array.isArray((source as any).patterns)) {
       invalidSources.push({ index: i, reason: "Source is null/undefined or missing 'patterns' array." });
       continue; // Skip invalid entry
     }
     
     validSources.push({
-      source,
-      count: source.patterns.length,
+      source: source as SiphonSource,
+      count: (source as any).patterns.length,
       complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
       // Honest label: these are CONFIGURED siphon sources (declarative
       // config), not verified-live remote repositories. No liveness probe
