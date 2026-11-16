@@ -29,12 +29,12 @@ export async function GET() {
     return NextResponse.json({ entries: entries || [] });
   } catch (err: unknown) {
     // Log the actual error for debugging purposes before sending a generic response
-    console.error("Error retrieving memory entries:", err);
+    const error = err instanceof Error ? err : new Error("An unknown error occurred during memory retrieval.");
+    console.error("Error retrieving memory entries:", error.message, error);
     
     let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
     
     // We only need to ensure we return a safe, non-descriptive error message to the client.
-    // The original complex checks were redundant for this goal.
     
     return NextResponse.json(
       { error: errorMessage },
