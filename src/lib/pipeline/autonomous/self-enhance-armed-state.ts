@@ -74,9 +74,6 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   }
   try {
     const infoDir = join(PROJECT_ROOT, ".git/info");
-    if (!PROJECT_ROOT) { // Redundant check, but safer inside try block if logic changes
-        throw new Error("PROJECT_ROOT is missing during file operation.");
-    }
     mkdirSync(infoDir, { recursive: true });
     const entry: SelfEnhanceArmedState = {
       armed,
@@ -121,8 +118,7 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
       typeof state.at === "string" &&
       typeof state.by === "string" &&
       state.by.trim() !== "" &&
-      !isNaN(Date.parse(state.at)) && // Check if date string is valid
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(state.at) // Stricter ISO 8601 check
+      !isNaN(Date.parse(state.at))
     ) {
       return state;
     }
