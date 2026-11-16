@@ -53,7 +53,8 @@ try {
       process.env[m[1]] = m[2].trim().replace(/^["']|["']$/g, "");
     }
   }
-} catch {
+} catch (err) {
+  console.error("[LOOP-WORKER] Failed to load .env file:", err);
   /* no .env — rely on inherited environment */
 }
 // Activates the oracle-events dual-write bridge (worker → server ingest).
@@ -122,7 +123,7 @@ async function main() {
             currentFile: loop.getCurrentFile(),
             // The AUTHORITATIVE LLM gate for loop work lives in this
             // process now — the UI's 429 countdown reads it from here.
-            llmGate: agentLlm.llmGateInfo(),
+            llmGate: agentLlm.llmGateInfo?.(),
             saturation: loop.getSaturation(),
           });
         }
@@ -204,7 +205,9 @@ async function main() {
 
         return json({ error: "not found" }, 404);
       } catch (err) {
-        return json({ error: (err as Error).message }, 500);
+        const error = err instanceof Error ? err.message : "Unknown error";
+        console.error("[LOOP-WORKER] Request failed:", err);
+        return json({ error }, 500);
       }
     },
   });
