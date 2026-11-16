@@ -15,6 +15,8 @@
  * instrumentation boot AND from every control route without racing
  * doubles — all callers live in this same server process.
  */
+import * as fs from 'fs';
+import * as path from 'path';
 
 const WORKER_URL = process.env.LOOP_WORKER_URL ?? "http://localhost:3004";
 
@@ -116,16 +118,18 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   let spawnSuccessful = false;
   let healthCheckSuccessful = false;
   try {
+    // Use imported modules directly since we imported them at the top level
     const { spawn } = await import("child_process");
-    const path = await import("path");
-    const fs = await import("fs");
+    const { join } = await import("path");
+    const { openSync } = await import("fs");
+    
     // Capture the worker's stdout/stderr — its `[SELF-ENHANCE]` narration
     // is the only durable record of cycle progress now that the loop does
     // not log into dev.log anymore. Append mode; the detached child
     // outlives this request, so the fd is opened per spawn.
     let outFd: number | "ignore" = "ignore";
     try {
-      outFd = fs.openSync(
+      outFd = openSync(
         path.join("mini-services", "loop-worker", "worker.log"),
         "a"
       );
@@ -149,12 +153,11 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     // If spawning fails, isSpawning will be reset in finally block.
     return false;
   } finally {
-    if (spawnSuccessful) {
-      // If spawning succeeded, we keep isSpawning true until health checks are done.
-    } else {
+    if (!spawnSuccessful) {
       // If spawning failed, reset immediately.
       isSpawning = false;
     }
+    // If spawning succeeded, isSpawning remains true until health checks complete below.
   }
 
   // Wait up to ~5s for boot (pipeline import graph: Prisma + TS compiler
