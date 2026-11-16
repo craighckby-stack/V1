@@ -148,11 +148,17 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
   let buf: ConsoleLine[] = [];
 
   const flush = () => {
-    if (buf.length <= 1) {
-      if (buf.length === 1) result.push(buf[0]);
+    if (buf.length === 0) {
       buf = [];
       return;
     }
+    
+    if (buf.length === 1) {
+      result.push(buf[0]);
+      buf = [];
+      return;
+    }
+    
     // Stable sort: key = parsed epoch (NaN → +∞ so unparseable log
     // lines sink to the bottom of their run, preserving arrival order
     // among themselves via the index tiebreak).
@@ -185,13 +191,13 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
 export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
   // Validate input lines
   if (!lines || !Array.isArray(lines)) {
-    console.error("ConsoleStream: lines prop must be an array");
+    console.error("ConsoleStream: Input validation failed. 'lines' prop must be an array.");
     return null;
   }
 
   // Validate logRef
   if (!logRef) {
-    console.error("ConsoleStream: logRef prop is required");
+    console.error("ConsoleStream: Input validation failed. 'logRef' prop is required.");
     return null;
   }
 
@@ -221,19 +227,19 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
       {ordered.map((line) => {
         // Skip invalid line entries (relying on type safety and initial checks)
         if (!line || typeof line !== "object" || !line.id || !line.type) {
-          console.error("ConsoleStream: Invalid line object encountered", line);
+          console.error("ConsoleStream: Invalid line object encountered during rendering. Line data:", line);
           return null;
         }
 
         // Validate line type is one of the expected values
         if (!["system", "command", "output", "log"].includes(line.type)) {
-          console.error("ConsoleStream: Invalid line type", line.type);
+          console.error("ConsoleStream: Invalid line type encountered:", line.type);
           return null;
         }
 
         // Validate text is a string
         if (typeof line.text !== "string") {
-          console.error("ConsoleStream: Line text must be a string", line);
+          console.error("ConsoleStream: Line text must be a string. Line data:", line);
           return null;
         }
 
