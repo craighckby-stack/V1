@@ -161,7 +161,7 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
     // Stable sort: key = parsed epoch (NaN → +∞ so unparseable log
     // lines sink to the bottom of their run, preserving arrival order
     // among themselves via the index tiebreak).
-    const keyed = buf.map((l, i) => ({ l, k: parseTs(l.ts), i }));
+    const keyed = buf.map((l, i) => ({ l, k: l.ts ? parseTs(l.ts) : NaN, i }));
     keyed.sort((a, b) => {
       const ka = Number.isNaN(a.k) ? Infinity : a.k;
       const kb = Number.isNaN(b.k) ? Infinity : b.k;
@@ -252,7 +252,7 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
           color = COLOR_MAP[logTypeKey] || TEXT_COLOR;
         } else if (line.type === "log" && !line.logType) {
           // Handle 'log' type lines missing logType property gracefully
-          console.error("ConsoleStream: Log line encountered without a logType. Defaulting to text color.", line);
+          console.error("ConsoleStream: Log line encountered without a logType. Defaulting to text color. Line ID:", line.id);
           color = TEXT_COLOR;
         }
 
