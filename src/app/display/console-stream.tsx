@@ -82,7 +82,7 @@ function parseTs(ts: string | undefined | null): number {
   // or "2026-11-14T00:03:48.099+00:00". Date handles these natively.
   if (/\d{4}-\d{2}-\d{2}T/.test(s) || /Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
     const t = new Date(s).getTime();
-    return Number.isNaN(t) ? NaN : t;
+    return Number.isNaN(t) || isNaN(t) ? NaN : t;
   }
 
   // 12-hour AM/PM, time only — server is UTC, infer today (UTC).
@@ -97,14 +97,15 @@ function parseTs(ts: string | undefined | null): number {
       if (h !== 12) h += 12;
     }
     const now = new Date();
-    return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, min, sec);
+    const t = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, min, sec);
+    return isNaN(t) ? NaN : t;
   }
 
   // 24-hour time only — defensive fallback, infer today (UTC).
   const m24 = s.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
   if (m24) {
     const now = new Date();
-    return Date.UTC(
+    const t = Date.UTC(
       now.getUTCFullYear(),
       now.getUTCMonth(),
       now.getUTCDate(),
@@ -112,6 +113,7 @@ function parseTs(ts: string | undefined | null): number {
       parseInt(m24[2], 10),
       parseInt(m24[3], 10),
     );
+    return isNaN(t) ? NaN : t;
   }
 
   return NaN;
@@ -272,7 +274,7 @@ export function ConsoleStream({ lines, logRef }: ConsoleStreamProps) {
             }}
           >
             {line.type === "command" && "> "}
-            {line.type === "log" && line.ts && (
+            {line.type === "log" && typeof line.ts === 'string' && line.ts && (
               <span style={{ color: DIM_COLOR }}>[{formatTs(line.ts)}]{" "}</span>
             )}
             {line.text || "\u00a0"}
