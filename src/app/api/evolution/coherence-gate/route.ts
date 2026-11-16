@@ -64,7 +64,10 @@ export async function POST(req: Request) {
   }
       
   const passed = structuralDriftRatio < 0.7;
-  const saturationScore = Math.max(0, 1 - structuralDriftRatio);
+  
+  // Ensure saturationScore calculation handles Infinity gracefully
+  const saturationScore = structuralDriftRatio === Infinity ? 0 : Math.max(0, 1 - structuralDriftRatio);
+  
   const status: CoherenceStatus = passed ? "COHERENT" : "EXCESSIVE_DRIFT";
 
   const response: CoherenceGateResponse = {
