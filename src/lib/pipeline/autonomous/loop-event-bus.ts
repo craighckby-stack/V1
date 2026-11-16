@@ -50,7 +50,8 @@ class LoopEventBus {
       this.emitter.setMaxListeners(50);
     } catch (error) {
       // Ensure constructor throws if initialization fails, preventing partial state.
-      throw new Error(`Failed to initialize LoopEventBus EventEmitter: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to initialize LoopEventBus EventEmitter: ${errorMessage}`);
     }
   }
 
@@ -110,7 +111,7 @@ class LoopEventBus {
       }
     }
 
-    // EventEmitter.emit returns boolean | null. We must satisfy the boolean return type.
+    // EventEmitter.emit returns boolean | null. We return true if it didn't return null, false otherwise.
     return this.emitter.emit("event", evt) !== null;
   }
 
