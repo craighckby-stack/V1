@@ -51,9 +51,16 @@ export async function GET() {
     // Safely cast after structural validation
     const typedSource = source as SiphonSource;
 
+    // Ensure patterns property on the typed source is an array before accessing length
+    const patterns = (typedSource as any).patterns;
+    if (!Array.isArray(patterns)) {
+        invalidSources.push({ index: i, reason: "Source patterns property is not an array after initial check." });
+        continue;
+    }
+
     validSources.push({
       source: typedSource,
-      count: typedSource.patterns.length,
+      count: patterns.length,
       complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
       // Honest label: these are CONFIGURED siphon sources (declarative
       // config), not verified-live remote repositories. No liveness probe
