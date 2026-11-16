@@ -129,13 +129,13 @@ async function checkGitHubAuth(
       return { ok: false, error: `HTTP ${res.status}: ${res.statusText || 'Unknown Error'}` };
     }
     try {
-      const user = (await res.json()) as { login?: string };
-      if (!user?.login) {
-        return { ok: false, error: "No login found in /user response body" };
+      const user = await res.json();
+      if (typeof user !== 'object' || user === null || !('login' in user) || !user.login) {
+        return { ok: false, error: "No login found or invalid response structure in /user response body" };
       }
-      return { ok: true, login: user.login };
+      return { ok: true, login: user.login as string };
     } catch (e) {
-      return { ok: false, error: "Failed to parse JSON response from GitHub API" };
+      return { ok: false, error: "Failed to parse JSON response from GitHub API (response body might be empty or malformed)" };
     }
   } catch (e) {
     if (e instanceof Error) {
