@@ -160,7 +160,7 @@ export function CurrentCycle() {
           <Cpu className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
           <span className="text-sm">
             {cycle.fileResults?.length || 0} file(s) processed · {cycle.fileResults?.filter(r => r.pushed).length || 0} pushed
-            · proof {cycle.fileResults && cycle.fileResults.length > 0 && cycle.fileResults[0].proofHash 
+            · proof {cycle.fileResults && cycle.fileResults.length > 0 && cycle.fileResults[0]?.proofHash 
               ? cycle.fileResults[0].proofHash.substring(0, 8) + '...' 
               : "—"}
           </span>
