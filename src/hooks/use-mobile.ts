@@ -12,6 +12,12 @@ export function useIsMobile() {
     }
 
     const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
+    if (!mql) {
+      // Fallback for browsers that don't support matchMedia
+      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
+      return
+    }
+
     const onChange = () => {
       setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
     }
@@ -23,5 +29,5 @@ export function useIsMobile() {
     }
   }, [])
 
-  return !!isMobile
+  return isMobile === undefined ? false : !!isMobile
 }
