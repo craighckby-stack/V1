@@ -54,7 +54,7 @@ try {
     }
   }
 } catch (err) {
-  console.error("[LOOP-WORKER] Failed to load .env file:", err);
+  console.error("[LOOP-WORKER] Failed to load .env file:", err instanceof Error ? err.stack : err);
   /* no .env — rely on inherited environment */
 }
 // Activates the oracle-events dual-write bridge (worker → server ingest).
@@ -143,7 +143,7 @@ async function main() {
             });
           }
           loop.runContinuous().catch((err) => {
-            console.error("[LOOP-WORKER] continuous loop crashed:", err);
+            console.error("[LOOP-WORKER] continuous loop crashed:", err instanceof Error ? err.stack : err);
           });
           return json({ started: true });
         }
@@ -161,7 +161,7 @@ async function main() {
           const wasRunning = loop.isContinuous();
           if (wasRunning) loop.stop();
           loop.runContinuous().catch((err) => {
-            console.error("[LOOP-WORKER] reboot restart crashed:", err);
+            console.error("[LOOP-WORKER] reboot restart crashed:", err instanceof Error ? err.stack : err);
           });
           return json({
             rebooted: true,
@@ -189,11 +189,23 @@ async function main() {
 
         // Mirror of POST /api/self-enhance/unlock  body: { filePath }
         if (url === "/unlock") {
-          const body = (await req.json().catch(() => ({}))) as { filePath?: string };
-          if (!body.filePath) {
-            return json({ ok: false, error: "filePath is required" }, 400);
+          let body;
+          try {
+            body = await req.json();
+          } catch (err) {
+            return json({ ok: false, error: "Invalid JSON in request body" }, 400);
           }
-          const result = loop.unlockFile(body.filePath);
+          
+          if (!body || typeof body !== "object" || !("filePath" in body)) {
+            return json({ ok: false, error: "filePath is required in request body" }, 400);
+          }
+          
+          const { filePath } = body as { filePath?: string };
+          if (!filePath || typeof filePath !== "string") {
+            return json({ ok: false, error: "filePath must be a non-empty string" }, 400);
+          }
+          
+          const result = loop.unlockFile(filePath);
           return json({ ok: result.unlocked, ...result });
         }
 
@@ -206,7 +218,7 @@ async function main() {
         return json({ error: "not found" }, 404);
       } catch (err) {
         const error = err instanceof Error ? err.message : "Unknown error";
-        console.error("[LOOP-WORKER] Request failed:", err);
+        console.error("[LOOP-WORKER] Request failed:", err instanceof Error ? err.stack : err);
         return json({ error }, 500);
       }
     },
@@ -219,13 +231,13 @@ async function main() {
 // A telemetry/worker process must stay alive: log and continue, never let
 // one bad request or a stray rejection kill the loop mid-gate-chain.
 process.on("uncaughtException", (err) => {
-  console.error("[LOOP-WORKER] UNCAUGHT EXCEPTION (worker stays up):", err);
+  console.error("[LOOP-WORKER] UNCAUGHT EXCEPTION (worker stays up):", err instanceof Error ? err.stack : err);
 });
 process.on("unhandledRejection", (err) => {
-  console.error("[LOOP-WORKER] UNHANDLED REJECTION (worker stays up):", err);
+  console.error("[LOOP-WORKER] UNHANDLED REJECTION (worker stays up):", err instanceof Error ? err.stack : err);
 });
 
 main().catch((err) => {
-  console.error("[LOOP-WORKER] fatal boot error:", err);
+  console.error("[LOOP-WORKER] fatal boot error:", err instanceof Error ? err.stack : err);
   process.exit(1);
 });
