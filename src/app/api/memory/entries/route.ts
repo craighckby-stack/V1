@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { emgRagInstance, VectorEntry } from "@/lib/pipeline/emg/emg-rag";
+import { emgRagInstance } from "@/lib/pipeline/emg/emg-rag";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
