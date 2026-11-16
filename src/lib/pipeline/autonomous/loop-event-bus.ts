@@ -110,7 +110,8 @@ class LoopEventBus {
       }
     }
 
-    return this.emitter.emit("event", evt);
+    // EventEmitter.emit returns boolean | null. We must satisfy the boolean return type.
+    return this.emitter.emit("event", evt) !== null;
   }
 
   public on(listener: LoopEventListener): () => void {
