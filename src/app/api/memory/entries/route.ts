@@ -30,11 +30,9 @@ export async function GET() {
   } catch (err: unknown) {
     // Log the actual error for debugging purposes before sending a generic response
     const error = err instanceof Error ? err : new Error("An unknown error occurred during memory retrieval.");
-    console.error("Error retrieving memory entries:", error.message, error.stack ? error.stack : "No stack trace available");
+    console.error("Error retrieving memory entries from RAG store:", error.message, error.stack ? error.stack : "No stack trace available");
     
     let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
-    
-    // We only need to ensure we return a safe, non-descriptive error message to the client.
     
     return NextResponse.json(
       { error: errorMessage },
