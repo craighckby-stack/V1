@@ -105,7 +105,7 @@ export function writeLoopStats(state: LoopStatsState): void {
   
   // Validate lastEnhancementAt
   const ts = state.lastEnhancementAt;
-  if (ts !== null && (typeof ts !== "string" || isNaN(Date.parse(ts)))) {
+  if (ts !== null && typeof ts === "string" && isNaN(Date.parse(ts))) {
     console.error(`writeLoopStats: invalid lastEnhancementAt value: ${ts}`);
     return;
   }
@@ -172,7 +172,7 @@ export function readLoopStats(): LoopStatsState | null {
     }
     // lastEnhancementAt: null or a parseable ISO string.
     const ts = obj.lastEnhancementAt;
-    if (ts !== null && (typeof ts !== "string" || isNaN(Date.parse(ts)))) {
+    if (ts !== null && typeof ts === "string" && isNaN(Date.parse(ts))) {
       return null;
     }
 
