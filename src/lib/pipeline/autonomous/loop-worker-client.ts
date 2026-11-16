@@ -74,8 +74,9 @@ export async function workerFetch<T = unknown>(
     if (res.ok) {
         try {
           data = await res.json();
-        } catch {
-          // Failed to parse JSON on a successful response. Data remains null.
+        } catch (e) {
+          // Failed to parse JSON on a successful response. Log the parsing error.
+          console.error(`Failed to parse JSON response from ${WORKER_URL}${pathname} (Status: ${res.status}):`, e);
           data = null;
         }
     }
@@ -99,6 +100,12 @@ export async function workerFetch<T = unknown>(
 /** Health-check the worker; respawn it if down. Returns whether the
  *  worker is reachable when this resolves. Never throws. */
 export async function ensureWorkerRunning(): Promise<boolean> {
+  // Input validation: Ensure WORKER_URL is available before attempting any fetch
+  if (!WORKER_URL || WORKER_URL === "http://localhost:3004") {
+    console.error("WORKER_URL is not configured correctly. Cannot ensure worker is running.");
+    return false;
+  }
+
   // Fast path: healthy (single ~ms localhost probe).
   try {
     const probe = await fetch(`${WORKER_URL}/health`, {
