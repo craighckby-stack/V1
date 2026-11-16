@@ -114,6 +114,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   isSpawning = true;
 
   let spawnSuccessful = false;
+  let healthCheckSuccessful = false;
   try {
     const { spawn } = await import("child_process");
     const path = await import("path");
@@ -145,14 +146,12 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     spawnSuccessful = true;
   } catch (error) {
     console.error("Failed to spawn loop worker:", error);
-    // If spawning fails, we must reset isSpawning if we set it to true
+    // If spawning fails, we must reset isSpawning immediately
     isSpawning = false;
     return false;
   } finally {
-    // Reset isSpawning only if it was set to true in this attempt and the attempt finished.
-    if (isSpawning && !spawnSuccessful) {
-        isSpawning = false;
-    }
+    // If spawning succeeded, we keep isSpawning true until health checks are done.
+    // If spawning failed, it was already reset above.
   }
 
   // Wait up to ~5s for boot (pipeline import graph: Prisma + TS compiler
@@ -164,17 +163,21 @@ export async function ensureWorkerRunning(): Promise<boolean> {
       const probe = await fetch(`${WORKER_URL}/health`, {
         signal: AbortSignal.timeout(1000),
       });
-      if (probe.ok) return true;
+      if (probe.ok) {
+        healthCheckSuccessful = true;
+        break;
+      }
     } catch {
       /* still booting */
     }
   }
   
-  // If loop finishes without success, ensure isSpawning is reset if it's still true
-  if (isSpawning) {
+  // Reset isSpawning only if the entire attempt (spawn + health check) failed.
+  if (!healthCheckSuccessful) {
       isSpawning = false;
   }
-  return false;
+  
+  return healthCheckSuccessful;
 }
 
 /** Fire-and-forget self-heal for read paths (status polls): never blocks
