@@ -36,8 +36,15 @@ export async function GET() {
   for (let i = 0; i < SIPHON_SOURCES.length; i++) {
     const source = SIPHON_SOURCES[i];
     
-    if (!source || !('patterns' in source) || !Array.isArray((source as any).patterns)) {
-      invalidSources.push({ index: i, reason: "Source is null/undefined or missing 'patterns' array." });
+    // Check for null/undefined source element first
+    if (!source) {
+      invalidSources.push({ index: i, reason: "Source element is null or undefined." });
+      continue;
+    }
+
+    // Check for required structure: 'patterns' must exist and be an array
+    if (!('patterns' in source) || !Array.isArray((source as any).patterns)) {
+      invalidSources.push({ index: i, reason: "Source is missing 'patterns' array or 'patterns' is not an array." });
       continue; // Skip invalid entry
     }
     
