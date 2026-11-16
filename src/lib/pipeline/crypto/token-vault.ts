@@ -113,7 +113,7 @@ function ensureKey(): Buffer | null {
     if (!warnedKeyMissing) {
       warnedKeyMissing = true;
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[TOKEN-VAULT] error accessing key file: ${errorMessage}`);
+      console.error(`[TOKEN-VAULT] error accessing key file at ${KEY_FILE}: ${errorMessage}`);
     }
     return null;
   }
