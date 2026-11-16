@@ -6,14 +6,14 @@
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "LLM output truncated: parse error at end of output: Unterminated regular expression literal.",
-  "evidence": "Original: 9137b, Refactored: 6596b. The LLM hit its output token limit before finishing.",
+  "evidence": "Original: 9137b, Refactored: 6591b. The LLM hit its output token limit before finishing.",
   "constraints": "The previous refactor of src/lib/pipeline/autonomous/dreamer.ts was truncated by the LLM's output limit. Make smaller, more targeted changes — do not rewrite the whole file.",
   "attempts": 1,
   "parentHash": null,
   "hash": null,
-  "lastAttemptAt": "2026-11-16T16:15:56.800Z",
+  "lastAttemptAt": "2026-11-16T16:41:36.400Z",
   "resolvedAt": null,
-  "createdAt": "2026-11-16T16:15:56.800Z",
-  "updatedAt": "2026-11-16T16:15:56.800Z",
+  "createdAt": "2026-11-16T16:41:36.400Z",
+  "updatedAt": "2026-11-16T16:41:36.400Z",
   "schema": 2
 }

@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/autonomous/dreamer.test.ts",
+  "status": "active",
+  "verificationStatus": "candidate",
+  "failureType": "WEAK_RATCHET",
+  "symptom": "Red-team attacker (weak-pin): The test file only checks the initial state behavior of the dreamer module, but doesn't test the actual dream functional",
+  "evidence": "Attacker suggested fix: Add tests that actually call the dream tasks and verify their behavior. For example, test that dreamRatchetDraft returns a draft when given a valid file, and that dreamPatternName returns named patterns when given a corpus digest.",
+  "constraints": "The ratchet pin on this module has a reported weakness (weak-pin). It is a CANDIDATE finding — verify before acting. Do not weaken the pin to make it pass.",
+  "attempts": 1,
+  "parentHash": null,
+  "hash": null,
+  "lastAttemptAt": "2026-11-16T17:46:49.359Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-16T17:46:49.359Z",
+  "updatedAt": "2026-11-16T17:46:49.359Z",
+  "schema": 2
+}

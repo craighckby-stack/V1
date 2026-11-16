@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/oracle/oracle-task-feed.test.ts",
+  "status": "active",
+  "verificationStatus": "candidate",
+  "failureType": "WEAK_RATCHET",
+  "symptom": "Red-team attacker (weak-pin): The hash function in oracle-task-feed.ts has a special case for when the hash result is 0, which maps to line number 1. ",
+  "evidence": "Attacker suggested fix: Remove the special case for hash result 0. The FNV-1a hash with masking to 0x7fffffff already produces a positive integer, and 0 is extremely unlikely. If it does occur, it should be treated as a distinct line number rather than being mapped to 1.",
+  "constraints": "The ratchet pin on this module has a reported weakness (weak-pin). It is a CANDIDATE finding — verify before acting. Do not weaken the pin to make it pass.",
+  "attempts": 1,
+  "parentHash": null,
+  "hash": null,
+  "lastAttemptAt": "2026-11-16T17:52:12.657Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-16T17:52:12.657Z",
+  "updatedAt": "2026-11-16T17:52:12.657Z",
+  "schema": 2
+}
