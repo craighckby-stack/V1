@@ -172,11 +172,10 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     }
   }
   
-  // Reset isSpawning only if the entire attempt (spawn + health check) failed.
-  if (!healthCheckSuccessful) {
-      isSpawning = false;
-  }
-  
+  // Reset isSpawning regardless of health check outcome, as the attempt is complete.
+  isSpawning = false;
+
+  // Return health status
   return healthCheckSuccessful;
 }
 
