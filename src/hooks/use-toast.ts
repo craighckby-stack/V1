@@ -22,6 +22,7 @@ let count = 0
 
 function genId() {
   count = (count + 1) % Number.MAX_SAFE_INTEGER
+  if (count < 0) count = 0 // Handle potential overflow edge case
   return count.toString()
 }
 
@@ -80,13 +81,18 @@ export const reducer = (state: State, action: Action): State => {
         toasts: [action.toast, ...state.toasts].slice(0, TOAST_LIMIT),
       }
 
-    case "UPDATE_TOAST":
+    case "UPDATE_TOAST": {
+      const { toast } = action
+      if (!toast.id) {
+        return state // Skip update if no ID provided
+      }
       return {
         ...state,
         toasts: state.toasts.map((t) =>
-          t.id === action.toast.id ? { ...t, ...action.toast } : t
+          t.id === toast.id ? { ...t, ...toast } : t
         ),
       }
+    }
 
     case "DISMISS_TOAST": {
       const { toastId } = action
@@ -180,7 +186,7 @@ function useToast() {
         listeners.splice(index, 1)
       }
     }
-  }, [state])
+  }, []) // Empty dependency array to prevent re-subscribing on every state change
 
   return {
     ...state,
