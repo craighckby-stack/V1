@@ -18,15 +18,24 @@ interface DebateRequest {
  * returned honestly as a 500.
  */
 export async function POST(req: Request) {
+  let body: DebateRequest;
   try {
-    const body = (await req.json()) as DebateRequest;
-    if (!body.filePath || typeof body.filePath !== "string" || body.filePath.length === 0 || typeof body.candidateCode !== "string" || body.candidateCode.length === 0) {
-      return NextResponse.json(
-        { error: "filePath and candidateCode are required, and candidateCode cannot be empty" },
-        { status: 400 }
-      );
-    }
+    body = (await req.json()) as DebateRequest;
+  } catch (e) {
+    return NextResponse.json(
+      { error: "Invalid JSON format in request body." },
+      { status: 400 }
+    );
+  }
 
+  if (!body.filePath || typeof body.filePath !== "string" || body.filePath.length === 0 || typeof body.candidateCode !== "string" || body.candidateCode.length === 0) {
+    return NextResponse.json(
+      { error: "filePath and candidateCode are required, and candidateCode cannot be empty" },
+      { status: 400 }
+    );
+  }
+
+  try {
     const topic = body.topic ?? `Code Review for ${body.filePath}`;
     const { verdict, usedLlm, llmError } = await conductLlmDebate(
       topic,
@@ -41,10 +50,10 @@ export async function POST(req: Request) {
   } catch (err) {
     let errorMessage = "An unknown error occurred during debate execution.";
     if (err instanceof Error) {
-      errorMessage = err.message;
+      errorMessage = `Debate execution failed: ${err.message}`;
     } else if (typeof err === 'object' && err !== null && 'message' in err) {
-      // Handle cases where err is an object but not an instance of Error (e.g., from JSON parsing failure)
-      errorMessage = String((err as { message: string }).message);
+      // Handle cases where err is an object but not an instance of Error
+      errorMessage = `Debate execution failed: ${(err as { message: string }).message}`;
     }
     return NextResponse.json(
       { error: errorMessage },
