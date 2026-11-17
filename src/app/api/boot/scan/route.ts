@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readdirSync, statSync } from "fs";
+import { readdir, stat } from "fs/promises";
 import { join } from "path";
 import { getStoredTarget } from "@/lib/pipeline/autonomous/push-target";
 import { vaultStatus } from "@/lib/pipeline/crypto/token-vault";
@@ -54,46 +54,46 @@ export const runtime = "nodejs";
  * returned as null/0, never faked — the POST line stamps ?? for it.
  */
 
-/** Count *.json scar files under postmortems/ (recursive, sync — small tree). */
-function diskScarCount(): number {
+/** Count *.json scar files under postmortems/ (recursive, async). */
+async function diskScarCount(): Promise<number> {
   if (typeof PROJECT_ROOT !== 'string' || !PROJECT_ROOT) {
     return 0; // Honesty rule: return 0 if path is invalid, do not throw.
   }
   const root = join(PROJECT_ROOT, "postmortems");
-  let n = 0;
-  const walk = (dir: string): void => {
-    let entries: string[];
-    try {
-      entries = readdirSync(dir);
-    } catch (e) {
-      if (e instanceof Error) {
-        console.error(`Error reading directory ${dir}: ${e.message}`);
-      } else {
-        console.error(`Unknown error reading directory ${dir}:`, e);
-      }
-      return; // Stop walking this branch on read error
-    }
-    for (const e of entries) {
-      const p = join(dir, e);
-      let st;
-      try {
-        st = statSync(p);
-      } catch (e) {
-        if (e instanceof Error) {
-          console.warn(`Could not stat path ${p}: ${e.message}`);
-        } else {
-          console.warn(`Unknown error statting path ${p}:`, e);
-        }
-        continue; // Skip this entry if stat fails
-      }
-      if (st.isDirectory()) walk(p);
-      else if (e.endsWith(".json")) n++;
-    }
-  };
+
   try {
-    walk(root);
+    const entries = await readdir(root);
+    let n = 0;
+
+    const processEntry = async (e: string, dir: string) => {
+      const p = join(dir, e);
+      try {
+        const st = await stat(p);
+        if (st.isDirectory()) {
+          // Recurse into subdirectory
+          const subEntries = await readdir(p);
+          for (const subE of subEntries) {
+            await processEntry(subE, p);
+          }
+        } else if (e.endsWith(".json")) {
+          n++;
+        }
+      } catch (e) {
+        // Log specific errors for individual file/dir access failures but continue traversal
+        if (e instanceof Error) {
+          console.warn(`Could not stat or access path ${p}: ${e.message}`);
+        } else {
+          console.warn(`Unknown error accessing path ${p}:`, e);
+        }
+      }
+    };
+
+    // Process all top-level entries concurrently
+    await Promise.all(entries.map(e => processEntry(e, root)));
+    return n;
+
   } catch (e) {
-    // Catch any unexpected errors during the initial walk call
+    // Catch errors during initial directory read (e.g., directory doesn't exist or permissions denied)
     if (e instanceof Error) {
       console.error(`Fatal error during scar file traversal starting at ${root}: ${e.message}`);
     } else {
@@ -101,7 +101,6 @@ function diskScarCount(): number {
     }
     return 0; // Return 0 on fatal traversal error
   }
-  return n;
 }
 
 /** GET /user with the vault-opened PAT. The auto-connect moment. */
@@ -212,7 +211,7 @@ export async function GET() {
     }
   })();
 
-  const scars = diskScarCount(); // Synchronous, kept as is
+  const scars = await diskScarCount(); // Await the async function
 
   const hotSwapPromise = (async () => {
     try {
