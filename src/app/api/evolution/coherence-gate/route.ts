@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   let body: unknown;
   try {
     body = await req.json();
-  } catch {
+  } catch (e) {
     return NextResponse.json(
         { error: "Failed to parse request body. Ensure the request content type is application/json and the body is valid JSON." },
         { status: 400 }
@@ -58,6 +58,7 @@ export async function POST(req: Request) {
 
   // Guard against division by zero if original code is empty
   if (origLen === 0) {
+    // If original is empty, drift is 0 only if proposed is also empty, otherwise it's infinite drift.
     structuralDriftRatio = propLen === 0 ? 0 : Infinity;
   } else {
     structuralDriftRatio = Math.abs(propLen - origLen) / origLen;
