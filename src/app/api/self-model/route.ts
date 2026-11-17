@@ -54,9 +54,9 @@ export async function POST(req: Request) {
   let force = false;
   let body: { force?: boolean } | null = null;
 
-  if (!req) {
+  if (!req || typeof req.json !== 'function') {
     return NextResponse.json(
-      { error: "Request object is missing." },
+      { error: "Invalid or missing Request object." },
       { status: 400 }
     );
   }
@@ -116,7 +116,7 @@ export async function POST(req: Request) {
     }
   }
 
-  // Performance improvement: Only fetch summary once, after potential bootstrap.
+  // Fetch summary once after potential bootstrap.
   try {
     const summary = await getSelfModelSummary();
     return NextResponse.json(summary);
