@@ -51,23 +51,27 @@ export function MemoryBank() {
   }, [setEntries]);
 
   return (
-    <Card className="bg-slate-950/60 border border-slate-800/60 backdrop-blur transition-shadow duration-150 hover:shadow-lg">
+    <Card className="bg-slate-950/60 border border-slate-800/60 backdrop-blur transition-shadow duration-200 hover:shadow-xl">
       <CardHeader className="pb-4 pt-6">
         <CardTitle className="text-slate-100 flex items-center gap-3 text-lg sm:text-xl">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500/30 to-cyan-500/30 ring-1 ring-emerald-500/40 transition-transform duration-150 hover:scale-[1.02]">
+          <span 
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500/30 to-cyan-500/30 ring-1 ring-emerald-500/40 transition-transform duration-150 hover:scale-[1.05] focus-visible:ring-2 focus-visible:ring-emerald-400"
+            aria-label="Memory Bank Icon"
+          >
             <BookOpen className="h-4 w-4 text-emerald-300" aria-hidden="true" />
           </span>
-          Memory Bank <span className="text-sm text-slate-400 font-normal ml-1 hidden sm:inline">(RAG)</span>
+          Memory Bank 
+          <span className="text-xs text-slate-400 font-normal ml-1 hidden sm:inline">(RAG)</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
         {entries.length === 0 ? (
-          <div className="py-10 text-center">
+          <div className="py-12 text-center px-4">
             <p className="text-sm text-slate-500 italic">Loading memory entries or no entries found.</p>
           </div>
         ) : (
           <ScrollArea className="h-[300px] pr-4">
-            <div className="space-y-3">
+            <div className="space-y-3 p-4 sm:p-6">
               {entries.map((entry) => {
                 // Validate entry structure
                 if (!entry || typeof entry !== 'object' || !entry.id) {
@@ -80,7 +84,7 @@ export function MemoryBank() {
                 return (
                   <div
                     key={entry.id}
-                    className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3 transition-all duration-150 hover:border-emerald-600/50"
+                    className="rounded-xl border border-slate-800/60 bg-slate-900/40 p-3 transition-all duration-200 hover:border-emerald-600/50 focus-visible:ring-1 focus-visible:ring-emerald-500"
                     role="region"
                     aria-labelledby={`entry-title-${entry.id}`}
                   >
@@ -101,11 +105,11 @@ export function MemoryBank() {
                         {entry.trust ?? "unknown"}
                       </Badge>
                       {entry.filePath && (
-                        <span className="ml-auto text-[10px] text-slate-500 font-mono truncate" title={entry.filePath}>
+                        <span className="ml-auto text-[10px] text-slate-500 font-mono truncate px-1" title={entry.filePath}>
                           {entry.filePath}
                         </span>
                       )}
-                    </div>
+                    </div >
                     <p className="text-sm text-slate-200 leading-relaxed mb-1">{entry.content ?? ""}</p>
                     {entry.diagnosis && (
                       <p className="text-xs text-slate-400 mt-1 italic">→ {entry.diagnosis}</p>

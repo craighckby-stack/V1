@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/oracle/oracle-scheduler.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/autonomous/goal-engine.ts(105,30): error TS2339: Property 'loopGoal' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.; src/lib/pipeline/autonomous/goal-engine.ts(109,20): error TS2339: Property 'loopGoal' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.; src/lib/pipeline/autonomous/goal-engine.ts(176,25): error TS2339: Property 'loopGoal' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.",
@@ -12,8 +12,8 @@
   "parentHash": null,
   "hash": null,
   "lastAttemptAt": "2026-11-16T16:25:56.722Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-17T06:11:54.703Z",
   "createdAt": "2026-11-16T16:25:56.722Z",
-  "updatedAt": "2026-11-16T16:25:56.722Z",
+  "updatedAt": "2026-11-17T06:11:54.703Z",
   "schema": 2
 }
