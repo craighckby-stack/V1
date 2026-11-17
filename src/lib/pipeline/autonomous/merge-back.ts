@@ -115,6 +115,28 @@ export interface MergeBackPlan {
   /** typecheck of the loop branch's own HEAD (cached analysis) */
   loopBranchTypecheck: "unknown" | "pass" | "fail";
   conflictsIfMerged: string[]; // files that would conflict in a git merge
+  /** DIRECTION GUARD (2026-11-17, the loop-996 incident): true when the
+   *  branch tip is an ANCESTOR of main — main already contains everything
+   *  the branch has. When true, every file that differs between the two
+   *  differs because MAIN is newer: staging the branch's copies would
+   *  REGRESS main (the loop-996 merge-back tried exactly this — 26 older
+   *  snapshots staged over main's newer files, and only the typecheck
+   *  gate caught the one regression that broke compilation; the other 25
+   *  would have silently regressed main). When alreadyMerged, the plan
+   *  reports sourceFilesToChange: [] (nothing SHOULD change), surfaces
+   *  the main-newer files in mainNewerFiles for transparency, and the
+   *  execute path refuses outright. */
+  alreadyMerged: boolean;
+  /** when alreadyMerged: the src/ files that differ only because MAIN is
+   *  newer (what the pre-fix code would have wrongly staged). Empty
+   *  otherwise. */
+  mainNewerFiles: Array<{ path: string; status: "modified" | "added" | "deleted" }>;
+  /** when the branch genuinely diverged (both sides have unique commits):
+   *  the "modified" src/ files that BOTH sides changed since the fork
+   *  point (merge-base). Execute SKIPS these (staging the branch's
+   *  version would clobber main's independent changes); they need manual
+   *  review, not automatic theirs. */
+  divergedFiles: string[];
 }
 
 export interface MergeBackResult {
@@ -134,6 +156,62 @@ export interface MergeBackResult {
    *  a change to a file that was unprotected at branch-push time but is
    *  protected now — those are filtered out of the merge set. */
   skippedProtected?: string[];
+  /** src/ files SKIPPED because BOTH sides changed them since the fork
+   *  point (merge-base): the branch's version would clobber main's
+   *  independent changes. Diverged files need manual review, not
+   *  automatic theirs — the merge-back only fast-forwards files main
+   *  hasn't touched since the divergence. */
+  skippedDiverged?: string[];
+}
+
+/** Is <ref> fully contained in main's history (an ancestor)? When true,
+ *  main already has everything the branch has — a "catch main up" from
+ *  that branch is definitionally a no-op, and staging any differing file
+ *  would regress main to the branch's older snapshot. Uses
+ *  `git merge-base --is-ancestor` (exit 0 = yes; execFileSync throws on
+ *  non-zero, so the try/catch reads naturally). */
+function branchIsAncestorOfMain(ref: string): boolean {
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", ref, "main"], {
+      cwd: PROJECT_ROOT, timeout: 5000, stdio: "pipe",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The fork point (merge-base) of main and the branch, or null when it
+ *  can't be computed (unrelated histories — shouldn't happen in this
+ *  repo; the caller falls back to the pre-guard behavior). */
+function mergeBaseOf(ref: string): string | null {
+  try {
+    return execFileSync("git", ["merge-base", "main", ref], {
+      cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 5000, stdio: "pipe",
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** src/ files main has changed since the fork point — ONE git call. A
+ *  "modified" file on this list means BOTH sides changed it since the
+ *  divergence: staging the branch's version would clobber main's
+ *  independent changes (operator edits, later enhancements). The
+ *  merge-back skips those (fast-forward-only per file). Returns an empty
+ *  set on git failure — fail-open here is safe because the ancestor
+ *  guard already refused the common regression case, and the typecheck
+ *  gate still runs on whatever remains. */
+function mainTouchedSinceFork(mergeBase: string): Set<string> {
+  try {
+    const out = execFileSync(
+      "git", ["diff", "--name-only", mergeBase, "main", "--", "src/"],
+      { cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 10000, stdio: "pipe" },
+    ).trim();
+    return new Set(out.length > 0 ? out.split("\n").map((l) => l.trim()).filter(Boolean) : []);
+  } catch {
+    return new Set();
+  }
 }
 
 /** STRICT branch-name validation (command-injection fix, 2026-11-17).
@@ -228,6 +306,45 @@ export function analyzeMergeBack(branchName: string): MergeBackPlan | null {
     }
   }
 
+  // ── DIRECTION GUARD (2026-11-17, the loop-996 incident) ──────────────
+  // If the branch tip is an ancestor of main, main already contains
+  // everything the branch has. Every A/M file in sourceFilesToChange is
+  // then a file where MAIN is newer — the pre-fix code advertised those
+  // as catch-up work and staged the branch's older snapshots over main's
+  // newer files (a regression). The honest plan: nothing to change, the
+  // differing files listed for transparency in mainNewerFiles.
+  const alreadyMerged = branchIsAncestorOfMain(ref);
+  const mainNewerFiles: MergeBackPlan["mainNewerFiles"] = [];
+  let divergedFiles: string[] = [];
+  if (alreadyMerged) {
+    for (const f of sourceFilesToChange.splice(0)) {
+      mainNewerFiles.push(f);
+    }
+    // A raw `git merge` of an already-merged branch is "Already up to
+    // date" — zero conflicts. The diff-based conflict list above would
+    // be misleading for this topology.
+    conflictsIfMerged.length = 0;
+  } else {
+    // Genuinely forked (or unrelated): apply the per-file divergence
+    // filter so the plan matches what execute will actually stage. A
+    // "modified" file that main ALSO changed since the fork point is
+    // diverged — execute skips it, so the plan must not advertise it.
+    const mb = mergeBaseOf(ref);
+    if (mb) {
+      const mainTouched = mainTouchedSinceFork(mb);
+      const kept: MergeBackPlan["sourceFilesToChange"] = [];
+      for (const f of sourceFilesToChange) {
+        if (f.status === "modified" && mainTouched.has(f.path)) {
+          divergedFiles.push(f.path);
+        } else {
+          kept.push(f);
+        }
+      }
+      sourceFilesToChange.length = 0;
+      sourceFilesToChange.push(...kept);
+    }
+  }
+
   // Files that exist on main but not on the loop branch (main-only, across
   // ALL paths — augments the D-status src files captured above). These are
   // preserved by `theirs-for-source` (execute only checks out A/M src/ files
@@ -256,6 +373,9 @@ export function analyzeMergeBack(branchName: string): MergeBackPlan | null {
     loopMetadataFiles: loopMetadataFiles.slice(0, 50),
     loopBranchTypecheck: "unknown",
     conflictsIfMerged,
+    alreadyMerged,
+    mainNewerFiles,
+    divergedFiles,
   };
 }
 
@@ -320,6 +440,34 @@ export async function executeMergeBack(
       return { ...base, ok: false, error: `branch ${ref} not found` };
     }
 
+    // 0b. DIRECTION GUARD (2026-11-17, the loop-996 incident): if the
+    //     branch tip is an ANCESTOR of main, main already contains
+    //     everything the branch has — there is nothing to catch up. The
+    //     pre-fix code staged the branch's older snapshots over main's
+    //     newer files in this topology (loop-996: 26 files, only the
+    //     typecheck gate caught the one that broke compilation — the
+    //     other 25 would have silently regressed main). Refuse outright:
+    //     every file that differs, differs because MAIN is newer.
+    if (branchIsAncestorOfMain(ref)) {
+      let mainAhead = 0;
+      try {
+        mainAhead = Number.parseInt(
+          execFileSync("git", ["rev-list", "--count", "main", `^${ref}`], {
+            cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 5000, stdio: "pipe",
+          }).trim(), 10,
+        ) || 0;
+      } catch { /* best-effort count for the message */ }
+      return {
+        ...base, ok: false,
+        error:
+          `branch ${branch} is already fully merged into main — its tip is an ancestor of main ` +
+          `(main is ${mainAhead} commit(s) ahead). Nothing to catch up: every file that differs ` +
+          `does so because MAIN is newer. Executing would copy the branch's older snapshots over ` +
+          `main's newer files — a regression. Pick a branch with commits ahead of main (the branch ` +
+          `list shows "+N" per branch), or if every branch shows +0, main is fully caught up.`,
+      };
+    }
+
     // 1. Working-tree guard: refuse if there are uncommitted changes under
     //    src/ (the checkout would clobber them). Changes outside src/ are
     //    fine — we never touch them.
@@ -380,15 +528,45 @@ export async function executeMergeBack(
         fileStatus.delete(path);
       }
     }
+
+    // ── Per-file divergence guard (2026-11-17) ─────────────────────────
+    // The branch is NOT an ancestor (guard 0b passed), so it forked from
+    // main at some merge-base. A "modified" file that main ALSO changed
+    // since that fork point is DIVERGED: staging the branch's version
+    // would clobber main's independent changes (operator edits or later
+    // enhancements that landed on main after the branch was pushed).
+    // The merge-back is fast-forward-only per file: stage the branch's
+    // version ONLY for files main hasn't touched since the fork. Files
+    // that don't exist on main ("A" — new on the branch) can't clobber
+    // anything, so they always qualify. Skipped files are reported in
+    // skippedDiverged so the operator knows exactly what was left for
+    // manual review.
+    const skippedDiverged: string[] = [];
+    const mb = mergeBaseOf(ref);
+    if (mb) {
+      const mainTouched = mainTouchedSinceFork(mb);
+      for (const [path, st] of Array.from(fileStatus.entries())) {
+        if (st === "M" && mainTouched.has(path)) {
+          skippedDiverged.push(path);
+          fileStatus.delete(path);
+        }
+      }
+    }
+
     const srcFiles = Array.from(fileStatus.keys());
 
     if (srcFiles.length === 0) {
+      const divergedNote =
+        skippedDiverged.length > 0
+          ? `; ${skippedDiverged.length} diverged file(s) skipped (main changed them since this branch forked — they need manual review, not automatic theirs): ${skippedDiverged.slice(0, 10).join(", ")}${skippedDiverged.length > 10 ? ", …" : ""}`
+          : "";
       return {
         ...base, ok: true,
         error: skippedProtected.length > 0
-          ? `no src/ files differ — main is already caught up to this branch (${skippedProtected.length} protected file(s) skipped: ${skippedProtected.join(", ")})`
-          : "no src/ files differ — main is already caught up to this branch",
+          ? `no src/ files differ — main is already caught up to this branch (${skippedProtected.length} protected file(s) skipped: ${skippedProtected.join(", ")})${divergedNote}`
+          : `no src/ files differ — main is already caught up to this branch${divergedNote}`,
         skippedProtected,
+        skippedDiverged,
       };
     }
     base.filesChanged = srcFiles.length;
@@ -396,10 +574,15 @@ export async function executeMergeBack(
     if (strategy === "dry-run") {
       const added = Array.from(fileStatus.entries()).filter(([, s]) => s === "A").map(([p]) => p).length;
       const modified = srcFiles.length - added;
+      const divergedNote =
+        skippedDiverged.length > 0
+          ? `; ${skippedDiverged.length} diverged file(s) SKIPPED (main changed them since this branch forked): ${skippedDiverged.slice(0, 10).join(", ")}${skippedDiverged.length > 10 ? ", …" : ""}`
+          : "";
       return {
         ...base, ok: true,
-        error: `dry-run: would bring ${srcFiles.length} src/ file(s) from ${branch} into main (${modified} modified, ${added} added; typecheck not run in dry-run)${skippedProtected.length > 0 ? `; ${skippedProtected.length} protected file(s) skipped: ${skippedProtected.join(", ")}` : ""}`,
+        error: `dry-run: would bring ${srcFiles.length} src/ file(s) from ${branch} into main (${modified} modified, ${added} added; typecheck not run in dry-run)${skippedProtected.length > 0 ? `; ${skippedProtected.length} protected file(s) skipped: ${skippedProtected.join(", ")}` : ""}${divergedNote}`,
         skippedProtected,
+        skippedDiverged,
       };
     }
 
@@ -498,7 +681,7 @@ export async function executeMergeBack(
       }
     }
 
-    return { ...base, ok: true, skippedProtected };
+    return { ...base, ok: true, skippedProtected, skippedDiverged };
   } catch (err) {
     return { ...base, ok: false, error: (err as Error).message.slice(0, 500), skippedProtected };
   }
