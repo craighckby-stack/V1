@@ -190,6 +190,9 @@ export function openToken(stored: string): string {
     
     // Validate IV and tag lengths
     if (!iv || iv.length !== IV_LENGTH || !tag || tag.length !== GCM_TAG_LENGTH) return "";
+
+    // Check for empty parts which can result from malformed input like "a..c"
+    if (parts[0].length === 0 || parts[1].length === 0 || parts[2].length === 0) return "";
     
     const decipher = createDecipheriv("aes-256-gcm", key, iv);
     decipher.setAuthTag(tag);
@@ -220,27 +223,11 @@ export function vaultStatus(): {
   keyPresent: boolean;
   keyFile: string;
 } {
-  try {
-    const keyPresent = existsSync(KEY_FILE);
-    return {
-      keyPresent,
-      cipher: keyPresent ? "AES-256-GCM" : "PLAINTEXT",
-      sealed: keyPresent,
-      keyFile: ".git/info/loop-vault-key",
-    };
-  } catch (error) {
-    if (!warnedKeyMissing) {
-      warnedKeyMissing = true;
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[TOKEN-VAULT] error checking vault status: ${errorMessage}`
-      );
-    }
-    return {
-      keyPresent: false,
-      cipher: "PLAINTEXT",
-      sealed: false,
-      keyFile: ".git/info/loop-vault-key",
-    };
-  }
+  const keyPresent = existsSync(KEY_FILE);
+  return {
+    keyPresent,
+    cipher: keyPresent ? "AES-256-GCM" : "PLAINTEXT",
+    sealed: keyPresent,
+    keyFile: ".git/info/loop-vault-key",
+  };
 }
