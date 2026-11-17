@@ -114,9 +114,6 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
 
     // Validate the parsed object structure strictly against the interface
     if (
-      'armed' in state &&
-      'at' in state &&
-      'by' in state &&
       typeof state.armed === "boolean" &&
       typeof state.at === "string" &&
       typeof state.by === "string" &&
