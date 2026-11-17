@@ -55,6 +55,9 @@ export async function POST(req: Request) {
       llmError,
     });
   } catch (err) {
+    // Log the full error internally for pipeline observability before returning a sanitized response
+    console.error("LLM Debate Execution Error:", err);
+
     let errorMessage = "An error occurred during the LLM debate execution.";
     
     if (err instanceof Error) {
@@ -62,11 +65,10 @@ export async function POST(req: Request) {
     } else if (typeof err === 'string') {
       errorMessage = `Debate execution failed: ${err}`;
     } else {
-      // Handle other unexpected types (e.g., objects without message, numbers)
       errorMessage = "Debate execution failed due to an unidentifiable error type.";
     }
     
-    // Return a standardized 500 response without exposing internal error structure unless necessary for debugging
+    // Return a standardized 500 response
     return NextResponse.json(
       { error: errorMessage },
       { status: 500 }
