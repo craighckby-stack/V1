@@ -165,6 +165,8 @@ function formatTs(ts: string | undefined | null): string {
  * would otherwise interleave by arrival time, not event time.
  */
 function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
+  if (!lines || lines.length === 0) return [];
+
   const result: ConsoleLine[] = [];
   let logRun: ConsoleLine[] = [];
 
