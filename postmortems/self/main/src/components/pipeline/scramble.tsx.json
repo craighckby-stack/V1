@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/scramble.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/scramble.tsx(55,39): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.\n  Type 'undefined' is not assignable to type 'number'.",
@@ -12,8 +12,8 @@
   "parentHash": "b77a90c07bb34cec92bbdd4e9222f0461e60d3e4a2a921b7fdeb94526f37da41",
   "hash": "d122818af0ecabfe0cac0c168ac3439d69aebc1f78d756e10ca04a90cc83912f",
   "lastAttemptAt": "2026-11-17T06:24:10.998Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-17T11:31:28.400Z",
   "createdAt": "2026-11-17T03:09:52.421Z",
-  "updatedAt": "2026-11-17T06:24:10.998Z",
+  "updatedAt": "2026-11-17T11:31:28.400Z",
   "schema": 2
 }
