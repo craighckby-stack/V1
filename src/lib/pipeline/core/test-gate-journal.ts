@@ -51,6 +51,14 @@ interface TestGateJournal {
   filePath: string;
   /** The ORIGINAL content, restored on crash recovery. */
   originalCode: string;
+  /** The CANDIDATE content that was about to be written. Crash recovery
+   *  restores the original ONLY when the disk holds exactly this — if the
+   *  disk holds anything else, a later VERIFIED write landed and reverting
+   *  would clobber it (adversarial-review fix, 2026-11-17). Optional for
+   *  backward compatibility with pre-fix journals; a journal without it is
+   *  cleared WITHOUT restoring (fail-safe: never revert what we can't
+   *  verify). */
+  candidateCode?: string;
   /** ISO timestamp of when the journal was armed. */
   armedAt: string;
 }
@@ -61,13 +69,18 @@ interface TestGateJournal {
  *  exported for any future verified code path that must write live, and
  *  for tooling/tests of this module. Overwrites any stale journal (a
  *  stale journal means the previous recovery never ran — but recovery is
- *  also invoked at test-gate entry, so this is defense-in-depth). */
-export function writeTestGateJournal(filePath: string, originalCode: string): void {
+ *  also invoked at test-gate entry, so this is defense-in-depth).
+ *
+ *  `candidateCode` is REQUIRED for recovery to ever restore: see the
+ *  TestGateJournal interface — recovery only reverts a disk state it can
+ *  positively identify as the crashed candidate. */
+export function writeTestGateJournal(filePath: string, originalCode: string, candidateCode?: string): void {
   try {
     mkdirSync(JOURNAL_DIR, { recursive: true });
     const entry: TestGateJournal = {
       filePath,
       originalCode,
+      candidateCode,
       armedAt: new Date().toISOString(),
     };
     writeFileSync(JOURNAL_PATH, JSON.stringify(entry), "utf-8");
@@ -148,11 +161,43 @@ export function recoverCrashedTestGate(): CrashRecovery {
       clearTestGateJournal();
       return { recovered: false, alreadyIntact: true, filePath: entry.filePath, armedAt: entry.armedAt };
     }
-    // The candidate (or something else) is live on disk and a journal says
-    // the original was supposed to be restorable. Restore + clear.
-    writeFileSync(entry.filePath, entry.originalCode, "utf-8");
+    // ── VERIFIED-RESTORE (adversarial review, 2026-11-17) ─────────────
+    // The old behavior restored the original whenever disk != original —
+    // treating ANY disk change as a crashed candidate. That was a silent
+    // clobber window: a VERIFIED later write (a gated, committed mutation,
+    // an operator edit, a chat-task apply) landing inside the 1-hour
+    // journal window would be REVERTED to the stale original on the next
+    // push, silently destroying verified work. Now the restore fires only
+    // when the disk can be POSITIVELY identified as the crashed
+    // candidate (disk === candidateCode):
+    //   disk === candidateCode → crash stranded the unverified candidate
+    //     mid-write → restore the original (the journal's whole purpose).
+    //   disk === anything else (or the journal predates candidate
+    //     tracking) → we cannot verify what happened → DO NOT TOUCH the
+    //     file; clear the journal and report. Fail-safe direction: never
+    //     revert content we can't vouch for. In the v2 sandbox world
+    //     (no live candidate writes at all), disk != original is always a
+    //     legitimate later write, so declining is strictly correct.
+    if (
+      typeof entry.candidateCode === "string" &&
+      entry.candidateCode.length > 0 &&
+      onDisk === entry.candidateCode
+    ) {
+      writeFileSync(entry.filePath, entry.originalCode, "utf-8");
+      clearTestGateJournal();
+      return { recovered: true, alreadyIntact: false, filePath: entry.filePath, armedAt: entry.armedAt };
+    }
+    // Unknown disk state — a verified write (most likely) or a legacy
+    // journal without candidateCode. Clear WITHOUT restoring.
     clearTestGateJournal();
-    return { recovered: true, alreadyIntact: false, filePath: entry.filePath, armedAt: entry.armedAt };
+    return {
+      recovered: false,
+      alreadyIntact: false,
+      filePath: entry.filePath,
+      armedAt: entry.armedAt,
+      error:
+        "journal did not match disk state (disk holds a later verified write, or the journal predates candidate tracking) — cleared WITHOUT restore; disk state left untouched",
+    };
   } catch {
     // Corrupt/unreadable journal (smoke-test case 4: a torn write). Nothing
     // is restorable from it — but it MUST be cleared, or every future

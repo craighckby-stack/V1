@@ -19,12 +19,16 @@ export async function GET() {
   }
 
   try {
-    // Run seeding and fetching in parallel to reduce latency
-    const [seedResult, entries] = await Promise.all([
-      emgRagInstance.ensureSeeded(),
-      emgRagInstance.getAll(),
-    ]);
-    
+    // Seed FIRST, then read. `getAll()` is synchronous (returns the
+    // in-memory entries array immediately), so running it inside
+    // Promise.all alongside the async `ensureSeeded()` raced it ahead
+    // of the seed — the first request after a cold start returned an
+    // empty list. Sequential order is correct here; the seed is a
+    // no-op after the first call (idempotent guard), so the latency
+    // cost on warm requests is one cheap boolean check.
+    await emgRagInstance.ensureSeeded();
+    const entries = emgRagInstance.getAll();
+
     // Ensure we return an array, defaulting to empty array if null or undefined
     return NextResponse.json({ entries: entries || [] });
   } catch (err: unknown) {

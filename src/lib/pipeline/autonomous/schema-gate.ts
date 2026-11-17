@@ -33,6 +33,8 @@
 import { runChildAsync } from "../core/async-spawn";
 import { readFileSync, writeFileSync } from "fs";
 import { PROJECT_ROOT } from "../core/paths";
+import { sha16 } from "../core/hash";
+import { withTreeLock } from "../core/tree-lock";
 
 const SCHEMA_PATH = `${PROJECT_ROOT}/prisma/schema.prisma`;
 
@@ -193,24 +195,84 @@ export function checkAdditiveSchema(original: string, proposed: string): SchemaC
  *  preserved bit-for-bit (original file written back, then a best-effort
  *  db:push of the original so file and DB never desync). */
 export async function applySchemaMutation(proposed: string): Promise<{ ok: boolean; reason: string }> {
+  // TREE LOCK (2026-11-17): the whole sequence — read → additive check →
+  // write → validate → db:push → canary (→ restore on failure) — now holds
+  // the cross-process tree lock. schema.prisma is the memory substrate and
+  // db:push regenerates the Prisma client that the loop's typecheck gates
+  // read, so serializing against the worker / chat-task / merge-back /
+  // manual-push is correctness, not convenience. The caller (enhanceSchema)
+  // holds no lock, so this cannot nest. Long hold is expected: validate +
+  // push + canary ≈ up to ~5 min, inside the lock's 10-min wait budget.
+  return withTreeLock(async () => {
   const original = readFileSync(SCHEMA_PATH, "utf-8");
+  const originalSha = sha16(original);
 
   // Step 1: structural additive-only check.
   const check = checkAdditiveSchema(original, proposed);
   if (!check.ok) return { ok: false, reason: check.reason };
 
   const restore = async (why: string): Promise<{ ok: boolean; reason: string }> => {
+    // ── Restore-path concurrent guard (2026-11-17) ──────────────────
+    // The restore writes the ORIGINAL back after a validate/push failure.
+    // If a concurrent writer changed schema.prisma AFTER our proposed
+    // write landed, restoring the original would CLOBBER their edit.
+    // Re-read and compare against what WE wrote: if the disk still holds
+    // our proposed content, the crash-recovery restore is safe; if it
+    // holds anything else, the concurrent edit is the new truth — skip
+    // the file write-back (their content survives) and just best-effort
+    // db:push so the DB re-syncs to the file truth (the system's
+    // file-first invariant).
+    let diskNow = "";
     try {
-      writeFileSync(SCHEMA_PATH, original, "utf-8");
-      // Re-push the ORIGINAL schema. --accept-data-loss covers dropping
-      // the just-added (empty) columns/tables; nothing of value existed
-      // in them for the seconds they lived.
+      diskNow = readFileSync(SCHEMA_PATH, "utf-8");
+    } catch {
+      /* file gone — fall through to the normal restore (it recreates it) */
+    }
+    const concurrentEdit = diskNow.length > 0 && diskNow !== proposed;
+    if (!concurrentEdit) {
+      try {
+        writeFileSync(SCHEMA_PATH, original, "utf-8");
+      } catch {
+        /* original file restore is the critical part; push below is best-effort */
+      }
+    } else {
+      console.error(
+        "[schema-gate] restore skipped: schema.prisma changed on disk after our write (concurrent edit) — leaving the concurrent content in place and re-syncing the DB to it"
+      );
+    }
+    // Re-push (original, or the concurrent content when it superseded
+    // ours). --accept-data-loss covers dropping the just-added (empty)
+    // columns/tables; nothing of value existed in them for the seconds
+    // they lived.
+    try {
       await runChildAsync("bun", ["run", "db:push"], { cwd: PROJECT_ROOT, timeoutMs: 120000 });
     } catch {
-      /* original file restore is the critical part; push is best-effort */
+      /* best-effort — a failed re-push leaves a file/DB desync that the
+         next db:push resolves; the operator-facing reason below says so */
     }
-    return { ok: false, reason: `REVERTED after failure: ${why}` };
+    return {
+      ok: false,
+      reason: concurrentEdit
+        ? `REVERTED after failure: ${why} (file restore skipped — a concurrent edit superseded our write; DB re-synced to the concurrent content)`
+        : `REVERTED after failure: ${why}`,
+    };
   };
+
+  // ── TOCTOU recheck (2026-11-17) ─────────────────────────────────────
+  // The `original` was captured above, but the gate chain
+  // (checkAdditiveSchema) ran since. An operator manual edit to
+  // prisma/schema.prisma between the read and the write would be silently
+  // clobbered by writeFileSync(proposed) below — and schema.prisma is the
+  // memory substrate (protected file). Re-read and SHA-compare; if the
+  // disk changed, abort cleanly (don't clobber the concurrent edit, don't
+  // restore — the concurrent edit is the new truth, our proposal is stale).
+  const diskNow = readFileSync(SCHEMA_PATH, "utf-8");
+  if (sha16(diskNow) !== originalSha) {
+    return {
+      ok: false,
+      reason: `TOCTOU: prisma/schema.prisma changed on disk between the structural check and the write — a concurrent writer (operator edit or host restore) landed. Aborting to avoid clobbering it; the proposal is stale against the new baseline.`,
+    };
+  }
 
   // Step 2: write the proposal.
   try {
@@ -252,4 +314,5 @@ export async function applySchemaMutation(proposed: string): Promise<{ ok: boole
       ? `added model(s): ${check.addedModels.join(", ")}`
       : `added field(s): ${check.addedFields.join(", ")}`;
   return { ok: true, reason: `schema mutation applied and canary-verified (${summary})` };
+  });
 }

@@ -146,7 +146,11 @@ const GEMINI_MODEL_CASCADE = [
   "gemini-2.0-flash",
   "gemini-2.5-pro",
 ];
-const CIRCUIT_BREAKER_COOLDOWN_MS = 15_000; // 15s — short, so a brief overload self-heals fast
+const CIRCUIT_BREAKER_COOLDOWN_MS = 15_000; // 15s — default when the response carries no retry hint
+// Cap any server-supplied retry hint at 10 min so a hostile/malformed
+// retryDelay can't disable a model indefinitely. Google's quota windows
+// are typically minutes, not hours, so 10 min is a sane ceiling.
+const CIRCUIT_BREAKER_COOLDOWN_MAX_MS = 10 * 60 * 1000;
 const modelCircuitBreakers = geminiShared.modelCircuitBreakers; // shared across module graphs
 
 function breakerClear(model: string): boolean {
@@ -159,8 +163,72 @@ function breakerClear(model: string): boolean {
   return false;
 }
 
-function tripBreaker(model: string): void {
-  modelCircuitBreakers.set(model, Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS);
+/** Parse a retry delay (in ms) from a 429/503 response. Checks, in order:
+ *   1. The `Retry-After` HTTP header (delta-seconds OR HTTP-date).
+ *   2. Google's `error.details[].retryDelay` field in the JSON body
+ *      (e.g. "32s") — the RetryInfo proto that RESOURCE_EXHAUSTED carries.
+ *   3. Google's `error.details[].retryDelay_v2` (newer schema, "Xs").
+ * Returns null when no usable hint is present (caller falls back to the
+ * 15s default). The result is NOT capped here — capping happens in
+ * `tripBreaker` so the cap stays co-located with the breaker state. */
+function parseRetryAfterMs(
+  retryAfterHeader: string | null,
+  errText: string
+): number | null {
+  // 1. Retry-After header (delta-seconds).
+  if (retryAfterHeader) {
+    const secs = Number.parseInt(retryAfterHeader, 10);
+    if (Number.isFinite(secs) && secs >= 0 && secs < 60 * 60 * 24) {
+      return secs * 1000;
+    }
+    // HTTP-date form
+    const httpDate = Date.parse(retryAfterHeader);
+    if (Number.isFinite(httpDate)) {
+      const delta = httpDate - Date.now();
+      if (delta > 0 && delta < 60 * 60 * 1000) return delta;
+    }
+  }
+  // 2/3. Google RetryInfo retryDelay in the body.
+  if (errText) {
+    try {
+      const parsed = JSON.parse(errText) as {
+        error?: { details?: Array<{ "@type"?: string; retryDelay?: string; retryDelay_v2?: string }> };
+      };
+      const details = parsed?.error?.details;
+      if (Array.isArray(details)) {
+        for (const d of details) {
+          const raw = d?.retryDelay ?? d?.retryDelay_v2;
+          if (typeof raw === "string") {
+            // Google format: "32s" or "1500ms". Parse the leading number + unit.
+            const m = /^(\d+(?:\.\d+)?)\s*(s|ms)$/i.exec(raw.trim());
+            if (m) {
+              const val = Number.parseFloat(m[1]);
+              const unit = m[2].toLowerCase();
+              if (Number.isFinite(val) && val >= 0) {
+                return unit === "s" ? val * 1000 : val;
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      /* body wasn't JSON — ignore */
+    }
+  }
+  return null;
+}
+
+function tripBreaker(model: string, cooldownMsOverride?: number | null): void {
+  // Use the server-supplied hint when present (Google knows its own quota
+  // window); otherwise the 15s default. Cap so a malformed retryDelay
+  // can't disable a model for an hour. Floor at the default so we never
+  // SHORTEN below 15s based on a hint (a <15s hint would just mean
+  // "try again very soon", which the default already covers).
+  let ms = CIRCUIT_BREAKER_COOLDOWN_MS;
+  if (typeof cooldownMsOverride === "number" && cooldownMsOverride > 0) {
+    ms = Math.min(cooldownMsOverride, CIRCUIT_BREAKER_COOLDOWN_MAX_MS);
+  }
+  modelCircuitBreakers.set(model, Date.now() + ms);
 }
 
 /** Snapshot of the per-model breaker map — for the status API + UI so the
@@ -202,7 +270,15 @@ interface GeminiConfig {
  *  create a row without a Gemini key — this guard treats that case as
  *  "not configured" so the Gemini leg short-circuits cleanly). */
 export async function getGeminiConfig(): Promise<GeminiConfig | null> {
-  const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } }).catch(() => null);
+  const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } }).catch((err: unknown) => {
+    // A transient DB error here used to collapse to `null` and read as
+    // "not configured" — silently disabling the Gemini leg with no log
+    // line. Surface it so an operator can tell a DB hiccup apart from
+    // a genuinely unconfigured key. (We still return null, not throw —
+    // the Gemini leg short-circuits cleanly and the Z.AI chain serves.)
+    console.error("[gemini] getGeminiConfig: DB read failed — treating as not-configured:", err instanceof Error ? err.message : String(err));
+    return null;
+  });
   if (!row) return null;
   if (!row.geminiApiKey) return null;
   return { apiKey: row.geminiApiKey, model: row.geminiModel };
@@ -215,7 +291,12 @@ export async function getGeminiConfigPublic(): Promise<{
   lastUsedAt?: string | null;
   lastError?: string | null;
 }> {
-  const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } }).catch(() => null);
+  const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } }).catch((err: unknown) => {
+    // Same silent-swallow fix as getGeminiConfig: a transient DB failure
+    // should be visible, not mistaken for "no key configured".
+    console.error("[gemini] getGeminiConfigPublic: DB read failed — reporting unconfigured:", err instanceof Error ? err.message : String(err));
+    return null;
+  });
   if (!row || !row.geminiApiKey) return { configured: false };
   return {
     configured: true,
@@ -299,7 +380,7 @@ async function callGeminiOnce(
   opts: { systemPrompt: string; userPrompt: string; temperature?: number; maxTokens?: number },
   started: number,
   model: string,
-): Promise<{ result: GeminiCallResult; transient: boolean; overload: boolean }> {
+): Promise<{ result: GeminiCallResult; transient: boolean; overload: boolean; retryAfterMs: number | null }> {
   const url = `${GEMINI_BASE}/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
   const body = {
     systemInstruction: { parts: [{ text: opts.systemPrompt }] },
@@ -331,10 +412,19 @@ async function callGeminiOnce(
       // `overload` is the cascade signal: true means this specific model
       // is busy/unavailable RIGHT NOW and another model might serve the
       // request. Trips the per-model breaker in geminiComplete so the
-      // NEXT call skips this model for 15s. Quota (429) + transient
+      // NEXT call skips this model. Quota (429) + transient
       // (503/overloaded) both qualify; model-not-found does NOT (a
       // deprecated model name shouldn't poison future reconfigured calls).
       const overload = kind === "quota" || kind === "transient";
+      // Parse Google's retry hint (Retry-After header OR
+      // error.details[].retryDelay in the body) so the per-model breaker
+      // cooldown MATCHES the actual quota window instead of the flat 15s
+      // default. Without this, every 15s the loop re-probed a model that
+      // was quota-locked for minutes, burning calls and feeding the 429
+      // storm. Only meaningful for overload-class failures.
+      const retryAfterMs = overload
+        ? parseRetryAfterMs(res.headers.get("Retry-After"), errText)
+        : null;
 
       // Arm the location-block cooldown ONLY for location-block — the
       // only error that persists for the sandbox's lifetime. Other errors
@@ -362,6 +452,7 @@ async function callGeminiOnce(
         },
         transient,
         overload,
+        retryAfterMs,
       };
     }
 
@@ -384,6 +475,7 @@ async function callGeminiOnce(
         },
         transient: false, // content filters don't lift on retry
         overload: false,  // content block is prompt-specific, not model-specific
+        retryAfterMs: null,
       };
     }
 
@@ -400,6 +492,7 @@ async function callGeminiOnce(
         },
         transient: false,
         overload: false,
+        retryAfterMs: null,
       };
     }
 
@@ -412,6 +505,7 @@ async function callGeminiOnce(
       },
       transient: false,
       overload: false,
+      retryAfterMs: null,
     };
   } catch (e) {
     const msg = (e as Error).message ?? String(e);
@@ -426,6 +520,7 @@ async function callGeminiOnce(
       },
       transient: true, // network blips often clear on retry
       overload: true,  // a network error on ONE model is worth trying the next
+      retryAfterMs: null,
     };
   }
 }
@@ -620,7 +715,7 @@ export async function geminiComplete(opts: {
       // the counter per model, so cascade exhaustion reported the last
       // model's inner-loop index (0–2) instead of the real attempt count.
       totalAttemptsUsed++;
-      const { result, transient, overload } = await callGeminiOnce(
+      const { result, transient, overload, retryAfterMs } = await callGeminiOnce(
         cfg,
         opts,
         started,
@@ -680,18 +775,22 @@ export async function geminiComplete(opts: {
       }
 
       // quota (429) or transient (503/overloaded): if `overload`, trip
-      // THIS model's breaker so the next geminiComplete call skips it for
-      // 15s, then advance to the next model. If we still have in-call
-      // retries AND the error is transient (not 429), retry the same
-      // model first (a 503 often clears in 500ms).
+      // THIS model's breaker so the next geminiComplete call skips it,
+      // then advance to the next model. The breaker cooldown honors
+      // Google's retry hint (retryDelay / Retry-After) when present so a
+      // quota-locked model isn't re-probed every 15s (which fed the 429
+      // storm). If we still have in-call retries AND the error is
+      // transient (not 429), retry the same model first (a 503 often
+      // clears in 500ms).
       if (overload) {
         if (transient && attempt < MAX_RETRIES) {
           await sleep(RETRY_DELAYS_MS[attempt] ?? 1500);
           continue; // retry same model
         }
         // Retries exhausted on a transient, OR a 429 (not retried in-call):
-        // trip the breaker and advance to the next model.
-        tripBreaker(modelCandidate);
+        // trip the breaker (with the server-supplied hint, if any) and
+        // advance to the next model.
+        tripBreaker(modelCandidate, retryAfterMs);
         break; // inner loop → next model in cascade
       }
 

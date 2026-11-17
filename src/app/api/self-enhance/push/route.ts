@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { pushCurrentState, getPushTargetPublic } from "@/lib/pipeline/autonomous/push-target";
+import { withTreeLock } from "@/lib/pipeline/core/tree-lock";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,6 +15,14 @@ export const runtime = "nodejs";
  * and forward it to pushCurrentState — a force-push to main rewrites the
  * remote's history. The body is no longer read at all; pushes are always
  * non-forcing, regardless of what the client sends.
+ *
+ * TREE LOCK (2026-11-17): the manual push runs `git add -A` — it stages
+ * EVERYTHING dirty. Without the tree lock, a worker enhancement landing
+ * mid-`git add` would be partially staged and swept into the "Manual push"
+ * commit (misattributed, possibly half-written). pushCurrentState itself
+ * must NOT acquire the lock (chat-task and the worker call it from inside
+ * their own held locks — nesting self-deadlocks), so the lock lives at
+ * this top-level entry point, the only unlocked pushCurrentState caller.
  */
 export async function POST() {
   try {
@@ -26,9 +35,11 @@ export async function POST() {
       });
     }
 
-    const outcome = await pushCurrentState({
-      message: "Manual push: current live state",
-    });
+    const outcome = await withTreeLock(() =>
+      pushCurrentState({
+        message: "Manual push: current live state",
+      })
+    );
 
     return NextResponse.json({
       pushed: outcome.pushed,

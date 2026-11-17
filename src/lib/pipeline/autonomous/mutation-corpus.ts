@@ -215,13 +215,20 @@ export async function getRejectedTransformsForFile(filePath: string): Promise<Re
 
 /** Format the negative-constraint block. Empty list → empty string —
  * dormant until the corpus holds rejections for this file (same
- * lifecycle as the lessons block: no data, no block, no cost). */
+ * lifecycle as the lessons block: no data, no block, no cost).
+ *
+ * PROMPT-INJECTION DEFENSE (2026-11-17): summaries are LLM-authored
+ * (the prior cycle's own change-summary first line) and used to be
+ * wrapped in bare double quotes — a summary containing `"` closed the
+ * quote early and the rest of the line read as prompt text. JSON.stringify
+ * produces an always-valid, fully-escaped double-quoted string, so the
+ * summary can no longer break out of its quoting. */
 export function formatRejectedTransformsBlock(list: readonly RejectedTransform[]): string {
   if (list.length === 0) return "";
   const lines: string[] = [];
   let bytes = 0;
   for (const e of list) {
-    const line = `- "${e.summary.slice(0, 120)}" — rejected ${e.count}× (${e.outcomes.join(", ")})`;
+    const line = `- ${JSON.stringify(e.summary.slice(0, 120))} — rejected ${e.count}× (${e.outcomes.join(", ")})`;
     if (bytes + line.length > REJECTED_BLOCK_BUDGET - 250) break;
     lines.push(line);
     bytes += line.length;

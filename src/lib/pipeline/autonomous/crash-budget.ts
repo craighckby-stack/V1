@@ -34,7 +34,8 @@
  * to load from anywhere (loop-runtime, API routes, instrumentation).
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync } from "fs";
+import { atomicWriteFileSync } from "../core/atomic-file";
 import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
@@ -110,7 +111,7 @@ export function writeCrashBudget(s: CrashBudgetState): void {
     // Ensure directory exists before writing file
     const dir = join(PROJECT_ROOT, ".git/info");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(CRASH_BUDGET_FILE, JSON.stringify(s, null, 2), "utf8");
+    atomicWriteFileSync(CRASH_BUDGET_FILE, JSON.stringify(s, null, 2));
   } catch (error) {
     /* best-effort — same contract as the armed-state file */
     console.error(`Failed to write crash budget to ${CRASH_BUDGET_FILE}:`, error);

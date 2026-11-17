@@ -409,9 +409,15 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
     guidedJson: opts.guidedJson,
   });
   if (nv.ok) {
-    // Chain success — de-escalate the Z.AI gate counter exactly like a
-    // Z.AI success does (one good call resets strikes to 0).
-    gateState().strikes = 0;
+    // NVIDIA success. The Z.AI 429 gate is on a SEPARATE quota — an
+    // NVIDIA success says nothing about whether Z.AI's quota has reset,
+    // so it must NOT reset the Z.AI escalation counter. (Previously this
+    // did `gateState().strikes = 0`, which meant any NVIDIA success
+    // mid-Z.AI-cooldown silently de-escalated the Z.AI gate — so the
+    // next Z.AI 429 started a fresh 2min cooldown instead of escalating
+    // to 5/15/30min, defeating the whole point of the escalating gate.
+    // The isolation must be symmetric: NVIDIA failures don't escalate
+    // the Z.AI gate, and NVIDIA successes don't de-escalate it.)
     return {
       ok: true,
       content: nv.content,
@@ -438,9 +444,11 @@ async function performLlmComplete(opts: LlmCallOptions): Promise<LlmCallResult> 
   // recovery probes, and transient retries (gemini-direct.ts).
   const gem = await geminiComplete(opts);
   if (gem.ok) {
-    // Chain success — de-escalate the Z.AI gate counter exactly like a
-    // Z.AI success does (one good call resets strikes to 0).
-    gateState().strikes = 0;
+    // Gemini success. Same isolation rationale as the NVIDIA leg above:
+    // Gemini is on a SEPARATE quota, so a Gemini success must NOT reset
+    // the Z.AI escalation counter. The Z.AI gate's strikes should only
+    // be touched by Z.AI's own outcomes (a Z.AI success resets it at the
+    // bottom of this function; a Z.AI 429 escalates it).
     return {
       ok: true,
       content: gem.content,

@@ -43,6 +43,8 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { PROJECT_ROOT } from "../core/paths";
 import { getStoredTargetSync } from "./push-target";
+import { isProtectedPath } from "./protected-files";
+import { withTreeLock } from "../core/tree-lock";
 
 const execFileAsync = promisify(execFile);
 
@@ -126,6 +128,12 @@ export interface MergeBackResult {
   typecheckErrors?: string;
   pushed?: boolean;
   error?: string;
+  /** src/ files in the loop branch that were SKIPPED because they are on
+   *  the current protection list (the loop may never clobber its own gates,
+   *  push auth, memory, or control surface). A loop-NN branch can contain
+   *  a change to a file that was unprotected at branch-push time but is
+   *  protected now — those are filtered out of the merge set. */
+  skippedProtected?: string[];
 }
 
 /** Compute the merge-back plan for a given loop-NN branch vs main.
@@ -136,7 +144,6 @@ export function analyzeMergeBack(branchName: string): MergeBackPlan | null {
   const ref = `origin/${branch}`;
 
   try {
-    // Verify the ref exists (remote-tracking).
     execSync(`git rev-parse --verify ${ref}`, {
       cwd: PROJECT_ROOT,
       encoding: "utf-8",
@@ -262,6 +269,19 @@ export async function executeMergeBack(
     typecheckPassed: false,
   };
 
+  // Declared outside the try so the catch can include it in the error
+  // return (a throw before the protection filter still reports []). The
+  // try block populates it as protected files are filtered out.
+  let skippedProtected: string[] = [];
+
+  // TREE LOCK (2026-11-17): the whole critical section — working-tree
+  // dirty-check → diff → protection filter → `git checkout <ref> -- <files>`
+  // → tsc gate → commit/abort — now holds the cross-process tree lock.
+  // This closes the flagged TOCTOU gap (a concurrent writer landing between
+  // the dirty-check and the checkout was silently clobbered) and serializes
+  // merge-back against the loop worker, chat-task, and the manual-push
+  // route via the shared lock file.
+  return withTreeLock(async () => {
   try {
     // 0. Verify the ref.
     try {
@@ -314,10 +334,33 @@ export async function executeMergeBack(
         fileStatus.set(path, statusRaw.startsWith("A") ? "A" : "M");
       }
     }
+    // ── Protection-list filter (2026-11-17) ─────────────────────────────
+    // A loop-NN branch can contain a change to a file that was
+    // UNPROTECTED at branch-push time but is PROTECTED now (the protection
+    // list grows over time as new gates are added), or a pre-protection-era
+    // mutation of a now-protected file. Checking such a file out into the
+    // live tree would bypass the protection list — the very files the loop
+    // is designed never to clobber (gates, push auth, memory, control
+    // surface). Filter them out of the merge set and report them as
+    // skipped so the operator sees the protection held. This is the
+    // protection-list bypass the adversarial review flagged.
+    skippedProtected = [];
+    for (const path of Array.from(fileStatus.keys())) {
+      if (isProtectedPath(path)) {
+        skippedProtected.push(path);
+        fileStatus.delete(path);
+      }
+    }
     const srcFiles = Array.from(fileStatus.keys());
 
     if (srcFiles.length === 0) {
-      return { ...base, ok: true, error: "no src/ files differ — main is already caught up to this branch" };
+      return {
+        ...base, ok: true,
+        error: skippedProtected.length > 0
+          ? `no src/ files differ — main is already caught up to this branch (${skippedProtected.length} protected file(s) skipped: ${skippedProtected.join(", ")})`
+          : "no src/ files differ — main is already caught up to this branch",
+        skippedProtected,
+      };
     }
     base.filesChanged = srcFiles.length;
 
@@ -326,7 +369,8 @@ export async function executeMergeBack(
       const modified = srcFiles.length - added;
       return {
         ...base, ok: true,
-        error: `dry-run: would bring ${srcFiles.length} src/ file(s) from ${branch} into main (${modified} modified, ${added} added; typecheck not run in dry-run)`,
+        error: `dry-run: would bring ${srcFiles.length} src/ file(s) from ${branch} into main (${modified} modified, ${added} added; typecheck not run in dry-run)${skippedProtected.length > 0 ? `; ${skippedProtected.length} protected file(s) skipped: ${skippedProtected.join(", ")}` : ""}`,
+        skippedProtected,
       };
     }
 
@@ -425,10 +469,11 @@ export async function executeMergeBack(
       }
     }
 
-    return { ...base, ok: true };
+    return { ...base, ok: true, skippedProtected };
   } catch (err) {
-    return { ...base, ok: false, error: (err as Error).message.slice(0, 500) };
+    return { ...base, ok: false, error: (err as Error).message.slice(0, 500), skippedProtected };
   }
+  });
 }
 
 /** List the retained loop-NN branches with a one-line merge-back summary

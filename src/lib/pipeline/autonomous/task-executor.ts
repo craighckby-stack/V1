@@ -207,7 +207,11 @@ function kindInstruction(kind: string, evidence: string): string {
     case "oracle-failed-prophecy":
       return `The Oracle predicted this file's next enhancement attempt would pass all gates, but no such attempt occurred within the prediction horizon. Investigate WHY the file stalled: is there a structural blocker (the file is too large for the LLM, a gate keeps rejecting it, a protected path)? Read the evidence for the prophecy's claim and criterion. If you can identify a concrete, minimal improvement that would unblock the next attempt (refactor a too-large function, fix a recurring rejection cause, remove dead code that confuses the gates), make it. If the stall is benign (the file is genuinely stable, the self-model was over-confident), return the file unchanged — an honest no-op is the correct outcome here, not theater. Do not add defensive guards or input validation as filler.`;
     default:
-      return `Improve the code at the evidence line: "${evidence}". Keep the change minimal and behavior-preserving.`;
+      // JSON.stringify (not bare quotes): evidence is a raw source line a
+      // prior landed mutation could have crafted — a `"` inside it used to
+      // close the quote early. Same rationale as the evidenceSafe block in
+      // executeViaLlm below.
+      return `Improve the code at the evidence line: ${JSON.stringify(evidence)}. Keep the change minimal and behavior-preserving.`;
   }
 }
 
@@ -225,9 +229,18 @@ Rules:
 - No header comments, no branding, no explanation outside the code block.
 ${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}`;
 
+  // PROMPT-INJECTION DEFENSE (2026-11-17): task.evidence is a raw source
+  // line — the line at the scan site, which a prior LANDED mutation (it
+  // passed every gate) could have crafted. It used to be interpolated raw
+  // AND bare-quoted inside kindInstruction (a `"` or a newline in the
+  // evidence broke the quoting / injected lines). JSON.stringify produces
+  // a fully-escaped one-line string; the zero-width scrub after it makes a
+  // ``` run impossible so the evidence can't close the file fence below.
+  const evidenceSafe = JSON.stringify(task.evidence).replace(/`/g, "`\u200b");
+
   const user = `File: ${task.filePath}
 Issue kind: ${task.kind}
-Evidence line ${task.line}: ${task.evidence}
+Evidence line ${task.line}: ${evidenceSafe}
 
 Instruction: ${kindInstruction(task.kind, task.evidence)}
 

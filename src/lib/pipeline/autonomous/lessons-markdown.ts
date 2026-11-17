@@ -35,6 +35,7 @@ import { spawnSync } from "child_process";
 import { db } from "@/lib/db";
 
 import { PROJECT_ROOT } from "../core/paths";
+import { withTreeLock } from "../core/tree-lock";
 export const LESSONS_MD_PATH = `${PROJECT_ROOT}/memory/lessons.md`;
 
 type LessonDelegate = typeof db.lesson | undefined;
@@ -109,22 +110,31 @@ export async function exportLessonsMarkdown(): Promise<boolean> {
       `> ${activeCount} active · ${total - activeCount} inactive (${revokedCount} revoked) · generated ${new Date().toISOString().slice(0, 10)}\n\n` +
       `${body || "(no lessons yet — the distiller has not run)"}\n`;
 
-    // Write only on change — no churn, no empty commits.
-    let changed = true;
-    try {
-      if (existsSync(LESSONS_MD_PATH)) {
-        const prev = readFileSync(LESSONS_MD_PATH, "utf-8");
-        if (prev === content) changed = false;
+    // TREE LOCK (2026-11-17): the write + pathspec commit now holds the
+    // cross-process tree lock so the loop's `git add -A` can never sweep a
+    // half-written lessons.md into its own commit (and vice versa). The
+    // callers are all fire-and-forget (`void exportLessonsMarkdown()`), so
+    // queueing behind a held lock costs nothing. Not nested: callers hold
+    // no lock (verified — distill/noteOutcome/archaeology fire this after
+    // their critical sections close).
+    return await withTreeLock(async () => {
+      // Write only on change — no churn, no empty commits.
+      let changed = true;
+      try {
+        if (existsSync(LESSONS_MD_PATH)) {
+          const prev = readFileSync(LESSONS_MD_PATH, "utf-8");
+          if (prev === content) changed = false;
+        }
+      } catch {
+        /* treat as changed */
       }
-    } catch {
-      /* treat as changed */
-    }
-    if (!changed) return false;
+      if (!changed) return false;
 
-    mkdirSync(`${PROJECT_ROOT}/memory`, { recursive: true });
-    writeFileSync(LESSONS_MD_PATH, content, "utf-8");
-    commitLessonsFile();
-    return true;
+      mkdirSync(`${PROJECT_ROOT}/memory`, { recursive: true });
+      writeFileSync(LESSONS_MD_PATH, content, "utf-8");
+      commitLessonsFile();
+      return true;
+    });
   } catch {
     return false;
   }

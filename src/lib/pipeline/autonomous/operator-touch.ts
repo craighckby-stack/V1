@@ -38,7 +38,8 @@
  * Pure leaf: fs + path + PROJECT_ROOT only.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync } from "fs";
+import { atomicWriteFileSync } from "../core/atomic-file";
 import { join, dirname } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
@@ -80,7 +81,7 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
     const dirPath = dirname(OPERATOR_TOUCH_FILE);
     mkdirSync(dirPath, { recursive: true });
     const entry: OperatorTouchState = { at: now.toISOString(), by };
-    writeFileSync(OPERATOR_TOUCH_FILE, JSON.stringify(entry), "utf8");
+    atomicWriteFileSync(OPERATOR_TOUCH_FILE, JSON.stringify(entry));
   } catch (error) {
     /* best-effort - log the error for debugging if needed, but never throw */
     if (error instanceof Error) {

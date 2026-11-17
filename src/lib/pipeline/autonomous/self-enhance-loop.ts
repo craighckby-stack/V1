@@ -1202,6 +1202,10 @@ class SelfEnhanceLoop {
 
     try {
       const source = readFileSync(filePath, "utf-8");
+      // TOCTOU baseline (2026-11-17): the pin's live write below re-verifies
+      // the source against this SHA — the tests characterize THIS source, so
+      // a source change during the ~1min gate chain invalidates the pin.
+      const sourceSha = sha16(source);
       if (source.length > 12000) return false; // too large for the LLM prompt
 
       this.log(`Ratchet: writing characterization tests for ${relPath} (attempt ${(rec?.attempts ?? 0) + 1})...`, "info");
@@ -1221,9 +1225,20 @@ class SelfEnhanceLoop {
       // import and expectation still passes through the real ratchet
       // gates below (anti-tautology, bun-test-pass, tsc, debate); a bad
       // draft dies there and cost one prompt slot.
+      //
+      // FENCE-SCRUB (prompt-injection audit, 2026-11-17): the draft is
+      // LLM output stored by the dreamer (up to 12k chars) and is embedded
+      // inside a ```typescript fence below. A draft containing ``` closes
+      // the fence early and everything after it is read as user-prompt
+      // INSTRUCTIONS — a dreamer poisoning its own drafts could inject
+      // directives past the "verify every import" framing. Inserting a
+      // zero-width space after every backtick makes a 3-run impossible
+      // (no fence can be closed) while keeping the draft readable to the
+      // LLM as code.
       const draft = getRatchetDraft(relPath);
-      const draftBlock = draft
-        ? `\nA DRAFT from the idle-time dreamer (speculative, NEVER trusted blindly — verify every import against the export list above and every expected value against the implementation; discard anything that doesn't check out):\n\`\`\`typescript\n${draft.slice(0, 6000)}\n\`\`\`\n`
+      const draftSafe = draft ? draft.slice(0, 6000).replace(/`/g, "`\u200b") : null;
+      const draftBlock = draftSafe
+        ? `\nA DRAFT from the idle-time dreamer (speculative, NEVER trusted blindly — verify every import against the export list above and every expected value against the implementation; discard anything that doesn't check out):\n\`\`\`typescript\n${draftSafe}\n\`\`\`\n`
         : "";
 
       const userPrompt = `Module to pin: ${relPath}
@@ -1347,17 +1362,47 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // write, after every gate accepted it). Future refactors of this
       // module run against these tests (the test gate finds co-located
       // tests — also sandboxed from here on).
-      writeFileSync(testPath, code, "utf-8");
-      pinned = true;
-      this.stats.testsWritten++;
-      const testCount = (code.match(/\btest\s*\(/g) ?? []).length;
-      this.log(`Ratchet: PINNED ${relPath} with ${testCount} characterization tests — future refactors run against them (${debate.reason})`, "success");
-
-      const pushResult = await this.gitPush(`test: pin behavior of ${relPath}\n\n${summary}\n\n(characterization tests — the ratchet: refactors that break these are rejected)`);
-      if (pushResult.pushed) {
-        this.log(`Ratchet: pushed test pin ${pushResult.commitSha}`, "success");
-      }
-      return true;
+      //
+      // TREE LOCK + TOCTOU (2026-11-17): the write used to be a bare
+      // writeFileSync with a ~30s+ gap since the sandbox gates ran. Two
+      // rechecks inside the cross-process tree lock close that window:
+      //   (a) the source must be byte-identical to what the tests were
+      //       generated against (a mid-gate mutation or operator edit makes
+      //       the pin stale — the pin would "pass" forever against behavior
+      //       that no longer exists, or fail the refactor it was meant to
+      //       protect);
+      //   (b) the test file must still not exist (two workers / a chat-task
+      //       writing the same .test.ts concurrently would clobber).
+      // The push is inside the same lock so the pinned file can't be swept
+      // into a concurrent writer's `git add -A` half-staged.
+      const pinOutcome = await withTreeLock<boolean>(async () => {
+        let sourceNow = "";
+        try {
+          sourceNow = readFileSync(filePath, "utf-8");
+        } catch {
+          this.log(`Ratchet: source ${relPath} vanished before pin write — discarding pin`, "warn");
+          return false;
+        }
+        if (sha16(sourceNow) !== sourceSha) {
+          this.log(`Ratchet: source ${relPath} changed on disk while the gates ran (concurrent writer) — discarding stale pin`, "warn");
+          return false;
+        }
+        if (existsSync(testPath)) {
+          this.log(`Ratchet: ${relPath} was pinned concurrently while the gates ran — keeping the existing pin, discarding ours`, "warn");
+          return false;
+        }
+        writeFileSync(testPath, code, "utf-8");
+        pinned = true;
+        this.stats.testsWritten++;
+        const testCount = (code.match(/\btest\s*\(/g) ?? []).length;
+        this.log(`Ratchet: PINNED ${relPath} with ${testCount} characterization tests — future refactors run against them (${debate.reason})`, "success");
+        const pushResult = await this.gitPush(`test: pin behavior of ${relPath}\n\n${summary}\n\n(characterization tests — the ratchet: refactors that break these are rejected)`);
+        if (pushResult.pushed) {
+          this.log(`Ratchet: pushed test pin ${pushResult.commitSha}`, "success");
+        }
+        return true;
+      });
+      return pinOutcome;
     } catch (err) {
       // The sandbox flow never writes the draft to the live tree before the
       // gates pass, so there is normally nothing to clean up — but stay
@@ -2992,8 +3037,16 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
             const vpResult = await this.enhanceFile(pick, "visual-polish");
             visualPolishResults.push(vpResult);
             const vpOutcome = classifyOutcome(vpResult.enhanced, vpResult.reason);
-            void noteOutcome(pickRel, vpOutcome, "visual-polish").catch(() => {});
-            void resolveSelfPrediction(vpPredId, vpOutcome).catch(() => {});
+            // Fail-soft (never breaks the cycle) but log on rejection so a
+            // silent DB/store failure doesn't quietly drop bandit + oracle
+            // calibration samples. The learning data is only as good as
+            // the outcomes we actually record.
+            void noteOutcome(pickRel, vpOutcome, "visual-polish").catch((e: unknown) => {
+              this.log(`noteOutcome (visual-polish) failed for ${pickRel}: ${(e as Error)?.message ?? String(e)}`, "warn");
+            });
+            void resolveSelfPrediction(vpPredId, vpOutcome).catch((e: unknown) => {
+              this.log(`resolveSelfPrediction (visual-polish) failed for ${pickRel}: ${(e as Error)?.message ?? String(e)}`, "warn");
+            });
             if (vpResult.enhanced) {
               this.log(`Visual-polish applied: ${vpResult.filePath} — ${vpResult.reason.slice(0, 80)}`, "success");
             } else {
@@ -3228,8 +3281,15 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         // lastAttemptMode (set at enhanceFile top), defaulting to
         // refactor for the main loop.
         const outcome = classifyOutcome(result.enhanced, result.reason);
-        void noteOutcome(relPath, outcome, this.lastAttemptMode).catch(() => {});
-        void resolveSelfPrediction(predId, outcome).catch(() => {});
+        // Fail-soft (a DB hiccup loses one sample but never fails the
+        // cycle) but log on rejection so silent store failures don't
+        // quietly erode the bandit + oracle calibration data.
+        void noteOutcome(relPath, outcome, this.lastAttemptMode).catch((e: unknown) => {
+          this.log(`noteOutcome failed for ${relPath}: ${(e as Error)?.message ?? String(e)}`, "warn");
+        });
+        void resolveSelfPrediction(predId, outcome).catch((e: unknown) => {
+          this.log(`resolveSelfPrediction failed for ${relPath}: ${(e as Error)?.message ?? String(e)}`, "warn");
+        });
         // ── ORACLE SELF-PROPHECY ADJUDICATION (audit 7) ──────────────
         // Deterministically judge any pending self-prophecies for this
         // file whose predicted cycle has passed. No LLM, no cooldown

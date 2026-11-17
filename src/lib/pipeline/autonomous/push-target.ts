@@ -1624,14 +1624,34 @@ function refreshLowestFreeSlotCache(live: Array<{ number: number }>): void {
 /** Fetch the commit date for a branch (one GitHub GET per branch). Used
  *  by the retention drain to sort by recency. The branches LIST returns
  *  sha but NOT commit.author.date (verified live), so this follow-up is
- *  required. Returns null on any failure (treated as oldest by the sort,
- *  so undated branches are pruned first — safe). */
+ *  required.
+ *
+ *  Returns a discriminated result:
+ *    { fetched: true,  date: "<iso>" } — lookup succeeded, dated commit.
+ *    { fetched: true,  date: null }    — lookup succeeded but no date
+ *                                        field (essentially impossible on
+ *                                        GitHub; treated as oldest by the
+ *                                        sort — a prune candidate).
+ *    { fetched: false, date: null }    — lookup FAILED (non-OK status,
+ *                                        network throw, or empty sha).
+ *                                        Treated as NEWEST by the sort so
+ *                                        the branch is KEPT, never pruned.
+ *
+ *  SAFETY NOTE (adversarial review 2026-11-17): the previous version
+ *  returned plain `null` for ANY failure and the sort treated `null` as
+ *  oldest, which meant a 403/429 on the newest branch's date lookup (a
+ *  common secondary rate-limit during a drain) would sort that branch
+ *  to the bottom and DELETE it — losing the tip of the lineage. The
+ *  discriminated result closes that hole: a branch whose date we could
+ *  not fetch is conservatively KEPT. Only a branch whose lookup
+ *  genuinely succeeded but had no date (the null-commit edge case) is
+ *  treated as oldest. */
 async function fetchBranchCommitDate(
   target: { repo: string; token: string },
   sha: string,
   delayMs: number
-): Promise<string | null> {
-  if (!sha) return null;
+): Promise<{ fetched: boolean; date: string | null }> {
+  if (!sha) return { fetched: false, date: null };
   try {
     const res = await fetch(
       `https://api.github.com/repos/${target.repo}/commits/${sha}`,
@@ -1643,11 +1663,11 @@ async function fetchBranchCommitDate(
         },
       }
     );
-    if (!res.ok) return null;
+    if (!res.ok) return { fetched: false, date: null };
     const data = (await res.json()) as { commit?: { author?: { date?: string } } };
-    return data.commit?.author?.date ?? null;
+    return { fetched: true, date: data.commit?.author?.date ?? null };
   } catch {
-    return null;
+    return { fetched: false, date: null };
   } finally {
     if (delayMs > 0) await new Promise<void>((r) => setTimeout(r, delayMs));
   }
@@ -1944,23 +1964,41 @@ export async function pruneOldLoopBranches(
   //    sha but NOT commit.author.date, so this follow-up is required to
   //    sort by recency. With ~60 branches this is ~9s — fire-and-forget
   //    on the post-push path (doesn't block the cycle). A date fetch
-  //    failure → null → treated as oldest by the sort (pruned first),
-  //    which is safe (undated branches are the riskiest to keep).
+  //    failure (403/429/network) returns fetched:false → the branch is
+  //    conservatively KEPT (sorted as newest), never pruned. Only a
+  //    fetched:true branch with no date field is a prune candidate.
+  //    This is the inverse of the old behaviour (which pruned failed
+  //    lookups first) and closes the "storm deletes the newest branch"
+  //    data-safety hole.
   const dateDelayMs = 120; // slightly under the delete delay (reads are cheaper)
-  const withDates: Array<{ name: string; number: number; date: string | null }> = [];
+  const withDates: Array<{ name: string; number: number; date: string | null; fetched: boolean }> = [];
   for (const b of loopBranches) {
-    const date = await fetchBranchCommitDate(target, b.sha, dateDelayMs);
-    withDates.push({ name: b.name, number: b.number, date });
+    const { fetched, date } = await fetchBranchCommitDate(target, b.sha, dateDelayMs);
+    withDates.push({ name: b.name, number: b.number, date, fetched });
   }
 
   // 4. Sort by commit date DESCENDING (most-recent first), keep the top
-  //    `keep`. Everything else is a deletion candidate. Null dates sort
-  //    last (oldest) — they get pruned before any dated branch.
+  //    `keep`. Everything else is a deletion candidate.
+  //    Ranking (newest → oldest):
+  //      a) fetched:false (lookup failed) — KEEP, ranked newest. A
+  //         failed date lookup must never make a branch a deletion
+  //         candidate; the safe default is to keep what we can't date.
+  //      b) fetched:true with a real date — by date DESC (recent first).
+  //      c) fetched:true with date null (no date field) — ranked oldest
+  //         (essentially impossible on GitHub; the rare undated commit
+  //         is the only thing pruned ahead of dated branches).
+  //    Tiebreak within a rank: higher branch number = newer assumption.
+  const dateRank = (d: { fetched: boolean; date: string | null }): number => {
+    if (!d.fetched) return 2; // keep — failed lookup, conservatively newest
+    if (d.date === null) return 0; // undated (rare) — oldest
+    return 1; // dated
+  };
   const sorted = withDates.sort((a, b) => {
-    if (a.date === null && b.date === null) return b.number - a.number; // tiebreak: higher number = newer assumption
-    if (a.date === null) return 1; // a is "older" (null → bottom)
-    if (b.date === null) return -1; // b is "older"
-    return b.date.localeCompare(a.date); // DESC: recent first
+    const ra = dateRank(a);
+    const rb = dateRank(b);
+    if (ra !== rb) return rb - ra; // higher rank (2>1>0) sorts first (newest)
+    if (ra === 1) return b.date!.localeCompare(a.date!); // both dated: DESC
+    return b.number - a.number; // tiebreak (both keep or both undated): higher number first
   });
   const survivors = sorted.slice(0, keep);
   const candidates = sorted
@@ -1969,13 +2007,18 @@ export async function pruneOldLoopBranches(
     .sort((a, b) => {
       // Sort candidates oldest-first for deletion (prune the oldest
       // before the newer candidates, so a rate-limit abort keeps the
-      // most-recent candidates alive for the next drain).
-      const ad = withDates.find((x) => x.name === a)?.date ?? null;
-      const bd = withDates.find((x) => x.name === b)?.date ?? null;
-      if (ad === null && bd === null) return 0;
-      if (ad === null) return -1; // a oldest → delete first
-      if (bd === null) return 1;
-      return ad.localeCompare(bd); // oldest first
+      // most-recent candidates alive for the next drain). Within
+      // candidates: fetched:true+dated with the oldest date first, then
+      // fetched:true+undated, then fetched:false LAST (a candidate we
+      // couldn't date is only deleted after everything definitively
+      // older is gone — safest).
+      const ax = withDates.find((x) => x.name === a)!;
+      const bx = withDates.find((x) => x.name === b)!;
+      const ra = dateRank(ax);
+      const rb = dateRank(bx);
+      if (ra !== rb) return ra - rb; // lower rank (0=undated) deletes first, fetched:false(2) last
+      if (ra === 1) return ax.date!.localeCompare(bx.date!); // both dated: oldest first (ASC)
+      return 0; // both undated or both fetched:false: stable
     });
 
   // keepFloor is now informational only (the number floor is no longer
@@ -1987,8 +2030,16 @@ export async function pruneOldLoopBranches(
 
   // Belt-and-braces: never let the seed branch into the candidate set even
   // if someone configured branch="loop-01" (they shouldn't, but a hostile
-  // config must not enable self-deletion of the home branch).
-  const safeCandidates = candidates.filter((c) => c !== target.branch);
+  // config must not enable self-deletion of the home branch). ALSO never
+  // let the highest-numbered live loop-NN branch become a deletion
+  // candidate — even if the date sort somehow mis-ranks it (e.g. every
+  // date lookup failed and the all-fetched:false tiebreak by number put
+  // a low-numbered branch at the top), the tip of the numbered sequence
+  // survives so the lineage's highest watermark is never lost. This is
+  // defense-in-depth on top of the "fetched:false = keep" sort rule.
+  const safeCandidates = candidates.filter(
+    (c) => c !== target.branch && c !== `loop-${maxNumber}`
+  );
 
   const result: PruneBranchesResult = {
     ran: true,

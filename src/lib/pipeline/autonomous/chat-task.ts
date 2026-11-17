@@ -23,6 +23,7 @@ import { isProtectedPath } from "./protected-files";
 import { gateMutation } from "../core/mutation-guard";
 import { evaluateAstDiff } from "../core/ast-diff-gate";
 import { withTreeLock } from "../core/tree-lock";
+import { sha16 } from "../core/hash";
 
 import { PROJECT_ROOT } from "../core/paths";
 
@@ -520,6 +521,45 @@ Output the COMPLETE new content for this file that achieves the goal.`;
           diffBytes: 0,
         });
         continue;
+      }
+
+      // ── Post-gate TOCTOU recheck (reviewer rec #3, 2026-11-17) ──────────
+      // The autonomous loop's enhanceFile re-reads the disk inside the lock
+      // and SHA-compares against the pre-gate originalCode before
+      // writeFileSync, aborting with a postmortem if a concurrent writer
+      // landed. chat-task lacked that symmetric check, so an out-of-process
+      // writer (operator vim, git checkout by hand, host-snapshot restore)
+      // that landed between the originalCode capture at :381 and the
+      // writeFileSync below would be silently clobbered. The cross-process
+      // worker split (loop in Bun :3004, chat-task in Next.js :3000) means
+      // withTreeLock's per-process `let busy` does NOT serialize them, so
+      // this recheck is also the only thing that catches a worker
+      // enhanceFile write that landed while chat-task's gates ran. Mirror
+      // enhanceFile's pattern: re-read, SHA-compare, skip-with-reason on
+      // mismatch (don't clobber, don't crash — leave the concurrent write
+      // intact and report it so the operator can re-apply if desired).
+      if (file.action === "modify") {
+        let diskNow = "";
+        try {
+          diskNow = readFileSync(fullPath, "utf-8");
+        } catch (readErr) {
+          results.push({
+            path: file.path,
+            applied: false,
+            reason: `TOCTOU: file vanished after gates ran — ${(readErr as Error).message}`,
+            diffBytes: 0,
+          });
+          continue;
+        }
+        if (sha16(diskNow) !== sha16(originalCode)) {
+          results.push({
+            path: file.path,
+            applied: false,
+            reason: `TOCTOU: concurrent writer changed ${file.path} between plan approval and apply — skipped to avoid clobbering the concurrent write. Re-run the task if the concurrent change should be built on top of.`,
+            diffBytes: 0,
+          });
+          continue;
+        }
       }
 
       try {

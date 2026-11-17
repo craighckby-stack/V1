@@ -40,7 +40,8 @@
  * to load from anywhere (loop-runtime, API routes, instrumentation).
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "fs";
+import { mkdirSync, readFileSync, existsSync } from "fs";
+import { atomicWriteFileSync } from "../core/atomic-file";
 import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
@@ -88,7 +89,7 @@ export function markArmed(armed: boolean, by: string): void {
     }
     
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
-    writeFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2), "utf8");
+    atomicWriteFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2));
   } catch (error) {
     // Log the error for debugging but don't throw to maintain the contract
     const errorMessage = error instanceof Error ? error.message : String(error);

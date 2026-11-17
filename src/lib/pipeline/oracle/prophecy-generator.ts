@@ -35,6 +35,7 @@ import { emitOracleEvent } from "./oracle-events";
 import { db } from "@/lib/db";
 
 import { PROJECT_ROOT } from "../core/paths";
+import { scrubSectionMarkers } from "../core/prompt-scrub";
 const WORKLOG_PATH = `${PROJECT_ROOT}/worklog.md`;
 
 // How much history to give the LLM. Too little → predictions are
@@ -153,10 +154,18 @@ async function gatherHistoryContextAsync(): Promise<{
       take: POSTMORTEM_LIMIT,
     });
     if (postmortems.length > 0) {
+      // PROMPT-INJECTION DEFENSE (2026-11-17): the block previously had NO
+      // close marker and the symptom was injected raw — a planted symptom
+      // could run past the section into the instruction text. Delimit the
+      // block properly and scrub the markers from the injected fields
+      // (symptom is failure-machine text but its params are LLM-shapeable
+      // through recordFailure in prior cycles).
+      const OPEN = "=== ACTIVE POSTMORTEMS (constraints on future mutations) ===";
+      const CLOSE = "=== END ACTIVE POSTMORTEMS ===";
       const lines = postmortems.map(
-        (p) => `- ${p.filePath}: ${p.failureType} — ${p.symptom} (attempts: ${p.attempts})`,
+        (p) => `- ${scrubSectionMarkers(p.filePath, OPEN, CLOSE)}: ${scrubSectionMarkers(p.failureType, OPEN, CLOSE)} — ${scrubSectionMarkers(p.symptom, OPEN, CLOSE)} (attempts: ${p.attempts})`,
       );
-      parts.push("=== ACTIVE POSTMORTEMS (constraints on future mutations) ===\n" + lines.join("\n"));
+      parts.push(OPEN + "\n" + lines.join("\n") + "\n" + CLOSE);
     }
   } catch {
     /* DB unavailable — skip */

@@ -27,7 +27,8 @@
  * Pure leaf: fs + path + PROJECT_ROOT only, no pipeline imports — safe
  * to load from anywhere (constructor, API routes).
  */
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "fs";
+import { mkdirSync, readFileSync, existsSync } from "fs";
+import { atomicWriteFileSync } from "../core/atomic-file";
 import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
@@ -112,7 +113,7 @@ export function writeLoopStats(state: LoopStatsState): void {
     if (!existsSync(infoDir)) {
       mkdirSync(infoDir, { recursive: true });
     }
-    writeFileSync(STATS_FILE, JSON.stringify(state, null, 2), "utf8");
+    atomicWriteFileSync(STATS_FILE, JSON.stringify(state, null, 2));
   } catch (error) {
     // Best-effort by contract: log, never throw.
     const stateString = JSON.stringify(state);

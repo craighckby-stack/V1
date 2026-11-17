@@ -32,6 +32,7 @@ import {
   deletePostmortemFromDisk,
   rehydrateSqliteFromDisk,
 } from "./postmortem-repo";
+import { scrubSectionMarkers } from "../core/prompt-scrub";
 
 // ── Tamper-evident chain helpers (concept: Aether_Forge Ω darlekRAG) ────
 // The chain is a single global sequence ordered by createdAt. Each record's
@@ -481,18 +482,41 @@ class PostmortemStore {
     // control chars (everything except \t/\n/\r) become spaces — see
     // sanitizeInjectedPostmortemField. (Reflection is separately bounded
     // at write time — storeReflection slices to 400.)
-    const symptom = sanitizeInjectedPostmortemField(pm.symptom, 300);
-    const evidence = sanitizeInjectedPostmortemField(pm.evidence, 500);
-    const constraints = sanitizeInjectedPostmortemField(pm.constraints, 500);
     // D7 (Reflexion): the prior self-diagnosis rides WITH the constraints —
     // per the Reflexion finding, a stored self-reflection across trials
     // materially reduces repetition of the same reasoning error. The
     // reflection is the LLM's own words about its own reasoning, which
     // lands differently from an externally imposed constraint.
-    const reflectionBlock = pm.reflection
-      ? `\nPRIOR REFLECTION (your own self-diagnosis from the last failure — you wrote this):
-${pm.reflection}\n`
+    //
+    // PROMPT-INJECTION DEFENSE (2026-11-17): reflection is LLM-authored in
+    // a PRIOR cycle (reflection.ts) and stored raw — it's the highest-
+    // leverage compounding-injection vector in the postmortem block (a
+    // planted `--- END POSTMORTEM CONSTRAINTS ---` in a reflection
+    // closes the section and injects instructions into every future
+    // attempt on this file). Scrub the section markers from the
+    // reflection before injecting. The symptom/evidence/constraints are
+    // already sanitizeInjectedPostmortemField'd (control-char strip +
+    // truncation) but NOT delimiter-scrubbed, so scrub them too for
+    // defense-in-depth.
+    const reflectionScrubbed = pm.reflection
+      ? scrubSectionMarkers(pm.reflection, "--- POSTMORTEM CONSTRAINTS", "--- END POSTMORTEM CONSTRAINTS ---")
       : "";
+    const reflectionBlock = reflectionScrubbed
+      ? `\nPRIOR REFLECTION (your own self-diagnosis from the last failure — you wrote this):
+${reflectionScrubbed}\n`
+      : "";
+    const symptom = scrubSectionMarkers(
+      sanitizeInjectedPostmortemField(pm.symptom, 300),
+      "--- POSTMORTEM CONSTRAINTS", "--- END POSTMORTEM CONSTRAINTS ---"
+    );
+    const evidence = scrubSectionMarkers(
+      sanitizeInjectedPostmortemField(pm.evidence, 500),
+      "--- POSTMORTEM CONSTRAINTS", "--- END POSTMORTEM CONSTRAINTS ---"
+    );
+    const constraints = scrubSectionMarkers(
+      sanitizeInjectedPostmortemField(pm.constraints, 500),
+      "--- POSTMORTEM CONSTRAINTS", "--- END POSTMORTEM CONSTRAINTS ---"
+    );
     return `\n\n--- POSTMORTEM CONSTRAINTS (this file failed ${pm.attempts} time(s) before) ---
 FAILURE TYPE: ${pm.failureType}
 SYMPTOM: ${symptom}

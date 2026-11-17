@@ -32,6 +32,7 @@ import { emitOracleEvent } from "./oracle-events";
 import { queueTaskForFailedProphecy } from "./oracle-task-feed";
 import { db } from "@/lib/db";
 import type { Prophecy } from "@prisma/client";
+import { scrubSectionMarkers } from "../core/prompt-scrub";
 
 import { PROJECT_ROOT } from "../core/paths";
 const WORKLOG_PATH = `${PROJECT_ROOT}/worklog.md`;
@@ -116,10 +117,16 @@ async function gatherEvidenceFor(prophecy: Prophecy): Promise<string> {
       take: MAX_NEW_POSTMORTEMS,
     });
     if (postmortems.length > 0) {
+      // PROMPT-INJECTION DEFENSE (2026-11-17): same treatment as the
+      // generator's postmortem block — explicit close marker + marker
+      // scrub on the injected fields (symptom is LLM-shapeable through
+      // recordFailure in prior cycles).
+      const OPEN = "=== POSTMORTEMS WRITTEN SINCE PROPHECY ===";
+      const CLOSE = "=== END POSTMORTEMS SINCE PROPHECY ===";
       const lines = postmortems.map(
-        (p) => `- ${p.filePath}: ${p.failureType} — ${p.symptom} (attempts: ${p.attempts})`,
+        (p) => `- ${scrubSectionMarkers(p.filePath, OPEN, CLOSE)}: ${scrubSectionMarkers(p.failureType, OPEN, CLOSE)} — ${scrubSectionMarkers(p.symptom, OPEN, CLOSE)} (attempts: ${p.attempts})`,
       );
-      parts.push("=== POSTMORTEMS WRITTEN SINCE PROPHECY ===\n" + lines.join("\n"));
+      parts.push(OPEN + "\n" + lines.join("\n") + "\n" + CLOSE);
     } else {
       parts.push("=== POSTMORTEMS WRITTEN SINCE PROPHECY ===\n(none)");
     }

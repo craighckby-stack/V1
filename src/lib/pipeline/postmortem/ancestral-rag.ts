@@ -31,6 +31,7 @@
 import { db } from "@/lib/db";
 import type { Postmortem as PostmortemRow } from "@prisma/client";
 import type { PostmortemFailureType, PostmortemRecord } from "./postmortem-store";
+import { scrubSectionMarkers } from "../core/prompt-scrub";
 
 export interface AncestralHit {
   /** The postmortem record, mapped to the public shape. */
@@ -226,6 +227,14 @@ export async function queryRelevantPostmortems(opts: {
  *  species learned on OTHER files that may apply here". */
 export function formatAncestralPromptBlock(result: AncestralQueryResult): string {
   if (result.hits.length === 0) return "";
+  // Prompt-injection defense: the ancestral corpus is "verified
+  // postmortems" — but verified = observed by this loop, and the
+  // symptom/evidence/constraints fields are LLM-shapeable through
+  // recordFailure in prior cycles. Scrub the section markers from each
+  // field before injection so a planted `--- END ANCESTRAL LESSONS ---`
+  // can't close the block. See prompt-scrub.ts.
+  const OPEN = "--- ANCESTRAL LESSONS";
+  const CLOSE = "--- END ANCESTRAL LESSONS ---";
   const lines: string[] = [
     "",
     "",
@@ -234,16 +243,16 @@ export function formatAncestralPromptBlock(result: AncestralQueryResult): string
   for (let i = 0; i < result.hits.length; i++) {
     const hit = result.hits[i];
     lines.push(
-      `[${i + 1}] ${hit.record.failureType} on ${hit.record.filePath} ` +
-      `(attempts=${hit.record.attempts}, score=${hit.score}, matched: ${hit.matchedTerms.join(", ")})`
+      `[${i + 1}] ${scrubSectionMarkers(`${hit.record.failureType} on ${hit.record.filePath} ` +
+      `(attempts=${hit.record.attempts}, score=${hit.score}, matched: ${hit.matchedTerms.join(", ")})`, OPEN, CLOSE)}`
     );
-    lines.push(`SYMPTOM: ${hit.record.symptom}`);
+    lines.push(`SYMPTOM: ${scrubSectionMarkers(hit.record.symptom, OPEN, CLOSE)}`);
     // Truncate evidence — it's verbose machine facts, not the lesson.
     const evidenceShort = hit.record.evidence.length > 200
       ? hit.record.evidence.slice(0, 200) + "…"
       : hit.record.evidence;
-    lines.push(`EVIDENCE: ${evidenceShort}`);
-    lines.push(`CONSTRAINT (MUST follow if applicable): ${hit.record.constraints.split("\n")[0]}`);
+    lines.push(`EVIDENCE: ${scrubSectionMarkers(evidenceShort, OPEN, CLOSE)}`);
+    lines.push(`CONSTRAINT (MUST follow if applicable): ${scrubSectionMarkers(hit.record.constraints.split("\n")[0], OPEN, CLOSE)}`);
   }
   lines.push("--- END ANCESTRAL LESSONS ---");
   return lines.join("\n");

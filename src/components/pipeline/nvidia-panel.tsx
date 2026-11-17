@@ -103,7 +103,14 @@ export function NvidiaPanel({ open, onClose }: Props) {
   const [showKey, setShowKey] = useState(false);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "warn" | "err"; text: string } | null>(null);
-  const [nowTick, setNowTick] = useState(Date.now());
+  // Initialize to 0 (not Date.now()) so the server-rendered HTML and the
+  // client's first render produce the SAME value — `Date.now()` as the
+  // useState initializer runs on both server and client at different
+  // instants, causing a hydration mismatch on any visible countdown text.
+  // The real wall-clock value is set by the useEffect below the moment the
+  // panel opens, before the first interval tick, so the countdown is
+  // correct from the first visible frame.
+  const [nowTick, setNowTick] = useState(0);
   const keyRef = useRef<HTMLInputElement>(null);
 
   const poll = useCallback(async () => {
@@ -123,6 +130,11 @@ export function NvidiaPanel({ open, onClose }: Props) {
   // Poll while open; tick every second so the breaker countdown animates.
   useEffect(() => {
     if (!open) return;
+    // Set the real wall-clock value NOW (before the first interval tick at
+    // +1000ms) so the countdown is correct on the first visible frame.
+    // The useState initializer is 0 to avoid the hydration mismatch
+    // described above; this is where the real time enters the state.
+    setNowTick(Date.now());
     void poll();
     const pollIv = setInterval(() => void poll(), 5000);
     const tickIv = setInterval(() => setNowTick(Date.now()), 1000);

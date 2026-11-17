@@ -208,6 +208,14 @@ export function invalidateGoalCache(): void {
 }
 
 async function buildRendered(): Promise<{ bullets: string; topicLine: string }> {
+  // PROMPT-INJECTION DEFENSE (2026-11-17): goal text/rationale are
+  // operator-seeded AND LLM-minted (the goal review mints new goals from
+  // observed evidence). They are rendered as one-bullet-per-line into the
+  // mutation prompt's SYSTEM DIRECTION — a goal containing a newline
+  // could inject arbitrary instructions past the bullet framing. Collapse
+  // every goal field to a single line at render time: each bullet stays
+  // exactly one line, so nothing can smuggle lines past the list.
+  const oneLine = (s: string): string => s.replace(/\s*\r?\n\s*/g, " ").trim();
   const goals = await getActiveGoals();
   if (goals.length === 0) {
     // Never render an empty direction — the seed guarantees ≥1 active,
@@ -215,8 +223,8 @@ async function buildRendered(): Promise<{ bullets: string; topicLine: string }> 
     return { bullets: seedBullets(), topicLine: OPERATOR_SEED_GOALS.map((g) => g.text).join("; ") };
   }
   return {
-    bullets: goals.map((g) => `- ${g.text}: ${g.rationale}`).join("\n"),
-    topicLine: goals.map((g) => g.text).join("; "),
+    bullets: goals.map((g) => `- ${oneLine(g.text)}: ${oneLine(g.rationale)}`).join("\n"),
+    topicLine: goals.map((g) => oneLine(g.text)).join("; "),
   };
 }
 
@@ -427,10 +435,16 @@ export async function reviewGoalsNow(
   const goals = await getActiveGoals();
   const corpus = await recentCorpusDigest();
 
+  // PROMPT-INJECTION DEFENSE (2026-11-17): one-line enforcement here too —
+  // this block feeds the goal-review prompt. (sanitizeText already strips
+  // newlines from LLM-minted goals at mint time; this render-time strip
+  // covers DB rows written by older code paths end-to-end.) The text is
+  // JSON.stringify'd so a `"` inside it can't close the quote early.
+  const oneLine = (s: string): string => s.replace(/\s*\r?\n\s*/g, " ").trim();
   const goalsBlock = goals
     .map(
       (g) =>
-        `- "${g.text}" [provenance: ${g.provenance}, active for ${evidence.cycle - g.activatedCycle} cycles] — ${g.rationale}`
+        `- ${JSON.stringify(oneLine(g.text))} [provenance: ${g.provenance}, active for ${evidence.cycle - g.activatedCycle} cycles] — ${oneLine(g.rationale)}`
     )
     .join("\n");
 

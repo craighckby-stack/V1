@@ -38,7 +38,8 @@
  * Pure leaf: fs + path + PROJECT_ROOT only, no pipeline imports — safe to
  * load from anywhere (self-enhance-loop constructor, API routes).
  */
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "fs";
+import { mkdirSync, readFileSync, existsSync } from "fs";
+import { atomicWriteFileSync } from "../core/atomic-file";
 import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
@@ -80,7 +81,7 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
       at: new Date().toISOString(),
       by,
     };
-    writeFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2), "utf8");
+    atomicWriteFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2));
   } catch (error) {
     const infoDir = join(PROJECT_ROOT, ".git/info");
     console.error(
