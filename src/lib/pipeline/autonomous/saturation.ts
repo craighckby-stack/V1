@@ -117,13 +117,20 @@ export const SCAN_SCOPES: Array<{ dir: string; extensions: string[] }> = [
  *  to a non-TS DSL). */
 export const SCHEMA_TARGET = "prisma/schema.prisma";
 
-/** Cycles a file must show NO growth before lockout. EMG used 3; we keep
- *  it as the SEED. Tunable live via MetaParam (D8 meta-tuner): the
- *  system reads this through meta-params every cycle — a value that
- *  proves itself in an A/B trial replaces the seed. Too low and a file
- *  locks out before the LLM finds the real fix; too high and we burn
- *  quota re-reviewing a file that's done. */
-export const SATURATION_THRESHOLD = 3;
+/** Cycles a file must show NO growth before lockout. Tunable live via
+ *  MetaParam (D8 meta-tuner): the system reads this through meta-params
+ *  every cycle — a value that proves itself in an A/B trial replaces the
+ *  seed. Too low and a file locks out before the LLM finds the real fix;
+ *  too high and we burn quota re-reviewing a file that's done.
+ *
+ *  Operator tightening (2026-11-17): lowered 3 → 2. After 928 cycles the
+ *  self-enhance loop's yield dropped to 0.72% and ~half of its churn was
+ *  no-growth rescans on already-exhausted files. Locking out one cycle
+ *  earlier cuts the wasted LLM call on the third strike for files that
+ *  clearly converged. The meta-tuner may still A/B this back up to 3
+ *  (the clamp range is [2,6]); the operator re-tighten is the seed reset.
+ *  The UI in src/app/page.tsx reads this value for the (n/N) display. */
+export const SATURATION_THRESHOLD = 2;
 
 /** The live lockout threshold (D8). Reads through the meta-params cache;
  *  resolves to the SEED before the first boot seeds the table. Kept in

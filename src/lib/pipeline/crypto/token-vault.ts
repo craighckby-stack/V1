@@ -135,6 +135,10 @@ export function sealToken(plain: string): string {
   if (typeof plain !== "string" || !plain.trim()) return plain;
   if (isSealedEnvelope(plain)) return plain;
   if (plain.length < MIN_PLAINTEXT_LENGTH) return plain;
+  
+  // Input validation: ensure it contains more than just whitespace/control chars if length check passes
+  if (!/[a-zA-Z0-9._\-\/+=]/.test(plain)) return plain; 
+
   const key = ensureKey();
   if (!key) return plain;
   try {
@@ -202,7 +206,7 @@ export function openToken(stored: string): string {
       warnedKeyMissing = true;
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(
-        `[TOKEN-VAULT] failed to open a sealed token. This indicates a key mismatch, corrupted data, or tampering. Please verify key integrity at ${KEY_FILE}. Error: ${errorMessage}`
+        `[TOKEN-VAULT] failed to open a sealed token. This indicates a key mismatch, corrupted data, or tampering. Please verify key integrity at ${KEY_FILE}. Error details: ${errorMessage}`
       );
     }
     return "";
