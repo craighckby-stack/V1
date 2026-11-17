@@ -60,17 +60,6 @@ export interface ArmedState {
  *  never fail a start/stop that already succeeded in memory (the in-memory
  *  flag remains the live source; the disk file is the restart tier). */
 export function markArmed(armed: boolean, by: string): void {
-  // Validate input before attempting I/O
-  if (typeof armed !== "boolean") {
-    console.error("markArmed: 'armed' parameter must be a boolean.");
-    return;
-  }
-  
-  if (typeof by !== "string" || by.trim() === "") {
-    console.error("markArmed: 'by' parameter must be a non-empty string.");
-    return;
-  }
-  
   try {
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
     // Rely on atomicWriteFileSync to handle directory creation or fail gracefully
@@ -125,9 +114,14 @@ export function readArmedState(): ArmedState | null {
     
     return state;
   } catch (error) {
-    // This catch block now handles file not found (ENOENT) and permission errors, maintaining the fail-closed contract.
+    // Handle file not found (ENOENT) explicitly for clearer logging, while maintaining fail-closed contract.
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        // File not found is expected on first run, treated as not armed.
+        return null;
+    }
+    
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`readArmedState: Failed to read armed state from ${ARMED_STATE_FILE}. This usually means the file does not exist or permissions are insufficient. Error: ${errorMessage}`);
+    console.error(`readArmedState: Failed to read armed state from ${ARMED_STATE_FILE}. File missing or permission error. Error: ${errorMessage}`);
     return null;
   }
 }
