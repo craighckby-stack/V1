@@ -75,7 +75,7 @@ async function diskScarCount(): Promise<number> {
         try {
           const st = await stat(fullPath);
           if (st.isDirectory()) {
-            // If directory, push it onto the stack for later processing
+            // If directory, read entries and push onto the stack for later processing
             const subEntries = await readdir(fullPath);
             stack.push({ path: fullPath, entries: subEntries });
           } else if (entryName.endsWith(".json")) {
@@ -213,7 +213,7 @@ export async function GET() {
     }
   })();
 
-  const scars = await diskScarCount(); // Await the async function
+  const scars = diskScarCount(); // Start scar count without awaiting immediately
 
   const hotSwapPromise = (async () => {
     try {
@@ -260,10 +260,11 @@ export async function GET() {
     }
   })();
 
-  // Await all independent tasks in parallel
-  const [corpus, passRate, hotSwap, autonomy, zai] = await Promise.all([
+  // Await all independent tasks in parallel, including diskScarCount
+  const [corpus, passRate, scarsResult, hotSwap, autonomy, zai] = await Promise.all([
     corpusPromise,
     passRatePromise,
+    scars,
     hotSwapPromise,
     autonomyPromise,
     zaiPromise,
@@ -275,7 +276,7 @@ export async function GET() {
     auth,
     corpus,
     passRate,
-    scars,
+    scars: scarsResult,
     hotSwap,
     autonomy,
     zai,
