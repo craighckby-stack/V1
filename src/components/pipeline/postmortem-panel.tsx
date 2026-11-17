@@ -58,7 +58,7 @@ export function PostmortemPanel() {
     try {
       const res = await fetch("/api/postmortems");
       if (!res.ok) {
-        throw new Error(`Failed to fetch postmortems: ${res.statusText}`);
+        throw new Error(`Failed to fetch postmortems: ${res.status} ${res.statusText}`);
       }
       const data = await res.json();
       if (data && Array.isArray(data.postmortems)) {
@@ -67,15 +67,16 @@ export function PostmortemPanel() {
         console.error("API response structure invalid: expected { postmortems: [...] }", data);
         toast({
           title: "Data Error",
-          description: "Invalid postmortem data received from server.",
+          description: "Invalid postmortem data received from server. Expected an array under 'postmortems'.",
           variant: "destructive",
         });
       }
     } catch (error) {
-      console.error("Error refreshing postmortems:", error instanceof Error ? error.message : "Unknown error");
+      const errorMessage = error instanceof Error ? error.message : "Unknown network or parsing error.";
+      console.error("Error refreshing postmortems:", errorMessage);
       toast({
         title: "Error",
-        description: "Could not load postmortem data. Check console for details.",
+        description: `Could not load postmortem data. ${errorMessage}`,
         variant: "destructive",
       });
     } finally {
@@ -104,7 +105,10 @@ export function PostmortemPanel() {
       const res = await fetch(`/api/postmortems?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error(`Failed to dismiss postmortem (Status: ${res.status})`);
+      if (!res.ok) {
+        const errorBody = await res.text();
+        throw new Error(`Failed to dismiss postmortem (Status: ${res.status}). Server response: ${errorBody.substring(0, 100)}`);
+      }
       setPostmortems((prev) => prev.filter((p) => p.id !== id));
       toast({
         title: "Postmortem dismissed",
@@ -213,14 +217,7 @@ export function PostmortemPanel() {
                             attempt #{pm.attempts}
                           </span>
                           <span className="text-[10px] text-slate-500 font-mono ml-auto">
-                            {(() => {
-                              try {
-                                if (!pm.lastAttemptAt) return "No date available";
-                                return new Date(pm.lastAttemptAt).toLocaleString();
-                              } catch {
-                                return "Invalid date";
-                              }
-                            })()}
+                            {pm.lastAttemptAt ? new Date(pm.lastAttemptAt).toLocaleString() : "No date available"}
                           </span>
                         </div>
                         <div className="text-xs font-mono text-slate-200 mt-1 truncate" title={pm.filePath}>
