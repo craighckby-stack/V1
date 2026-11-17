@@ -44,19 +44,19 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
       // Build the solved prefix
       const solvedPrefix = text.slice(0, solved);
       
-      // Build the scrambled tail efficiently by direct string construction
-      let scrambledTail = '';
+      // Build the scrambled tail efficiently using array join
+      const scrambledTailChars: string[] = [];
       for (let i = 0; i < total - solved; i++) {
         const index = solved + i;
         const ch = text[index];
         if (ch === "\n" || ch === " ") {
-          scrambledTail += ch;
+          scrambledTailChars.push(ch);
         } else {
-          scrambledTail += GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
+          scrambledTailChars.push(GLYPHS[Math.floor(Math.random() * GLYPHS.length)]);
         }
       }
       
-      setOut(solvedPrefix + scrambledTail);
+      setOut(solvedPrefix + scrambledTailChars.join(''));
       
       if (p < 1) {
         raf = requestAnimationFrame(tick);
