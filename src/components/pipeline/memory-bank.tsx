@@ -48,21 +48,23 @@ export function MemoryBank() {
   }, [setEntries]);
 
   return (
-    <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-slate-100 flex items-center gap-2 text-base">
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-emerald-500/30 to-cyan-500/30 ring-1 ring-emerald-500/40">
-            <BookOpen className="h-4 w-4 text-emerald-300" />
+    <Card className="bg-slate-950/60 border border-slate-800/60 backdrop-blur transition-shadow duration-150 hover:shadow-lg">
+      <CardHeader className="pb-4 pt-6">
+        <CardTitle className="text-slate-100 flex items-center gap-3 text-lg sm:text-xl">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500/30 to-cyan-500/30 ring-1 ring-emerald-500/40 transition-transform duration-150 hover:scale-[1.02]">
+            <BookOpen className="h-4 w-4 text-emerald-300" aria-hidden="true" />
           </span>
-          Memory Bank <span className="text-xs text-slate-500 font-normal">(RAG)</span>
+          Memory Bank <span className="text-sm text-slate-400 font-normal ml-1 hidden sm:inline">(RAG)</span>
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-0">
         {entries.length === 0 ? (
-          <p className="text-xs text-slate-500 italic py-6 text-center">Loading memory entries...</p>
+          <div className="py-10 text-center">
+            <p className="text-sm text-slate-500 italic">Loading memory entries...</p>
+          </div>
         ) : (
-          <ScrollArea className="h-[280px] pr-3">
-            <div className="space-y-2">
+          <ScrollArea className="h-[300px] pr-4">
+            <div className="space-y-3">
               {entries.map((entry) => {
                 // Validate entry structure
                 if (!entry || !entry.id) {
@@ -75,19 +77,23 @@ export function MemoryBank() {
                 return (
                   <div
                     key={entry.id}
-                    className="rounded-md border border-slate-800/60 bg-slate-900/40 p-3"
+                    className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3 transition-all duration-150 hover:border-emerald-600/50"
+                    role="region"
+                    aria-labelledby={`entry-title-${entry.id}`}
                   >
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <Icon className={cn("h-3.5 w-3.5", meta.color)} />
+                    <div className="flex items-center gap-2 mb-2">
+                      <Icon className={cn("h-3.5 w-3.5", meta.color)} aria-hidden="true" />
                       <Badge
                         variant="outline"
-                        className={cn("text-[9px] uppercase tracking-widest", meta.bg)}
+                        className={cn("text-[10px] uppercase tracking-wider transition-colors duration-150", meta.bg)}
+                        aria-label={`${entry.provenance} provenance`}
                       >
                         {entry.provenance}
                       </Badge>
                       <Badge
                         variant="outline"
-                        className="text-[9px] uppercase tracking-widest bg-slate-700/40 text-slate-300 border-slate-600/40"
+                        className="text-[10px] uppercase tracking-wider bg-slate-700/40 text-slate-300 border-slate-600/40 transition-colors duration-150"
+                        aria-label={`Trust level: ${entry.trust ?? "unknown"}`}
                       >
                         {entry.trust ?? "unknown"}
                       </Badge>
@@ -97,12 +103,12 @@ export function MemoryBank() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-200 leading-relaxed">{entry.content ?? ""}</p>
+                    <p className="text-sm text-slate-200 leading-relaxed mb-1">{entry.content ?? ""}</p>
                     {entry.diagnosis && (
-                      <p className="text-[11px] text-slate-400 mt-1 italic">→ {entry.diagnosis}</p>
+                      <p className="text-xs text-slate-400 mt-1 italic">→ {entry.diagnosis}</p>
                     )}
                     {entry.cleanSnippet && (
-                      <pre className="text-[10px] font-mono text-cyan-300 mt-1.5 bg-slate-950/60 border border-slate-800/60 rounded px-2 py-1 overflow-x-auto">
+                      <pre className="text-[10px] font-mono text-cyan-300 mt-2 bg-slate-950/60 border border-slate-800/60 rounded px-2 py-2 overflow-x-auto whitespace-pre-wrap break-words">
                         {entry.cleanSnippet}
                       </pre>
                     )}
