@@ -71,8 +71,9 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
     return;
   }
 
+  // 'now' validation is implicitly handled by default Date() or explicit Date() construction,
+  // but we rely on the caller providing a valid Date object if they override the default.
   if (!(now instanceof Date) || isNaN(now.getTime())) {
-    // Input validation failure: 'now' must be a valid Date object. Must not throw per contract.
     console.error("markOperatorTouch: 'now' parameter must be a valid Date object. Persistence skipped.");
     return;
   }
@@ -122,10 +123,7 @@ export function readOperatorTouch(): OperatorTouchState | null {
       return null;
     }
 
-    return {
-      at: parsed.at,
-      by: parsed.by,
-    };
+    return parsed as OperatorTouchState;
   } catch (error) {
     // Catches file not found, read errors
     if (error instanceof Error) {
@@ -148,13 +146,13 @@ export function isDeadMansTripped(
 ): boolean {
   if (typeof thresholdMs !== "number" || thresholdMs < 0) {
     // Fail-closed: if threshold is invalid, treat as tripped to prevent runaway loop
-    console.error("isDeadMansTripped: 'thresholdMs' must be a non-negative number. Treating as tripped.");
+    console.error("isDeadMansTripped: Invalid 'thresholdMs' provided. Treating as tripped to enforce safety.");
     return true;
   }
 
   if (!(now instanceof Date) || isNaN(now.getTime())) {
     // Handle invalid 'now' input gracefully, treating it as if time cannot be determined (tripped)
-    console.error("isDeadMansTripped: 'now' parameter must be a valid Date object");
+    console.error("isDeadMansTripped: Invalid 'now' Date object provided. Treating as tripped for safety.");
     return true;
   }
 
