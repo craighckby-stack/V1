@@ -115,9 +115,8 @@ export function writeLoopStats(state: LoopStatsState): void {
     atomicWriteFileSync(STATS_FILE, JSON.stringify(state, null, 2));
   } catch (error) {
     // Best-effort by contract: log, never throw.
-    const stateString = JSON.stringify(state);
     console.error(
-      `writeLoopStats: failed to persist stats to ${STATS_FILE}. State provided: ${stateString}. Error details: ${(error instanceof Error ? error.message : String(error))}`
+      `writeLoopStats: failed to persist stats to ${STATS_FILE}. Error details: ${(error instanceof Error ? error.message : String(error))}`
     );
   }
 }
@@ -179,7 +178,7 @@ export function readLoopStats(): LoopStatsState | null {
       testsWritten: obj.testsWritten as number,
       cyclesCompleted: obj.cyclesCompleted as number,
       tasksGenerated: obj.tasksGenerated as number,
-      lastEnhancementAt: (ts as string | null) ?? null,
+      lastEnhancementAt: (ts as string | null),
     };
   } catch (error) {
     // Missing, unreadable, or torn — first-boot semantics. Log the error for debugging persistence issues.
