@@ -514,6 +514,21 @@ class SelfEnhanceLoop {
   // no LLM calls, no quota burn. The user unlocks via the UI (or a server
   // restart resets everything, which is a natural "new pass" boundary).
   private saturation = new Map<string, FileSaturation>();
+  // MASTER UNLOCK (operator-only, secret — NOT in the README): once the
+  // operator enters the master PIN (4444 / LOOP_MASTER_PIN) on ANY
+  // saturation [unlock] prompt, this flips to true and STAYS true for
+  // the rest of this worker process's life. While true, every subsequent
+  // [unlock] click bypasses the PIN prompt entirely — the operator's
+  // active management session no longer needs a PIN per file. This is a
+  // pure convenience: it protects nothing the operator PIN doesn't
+  // already protect, and the real code-safety boundary stays
+  // protected-files + the gate chain (no PIN can bypass those). Resets
+  // on worker restart — a natural "new session" boundary. Persisting
+  // it to disk would be a security smell (a permanent silent PIN bypass
+  // is exactly what the friction gate exists to prevent), so it lives
+  // in memory only. See /unlock in loop-worker/index.ts + the edge route
+  // /api/self-enhance/unlock/route.ts for the gate logic.
+  private masterUnlocked = false;
   private stats = {
     totalScanned: 0,
     totalEnhanced: 0,
@@ -3927,16 +3942,44 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
     return out;
   }
 
+  /** Is the operator master-unlock active? While true, the saturation
+   *  [unlock] buttons in the UI skip the per-file PIN prompt and unlock
+   *  directly (the operator already proved they know the master PIN
+   *  this session). Resets on worker restart. See the field comment above
+   *  for the full rationale. */
+  isMasterUnlocked(): boolean {
+    return this.masterUnlocked;
+  }
+
+  /** Activate master-unlock mode for the rest of this worker process's
+   *  life. Called by the worker's /unlock handler when the submitted PIN
+   *  matches LOOP_MASTER_PIN. Idempotent — setting again is a no-op. */
+  setMasterUnlocked(): void {
+    if (!this.masterUnlocked) {
+      this.masterUnlocked = true;
+      this.log("🔑 master unlock active — PIN prompt skipped for this session", "info");
+    }
+  }
+
   /** Unlock a locked-out file so it's eligible for the next cycle. Called
    *  by the UI when the user clicks "unlock". Resets the no-growth counter
    *  and the enhancements-this-pass counter — a fresh start. The file is
    *  re-evaluated on the next cycle (its content may have changed since
    *  lockout, so the LLM might find new improvements or might re-lock
-   *  immediately if nothing's changed in the underlying code). */
+   *  immediately if nothing's changed in the underlying code).
+   *
+   *  Returns a discriminated reason so the UI can give honest feedback
+   *  instead of a bare "not locked" for every failure case (the old code
+   *  conflated "file not in the saturation map at all" with "in the map
+   *  but already unlocked" — both read as "not locked" and the user
+   *  couldn't tell which). */
   unlockFile(relPath: string): { unlocked: boolean; reason?: string } {
     const state = this.saturation.get(relPath);
-    if (!state || !state.lockedOut) {
-      return { unlocked: false, reason: "not locked" };
+    if (!state) {
+      return { unlocked: false, reason: "file not tracked by saturation" };
+    }
+    if (!state.lockedOut) {
+      return { unlocked: false, reason: "already unlocked" };
     }
     state.lockedOut = false;
     state.lockedAt = null;

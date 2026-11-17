@@ -811,7 +811,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
       role="dialog"
       aria-modal="true"
       aria-label="LOOP boot sequence — press any key to skip, then Enter to enter the Loop"
-      className="bsp-root"
+      className={`bsp-root${phase === "exit" ? " bsp-root--exiting" : ""}`}
       onClick={skip}
     >
       <h2 className="sr-only">
@@ -931,6 +931,13 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
           overflow: hidden; cursor: pointer; user-select: none;
           -webkit-tap-highlight-color: transparent;
         }
+        /* Once the user has committed to enter (phase === "exit"), the splash
+           is already leaving — stop it from intercepting clicks meant for the
+           terminal underneath during the ~1.4s CRT-collapse animation. Without
+           this, a second click on a UI control (e.g. the saturation panel's
+           [unlock] button) lands on the still-visible exiting splash and is
+           swallowed — the user perceives the underlying button as dead. */
+        .bsp-root--exiting { pointer-events: none !important; }
         .bsp-crt { width: 100%; max-width: 980px; padding: 24px 28px; transform-origin: 50% 50%; }
         .bsp-crt--flash { animation: bsp-on 700ms cubic-bezier(.2,.7,.3,1) both; }
         .bsp-crt--exit  { animation: bsp-off 650ms ease-in both; }

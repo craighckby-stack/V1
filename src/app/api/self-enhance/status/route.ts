@@ -50,5 +50,10 @@ export async function GET() {
     // (which owns the retention cache) is down, so the dashboard's branch
     // counter renders "unknown" rather than undefined.
     branchRetention: null,
+    // Master-unlock flag defaults to false when the worker is down — a
+    // dead worker can't have an active master session. Shape parity with
+    // the worker's /status payload so the UI's `status?.masterUnlocked`
+    // reads cleanly on every poll.
+    masterUnlocked: false,
   });
 }

@@ -115,12 +115,42 @@ export const PROTECTED_FILES = new Set([
   // Also covered by the core/ prefix — kept explicit to document intent.
   "src/lib/pipeline/core/hot-swap.ts",
   // UI control surface — the loop can change HOW things look (the mutable
-  // display layer in src/app/display/) but can NEVER touch the control
-  // surface: the buttons, the command input, the command parser, the state
-  // management, the polling. If the system could rewrite its own control
-  // surface, it could remove the STOP button and escape user oversight.
+  // display layer in src/app/display/ and src/components/pipeline/) but can
+  // NEVER touch the control surface: the buttons, the command input, the
+  // command parser, the state management, the polling. If the system could
+  // rewrite its own control surface, it could remove the STOP button and
+  // escape user oversight.
   "src/app/page.tsx", // the control surface itself
   "src/app/layout.tsx", // page metadata / shell
+  // ── v5 (2026-11-17): control-surface components inside the newly
+  // re-expanded src/components/pipeline mutation scope. The display
+  // panels in that subtree are now mutable (the loop can polish them);
+  // these two are NOT display — they are control surface, one layer down:
+  //   - api-unlock.tsx is the UI half of the auth middleware gate. It
+  //     listens for 401s and stores the operator API key. A mutated
+  //     version could silently accept any key, drop the 401 listener, or
+  //     exfiltrate the stored key — same escape hatch as rewriting
+  //     middleware.ts, one layer up. PROTECTED.
+  //   - boot-splash.tsx is the click-intercept entry ceremony. It overlays
+  //     the whole viewport at z-index 1000 during boot and exit; a mutated
+  //     version could brick the UI entry (permanent overlay, swallow the
+  //     first-click, break the pointer-events exit fix). PROTECTED — the
+  //     entry layer is control-surface-adjacent and the cost of a bad
+  //     mutation is a UI that can't be entered.
+  "src/components/pipeline/api-unlock.tsx", // auth-prompt UI (middleware gate)
+  "src/components/pipeline/boot-splash.tsx", // click-intercept entry ceremony
+  // pipeline-stages.tsx: a "6-Stage Refactoring Pipeline" visualization
+  // that is NEVER imported (dead display code — PipelineStages has zero
+  // import sites; it was superseded by the console-stream terminal view).
+  // The loop already tried to refactor it once (2026-11-16) and FAILED
+  // with a COMPILE_ERROR postmortem. Keeping it in scan scope wastes LLM
+  // quota on dead code that has nothing to improve and a history of
+  // breaking the build. The user flagged the "⚠ will re-lock unless
+  // fixed" risk: a dead file with nothing to improve converges to a
+  // deterministic lock (self-model zero-diff after enough no-growth
+  // cycles), and unlocking it is futile. Protecting it removes it from
+  // scan scope — it can't lock, can't waste quota, can't re-lock.
+  "src/components/pipeline/pipeline-stages.tsx", // unused display component (dead code)
   // The database client — a mutation here could break every db.* call
   // site at once, including the postmortem and lesson stores.
   "src/lib/db.ts",

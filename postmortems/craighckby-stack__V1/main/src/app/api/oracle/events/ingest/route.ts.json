@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "src/app/api/oracle/events/ingest/route.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "ZERO_DIFF_SATURATION",
+  "symptom": "0-diff saturation: no semantic change produced",
+  "evidence": "Halt reason: ZERO_DIFF_SATURATION",
+  "constraints": "The last attempt produced no semantic change (0-diff saturation). Make a real, meaningful refactor this time.\nAdd type annotations, extract constants, modularize — but preserve all public symbols.",
+  "attempts": 1,
+  "parentHash": "f0bde8e62c8bff1e73bbb092360503beafea2d86ae5f714981b4dd5fe325fe0f",
+  "hash": "95093911b37be182e7b8b95358a6b10ebcbd4672c91c6cc9dc23b3389d0fffce",
+  "lastAttemptAt": "2026-11-17T03:17:47.435Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-17T03:17:47.436Z",
+  "updatedAt": "2026-11-17T03:17:47.436Z",
+  "schema": 2
+}

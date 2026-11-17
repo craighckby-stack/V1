@@ -70,6 +70,30 @@ export const TARGET_FILES: string[] = [];
  *  the debate LLM call. This scope change removes the temptation at
  *  the source.
  *
+ *  v5 (operator-directed, 2026-11-17): RE-EXPANDED to include
+ *  `src/components/pipeline` (the LOOP display panels — oracle,
+ *  self-model, defense, branches, merge-back, gemini, nvidia, etc.).
+ *  The v4 rollback was justified by quota churn; the v5 re-expansion is
+ *  justified by TWO new friction layers that did not exist at v4:
+ *    1. The operator-PIN gate on the saturation [unlock] buttons (see
+ *       README "Why it can't go rogue → The unlock PIN"). A careless
+ *       user can no longer mash [unlock] on every locked display panel
+ *       to re-open the churn — each re-unlock now requires the
+ *       read-the-manual PIN. This was the v4 hazard (converged files
+ *       kept getting re-unlocked); the PIN closes it.
+ *    2. The convergent-move guard (mutation-guard.ts detectConvergentMove)
+ *       now rejects the exact "Added input validation for <prop>"
+ *       defensive no-ops that made v3 churn 88% waste — at the guard
+ *       layer, before the debate LLM call.
+ *  `src/components/ui` (the 69 vendored shadcn primitives) STAYS
+ *  EXCLUDED — the loop has no business polishing vendored third-party
+ *  code. Only the LOOP-authored display panels under
+ *  `src/components/pipeline` are re-added. The two control-surface
+ *  components inside that subtree (api-unlock.tsx — the auth-prompt UI
+ *  half of the middleware gate; boot-splash.tsx — the click-intercept
+ *  entry ceremony) are listed individually in PROTECTED_FILES so the
+ *  loop still can't touch its own auth UI or its own boot entry.
+ *
  *  Everything the system IS now lives inside its own reach: the loop
  *  can enhance the routes that serve it, the display that renders it,
  *  and the pipeline logic that drives it. It can no longer touch
@@ -77,6 +101,14 @@ export const TARGET_FILES: string[] = [];
 export const SCAN_SCOPES: Array<{ dir: string; extensions: string[] }> = [
   { dir: "src/lib/pipeline", extensions: [".ts"] },
   { dir: "src/app", extensions: [".ts", ".tsx"] },
+  // v5 (2026-11-17): LOOP-authored display panels re-added. The 69
+  // vendored shadcn primitives in src/components/ui stay excluded
+  // (third-party code). Control-surface components inside this subtree
+  // (api-unlock.tsx, boot-splash.tsx) are protected individually in
+  // PROTECTED_FILES. The operator-PIN gate on [unlock] + the
+  // convergent-move guard are the two friction layers that make this
+  // safe to re-expand (see the v5 note above).
+  { dir: "src/components/pipeline", extensions: [".tsx"] },
 ];
 
 /** The Prisma schema — handled as a special single-file scope. Not a
@@ -174,4 +206,26 @@ export function classifyGrowth(reason: string): GrowthClassification {
   if (reason.startsWith("Skipped (file too small")) return "no-growth";
   // Unknown — be conservative (don't count either way)
   return "neutral";
+}
+
+/** Is this no-growth reason a DETERMINISTIC skip — one that will produce the
+ *  SAME outcome every cycle because the underlying condition (file size,
+ *  self-model verdict) does not change between cycles? Such locks re-lock
+ *  within SATURATION_THRESHOLD cycles of an unlock unless the operator
+ *  changes the underlying condition (shrinks the file, raises the size
+ *  limit, retrains the self-model). The UI uses this to warn the user that
+ *  clicking [unlock] on these files won't stick — it's not a broken button,
+ *  it's a condition that the unlock alone can't fix.
+ *
+ *  Contrast with non-deterministic no-growth ("No issues found", "Rejected",
+ *  "Skipped (only cosmetic"): those reflect the LLM's current verdict on
+ *  the file, which CAN change pass-to-pass as the landscape evolves, so an
+ *  unlock there is a genuine fresh attempt. */
+export function isDeterministicSkipReason(reason: string | null): boolean {
+  if (!reason) return false;
+  return (
+    reason.startsWith("Skipped (file too large") ||
+    reason.startsWith("Skipped (file too small") ||
+    reason.startsWith("Skipped (self-model predicts zero-diff")
+  );
 }

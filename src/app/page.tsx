@@ -60,6 +60,14 @@ interface SelfEnhanceStatus {
   currentFile: string | null;
   saturation?: SaturationMap;
   llmGate?: LlmGate;
+  /** Operator master-unlock flag (secret master PIN — NOT in the README).
+   *  While true, the saturation [unlock] buttons skip the per-file PIN
+   *  prompt and unlock directly (the operator already proved they know
+   *  the master PIN this session). Resets on worker restart. See the
+   *  /unlock route + self-enhance-loop.ts `masterUnlocked` field comment
+   *  for the full rationale. Optional for backward compat with older
+   *  worker payloads (defaults to false). */
+  masterUnlocked?: boolean;
 }
 
 interface PushTargetInfo {
@@ -811,26 +819,159 @@ export default function Home() {
   }
 
   /** Unlock a saturated file so the loop re-evaluates it next cycle.
-   *  Resets its no-growth counter — a fresh start. The user clicks this
-   *  in the saturation panel when they've reviewed a locked file and
-   *  want the loop to take another pass at it. */
-  async function unlockFile(filePath: string) {
+   *  Resets its no-growth counter — a fresh start.
+   *
+   *  TWO PATHS depending on master-unlock state:
+   *
+   *  - MASTER MODE ACTIVE (`status.masterUnlocked === true`): the click
+   *    unlocks DIRECTLY — no PIN prompt. The operator already proved they
+   *    know the master PIN (4444, a secret — NOT in the README) earlier
+   *    this session, so the per-file friction gate is skipped for the
+   *    rest of the worker process's life. The fetch sends `{ filePath }`
+   *    with NO pin; the worker accepts via its masterUnlocked auto-pass.
+   *    Resets on worker restart (the natural "new session" boundary).
+   *
+   *  - MASTER MODE INACTIVE: the click OPENS THE OPERATOR PIN PROMPT.
+   *    Submitting sends `{ filePath, pin }`. The PIN is the read-the-
+   *    manual friction gate (the operator PIN 691 is documented mid-
+   *    README; the master PIN 4444 is the operator's secret and is NOT
+   *    in the README). If the submitted PIN is the master PIN, the
+   *    worker activates master mode for the session AND unlocks the file
+   *    — the response carries `masterUnlocked: true`, which we surface in
+   *    the console stream so the operator sees the session just switched
+   *    to auto-pass mode.
+   *
+   *  Every outcome (success, wrong PIN, worker refusal, transport error)
+   *  emits honest feedback to the console stream, and ALWAYS refreshes
+   *  status after the attempt — the next 2s poll would catch up, but an
+   *  immediate refresh closes the "I clicked and nothing visibly changed"
+   *  gap. */
+  const [pendingUnlock, setPendingUnlock] = useState<string | null>(null);
+  const [unlockPin, setUnlockPin] = useState("");
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [pinBusy, setPinBusy] = useState(false);
+
+  function openUnlockPrompt(filePath: string) {
+    setPendingUnlock(filePath);
+    setUnlockPin("");
+    setPinError(null);
+  }
+
+  function closeUnlockPrompt() {
+    setPendingUnlock(null);
+    setUnlockPin("");
+    setPinError(null);
+  }
+
+  /** Shared status-refresh after every unlock attempt (success or
+   *  failure). The panel must reflect truth immediately, not on the
+   *  next 2s poll. */
+  async function refreshStatusAfterUnlock() {
+    try {
+      const sres = await fetch("/api/self-enhance/status");
+      if (sres.ok) setStatus(await sres.json());
+    } catch {
+      /* the 2s poll will recover */
+    }
+  }
+
+  /** Direct unlock (master mode active). No PIN, no prompt — the worker
+   *  auto-passes via its masterUnlocked flag. Emits honest feedback for
+   *  every outcome and always refreshes status. */
+  async function unlockFileDirect(filePath: string) {
+    const short = filePath.split("/").pop() ?? filePath;
     try {
       const res = await fetch("/api/self-enhance/unlock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filePath }),
       });
-      const data = await res.json();
+      const data = await res
+        .json()
+        .catch(() => ({ ok: false, error: "non-JSON response" }));
       if (data.ok) {
-        // Refresh status so the panel updates immediately
-        const sres = await fetch("/api/self-enhance/status");
-        if (sres.ok) setStatus(await sres.json());
+        emitOutput([
+          `[LOOP] ${short} unlocked — eligible for next cycle (master)`,
+        ]);
+      } else {
+        const why = data.reason || data.error || "unknown";
+        emitOutput([`[LOOP] ${short} not unlocked — ${why}`]);
       }
-    } catch {
-      /* best-effort — the next poll will catch up */
+    } catch (err) {
+      emitOutput([`[LOOP] ${short} unlock failed — ${(err as Error).message}`]);
+    } finally {
+      await refreshStatusAfterUnlock();
     }
   }
+
+  async function submitUnlockPrompt() {
+    if (!pendingUnlock || pinBusy) return;
+    const pin = unlockPin.trim();
+    if (!pin) return;
+    const short = pendingUnlock.split("/").pop() ?? pendingUnlock;
+    setPinBusy(true);
+    setPinError(null);
+    try {
+      const res = await fetch("/api/self-enhance/unlock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filePath: pendingUnlock, pin }),
+      });
+      const data = await res
+        .json()
+        .catch(() => ({ ok: false, error: "non-JSON response" }));
+      if (res.status === 403) {
+        // Wrong PIN: keep the prompt open (user can retry), show the
+        // error inline + in the console stream. Clear the input.
+        setPinError(
+          'Wrong PIN — the operator PIN is documented mid-README ("Why it can\'t go rogue").'
+        );
+        setUnlockPin("");
+        emitOutput([`[LOOP] ${short} unlock refused — wrong PIN`]);
+        return;
+      }
+      if (data.ok) {
+        // The worker echoes `masterUnlocked: true` when the submitted PIN
+        // was the master PIN (or when master mode was already active and
+        // auto-passed). Surface it so the operator sees the session just
+        // switched to auto-pass mode — the next [unlock] click will skip
+        // the prompt entirely.
+        if (data.masterUnlocked) {
+          emitOutput([
+            `[LOOP] ${short} unlocked — master mode active, PIN prompt skipped for the rest of this session`,
+          ]);
+        } else {
+          emitOutput([`[LOOP] ${short} unlocked — eligible for next cycle`]);
+        }
+      } else {
+        // The worker returns honest reasons ("already unlocked", "file
+        // not tracked by saturation", …). Surface, don't swallow.
+        const why = data.reason || data.error || "unknown";
+        emitOutput([`[LOOP] ${short} not unlocked — ${why}`]);
+      }
+      closeUnlockPrompt();
+    } catch (err) {
+      emitOutput([`[LOOP] ${short} unlock failed — ${(err as Error).message}`]);
+      closeUnlockPrompt();
+    } finally {
+      setPinBusy(false);
+      // ALWAYS refresh — success or failure, the panel must reflect truth.
+      await refreshStatusAfterUnlock();
+    }
+  }
+
+  // Escape cancels the PIN prompt (dismisses until the next click).
+  useEffect(() => {
+    if (!pendingUnlock) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeUnlockPrompt();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [pendingUnlock]);
 
   async function submitConfig() {
     setCfgLoading(true);
@@ -2186,13 +2327,32 @@ export default function Home() {
           eligible files are locked, shows "PASS COMPLETE — review &
           unlock" so the user knows the system has converged. The panel
           is only visible when there's saturation data to show (at least
-          one file has been evaluated). Hidden until first cycle. */}
+          one file has been evaluated). Hidden until first cycle.
+
+          Deterministic-skip locks (file too large / too small / self-model
+          zero-diff) get a ⚠ marker and a tooltip warning that unlocking
+          will re-lock on the next cycle unless the underlying condition
+          changes — these locks reflect a condition (file size, model
+          verdict) that doesn't change between cycles, so a bare unlock
+          is futile. The button stays (operator agency: they may have
+          just shrunk the file) but the warning prevents the "I unlocked
+          it and it locked again — the button is broken" confusion. */}
       {(() => {
         const sat = status?.saturation ?? {};
         const entries = Object.entries(sat);
         if (entries.length === 0) return null;
         const lockedCount = entries.filter(([, s]) => s.lockedOut).length;
         const allLocked = lockedCount === entries.length && lockedCount > 0;
+        // Deterministic-skip reason? (inlined — saturation.ts has server-only
+        // lazy imports we can't pull into this client component).
+        const isDet = (reason: string | null): boolean =>
+          !!reason &&
+          (reason.startsWith("Skipped (file too large") ||
+            reason.startsWith("Skipped (file too small") ||
+            reason.startsWith("Skipped (self-model predicts zero-diff"));
+        const detLocked = entries.filter(
+          ([, s]) => s.lockedOut && isDet(s.lastNoGrowthReason)
+        ).length;
         return (
           <div
             aria-label={
@@ -2216,11 +2376,40 @@ export default function Home() {
             <span style={{ color: allLocked ? WARN_COLOR : DIM_COLOR, fontWeight: "bold" }}>
               {allLocked ? "🎯 PASS COMPLETE" : "SATURATION"}
             </span>
+            {(() => {
+              // Subtle master-mode indicator. When the operator has activated
+              // master-unlock this session (entered the master PIN once), the
+              // SATURATION header shows a tiny "🔑 MASTER" tag so the operator
+              // can see the PIN prompt is being skipped for the rest of the
+              // session. Hidden in normal mode (a casual passer-by sees
+              // nothing different). The master PIN itself is never shown.
+              const master = status?.masterUnlocked === true;
+              if (!master) return null;
+              return (
+                <span
+                  aria-label="Master unlock active — PIN prompt skipped for this session"
+                  title="Master unlock active. You entered the master PIN once this session, so the per-file PIN prompt is skipped until the worker restarts. The master PIN is never displayed."
+                  style={{
+                    color: "#10b981",
+                    fontSize: "10px",
+                    border: "1px solid #10b981",
+                    padding: "1px 5px",
+                    borderRadius: "2px",
+                    letterSpacing: "0.1em",
+                  }}
+                >
+                  🔑 MASTER
+                </span>
+              );
+            })()}
             {entries.map(([path, s]) => {
               const short = path.split("/").pop() ?? path;
+              const det = s.lockedOut && isDet(s.lastNoGrowthReason);
+              const reason = s.lastNoGrowthReason ?? "locked";
               return (
                 <span
                   key={path}
+                  title={s.lockedOut ? `${short} — ${reason}` : undefined}
                   aria-label={`${short}: ${s.lockedOut ? "locked" : `${s.consecutiveNoGrowth}/${3} no-growth`}`}
                   style={{
                     display: "inline-flex",
@@ -2236,23 +2425,62 @@ export default function Home() {
                       ({s.consecutiveNoGrowth}/3)
                     </span>
                   )}
+                  {s.lockedOut && det && (
+                    <span aria-hidden title="Deterministic skip — will re-lock next cycle unless the condition changes" style={{ color: WARN_COLOR, fontSize: "10px" }}>
+                      ⚠
+                    </span>
+                  )}
                   {s.lockedOut && (
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        unlockFile(path);
+                        // Master mode active → unlock directly (no PIN
+                        // prompt). The operator already proved knowledge of
+                        // the master PIN earlier this session. Otherwise →
+                        // open the operator-PIN prompt.
+                        if (status?.masterUnlocked === true) {
+                          unlockFileDirect(path);
+                        } else {
+                          openUnlockPrompt(path);
+                        }
                       }}
-                      aria-label={`Unlock ${short} for the next cycle`}
+                      aria-label={`Unlock ${short} for the next cycle${
+                        status?.masterUnlocked === true
+                          ? " (master mode — no PIN needed this session)"
+                          : " (operator PIN required)"
+                      }`}
+                      title={
+                        (status?.masterUnlocked === true
+                          ? "Master unlock active: clicking unlocks directly (no PIN prompt) for the rest of this session. "
+                          : "") +
+                        (det
+                          ? `Locked: ${reason}. Will re-lock on the next cycle unless the underlying condition changes (e.g. shrink the file below 12000b).`
+                          : `Locked: ${reason}.`) +
+                        (status?.masterUnlocked === true
+                          ? ""
+                          : " Click opens the operator-PIN prompt.")
+                      }
                       style={{
                         ...cfgBtnStyle,
                         padding: "1px 6px",
                         fontSize: "10px",
-                        color: PROMPT_COLOR,
-                        borderColor: PROMPT_COLOR,
+                        color:
+                          status?.masterUnlocked === true
+                            ? "#10b981"
+                            : det
+                              ? WARN_COLOR
+                              : PROMPT_COLOR,
+                        borderColor:
+                          status?.masterUnlocked === true
+                            ? "#10b981"
+                            : det
+                              ? WARN_COLOR
+                              : PROMPT_COLOR,
+                        opacity: det ? 0.85 : 1,
                       }}
                     >
-                      [unlock]
+                      [unlock{status?.masterUnlocked === true ? "*" : ""}]
                     </button>
                   )}
                 </span>
@@ -2260,7 +2488,12 @@ export default function Home() {
             })}
             {allLocked && (
               <span style={{ color: DIM_COLOR, fontSize: "10px" }}>
-                review &amp; unlock to start a new pass
+                review &amp; unlock (operator PIN) to start a new pass
+              </span>
+            )}
+            {detLocked > 0 && !allLocked && (
+              <span style={{ color: WARN_COLOR, fontSize: "10px" }} title="⚠ marks files locked by a deterministic skip (file size / self-model). Unlocking them re-locks on the next cycle unless the condition changes.">
+                ⚠ will re-lock unless fixed
               </span>
             )}
           </div>
@@ -2617,6 +2850,90 @@ export default function Home() {
             inputRef.current?.focus();
           }}
         />
+      )}
+
+      {/* Operator-PIN prompt for the saturation [unlock] buttons. The
+          click NEVER unlocks directly — it opens this BIOS-styled prompt
+          (amber/emerald phosphor on black, matching ApiUnlock). Wrong PIN
+          keeps the prompt open with an inline error; Escape/cancel
+          dismisses until the next click. The PIN is a read-the-manual
+          friction gate (documented mid-README) — it protects quota and
+          convergence from careless unlocking, not the code itself (the
+          gates + protected-files do that). */}
+      {pendingUnlock && (
+        <div
+          role="dialog"
+          aria-label="Operator PIN required to unlock file"
+          className="fixed bottom-4 right-4 z-50 w-[min(380px,92vw)] border border-amber-500/70 bg-black/95 p-4 font-mono text-xs leading-relaxed text-emerald-400 shadow-[0_0_32px_rgba(0,0,0,0.9)]"
+        >
+          <div className="mb-2 border-b border-amber-500/40 pb-1 font-bold tracking-[0.2em] text-amber-400">
+            UNLOCK FILE — OPERATOR PIN
+          </div>
+          <p className="mb-2 break-all text-emerald-300/90">
+            {pendingUnlock}
+          </p>
+          <p className="mb-3 text-emerald-300/70">
+            Unlocking re-exposes this file to mutation next cycle. The PIN
+            is documented mid-README (&quot;Why it can&apos;t go rogue&quot;).
+          </p>
+          {pinError && (
+            <p role="alert" className="mb-2 border border-amber-500/50 px-2 py-1 text-amber-400">
+              {pinError}
+            </p>
+          )}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitUnlockPrompt();
+            }}
+          >
+            <label
+              htmlFor="unlock-pin"
+              className="mb-1 block tracking-widest text-emerald-400"
+            >
+              ENTER PIN
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="unlock-pin"
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={16}
+                value={unlockPin}
+                onChange={(e) => setUnlockPin(e.target.value)}
+                autoFocus
+                placeholder="•••"
+                className="min-w-0 flex-1 border border-emerald-800 bg-black px-2 py-1 font-mono text-emerald-300 caret-emerald-400 outline-none placeholder:text-emerald-900 focus:border-emerald-400"
+              />
+              <button
+                type="submit"
+                disabled={pinBusy || !unlockPin.trim()}
+                className="cursor-pointer border border-amber-500/70 bg-black px-3 py-1 font-mono tracking-widest text-amber-400 hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                UNLOCK
+              </button>
+              <button
+                type="button"
+                onClick={closeUnlockPrompt}
+                className="cursor-pointer border border-emerald-800 bg-black px-3 py-1 font-mono tracking-widest text-emerald-500 hover:bg-emerald-900/30"
+              >
+                CANCEL
+              </button>
+            </div>
+          </form>
+          <p className="mt-3 border-t border-amber-500/30 pt-2 text-[10px] text-amber-500/90">
+            Friction gate against careless unlocks — it protects quota and
+            convergence; the gates + protected-files protect the code.
+          </p>
+          <p className="mt-1 text-[10px] text-emerald-600/80">
+            Entering the master PIN once skips this prompt for the rest of
+            the session — the operator&apos;s own shortcut, kept out of the
+            README on purpose.
+          </p>
+          <p className="mt-1 text-[10px] text-neutral-500">ESC cancels</p>
+        </div>
       )}
 
       {/* API unlock panel — listens for 401s from the patched fetch
