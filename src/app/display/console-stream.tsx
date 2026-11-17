@@ -142,7 +142,8 @@ function parseTs(ts: string | undefined | null): number {
  * two source formats stop visually clashing. Falls back to the raw
  * string when parsing fails (so the line is never blanked).
  */
-function formatTs(ts: string): string {
+function formatTs(ts: string | undefined | null): string {
+  if (!ts) return "";
   const ms = parseTs(ts);
   if (Number.isNaN(ms)) return ts;
   const d = new Date(ms);

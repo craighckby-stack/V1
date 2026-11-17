@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/log-stream.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/autonomous/merge-back.ts(270,3): error TS2739: Type '{ branch: string; branchSha: string; mainSha: string; commitsAhead: number; commitsBehind: number; sourceFilesToChange: { path: string; status: \"deleted\" | \"added\" | \"modified\"; }[]; mainOnlyFiles: string[]; loopMetadataFiles: string[]; loopBranchTypecheck: \"unknown\"; conflictsIfMerged: string[]; }' is missing the following properties from type 'MergeBackPlan': alreadyMerged, mainNewerFiles, divergedFiles",
@@ -12,8 +12,8 @@
   "parentHash": "dd95de1d4103d35cd1aaeba0cb6a6bcb997344406300f0a3b636cc955bfdc5a8",
   "hash": "df8a0205ccf279d5863fe85f76874e198745db4fc14ea819f68c108f71c17b54",
   "lastAttemptAt": "2026-11-17T05:59:45.895Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-17T06:28:14.244Z",
   "createdAt": "2026-11-17T03:09:52.408Z",
-  "updatedAt": "2026-11-17T05:59:45.895Z",
+  "updatedAt": "2026-11-17T06:28:14.244Z",
   "schema": 2
 }
