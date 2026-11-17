@@ -18,6 +18,9 @@ export function HeaderBar() {
     error: "bg-rose-500/15 text-rose-300 border-rose-500/40",
   };
 
+  // Ensure status is a key in statusColor before using it
+  const safeStatus = status in statusColor ? status : "idle";
+
   return (
     <header className="sticky top-0 z-40 backdrop-blur-md bg-slate-950/70 border-b border-slate-800/60">
       <div className="mx-auto max-w-[1600px] px-4 lg:px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
@@ -87,15 +90,15 @@ export function HeaderBar() {
           {/* Loop status */}
           <Badge
             variant="outline"
-            className={cn("text-[10px] uppercase tracking-widest whitespace-nowrap", statusColor[status])}
+            className={cn("text-[10px] uppercase tracking-widest whitespace-nowrap", statusColor[safeStatus])}
           >
             <span
               className={cn(
                 "mr-1 inline-block h-1.5 w-1.5 rounded-full",
-                status === "running" ? "bg-emerald-400 animate-pulse" : "bg-current"
+                safeStatus === "running" ? "bg-emerald-400 animate-pulse" : "bg-current"
               )}
             />
-            loop: {status}
+            loop: {safeStatus}
           </Badge>
 
           {/* WS connection */}
@@ -121,8 +124,8 @@ export function HeaderBar() {
               cycles: <span className="ml-1 font-mono tabular-nums">{stats.totalRuns ?? 0}</span>
             </Badge>
           )}
-        </div>
-      </div>
+        </div >
+      </div >
     </header>
   );
 }

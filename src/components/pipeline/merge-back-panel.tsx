@@ -74,6 +74,18 @@ interface Plan {
   loopMetadataFiles: string[];
   loopBranchTypecheck: "unknown" | "pass" | "fail";
   conflictsIfMerged: string[];
+  /** Direction guard (2026-11-17): true when the branch tip is an
+   *  ancestor of main — already fully merged, nothing to catch up, and
+   *  executing would REGRESS main's newer files (disabled). Optional for
+   *  backward compat with older plan payloads. */
+  alreadyMerged?: boolean;
+  /** when alreadyMerged: src files that differ only because MAIN is
+   *  newer (shown for transparency, never staged). */
+  mainNewerFiles?: PlanFile[];
+  /** when the branch genuinely forked: "modified" files BOTH sides
+   *  changed since the fork point — skipped by execute (need manual
+   *  review, not automatic theirs). */
+  divergedFiles?: string[];
 }
 
 interface ExecResult {
@@ -86,6 +98,10 @@ interface ExecResult {
   typecheckPassed: boolean;
   pushed?: boolean;
   error?: string;
+  skippedProtected?: string[];
+  /** src files skipped because main also changed them since the branch
+   *  forked (fast-forward-only merge-back). */
+  skippedDiverged?: string[];
 }
 
 interface Props {
@@ -316,6 +332,43 @@ export function MergeBackPanel({ open, onClose }: Props) {
               {" — main ("}
               <span style={{ color: PROMPT_COLOR }}>{plan.mainSha}</span>):
             </div>
+
+            {/* Direction guard banner (2026-11-17): the branch tip is an
+                ancestor of main — already fully merged. Show it loudly
+                instead of advertising the main-newer diffs as catch-up
+                work (the pre-fix plan made loop-996 look like "26 files
+                to change" when all 26 were main's NEWER versions). The
+                EXECUTE buttons are disabled automatically because
+                sourceFilesToChange is empty for this topology. */}
+            {plan.alreadyMerged && (
+              <div
+                role="status"
+                aria-label="Branch already fully merged into main — nothing to catch up, execute disabled"
+                style={{
+                  border: `1px solid ${OK_COLOR}`,
+                  background: "rgba(16,185,129,0.06)",
+                  padding: "8px 10px",
+                  marginBottom: "10px",
+                  color: OK_COLOR,
+                  fontSize: "0.88em",
+                  lineHeight: 1.6,
+                }}
+              >
+                <span style={{ fontWeight: "bold", letterSpacing: "0.08em" }}>
+                  ✓ ALREADY MERGED
+                </span>{" "}
+                — this branch&apos;s tip is an ancestor of main: main already
+                contains everything it has (main is{" "}
+                {plan.commitsBehind} commit(s) ahead). Nothing to catch up —
+                the {(plan.mainNewerFiles ?? []).length} src/ file(s) listed
+                below differ only because <b>main is newer</b>. Executing
+                would copy the branch&apos;s older snapshots over main&apos;s
+                newer files — a regression — so it&apos;s disabled. Pick a
+                branch showing &quot;+N&quot; commits ahead in the list above,
+                or if every branch shows +0, main is fully caught up.
+              </div>
+            )}
+
             <div style={{ color: DIM_COLOR, fontSize: "0.88em", lineHeight: 1.6, marginBottom: "10px" }}>
               <span style={{ color: plan.commitsAhead > 0 ? WARN_COLOR : DIM_COLOR }}>{plan.commitsAhead} loop commits</span>
               {" not in main | "}
@@ -327,6 +380,47 @@ export function MergeBackPanel({ open, onClose }: Props) {
               {" | "}
               {plan.conflictsIfMerged.length} file(s) would conflict in a raw git merge
             </div>
+
+            {/* When already merged: list the main-newer files so the
+                operator can see WHAT differs (transparency — these are
+                never staged). */}
+            {plan.alreadyMerged && (plan.mainNewerFiles ?? []).length > 0 && (
+              <div
+                style={{
+                  maxHeight: "140px",
+                  overflowY: "auto",
+                  border: `1px solid ${DIM_COLOR}`,
+                  padding: "6px 8px",
+                  fontSize: "0.85em",
+                  marginBottom: "10px",
+                }}
+              >
+                {(plan.mainNewerFiles ?? []).slice(0, 100).map((f) => (
+                  <div key={f.path} style={{ color: DIM_COLOR, lineHeight: 1.5, wordBreak: "break-word" }}>
+                    <span style={{ color: OK_COLOR, marginRight: "6px" }}>main▸</span>
+                    {f.path}
+                  </div>
+                ))}
+                {(plan.mainNewerFiles ?? []).length > 100 && (
+                  <div style={{ color: DIM_COLOR, marginTop: "4px" }}>
+                    ... and {(plan.mainNewerFiles ?? []).length - 100} more
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Diverged files (forked branches): skipped by execute —
+                both sides changed them since the fork point. */}
+            {!plan.alreadyMerged && (plan.divergedFiles ?? []).length > 0 && (
+              <div style={{ color: WARN_COLOR, fontSize: "0.82em", marginBottom: "10px", lineHeight: 1.6 }}>
+                ⚠ {(plan.divergedFiles ?? []).length} file(s) will be{" "}
+                <b>skipped</b> — main changed them since this branch forked
+                (staging the branch&apos;s version would clobber main&apos;s
+                independent changes; they need manual review, not automatic
+                theirs): {(plan.divergedFiles ?? []).slice(0, 5).join(", ")}
+                {(plan.divergedFiles ?? []).length > 5 ? ", …" : ""}
+              </div>
+            )}
 
             {plan.sourceFilesToChange.length > 0 && (
               <div
@@ -420,6 +514,21 @@ export function MergeBackPanel({ open, onClose }: Props) {
                 {result.error && (
                   <div style={{ color: result.ok ? WARN_COLOR : ERROR_COLOR, marginTop: "4px" }}>
                     {result.error}
+                  </div>
+                )}
+                {(result.skippedDiverged ?? []).length > 0 && (
+                  <div style={{ color: WARN_COLOR, marginTop: "4px" }}>
+                    ⚠ {(result.skippedDiverged ?? []).length} diverged file(s)
+                    skipped — main changed them since this branch forked
+                    (manual review needed):{" "}
+                    {(result.skippedDiverged ?? []).slice(0, 5).join(", ")}
+                    {(result.skippedDiverged ?? []).length > 5 ? ", …" : ""}
+                  </div>
+                )}
+                {(result.skippedProtected ?? []).length > 0 && (
+                  <div style={{ color: OK_COLOR, marginTop: "4px" }}>
+                    🔒 {(result.skippedProtected ?? []).length} protected
+                    file(s) skipped — the protection list held.
                   </div>
                 )}
                 {result.committed && (
