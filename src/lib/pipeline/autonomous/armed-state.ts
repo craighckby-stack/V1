@@ -60,11 +60,6 @@ export interface ArmedState {
  *  never fail a start/stop that already succeeded in memory (the in-memory
  *  flag remains the live source; the disk file is the restart tier). */
 export function markArmed(armed: boolean, by: string): void {
-  if (!PROJECT_ROOT) {
-    console.error("markArmed: PROJECT_ROOT is not defined, cannot persist armed state.");
-    return;
-  }
-  
   // Validate input before attempting I/O
   if (typeof armed !== "boolean") {
     console.error("markArmed: 'armed' parameter must be a boolean.");
@@ -77,12 +72,8 @@ export function markArmed(armed: boolean, by: string): void {
   }
   
   try {
-    // Ensure directory exists first to avoid race condition
-    const infoDir = join(PROJECT_ROOT, ".git/info");
-    // Use recursive mkdirSync which handles existence check internally
-    mkdirSync(infoDir, { recursive: true });
-    
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
+    // Rely on atomicWriteFileSync to handle directory creation or fail gracefully
     atomicWriteFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2));
   } catch (error) {
     // Log the error for debugging but don't throw to maintain the contract
@@ -130,10 +121,9 @@ export function readArmedState(): ArmedState | null {
         typeof state.at !== "string" || 
         typeof state.by !== "string" ||
         state.by.trim() === "" ||
-        state.at.length === 0 || 
-        isNaN(Date.parse(state.at))) {
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(state.at)) {
       
-      console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure.`);
+      console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure (e.g., invalid ISO timestamp).`);
       return null;
     }
     
