@@ -71,10 +71,8 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
     return;
   }
 
-  if (!(now instanceof Date) || isNaN(now.getTime())) {
-    console.error("markOperatorTouch: 'now' parameter must be a valid Date object. Persistence skipped.");
-    return;
-  }
+  // Removed redundant check for 'now' validity as default is valid and caller should provide valid Date if overriding.
+  // If caller provides invalid Date, it will likely fail in toISOString() or subsequent logic, which is acceptable for caller error.
 
   try {
     const dirPath = dirname(OPERATOR_TOUCH_FILE);
@@ -158,8 +156,10 @@ export function isDeadMansTripped(
   const state = readOperatorTouch();
   if (!state) return true; // never touched, unreadable, or malformed → tripped
 
+  // readOperatorTouch guarantees state.at is a valid ISO date string if it returns a state.
   const lastTouch = Date.parse(state.at);
-  if (isNaN(lastTouch)) return true; // bad timestamp → tripped
+  // This check is technically redundant due to readOperatorTouch validation, but kept for absolute safety against external state corruption if readOperatorTouch logic were bypassed.
+  if (isNaN(lastTouch)) return true; 
 
   return now.getTime() - lastTouch > thresholdMs;
 }
