@@ -113,7 +113,7 @@ function ensureKey(): Buffer | null {
     if (!warnedKeyMissing) {
       warnedKeyMissing = true;
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[TOKEN-VAULT] error accessing key file at ${KEY_FILE}: ${errorMessage}`);
+      console.error(`[TOKEN-VAULT] critical error accessing key file at ${KEY_FILE}: ${errorMessage}`);
     }
     return null;
   }
@@ -176,7 +176,7 @@ export function openToken(stored: string): string {
       iv = Buffer.from(parts[0], "base64url");
       tag = Buffer.from(parts[1], "base64url");
       ct = Buffer.from(parts[2], "base64url");
-    } catch {
+    } catch (e) {
       // Invalid base64url encoding
       return "";
     }
