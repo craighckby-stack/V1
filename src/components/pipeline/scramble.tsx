@@ -17,8 +17,9 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
   const [out, setOut] = useState(text);
   useEffect(() => {
     if (!start || text.length === 0) return;
+    
+    // Input validation: ms must be positive for animation timing
     if (ms <= 0) {
-      // If ms is non-positive, resolve immediately or skip animation
       setOut(text);
       return;
     }
@@ -31,17 +32,21 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
       const p = Math.min(1, (now - t0) / ms);
       const solved = Math.floor(p * total);
 
+      // Build the solved prefix
       let s = text.slice(0, solved);
       
-      // Build the scrambled tail efficiently
+      // Build the scrambled tail efficiently using an array join
+      const scrambledTailChars: string[] = [];
       for (let i = solved; i < total; i++) {
         const ch = text[i];
         if (ch === "\n" || ch === " ") {
-          s += ch;
+          scrambledTailChars.push(ch);
         } else {
-          s += GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
+          scrambledTailChars.push(GLYPHS[Math.floor(Math.random() * GLYPHS.length)]);
         }
       }
+      
+      s += scrambledTailChars.join('');
       
       setOut(s);
       
