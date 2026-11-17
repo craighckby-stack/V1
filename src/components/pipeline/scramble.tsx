@@ -21,7 +21,11 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
   }
 
   useEffect(() => {
-    if (!start) return;
+    if (!start) {
+      // Reset state to final text when start is false, ensuring correct initial state on re-render
+      setOut(text);
+      return;
+    }
     
     // Input validation: ms must be positive for animation timing
     if (ms <= 0) {
@@ -31,7 +35,7 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
 
     const total = text.length;
     const t0 = performance.now();
-    let raf = 0;
+    let raf: number = 0;
 
     const tick = (now: number) => {
       const p = Math.min(1, (now - t0) / ms);
@@ -40,16 +44,19 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
       // Build the solved prefix
       const solvedPrefix = text.slice(0, solved);
       
-      // Build the scrambled tail efficiently
-      const scrambledTailChars = Array.from({ length: total - solved }, (_, i) => {
+      // Build the scrambled tail efficiently by direct string construction
+      let scrambledTail = '';
+      for (let i = 0; i < total - solved; i++) {
         const index = solved + i;
         const ch = text[index];
-        return (ch === "\n" || ch === " ") 
-          ? ch 
-          : GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
-      });
+        if (ch === "\n" || ch === " ") {
+          scrambledTail += ch;
+        } else {
+          scrambledTail += GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
+        }
+      }
       
-      setOut(solvedPrefix + scrambledTailChars.join(''));
+      setOut(solvedPrefix + scrambledTail);
       
       if (p < 1) {
         raf = requestAnimationFrame(tick);
