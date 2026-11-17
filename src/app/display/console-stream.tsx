@@ -168,6 +168,21 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
   const result: ConsoleLine[] = [];
   let logRun: ConsoleLine[] = [];
 
+  const processLogRun = (run: ConsoleLine[]) => {
+    if (run.length === 0) return;
+    // Stable sort: key = parsed epoch (NaN → -∞ so unparseable log
+    // lines sink to the bottom of their run, preserving arrival order
+    // among themselves via the index tiebreak).
+    const keyed = run.map((l, i) => ({ l, k: l.ts ? parseTs(l.ts) : NaN, i }));
+    keyed.sort((a, b) => {
+      const ka = Number.isNaN(a.k) ? -Infinity : a.k;
+      const kb = Number.isNaN(b.k) ? -Infinity : b.k;
+      if (ka !== kb) return ka - kb;
+      return a.i - b.i;
+    });
+    keyed.forEach(x => result.push(x.l));
+  };
+
   for (const l of lines) {
     // Input validation is handled by the caller/type system, but we must
     // ensure we don't crash on malformed data if the contract is violated.
@@ -177,35 +192,14 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
       logRun.push(l);
     } else {
       // Process accumulated log run before pushing the anchor line
-      if (logRun.length > 0) {
-        // Stable sort: key = parsed epoch (NaN → -∞ so unparseable log
-        // lines sink to the bottom of their run, preserving arrival order
-        // among themselves via the index tiebreak).
-        const keyed = logRun.map((l, i) => ({ l, k: l.ts ? parseTs(l.ts) : NaN, i }));
-        keyed.sort((a, b) => {
-          const ka = Number.isNaN(a.k) ? -Infinity : a.k;
-          const kb = Number.isNaN(b.k) ? -Infinity : b.k;
-          if (ka !== kb) return ka - kb;
-          return a.i - b.i;
-        });
-        
-        keyed.forEach(x => result.push(x.l));
-        logRun = [];
-      }
+      processLogRun(logRun);
+      logRun = [];
       result.push(l);
     }
   }
   // Process any remaining log run at the end
-  if (logRun.length > 0) {
-    const keyed = logRun.map((l, i) => ({ l, k: l.ts ? parseTs(l.ts) : NaN, i }));
-    keyed.sort((a, b) => {
-      const ka = Number.isNaN(a.k) ? -Infinity : a.k;
-      const kb = Number.isNaN(b.k) ? -Infinity : b.k;
-      if (ka !== kb) return ka - kb;
-      return a.i - b.i;
-    });
-    keyed.forEach(x => result.push(x.l));
-  }
+  processLogRun(logRun);
+  
   return result;
 }
 
