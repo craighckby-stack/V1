@@ -61,17 +61,13 @@ export function DebateChamber() {
   }
 
   const consensusPct = Math.round(
-    typeof verdict.consensusCoefficient === 'number' && !isNaN(verdict.consensusCoefficient) 
-      ? verdict.consensusCoefficient * 100 
-      : 0
+    (verdict.consensusCoefficient ?? 0) * 100
   );
   const frictionPct = Math.round(
-    typeof verdict.cognitiveFriction === 'number' && !isNaN(verdict.cognitiveFriction)
-      ? verdict.cognitiveFriction * 100
-      : 0
+    (verdict.cognitiveFriction ?? 0) * 100
   );
 
-  const consensusStatus = verdict.consensus;
+  const consensusStatus = verdict.consensus as string | undefined;
 
   return (
     <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur transition-shadow hover:shadow-lg">
@@ -126,7 +122,7 @@ export function DebateChamber() {
       <CardContent>
         <div className="space-y-4">
           <AnimatePresence>
-            {verdict.arguments && verdict.arguments.length > 0 ? (
+            {verdict.arguments?.length > 0 ? (
               verdict.arguments.map((arg, idx) => (
                 <motion.div
                   key={`${arg.speaker}-${idx}`}
@@ -155,7 +151,7 @@ export function DebateChamber() {
                     </span>
                   </div>
                   <p className="text-sm text-slate-200 leading-relaxed">{arg.statement}</p>
-                  {arg.citations && arg.citations.length > 0 && (
+                  {arg.citations?.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1">
                       {arg.citations.map((c) => (
                         <span
@@ -182,7 +178,7 @@ export function DebateChamber() {
             <div className="flex-1 min-w-0">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Security Findings</div>
               <ul className="text-sm text-slate-300 space-y-1 mt-1 list-disc list-inside">
-                {verdict.securityPoints && verdict.securityPoints.length > 0 ? (
+                {verdict.securityPoints?.length > 0 ? (
                   verdict.securityPoints.map((p, i) => (
                     <li key={i} className="pl-1">{p}</li>
                   ))
@@ -197,7 +193,7 @@ export function DebateChamber() {
             <div className="flex-1 min-w-0">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Architecture Findings</div>
               <ul className="text-sm text-slate-300 space-y-1 mt-1 list-disc list-inside">
-                {verdict.architecturePoints && verdict.architecturePoints.length > 0 ? (
+                {verdict.architecturePoints?.length > 0 ? (
                   verdict.architecturePoints.map((p, i) => (
                     <li key={i} className="pl-1">{p}</li>
                   ))
