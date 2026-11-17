@@ -315,7 +315,7 @@ export function analyzeMergeBack(branchName: string): MergeBackPlan | null {
   // differing files listed for transparency in mainNewerFiles.
   const alreadyMerged = branchIsAncestorOfMain(ref);
   const mainNewerFiles: MergeBackPlan["mainNewerFiles"] = [];
-  let divergedFiles: string[] = [];
+  const divergedFiles: string[] = [];
   if (alreadyMerged) {
     for (const f of sourceFilesToChange.splice(0)) {
       mainNewerFiles.push(f);

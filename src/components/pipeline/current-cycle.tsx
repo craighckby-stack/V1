@@ -50,6 +50,11 @@ export function CurrentCycle() {
     return "bg-rose-500/15 text-rose-300 border-rose-500/40";
   };
 
+  const fileResults = cycle.fileResults || [];
+  const totalFiles = fileResults.length;
+  const pushedFiles = fileResults.filter((r) => r.pushed).length;
+  const firstProofHash = totalFiles > 0 ? fileResults[0]?.proofHash : undefined;
+
   return (
     <Card
       className={cn(
@@ -95,12 +100,12 @@ export function CurrentCycle() {
           >
             {status}
           </Badge>
-        </div>
+        </div >
         <div className="text-xs text-slate-500 font-mono mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-800/60 pt-3">
           <span className="inline-flex items-center gap-1">
             <GitBranch className="h-3 w-3 text-slate-500" aria-hidden="true" />
             {cycle.targetRepo}:{cycle.branch}
-          </span>
+          </span >
           <span aria-label={`Started at ${cycle.startedAt ? new Date(cycle.startedAt).toLocaleTimeString() : 'unknown time'}`}>
             started: {cycle.startedAt ? new Date(cycle.startedAt).toLocaleTimeString() : 'unknown'}
           </span>
@@ -110,15 +115,15 @@ export function CurrentCycle() {
           <span aria-label={`Committed ${cycle.filesCommitted || 0} files`}>
             committed: {cycle.filesCommitted || 0}
           </span>
-        </div>
+        </div >
       </CardHeader>
       <CardContent>
-        {(!cycle.fileResults || cycle.fileResults.length === 0) ? (
+        {totalFiles === 0 ? (
           <p className="text-sm text-slate-500 italic">No file results yet…</p>
         ) : (
           <div className="space-y-2 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
             <AnimatePresence initial={false}>
-              {cycle.fileResults.map((r, idx) => (
+              {fileResults.map((r, idx) => (
                 <motion.div
                   key={`${r.path}-${idx}`}
                   initial={{ opacity: 0, y: 10 }}
@@ -143,7 +148,7 @@ export function CurrentCycle() {
                   >
                     {getConsensusDisplay(r.consensus)}
                   </span>
-                  <span className="text-xs font-mono text-slate-500 shrink-0 hidden md-block">{r.proofHash}</span>
+                  <span className="text-xs font-mono text-slate-500 shrink-0 hidden md:block">{r.proofHash}</span>
                   <span className="shrink-0" aria-hidden="true">
                     {r.pushed ? (
                       <Check className="h-3.5 w-3.5 text-emerald-400" />
@@ -159,12 +164,10 @@ export function CurrentCycle() {
         <div className="flex items-center gap-3 pt-4 mt-3 border-t border-slate-800/60 text-xs text-slate-500">
           <Cpu className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
           <span className="text-sm">
-            {cycle.fileResults?.length || 0} file(s) processed · {cycle.fileResults?.filter(r => r.pushed).length || 0} pushed
-            · proof {cycle.fileResults && cycle.fileResults.length > 0 && cycle.fileResults[0]?.proofHash 
-              ? cycle.fileResults[0].proofHash.substring(0, 8) + '...' 
-              : "—"}
+            {totalFiles} file(s) processed · {pushedFiles} pushed
+            · proof {firstProofHash ? firstProofHash.substring(0, 8) + '...' : "—"}
           </span>
-        </div>
+        </div >
       </CardContent>
     </Card>
   );
