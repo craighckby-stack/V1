@@ -96,7 +96,7 @@ function ensureKey(): Buffer | null {
       if (tmpCreated && existsSync(tmp)) {
         try {
           unlinkSync(tmp);
-        } catch {
+        } catch (e) {
           // Ignore cleanup failures
         }
       }
