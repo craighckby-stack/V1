@@ -112,14 +112,14 @@ export async function oracleSchedulerTick(): Promise<{
     return { ran: false, reason: "failed to list due prophecies" };
   }
 
+  // Update tick time regardless of whether prophecies were found, as the tick ran.
+  s.lastTickAt = Date.now();
+  s.ticks += 1;
+
   if (due.length === 0) {
-    s.lastTickAt = Date.now(); // Update tick time even if nothing to judge
-    s.ticks += 1;
     return { ran: true, judged: 0, skipped: 0 };
   }
 
-  s.lastTickAt = Date.now(); // Update tick time
-  s.ticks += 1;
   s.running = true;
 
   try {
