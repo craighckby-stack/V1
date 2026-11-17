@@ -195,23 +195,12 @@ export function readOracleEvents(afterSeq?: number): {
     }
 
     const bufferLength = s.buffer.length;
-
-    if (bufferLength === 0) {
-        // Should not happen if afterSeq < currentSeq, but guard against state inconsistency.
-        s.lastReadAt = Date.now();
-        return { events: [], seq: currentSeq };
-    }
-
-    // Calculate the expected sequence of the first element (index 0) in the buffer.
-    // If the buffer is full (length=MAX_EVENTS), the oldest event sequence is currentSeq - MAX_EVENTS.
-    // If the buffer is not full, the oldest event sequence is currentSeq - bufferLength + 1.
-    // A simpler, robust calculation for the sequence at index i is: currentSeq - bufferLength + i
     
+    // Iterate through the buffer to find the first event whose sequence > afterSeq.
+    // The sequence of the event at index i is: currentSeq - bufferLength + i
     let startIndex = -1;
 
-    // Iterate through the buffer to find the first event whose sequence > afterSeq.
     for (let i = 0; i < bufferLength; i++) {
-        // The sequence of the event at index i is: currentSeq - bufferLength + i
         const eventSeq = currentSeq - bufferLength + i;
         if (eventSeq > afterSeq) {
             startIndex = i;
