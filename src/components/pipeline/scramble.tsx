@@ -15,8 +15,13 @@ const GLYPHS = "█▓▒░■<>/\\|=+*#%";
  *  only once `start` flips true, inside the rAF callback. */
 export function Scramble({ text, start, ms, className }: { text: string; start: boolean; ms: number; className?: string }) {
   const [out, setOut] = useState(text);
+
+  if (text.length === 0) {
+    return <span className={className}>{text}</span>;
+  }
+
   useEffect(() => {
-    if (!start || text.length === 0) return;
+    if (!start) return;
     
     // Input validation: ms must be positive for animation timing
     if (ms <= 0) {
@@ -33,22 +38,18 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
       const solved = Math.floor(p * total);
 
       // Build the solved prefix
-      let s = text.slice(0, solved);
+      const solvedPrefix = text.slice(0, solved);
       
-      // Build the scrambled tail efficiently using an array join
-      const scrambledTailChars: string[] = [];
-      for (let i = solved; i < total; i++) {
-        const ch = text[i];
-        if (ch === "\n" || ch === " ") {
-          scrambledTailChars.push(ch);
-        } else {
-          scrambledTailChars.push(GLYPHS[Math.floor(Math.random() * GLYPHS.length)]);
-        }
-      }
+      // Build the scrambled tail efficiently
+      const scrambledTailChars = Array.from({ length: total - solved }, (_, i) => {
+        const index = solved + i;
+        const ch = text[index];
+        return (ch === "\n" || ch === " ") 
+          ? ch 
+          : GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
+      });
       
-      s += scrambledTailChars.join('');
-      
-      setOut(s);
+      setOut(solvedPrefix + scrambledTailChars.join(''));
       
       if (p < 1) {
         raf = requestAnimationFrame(tick);
@@ -58,5 +59,6 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [start, text, ms]);
+  
   return <span className={className}>{out}</span>;
 }
