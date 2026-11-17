@@ -64,10 +64,8 @@ export async function POST(req: Request) {
       errorMessage = `Debate execution failed: ${err.message}`;
     } else if (typeof err === 'string') {
       errorMessage = `Debate execution failed: ${err}`;
-    } else {
-      // Handle non-Error, non-string types gracefully
-      errorMessage = "Debate execution failed due to an unknown error type.";
     }
+    // If it's neither Error nor string, errorMessage remains the default, which is safe.
     
     // Return a standardized 500 response
     return NextResponse.json(
