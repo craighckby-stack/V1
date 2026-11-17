@@ -40,6 +40,20 @@
  * Aesthetic: amber phosphor CRT (the terminal inside is white-on-black;
  * the amber screen is the machine's "face" before it lets you in).
  * Honors prefers-reduced-motion: everything renders instantly.
+ *
+ * HEIGHT-FIT SCALING (2026-11-18, the "ENTER button clipped on short
+ * viewports" fix): the full cold-boot ceremony — logo + tagline + rule
+ * + 17 POST lines + invite — is ~53em tall at the 13px design size
+ * (~690px). The splash root is overflow:hidden, so on any viewport
+ * shorter than that (a 1280×577 laptop window, phone landscape) the
+ * fixed 13px type pushed the ENTER button below the fold and cut the
+ * logo at the top — the machine asked, but half the button was
+ * invisible. The CRT font-size now scales with viewport height
+ * (clamp(8px, 100vh/54, 13px)) and every size inside is em-based, so
+ * the entire ceremony scales as one block and the button always lands
+ * in frame. Under 430px of height even that can't fit — the root then
+ * switches to flex-start + overflow-y:auto so the button stays
+ * reachable by scroll instead of being clipped out of existence.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -1006,11 +1020,21 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
            [unlock] button) lands on the still-visible exiting splash and is
            swallowed — the user perceives the underlying button as dead. */
         .bsp-root--exiting { pointer-events: none !important; }
-        .bsp-crt { width: 100%; max-width: 980px; padding: 24px 28px; transform-origin: 50% 50%; }
+        /* Fluid height fit: font-size is capped by viewport height (the
+           full ceremony measures ~53em top-to-bottom), and every inner
+           size below is expressed in em so the whole CRT scales as one
+           block. At ≥~700px of height this is byte-for-byte the old
+           13px layout; below it the ceremony shrinks instead of
+           clipping the ENTER button out of frame. */
+        .bsp-crt {
+          width: 100%; max-width: 980px; padding: 1.85em 2.15em;
+          font-size: clamp(8px, calc(100vh / 54), 13px);
+          transform-origin: 50% 50%;
+        }
         .bsp-crt--flash { animation: bsp-on 700ms cubic-bezier(.2,.7,.3,1) both; }
         .bsp-crt--exit  { animation: bsp-off 650ms ease-in both; }
         .bsp-text { text-shadow: 0 0 8px rgba(255,176,0,.35), 0 0 2px rgba(255,176,0,.8); }
-        .bsp-post { min-height: ${(warm ? 1 + SCAN_LINE_COUNT : 8 + SCAN_LINE_COUNT) * 20.15}px; white-space: pre; overflow-x: auto; }
+        .bsp-post { min-height: ${(warm ? 1 + SCAN_LINE_COUNT : 8 + SCAN_LINE_COUNT) * 1.55}em; white-space: pre; overflow-x: auto; }
         .bsp-link { color: #ffd875; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
         .bsp-link:hover { color: #fff; text-shadow: 0 0 8px rgba(255,255,255,.4); }
         .bsp-post::-webkit-scrollbar { height: 6px; }
@@ -1019,20 +1043,20 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         .bsp-dim { color: rgba(255,176,0,.55); }
         .bsp-ok { color: #ffd875; }
         .bsp-wait { color: #ff6a3d; }
-        .bsp-rule { color: rgba(255,176,0,.3); white-space: nowrap; overflow: hidden; margin: 6px 0; }
+        .bsp-rule { color: rgba(255,176,0,.3); white-space: nowrap; overflow: hidden; margin: 0.46em 0; }
         .bsp-logo {
-          margin: 0 auto 10px; font-family: inherit; font-size: clamp(6px, 2.4vw, 15px);
+          margin: 0 auto 0.67em; font-family: inherit; font-size: clamp(0.46em, 2.4vw, 1.15em);
           line-height: 1.06; white-space: pre; overflow: hidden;
           text-shadow: -2px 0 rgba(255,70,0,.5), 2px 0 rgba(255,230,150,.35), 0 0 16px rgba(255,176,0,.45);
         }
         .bsp-jitter { animation: bsp-jitter 3.2s steps(2) infinite; }
-        .bsp-tagline { font-size: clamp(10px, 1.6vw, 14px); letter-spacing: 2px; margin-bottom: 4px; }
-        .bsp-invite { margin-top: 8px; }
-        .bsp-invite-actions { margin-top: 16px; display: flex; justify-content: center; }
+        .bsp-tagline { font-size: clamp(0.77em, 1.6vw, 1.08em); letter-spacing: 2px; margin-bottom: 0.29em; }
+        .bsp-invite { margin-top: 0.62em; }
+        .bsp-invite-actions { margin-top: 1.23em; display: flex; justify-content: center; }
         .bsp-btn {
-          font-family: inherit; font-size: 15px; letter-spacing: 1px;
+          font-family: inherit; font-size: 1.15em; letter-spacing: 1px;
           background: #000; color: #ffb000; border: 1px solid #ffb000;
-          padding: 12px 26px; cursor: pointer;
+          padding: 0.8em 1.73em; cursor: pointer;
           text-shadow: 0 0 10px rgba(255,176,0,.6);
           animation: bsp-pulse 1.4s ease-in-out infinite;
         }
@@ -1094,11 +1118,28 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
           97% { opacity: .02; } 98% { opacity: .04; } 99% { opacity: .02; }
         }
 
+        /* Width tiers keep their old pixel sizes but now also yield to
+           the height budget (phone LANDSCAPE used to clip the ceremony
+           top AND bottom — width fit alone was never enough). */
         @media (max-width: 640px) {
-          .bsp-crt { padding: 10px 8px; font-size: 8px; }
+          .bsp-crt { padding: 1.25em 1em; font-size: min(8px, calc(100vh / 54)); }
         }
         @media (max-width: 360px) {
-          .bsp-crt { padding: 8px 6px; font-size: 7px; }
+          .bsp-crt { padding: 1.14em 0.86em; font-size: min(7px, calc(100vh / 54)); }
+        }
+        /* Tight frame: the bottom-corner ENTER hint sits where the
+           (now near-full-height) invite button renders — drop it, the
+           button is its own affordance. The sr-only heading keeps the
+           keyboard instruction for screen readers. */
+        @media (max-height: 560px) {
+          .bsp-hint { display: none; }
+        }
+        /* Last resort below the 8px font floor's fit (~430px): stop
+           centering (a centered flex child that overflows its container
+           is unreachable by scroll) and let the root scroll instead, so
+           the ENTER button can never be clipped out of existence. */
+        @media (max-height: 430px) {
+          .bsp-root { align-items: flex-start; overflow-y: auto; }
         }
         @media (prefers-reduced-motion: reduce) {
           .bsp-crt--flash, .bsp-crt--exit, .bsp-band, .bsp-flicker,
