@@ -57,40 +57,33 @@ export async function GET(req: Request) {
       );
     }
 
-    // Add null checks for array elements before mapping
-    const safeTopFixes = result.topFixes.filter(e => e != null);
-    const safeTopFailures = result.topFailures.filter(e => e != null);
+    // Helper to map and clean array elements
+    const mapResultArray = (arr: any[]) => 
+      arr.filter(e => e != null).map((e) => ({
+        id: e.id,
+        provenance: e.provenance,
+        trust: e.trust,
+        filePath: e.filePath,
+        content: e.content,
+        diagnosis: e.diagnosis,
+        cleanSnippet: e.cleanSnippet,
+        ruleToAvoid: e.ruleToAvoid,
+        timestamp: e.timestamp,
+      }));
+
+    const safeTopFixes = mapResultArray(result.topFixes);
+    const safeTopFailures = mapResultArray(result.topFailures);
 
     return NextResponse.json({
       query: q,
-      topFixes: safeTopFixes.map((e) => ({
-        id: e.id,
-        provenance: e.provenance,
-        trust: e.trust,
-        filePath: e.filePath,
-        content: e.content,
-        diagnosis: e.diagnosis,
-        cleanSnippet: e.cleanSnippet,
-        ruleToAvoid: e.ruleToAvoid,
-        timestamp: e.timestamp,
-      })),
-      topFailures: safeTopFailures.map((e) => ({
-        id: e.id,
-        provenance: e.provenance,
-        trust: e.trust,
-        filePath: e.filePath,
-        content: e.content,
-        diagnosis: e.diagnosis,
-        cleanSnippet: e.cleanSnippet,
-        ruleToAvoid: e.ruleToAvoid,
-        timestamp: e.timestamp,
-      })),
+      topFixes: safeTopFixes,
+      topFailures: safeTopFailures,
       cognitiveFrictionScore: result.cognitiveFrictionScore,
       epistemicRuling: result.epistemicRuling,
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during memory query.";
-    // Add more context to the error message
+    // Preserve error context in the response while ensuring a clean public API contract
     return NextResponse.json(
       { 
         error: `Memory query failed: ${errorMessage}`,
