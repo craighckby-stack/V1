@@ -42,7 +42,8 @@ export function MemoryBank() {
         }
       } catch (error) {
         // Log the error with context instead of silently ignoring it
-        console.error("Error loading memory entries from API:", error instanceof Error ? error.message : String(error));
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error("Error loading memory entries from API:", errorMessage);
       }
     })();
     return () => {
@@ -61,7 +62,7 @@ export function MemoryBank() {
             <BookOpen className="h-5 w-5 text-emerald-300" aria-hidden="true" />
           </span>
           Memory Bank 
-          <span className="text-xs text-slate-400 font-normal ml-2 hidden sm:inline">(RAG)</span>
+          <span className="text-xs text-slate-400 font-normal ml-2 hidden sm:inline">(RAG)</span >
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
