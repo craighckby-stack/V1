@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/memory/entries/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/api/memory/entries/route.test.ts(16,28): error TS2554: Expected 1 arguments, but got 0.; src/app/api/memory/entries/route.ts(45,49): error TS2554: Expected 0 arguments, but got 1.; src/lib/pipeline/autonomous/goal-engine.ts(105,30): error TS2339: Property 'loopGoal' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.",
@@ -12,8 +12,8 @@
   "parentHash": null,
   "hash": null,
   "lastAttemptAt": "2026-11-16T16:19:08.568Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-17T06:43:54.954Z",
   "createdAt": "2026-11-16T16:19:08.568Z",
-  "updatedAt": "2026-11-16T16:19:08.568Z",
+  "updatedAt": "2026-11-17T06:43:54.954Z",
   "schema": 2
 }
