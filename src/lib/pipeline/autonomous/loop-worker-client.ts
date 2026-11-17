@@ -70,14 +70,12 @@ export async function workerFetch<T = unknown>(
     let data: T | null = null;
 
     // Only attempt JSON parsing if the response status indicates success (2xx)
-    // or if we explicitly want to parse error bodies, but we must handle
-    // parsing errors gracefully without masking HTTP status.
     if (res.ok) {
       try {
         data = (await res.json()) as T;
       } catch (e) {
         // Non-JSON body on success status (shouldn't happen if worker is correct)
-        console.error(`Failed to parse JSON response from ${WORKER_URL}${pathname} (Status: ${res.status})`);
+        console.error(`Failed to parse JSON response from ${WORKER_URL}${pathname} (Status: ${res.status}):`, e);
       }
     }
     // If res.ok is false, data remains null, and the caller uses res.status/res.ok.
@@ -125,28 +123,25 @@ export async function ensureWorkerRunning(): Promise<boolean> {
 
   let spawnSuccessful = false;
   let healthCheckSuccessful = false;
-  try {
-    // Use imported modules directly since we imported them at the top level
-    const { spawn } = await import("child_process");
-    const { openSync } = await import("fs");
-    
-    const workerLogPath = path.join("mini-services", "loop-worker", "worker.log");
-    const workerIndexPath = path.join("mini-services", "loop-worker", "index.ts");
+  let outFd: number | "ignore" = "ignore";
 
-    // Capture the worker's stdout/stderr — its `[SELF-ENHANCE]` narration
-    // is the only durable record of cycle progress now that the loop does
-    // not log into dev.log anymore. Append mode; the detached child
-    // outlives this request, so the fd is opened per spawn.
-    let outFd: number | "ignore" = "ignore";
+  try {
+    // Attempt to open log file first to isolate FS errors
     try {
-      outFd = openSync(
-        workerLogPath,
+      outFd = await import("fs").then(fs => fs.openSync(
+        path.join("mini-services", "loop-worker", "worker.log"),
         "a"
-      );
+      ));
     } catch (error) {
       console.error("Failed to open worker log file:", error);
-      /* fall back to ignore — narration is best-effort */
+      // outFd remains "ignore" if this fails, which is safe.
     }
+
+    // Use imported modules directly since we imported them at the top level
+    const { spawn } = await import("child_process");
+    
+    const workerIndexPath = path.join("mini-services", "loop-worker", "index.ts");
+
     const child = spawn(
       "bun",
       [workerIndexPath],

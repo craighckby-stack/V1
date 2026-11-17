@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/ast-inspector-modal.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 3 → evolved 5), no behavioral signal, 14 changed lines — mutations must change observable behavior, not add guards to code that already works",
@@ -12,8 +12,8 @@
   "parentHash": "ed07114e66330fa289b23292606bae90c3179a1e46492e8af3f7dba5e048cfea",
   "hash": "0ed879b9fb3ca4843b029ff19798ef0c3a5ce18c140392e275374f26fed66ef0",
   "lastAttemptAt": "2026-11-17T11:55:57.324Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-17T12:21:56.081Z",
   "createdAt": "2026-11-17T09:15:41.265Z",
-  "updatedAt": "2026-11-17T11:55:57.324Z",
+  "updatedAt": "2026-11-17T12:21:56.081Z",
   "schema": 2
 }
