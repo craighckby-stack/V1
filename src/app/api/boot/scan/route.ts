@@ -172,7 +172,7 @@ export async function GET() {
     auth = null;
   }
 
-  // Prepare independent async tasks for parallel execution
+  // Prepare all independent async tasks for parallel execution
   const corpusPromise = (async () => {
     try {
       const [attempts, failed, enhanced] = await Promise.all([
@@ -213,7 +213,9 @@ export async function GET() {
     }
   })();
 
-  const scars = diskScarCount(); // Start scar count without awaiting immediately
+  const scarsPromise = (async () => {
+    return await diskScarCount();
+  })();
 
   const hotSwapPromise = (async () => {
     try {
@@ -260,11 +262,11 @@ export async function GET() {
     }
   })();
 
-  // Await all independent tasks in parallel, including diskScarCount
+  // Await all independent tasks in parallel
   const [corpus, passRate, scarsResult, hotSwap, autonomy, zai] = await Promise.all([
     corpusPromise,
     passRatePromise,
-    scars,
+    scarsPromise,
     hotSwapPromise,
     autonomyPromise,
     zaiPromise,
