@@ -68,6 +68,14 @@ export function DebateChamber() {
   );
 
   const consensusStatus = verdict.consensus as string | undefined;
+  
+  // Determine badge classes safely
+  let badgeClasses = "bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/20";
+  if (consensusStatus === "APPROVED") {
+    badgeClasses = "bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/20";
+  } else if (consensusStatus === "CONDITIONAL_APPROVAL") {
+    badgeClasses = "bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/20";
+  }
 
   return (
     <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur transition-shadow hover:shadow-lg">
@@ -82,11 +90,7 @@ export function DebateChamber() {
               variant="outline"
               className={cn(
                 "uppercase text-xs tracking-widest transition-colors duration-150",
-                consensusStatus === "APPROVED"
-                  ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/20"
-                  : consensusStatus === "CONDITIONAL_APPROVAL"
-                  ? "bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/20"
-                  : "bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/20"
+                badgeClasses
               )}
               aria-label={`Consensus status: ${consensusStatus?.replace("_", " ") || "UNKNOWN"}`}
             >
