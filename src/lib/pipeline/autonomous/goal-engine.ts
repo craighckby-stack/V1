@@ -429,10 +429,21 @@ export async function reviewGoalsNow(
   evidence: GoalReviewEvidence,
   log?: (line: string, level?: "info" | "success" | "warn") => void
 ): Promise<GoalReviewOutcome> {
-  lastReviewCycle = evidence.cycle;
-  reviewPending = false;
+  // CADENCE STAMP MOVED (2026-11-17): this used to stamp lastReviewCycle at
+  // ENTRY — a provider outage, a DB throw, or unparseable JSON then counted
+  // as "reviewed", silently skipping the whole GOAL_REVIEW_INTERVAL window
+  // (30 cycles). The stamp now happens only after the review actually ran
+  // (parseable verdict); every failure path sets reviewPending instead, so
+  // the next cycle retries — the same contract the quota gate already
+  // honors for reviews that come due during a 429 window.
 
-  const goals = await getActiveGoals();
+  let goals: Awaited<ReturnType<typeof getActiveGoals>>;
+  try {
+    goals = await getActiveGoals();
+  } catch (e) {
+    reviewPending = true;
+    throw e;
+  }
   const corpus = await recentCorpusDigest();
 
   // PROMPT-INJECTION DEFENSE (2026-11-17): one-line enforcement here too —
@@ -467,13 +478,19 @@ Review the goals against this evidence. Respond as strict JSON per your instruct
     guidedJson: REVIEW_GUIDED_JSON as unknown as Record<string, unknown>,
   });
   if (!res.ok) {
+    reviewPending = true; // retry next cycle — a failed review is not a done review
     return { ran: false, error: `goal review LLM unavailable: ${res.error ?? "unknown"}` };
   }
 
   const parsed = safeJsonParse(res.content);
   if (!parsed || typeof parsed !== "object") {
+    reviewPending = true; // retry next cycle — a failed review is not a done review
     return { ran: false, error: "goal review returned unparseable JSON (no change applied)" };
   }
+
+  // The review RAN — only now commit the cadence stamp and clear pending.
+  lastReviewCycle = evidence.cycle;
+  reviewPending = false;
 
   const commentary = sanitizeText(parsed.commentary, 400);
   const skipped: string[] = [];

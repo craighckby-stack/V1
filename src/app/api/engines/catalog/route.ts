@@ -45,7 +45,8 @@ export async function GET() {
     // Check for required structure: 'patterns' must exist and be an array.
     // SiphonSource types patterns as readonly string[], but SIPHON_SOURCES
     // may be parsed/config data at runtime — validate the shape, not the type.
-    if (!('patterns' in source) || !Array.isArray((source as any).patterns)) {
+    const shape = source as Record<string, unknown>;
+    if (!('patterns' in source) || !Array.isArray(shape.patterns)) {
       invalidSources.push({ index: i, reason: "Source is missing 'patterns' array or 'patterns' is not an array." });
       continue; // Skip invalid entry
     }

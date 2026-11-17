@@ -136,15 +136,32 @@ export interface MergeBackResult {
   skippedProtected?: string[];
 }
 
+/** STRICT branch-name validation (command-injection fix, 2026-11-17).
+ *  Every loop branch is `loop-<digits>` by construction; merge-back
+ *  accepts nothing else. The old code interpolated the raw caller string
+ *  into execSync SHELL strings — `?branch=x;touch /tmp/pwned` executed the
+ *  suffix even though rev-parse failed and the route returned 404
+ *  (side effects already happened; middleware auth fails open without
+ *  LOOP_API_KEY, so the GET surface was reachable by any client).
+ *  Returns the normalized bare branch name, or null for anything that is
+ *  not a loop branch — shell metacharacters cannot survive this regex. */
+function parseLoopBranchName(branchName: string): string | null {
+  const m = /^(?:origin\/)?(loop-\d{1,6})$/.exec(branchName.trim());
+  return m ? m[1] : null;
+}
+
 /** Compute the merge-back plan for a given loop-NN branch vs main.
  *  Read-only: changes nothing on disk. Safe for GET requests. */
 export function analyzeMergeBack(branchName: string): MergeBackPlan | null {
-  // Normalize: accept "loop-198" or "origin/loop-198".
-  const branch = branchName.replace(/^origin\//, "");
+  // Normalize: accept "loop-198" or "origin/loop-198" — STRICTLY. A null
+  // here flows to the route's existing 404 path ("branch not found"),
+  // which is the honest answer for a name that cannot exist.
+  const branch = parseLoopBranchName(branchName);
+  if (!branch) return null;
   const ref = `origin/${branch}`;
 
   try {
-    execSync(`git rev-parse --verify ${ref}`, {
+    execFileSync("git", ["rev-parse", "--verify", ref], {
       cwd: PROJECT_ROOT,
       encoding: "utf-8",
       timeout: 5000,
@@ -154,22 +171,22 @@ export function analyzeMergeBack(branchName: string): MergeBackPlan | null {
     return null;
   }
 
-  const branchSha = execSync(`git rev-parse --short ${ref}`, {
+  const branchSha = execFileSync("git", ["rev-parse", "--short", ref], {
     cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 5000, stdio: "pipe",
   }).trim();
-  const mainSha = execSync("git rev-parse --short main", {
+  const mainSha = execFileSync("git", ["rev-parse", "--short", "main"], {
     cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 5000, stdio: "pipe",
   }).trim();
 
   // Ahead/behind (left-right count: <main-unique> <ref-unique>).
-  const counts = execSync(`git rev-list --left-right --count main...${ref}`, {
+  const counts = execFileSync("git", ["rev-list", "--left-right", "--count", `main...${ref}`], {
     cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 10000, stdio: "pipe",
   }).trim().split(/\s+/);
   const commitsBehind = Number.parseInt(counts[0] ?? "0", 10) || 0;
   const commitsAhead = Number.parseInt(counts[1] ?? "0", 10) || 0;
 
   // Files that differ between main and the loop branch.
-  const diffOutput = execSync(`git diff --name-status main ${ref}`, {
+  const diffOutput = execFileSync("git", ["diff", "--name-status", "main", ref], {
     cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 10000, stdio: "pipe",
   }).trim();
 
@@ -257,12 +274,18 @@ export async function executeMergeBack(
   branchName: string,
   opts: { strategy: "theirs-for-source" | "dry-run"; push?: boolean }
 ): Promise<MergeBackResult> {
-  const branch = branchName.replace(/^origin\//, "");
-  const ref = `origin/${branch}`;
+  // Same strict validation as the plan path — the execute surface was the
+  // worse half of the injection finding (POST {branch} reached the same
+  // interpolated rev-parse and the checkout/refspec commands below).
+  const branch = parseLoopBranchName(branchName);
+  // Refusal reports echo the caller's input (trimmed) so the operator can
+  // see exactly what was rejected; a validated branch echoes itself.
+  const branchDisplay = branch ?? branchName.trim();
+  const ref = branch ? `origin/${branch}` : "";
   const strategy = opts.strategy ?? "dry-run";
 
   const base: Omit<MergeBackResult, "ok" | "error"> = {
-    branch,
+    branch: branchDisplay,
     strategy,
     committed: false,
     filesChanged: 0,
@@ -283,9 +306,14 @@ export async function executeMergeBack(
   // route via the shared lock file.
   return withTreeLock(async () => {
   try {
+    // Reject non-loop names before touching git (the base result still
+    // reports the raw input so the operator sees what was refused).
+    if (!branch) {
+      return { ...base, ok: false, error: "invalid branch name — merge-back only accepts loop-NN branches" };
+    }
     // 0. Verify the ref.
     try {
-      execSync(`git rev-parse --verify ${ref}`, {
+      execFileSync("git", ["rev-parse", "--verify", ref], {
         cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 5000, stdio: "pipe",
       });
     } catch {
@@ -321,8 +349,9 @@ export async function executeMergeBack(
     //    We capture per-file status (A vs M) so the abort path can restore
     //    correctly: M files get `git checkout main -- <f>`; A files (new on
     //    loop, don't exist on main) get `git reset HEAD -- <f>` + `rm <f>`.
-    const diffStatusOutput = execSync(
-      `git diff --name-status --diff-filter=AM main ${ref} -- src/`,
+    const diffStatusOutput = execFileSync(
+      "git",
+      ["diff", "--name-status", "--diff-filter=AM", "main", ref, "--", "src/"],
       { cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 10000, stdio: "pipe" },
     ).trim();
     const fileStatus = new Map<string, "A" | "M">();

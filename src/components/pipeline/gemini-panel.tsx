@@ -94,12 +94,22 @@ export function GeminiPanel({ open, onClose }: Props) {
   const [nowTick, setNowTick] = useState(0);
   const keyRef = useRef<HTMLInputElement>(null);
 
+  // Sync-once gate: the 5s poll must NOT keep resetting `model` while the
+  // operator is choosing — previously every poll snapped the select back
+  // to the server's stored value mid-edit (the typed/picked value was
+  // silently lost before [SAVE]). The server value is read once per open;
+  // after that the local state is the source of truth until SAVE.
+  const syncedModelRef = useRef(false);
+
   const poll = useCallback(async () => {
     try {
       const res = await fetch("/api/self-enhance/llm-config", { cache: "no-store" });
       const data = (await res.json()) as LlmConfigView;
       setCfg(data);
-      if (data.model && MODEL_OPTIONS.includes(data.model)) setModel(data.model);
+      if (!syncedModelRef.current && data.model && MODEL_OPTIONS.includes(data.model)) {
+        syncedModelRef.current = true;
+        setModel(data.model);
+      }
     } catch {
       // Poll failure is non-fatal — keep the last snapshot on screen.
     }
@@ -128,6 +138,8 @@ export function GeminiPanel({ open, onClose }: Props) {
       setMsg(null);
       setKey("");
       setShowKey(false);
+      // Fresh sync each open — the stored model may have changed elsewhere.
+      syncedModelRef.current = false;
     }
   }, [open]);
 
@@ -201,11 +213,24 @@ export function GeminiPanel({ open, onClose }: Props) {
     setLoading(true);
     setMsg(null);
     try {
-      await fetch("/api/self-enhance/llm-config", { method: "DELETE" });
+      // Read the result — a DELETE that failed server-side (DB unavailable,
+      // write error) used to report success while the poll right after
+      // re-rendered STATUS as "configured", contradicting the message on
+      // screen. Fake-success is the exact anti-pattern cripple-check F11
+      // purged elsewhere in this panel set.
+      const res = await fetch("/api/self-enhance/llm-config", { method: "DELETE" });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || data.ok === false) {
+        setMsg({
+          kind: "err",
+          text: `Clear failed — the key is still stored and active. ${data.error ?? `HTTP ${res.status}`}`,
+        });
+        return;
+      }
       setMsg({ kind: "ok", text: "Gemini config cleared — provider chain is Z.AI-only again." });
       void poll();
     } catch (e) {
-      setMsg({ kind: "err", text: (e as Error).message });
+      setMsg({ kind: "err", text: `Clear request failed: ${(e as Error).message} — the key may still be stored.` });
     } finally {
       setLoading(false);
     }

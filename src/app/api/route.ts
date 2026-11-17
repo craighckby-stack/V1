@@ -40,7 +40,7 @@ export async function GET() {
       github: [
         "POST /api/github/{validate-token,repo-tree,fetch-file,commit-file,batch-commit}",
       ],
-      memory: ["GET /api/memory/entries", "POST /api/memory/query"],
+      memory: ["GET /api/memory/entries", "GET /api/memory/query"],
       health: ["GET /api/health"],
     },
   });

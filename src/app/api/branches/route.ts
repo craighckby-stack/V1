@@ -107,42 +107,63 @@ export async function GET(req: Request) {
 
     // Per-commit metadata only when the caller asked for it. The names-only
     // path (splash, counter reconciliation) does ZERO extra GitHub calls.
+    // Bounded fan-out (2026-11-17): the old Promise.all fired one fetch per
+    // loop branch ALL CONCURRENTLY — a fully-populated repo meant ~3000
+    // simultaneous sockets against api.github.com (secondary rate-limit
+    // territory + local socket exhaustion), and none of the fetches had a
+    // timeout, so a stalled connection hung the whole request. Now: pool of
+    // 10 with a 10s per-fetch abort.
     const commitDetails = wantDetails
-      ? await Promise.all(
-          loopMeta.map(async (lm) => {
-            if (!lm.sha) {
-              return { ...lm, message: "(no sha)", date: null, url: "" };
-            }
-            try {
-              const cRes = await fetch(
-                `https://api.github.com/repos/${target.repo}/commits/${lm.sha}`,
-                {
-                  headers: {
-                    Authorization: `Bearer ${target.token}`,
-                    Accept: "application/vnd.github.v3+json",
-                    "User-Agent": "Architecture-Helper-Pipeline",
-                  },
-                }
-              );
-              if (!cRes.ok) {
-                return { ...lm, message: `(fetch failed: ${cRes.status})`, date: null, url: "" };
+      ? await (async () => {
+          const POOL = 10;
+          const out: Array<
+            (typeof loopMeta)[number] & { message: string; date: string | null; url: string }
+          > = new Array(loopMeta.length);
+          let cursor = 0;
+          const worker = async () => {
+            for (;;) {
+              const i = cursor++;
+              const lm = loopMeta[i];
+              if (!lm) return;
+              if (!lm.sha) {
+                out[i] = { ...lm, message: "(no sha)", date: null, url: "" };
+                continue;
               }
-              const cData = (await cRes.json()) as {
-                commit?: { message?: string; author?: { date?: string } };
-                html_url?: string;
-              };
-              const fullMsg = cData.commit?.message ?? "(no message)";
-              return {
-                ...lm,
-                message: fullMsg.split("\n")[0]?.slice(0, 120) ?? "",
-                date: cData.commit?.author?.date ?? null,
-                url: cData.html_url ?? "",
-              };
-            } catch {
-              return { ...lm, message: "(fetch error)", date: null, url: "" };
+              try {
+                const cRes = await fetch(
+                  `https://api.github.com/repos/${target.repo}/commits/${lm.sha}`,
+                  {
+                    headers: {
+                      Authorization: `Bearer ${target.token}`,
+                      Accept: "application/vnd.github.v3+json",
+                      "User-Agent": "Architecture-Helper-Pipeline",
+                    },
+                    signal: AbortSignal.timeout(10_000),
+                  }
+                );
+                if (!cRes.ok) {
+                  out[i] = { ...lm, message: `(fetch failed: ${cRes.status})`, date: null, url: "" };
+                  continue;
+                }
+                const cData = (await cRes.json()) as {
+                  commit?: { message?: string; author?: { date?: string } };
+                  html_url?: string;
+                };
+                const fullMsg = cData.commit?.message ?? "(no message)";
+                out[i] = {
+                  ...lm,
+                  message: fullMsg.split("\n")[0]?.slice(0, 120) ?? "",
+                  date: cData.commit?.author?.date ?? null,
+                  url: cData.html_url ?? "",
+                };
+              } catch {
+                out[i] = { ...lm, message: "(fetch error)", date: null, url: "" };
+              }
             }
-          })
-        )
+          };
+          await Promise.all(Array.from({ length: Math.min(POOL, loopMeta.length) }, worker));
+          return out;
+        })()
       : loopMeta.map((lm) => ({ ...lm, message: "", date: null, url: "" }));
 
     const loopBranches = commitDetails

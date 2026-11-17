@@ -113,13 +113,21 @@ export function NvidiaPanel({ open, onClose }: Props) {
   const [nowTick, setNowTick] = useState(0);
   const keyRef = useRef<HTMLInputElement>(null);
 
+  // Sync-once gate: the 5s poll must NOT keep resetting the free-text model
+  // input while the operator is typing/pasting a new id — previously every
+  // poll overwrote the field with the stored catalog model, silently losing
+  // the in-progress edit before [SAVE]. The server value is read once per
+  // open; after that the local state is the source of truth until SAVE.
+  const syncedModelRef = useRef(false);
+
   const poll = useCallback(async () => {
     try {
       const res = await fetch("/api/self-enhance/llm-config", { cache: "no-store" });
       const data = (await res.json()) as LlmConfigView;
       setCfg(data);
       setNvCfg(data.nvidia ?? null);
-      if (data.nvidia?.model && MODEL_OPTIONS.includes(data.nvidia.model)) {
+      if (!syncedModelRef.current && data.nvidia?.model && MODEL_OPTIONS.includes(data.nvidia.model)) {
+        syncedModelRef.current = true;
         setModel(data.nvidia.model);
       }
     } catch {
@@ -150,6 +158,8 @@ export function NvidiaPanel({ open, onClose }: Props) {
       setMsg(null);
       setKey("");
       setShowKey(false);
+      // Fresh sync each open — the stored model may have changed elsewhere.
+      syncedModelRef.current = false;
     }
   }, [open]);
 
@@ -223,15 +233,26 @@ export function NvidiaPanel({ open, onClose }: Props) {
     setLoading(true);
     setMsg(null);
     try {
-      await fetch("/api/self-enhance/llm-config", {
+      // Read the result — a failed DELETE used to report success while the
+      // poll right after re-rendered STATUS as "configured". Fake-success
+      // is the exact anti-pattern cripple-check F11 purged elsewhere.
+      const res = await fetch("/api/self-enhance/llm-config", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind: "nvidia" }),
       });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || data.ok === false) {
+        setMsg({
+          kind: "err",
+          text: `Clear failed — the key is still stored and active. ${data.error ?? `HTTP ${res.status}`}`,
+        });
+        return;
+      }
       setMsg({ kind: "ok", text: "NVIDIA config cleared — provider chain is Gemini → Z.AI again." });
       void poll();
     } catch (e) {
-      setMsg({ kind: "err", text: (e as Error).message });
+      setMsg({ kind: "err", text: `Clear request failed: ${(e as Error).message} — the key may still be stored.` });
     } finally {
       setLoading(false);
     }

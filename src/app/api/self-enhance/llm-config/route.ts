@@ -258,7 +258,7 @@ async function handleGeminiPost(body: {
   // (so the caller sees WHY the key didn't verify, even though it saved).
   let verifyError: string | null = null;
   try {
-    const url = `${VERIFY_BASE}/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+    const url = `${VERIFY_BASE}/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
     const verify = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

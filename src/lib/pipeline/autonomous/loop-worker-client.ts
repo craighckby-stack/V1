@@ -68,18 +68,21 @@ export async function workerFetch<T = unknown>(
     });
 
     let data: T | null = null;
-    
-    // Attempt to parse JSON only if the response was successful (2xx).
-    if (res.ok) {
-        try {
-          data = await res.json();
-        } catch (e) {
-          // Failed to parse JSON on a successful response. Log the parsing error.
-          console.error(`Failed to parse JSON response from ${WORKER_URL}${pathname} (Status: ${res.status}):`, e);
-          data = null;
-        }
+
+    // Parse JSON regardless of status: the worker's error responses carry
+    // { error } bodies (e.g. a mid-cycle crash on /trigger). Discarding
+    // them used to map a REAL cycle crash to "worker unreachable" — the
+    // exact opposite of the truth — because non-2xx meant data:null.
+    try {
+      data = (await res.json()) as T;
+    } catch {
+      // Non-JSON body (empty response, HTML error page). data stays null;
+      // res.ok still reflects the HTTP status for callers.
+      if (res.ok) {
+        console.error(`Failed to parse JSON response from ${WORKER_URL}${pathname} (Status: ${res.status})`);
+      }
     }
-    
+
     return { ok: res.ok, status: res.status, data };
   } catch (error) {
     // Catch specific network/timeout errors, but still return null as per contract
@@ -99,9 +102,13 @@ export async function workerFetch<T = unknown>(
 /** Health-check the worker; respawn it if down. Returns whether the
  *  worker is reachable when this resolves. Never throws. */
 export async function ensureWorkerRunning(): Promise<boolean> {
-  // Input validation: Ensure WORKER_URL is available before attempting any fetch
-  if (!WORKER_URL || WORKER_URL === "http://localhost:3004") {
-    console.error("WORKER_URL is not configured correctly. Cannot ensure worker is running.");
+  // Only a truly-empty URL is a misconfiguration. An earlier loop mutation
+  // also rejected the DEFAULT URL here (=== "http://localhost:3004"), which
+  // made this function constant-false in every deployment that (correctly)
+  // relies on the default — bricking all control routes with 503s and
+  // permanently disabling the respawn/self-heal path below.
+  if (!WORKER_URL) {
+    console.error("WORKER_URL is not configured. Cannot ensure worker is running.");
     return false;
   }
 

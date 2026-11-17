@@ -2833,6 +2833,11 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
           const cleared = await this.waitForCooldown(myRun);
           if (!cleared) {
             this.log("Stop during cycle-start pause — cycle aborted", "warn");
+            // Drop the selftask stash — the aborted cycle never merged it
+            // into a return, and a leftover stash would re-merge the
+            // PREVIOUS cycle's applied selftask results into the NEXT
+            // cycle's response (double-counted filesEnhanced in the UI).
+            delete (this as unknown as { _selfTaskResults?: SelfEnhanceResult[] })._selfTaskResults;
             return { filesScanned: 0, filesEnhanced: 0, results: [] };
           }
           this.log("LLM cooldown cleared — starting cycle", "success");
@@ -3075,6 +3080,16 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       if (visualPolishResults.length > 0) {
         results.push(...visualPolishResults);
         enhanced += visualPolishResults.filter((r) => r.enhanced).length;
+        // Mirror the main loop's per-file accounting (see the for-loop
+        // below): a visual-polish rejection IS a reverted attempt (the
+        // same gate chain rejected it) and a deferral feeds the
+        // consecutiveCooldownCycles detector. The pass-only merge used to
+        // make the durable stats drift optimistic — vp failures were
+        // invisible in totalReverted and quota detection.
+        for (const r of visualPolishResults) {
+          if (r.reason.startsWith("Rejected")) this.stats.totalReverted++;
+          if (r.reason.startsWith("Deferred")) deferredThisCycle++;
+        }
       }
 
       for (const file of files) {

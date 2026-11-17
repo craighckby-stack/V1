@@ -757,11 +757,19 @@ export default function Home() {
     setCfgStatusMsg(null);
     setCfgLoading(false);
     setCfgRepoPrivate(null);
+    // Whether the target is already configured — captured from THIS call's
+    // fetch, not from the render closure. The old code read `cfgTarget` in
+    // the focus timeout, which is the value from the PREVIOUS open (null on
+    // the first open): an already-configured system got the token field
+    // focused instead of the repo field, the exact case the comment below
+    // promises not to do.
+    let configuredNow = false;
     // Fetch the current target state for the panel
     try {
       const res = await fetch("/api/self-enhance/push-target");
       if (res.ok) {
         const t = (await res.json()) as PushTargetInfo;
+        configuredNow = t.configured;
         setCfgTarget(t);
         if (t.configured && t.repo) setCfgRepo(t.repo);
         // Pull current visibility from GitHub so the button reflects the
@@ -783,7 +791,7 @@ export default function Home() {
     // (the old code had an empty branch here — a comment promising focus
     // that never happened).
     setTimeout(() => {
-      if (cfgTarget?.configured) {
+      if (configuredNow) {
         cfgRepoRef.current?.focus();
       } else {
         cfgTokenRef.current?.focus();

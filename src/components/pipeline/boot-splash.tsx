@@ -604,6 +604,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   useEffect(() => {
     let alreadyBooted = false;
     let forceBoot = false;
+    let disposed = false; // guards async continuations against post-unmount timers
     try {
       alreadyBooted = sessionStorage.getItem("loop-booted") === "1";
       forceBoot = new URLSearchParams(window.location.search).get("boot") === "force";
@@ -642,7 +643,16 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
       );
     } else {
       // Cold boot: wait for CRT warm-up AND vitals (≤1.8s), then POST.
-      Promise.race([vitalsP, new Promise((r) => window.setTimeout(r, 1850))]).then(() => {
+      // Same race as before (vitals OR 1850ms, whichever first — proceed
+      // once), but BOTH arms are now unmount-safe: the timeout is
+      // registered in timers.current so clearTimers cancels it, and the
+      // vitals continuation is guarded by `disposed` + a proceed-once
+      // flag so a late fetch can't re-arm phase timers after unmount
+      // (the old unregistered race timer defeated the cleanup contract).
+      let proceeded = false;
+      const proceed = () => {
+        if (disposed || proceeded) return;
+        proceeded = true;
         later(
           () => {
             setPhase("post");
@@ -658,9 +668,18 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
           },
           reducedRef.current ? 120 : 700
         );
+      };
+      const raceTimer = window.setTimeout(proceed, 1850);
+      timers.current.push(raceTimer);
+      void vitalsP.then(() => {
+        window.clearTimeout(raceTimer);
+        proceed();
       });
     }
-    return clearTimers;
+    return () => {
+      disposed = true;
+      clearTimers();
+    };
   }, [clearTimers, later]);
 
   // POST line stamping — reveal one line per tick while in "post".
