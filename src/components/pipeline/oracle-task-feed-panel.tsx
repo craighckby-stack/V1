@@ -36,6 +36,7 @@ export function OracleTaskFeedPanel() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchTasks = useCallback(async () => {
+    if (refreshing) return; // Prevent concurrent refreshes
     setRefreshing(true);
     setError(null);
     try {
@@ -50,20 +51,22 @@ export function OracleTaskFeedPanel() {
       setTasks(oracleTasks);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error during task fetch.";
-      setError(msg);
+      setError(`Last refresh failed: ${msg}. Showing cached data.`);
       // Keep existing tasks on error — don't wipe the list on a transient failure
     } finally {
-      setLoading(false);
       setRefreshing(false);
+      // Only set loading to false if it was true initially (i.e., first load)
+      if (loading) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [loading, refreshing]);
 
   useEffect(() => {
+    // Initial fetch
     fetchTasks();
-    // Poll every 30s — the oracle scheduler ticks every 5 min, so 30s
-    // is fast enough to surface new failed-prophecy tasks without
-    // hammering the API.
-    const interval = setInterval(fetchTasks, 30_000);
+    // Poll every 60s to reduce API load while still surfacing tasks reasonably fast.
+    const interval = setInterval(fetchTasks, 60_000);
     return () => clearInterval(interval);
   }, [fetchTasks]);
 
@@ -109,7 +112,7 @@ export function OracleTaskFeedPanel() {
       <CardContent>
         {error && (
           <p className="text-xs text-amber-500 mb-2" role="alert">
-            Last refresh failed: {error}. Showing cached data.
+            {error}
           </p>
         )}
         {tasks.length === 0 ? (
