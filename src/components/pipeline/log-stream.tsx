@@ -72,21 +72,23 @@ export function LogStream() {
             ) : (
               <AnimatePresence initial={false}>
                 {logs.map((entry) => {
+                  if (!entry) return null; // Guard against null/undefined entries in the array
+                  
                   // Safely access type with fallback
-                  const typeKey = (entry?.type as string) in TYPE_ICON ? entry.type as keyof typeof TYPE_ICON : 'info';
+                  const typeKey = (entry.type as string) in TYPE_ICON ? entry.type as keyof typeof TYPE_ICON : 'info';
                   const Icon = TYPE_ICON[typeKey] || Info;
                   const color = TYPE_COLOR[typeKey] || "text-slate-400";
                   
                   // Safely access source with fallback
-                  const sourceKey = (entry?.source as string) in SOURCE_COLOR ? entry.source as keyof typeof SOURCE_COLOR : 'pipeline';
+                  const sourceKey = (entry.source as string) in SOURCE_COLOR ? entry.source as keyof typeof SOURCE_COLOR : 'pipeline';
                   const sourceColor = SOURCE_COLOR[sourceKey] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
                   
                   // Validate timestamp and provide fallback
-                  const timestamp = (entry?.timestamp as string) || 'invalid timestamp';
+                  const timestamp = (entry.timestamp as string) || 'invalid timestamp';
                   
                   // Use a stable identifier. If a unique ID existed, it would be preferred. 
-                  // Fallback to timestamp + message content hash/string for animation stability.
-                  const key = timestamp + (entry?.message || ''); 
+                  // Fallback to timestamp + message content string for animation stability.
+                  const key = timestamp + (entry.message || ''); 
                   
                   return (
                     <motion.div
@@ -106,7 +108,7 @@ export function LogStream() {
                       >
                         {sourceKey}
                       </span>
-                      <span className="text-slate-200 leading-relaxed break-all flex-1">{entry?.message || ''}</span>
+                      <span className="text-slate-200 leading-relaxed break-all flex-1">{entry.message || ''}</span>
                     </motion.div>
                   );
                 })}
