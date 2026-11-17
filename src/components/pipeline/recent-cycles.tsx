@@ -37,7 +37,8 @@ export function RecentCycles() {
       const apiResponse = data as { cycles: AutonomousCycleSummary[] };
       setFetched(apiResponse.cycles);
     } catch (error) {
-      console.error("Error refreshing recent cycles from API:", error instanceof Error ? error.message : "Unknown error during fetch or parsing.");
+      const errorMessage = error instanceof Error ? error.message : "Unknown error during fetch or parsing.";
+      console.error("Error refreshing recent cycles from API:", errorMessage);
       setFetched([]);
     } finally {
       setLoading(false);
