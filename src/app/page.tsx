@@ -355,17 +355,61 @@ export default function Home() {
   // bottom. Once the user scrolls up to read history, we stop fighting
   // them — new lines still append at the bottom of the scrollback, but
   // the viewport stays where they put it. A ref (not state) is enough
-  // because the effect reads it synchronously and we never re-render
-  // from it. The threshold (40px) tolerates sub-pixel rounding so the
-  // last line stays visible without re-snapping.
+  // for the effect (it reads the ref synchronously); the MIRRORED state
+  // below exists only so the UI can render the follow-paused badge.
+  // The threshold (40px) tolerates sub-pixel rounding so the last line
+  // stays visible without re-snapping.
   const stickToBottomRef = useRef(true);
+  const [followPaused, setFollowPaused] = useState(false);
   const STICK_BOTTOM_THRESHOLD_PX = 40;
   const onConsoleScroll = () => {
     const el = logRef.current;
     if (!el) return;
     const distanceFromBottom =
       el.scrollHeight - el.scrollTop - el.clientHeight;
-    stickToBottomRef.current = distanceFromBottom <= STICK_BOTTOM_THRESHOLD_PX;
+    const next = distanceFromBottom <= STICK_BOTTOM_THRESHOLD_PX;
+    stickToBottomRef.current = next;
+    // State mirrors the ref ONLY on flips (scroll events fire per-pixel —
+    // an unguarded setState here would re-render on every tick of a drag).
+    setFollowPaused((prev) => (prev === next ? prev : !next));
+  };
+  // ── Keyboard scrollback (2026-11-17, the "still not able to scroll up"
+  // report) ────────────────────────────────────────────────────────────
+  // The terminal input always owns focus (click-to-focus), ArrowUp/Down
+  // are command history, and PageUp did NOTHING — the input is outside
+  // the console's scroll container, so the browser had no scrollable
+  // ancestor to act on. Mouse-wheel scrolling worked, but a terminal UI
+  // without keyboard scrollback is broken UX. These helpers give the
+  // prompt full scrollback control, terminal-style:
+  //   PageUp / Shift+PageUp   → up one page   (follow pauses)
+  //   PageDown / Shift+PageDown → down one page (bottom re-engages follow)
+  //   Shift+ArrowUp/ArrowDown → up/down ~3 lines
+  //   Shift+Home              → top of scrollback
+  //   Shift+End               → bottom + follow resumes
+  // The scroll events these produce flow through onConsoleScroll, so the
+  // stick flag + paused badge stay consistent with wheel/touch scrolling.
+  const SCROLL_LINE_HEIGHT_PX = 20; // ~1 console line (14px font, 1.4 lh)
+  const scrollConsoleBy = (dy: number) => {
+    const el = logRef.current;
+    if (!el) return;
+    el.scrollBy({ top: dy, behavior: "auto" });
+  };
+  const scrollConsoleTo = (pos: "top" | "bottom") => {
+    const el = logRef.current;
+    if (!el) return;
+    el.scrollTop = pos === "top" ? 0 : el.scrollHeight;
+    // Explicit jumps update the stick state immediately (the scroll event
+    // does it too, but setting the ref here keeps even a clamped no-op
+    // scroll — already at top — semantically correct).
+    stickToBottomRef.current = pos === "bottom";
+    setFollowPaused(pos !== "bottom");
+  };
+  const scrollConsolePage = (dir: 1 | -1) => {
+    const el = logRef.current;
+    if (!el) return;
+    // 80% of the viewport height — a full page would hide the overlap
+    // line that anchors the reader's position between hops.
+    scrollConsoleBy(dir * Math.max(120, el.clientHeight * 0.8));
   };
   const inputRef = useRef<HTMLInputElement>(null);
   const cfgTokenRef = useRef<HTMLInputElement>(null);
@@ -1832,6 +1876,43 @@ export default function Home() {
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    // ── Keyboard scrollback first ──────────────────────────────────────
+    // PageUp/PageDown (plain or Shift) scroll the console — terminal
+    // scrollback. Shift+Home/End jump to top/bottom (End re-engages
+    // follow). Shift+ArrowUp/Down nudge by ~3 lines. Plain ArrowUp/Down
+    // remain command history below (terminal convention). All scroll
+    // keys preventDefault so the browser never tries (and fails — the
+    // input has no scrollable ancestor) to act on them itself.
+    if (e.key === "PageUp") {
+      e.preventDefault();
+      scrollConsolePage(-1);
+      return;
+    }
+    if (e.key === "PageDown") {
+      e.preventDefault();
+      scrollConsolePage(1);
+      return;
+    }
+    if (e.shiftKey && e.key === "Home") {
+      e.preventDefault();
+      scrollConsoleTo("top");
+      return;
+    }
+    if (e.shiftKey && e.key === "End") {
+      e.preventDefault();
+      scrollConsoleTo("bottom");
+      return;
+    }
+    if (e.shiftKey && e.key === "ArrowUp") {
+      e.preventDefault();
+      scrollConsoleBy(-SCROLL_LINE_HEIGHT_PX * 3);
+      return;
+    }
+    if (e.shiftKey && e.key === "ArrowDown") {
+      e.preventDefault();
+      scrollConsoleBy(SCROLL_LINE_HEIGHT_PX * 3);
+      return;
+    }
     if (e.key === "ArrowUp") {
       e.preventDefault();
       if (history.length > 0) {
@@ -2505,12 +2586,42 @@ export default function Home() {
           (src/app/display/console-stream.tsx). The loop can refactor the
           display component freely — colors, layout, formatting, new panels.
           page.tsx owns the state (consoleLines) and the control surface; the
-          display layer only renders what it's given. */}
-      <ConsoleStream
-        lines={consoleLines}
-        logRef={logRef}
-        onScroll={onConsoleScroll}
-      />
+          display layer only renders what it's given.
+          The relative wrapper hosts the follow-paused badge (absolute, top
+          right) — it overlays the console edge instead of shifting layout
+          when follow state flips. */}
+      <div style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <ConsoleStream
+          lines={consoleLines}
+          logRef={logRef}
+          onScroll={onConsoleScroll}
+        />
+        {followPaused && (
+          <div
+            aria-label="Scrollback mode — new logs are not auto-followed. Press Shift+End to resume following."
+            title="Scrollback mode — you are reading history while new logs keep appending below. Press Shift+End (or scroll to the bottom) to resume tail-follow."
+            style={{
+              position: "absolute",
+              top: 4,
+              right: 8,
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "1px 8px",
+              background: "rgba(0,0,0,0.85)",
+              border: `1px solid ${DIM_COLOR}`,
+              borderRadius: 2,
+              color: DIM_COLOR,
+              fontSize: "10px",
+              letterSpacing: "0.08em",
+              pointerEvents: "none",
+              zIndex: 5,
+            }}
+          >
+            ▲ scrollback · follow paused · Shift+End resumes
+          </div>
+        )}
+      </div>
 
       {/* Prompt */}
       <div

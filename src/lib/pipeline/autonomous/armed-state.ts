@@ -79,14 +79,8 @@ export function markArmed(armed: boolean, by: string): void {
   try {
     // Ensure directory exists first to avoid race condition
     const infoDir = join(PROJECT_ROOT, ".git/info");
-    if (!existsSync(infoDir)) {
-      try {
-        mkdirSync(infoDir, { recursive: true });
-      } catch (mkdirError) {
-        console.error(`markArmed: Failed to create directory ${infoDir}. Check file system permissions. Error: ${mkdirError instanceof Error ? mkdirError.message : String(mkdirError)}`);
-        return; // Cannot proceed without directory
-      }
-    }
+    // Use recursive mkdirSync which handles existence check internally
+    mkdirSync(infoDir, { recursive: true });
     
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
     atomicWriteFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2));
@@ -129,7 +123,7 @@ export function readArmedState(): ArmedState | null {
         return null;
     }
 
-    const state = parsed as Partial<ArmedState>;
+    const state = parsed as ArmedState;
 
     // Validate that parsed matches ArmedState structure and data integrity
     if (typeof state.armed !== "boolean" || 
@@ -143,7 +137,7 @@ export function readArmedState(): ArmedState | null {
       return null;
     }
     
-    return parsed as ArmedState;
+    return state;
   } catch (error) {
     // Log the error for debugging but return null to maintain the contract
     const errorMessage = error instanceof Error ? error.message : String(error);

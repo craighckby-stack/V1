@@ -713,8 +713,13 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   // Kill any still-sounding audio when the splash unmounts.
   useEffect(() => () => stopAllAudio(), []);
 
-  // Keyboard: any key skips the SPLASH. No prank phase anymore, so no
-  // ESC-only mercy hatch — every key works everywhere.
+  // Keyboard: ENTER enters — from ANY phase (2026-11-17 update). The
+  // old two-step rite (any key skips → invite → Enter enters) trapped
+  // observers who pressed Enter ONCE mid-animation: it only skipped to
+  // the invite, leaving a static splash that demanded a second press.
+  // One Enter now commits entry directly; every other key still just
+  // skips the animation to the invite. No prank phase — every key works
+  // everywhere.
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const p = phaseRef.current;
@@ -723,11 +728,15 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         return;
       }
       e.preventDefault();
+      if (e.key === "Enter") {
+        commitEnter();
+        return;
+      }
       skip();
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [skip]);
+  }, [skip, commitEnter]);
 
   // Focus the invitation button when it appears (keyboard entry point).
   useEffect(() => {
