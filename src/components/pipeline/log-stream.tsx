@@ -8,6 +8,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { cn } from "@/lib/utils";
 
+interface LogEntry {
+  type: string;
+  source: string;
+  timestamp: string | null;
+  message: string | null;
+  id?: string;
+}
+
 const TYPE_ICON = {
   info: Info,
   warn: AlertTriangle,
@@ -29,7 +37,7 @@ const SOURCE_COLOR = {
 };
 
 export function LogStream() {
-  const logs = usePipelineStore((s) => s.loopState?.logs || []);
+  const logs = usePipelineStore((s) => s.loopState?.logs || [] as LogEntry[]);
   const wsConnected = usePipelineStore((s) => s.wsConnected);
 
   return (
@@ -64,56 +72,56 @@ export function LogStream() {
       </CardHeader>
       <CardContent className="flex-1 overflow-hidden p-0">
         <ScrollArea className="h-[420px] px-6 pb-6">
-          <div className="font-mono text-xs space-y-1.5">
+          <AnimatePresence initial={false}>
             {logs.length === 0 ? (
               <div className="text-slate-600 italic py-8 text-center">
                 No telemetry yet. Start the loop or trigger a cycle to see live logs.
               </div>
             ) : (
-              <AnimatePresence initial={false}>
-                {logs.map((entry) => {
-                  if (!entry) return null; // Guard against null/undefined entries in the array
-                  
-                  // Safely access type with fallback
-                  const typeKey = (entry.type as string) in TYPE_ICON ? entry.type as keyof typeof TYPE_ICON : 'info';
-                  const Icon = TYPE_ICON[typeKey] || Info;
-                  const color = TYPE_COLOR[typeKey] || "text-slate-400";
-                  
-                  // Safely access source with fallback
-                  const sourceKey = (entry.source as string) in SOURCE_COLOR ? entry.source as keyof typeof SOURCE_COLOR : 'pipeline';
-                  const sourceColor = SOURCE_COLOR[sourceKey] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
-                  
-                  // Validate timestamp and provide fallback
-                  const timestamp = (entry.timestamp as string) || 'invalid timestamp';
-                  
-                  // Use a stable identifier. Prioritize a unique ID if present, otherwise use timestamp + message content.
-                  const key = (entry as any).id || timestamp + (entry.message || ''); 
-                  
-                  return (
-                    <motion.div
-                      key={key}
-                      initial={{ opacity: 0, x: -8 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ duration: 0.18 }}
-                      className="flex items-start gap-2.5 rounded-md px-2 py-1.5 hover:bg-slate-900/40 border border-transparent hover:border-slate-800/40"
+              logs.map((entry) => {
+                // Guard against null/undefined entries in the array, though type assertion above helps
+                if (!entry) return null; 
+                
+                // Safely access type with fallback
+                const typeKey = (entry.type as string) in TYPE_ICON ? entry.type as keyof typeof TYPE_ICON : 'info';
+                const Icon = TYPE_ICON[typeKey] || Info;
+                const color = TYPE_COLOR[typeKey] || "text-slate-400";
+                
+                // Safely access source with fallback
+                const sourceKey = (entry.source as string) in SOURCE_COLOR ? entry.source as keyof typeof SOURCE_COLOR : 'pipeline';
+                const sourceColor = SOURCE_COLOR[sourceKey] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
+                
+                // Validate timestamp and provide fallback
+                const timestamp = (entry.timestamp as string) || 'invalid timestamp';
+                
+                // Use a stable identifier. Prioritize a unique ID if present, otherwise use timestamp + message content.
+                const messageContent = entry.message || '';
+                const key = (entry as LogEntry).id || `${timestamp}-${messageContent}`; 
+                
+                return (
+                  <motion.div
+                    key={key}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className="flex items-start gap-2.5 rounded-md px-2 py-1.5 hover:bg-slate-900/40 border border-transparent hover:border-slate-800/40"
+                  >
+                    <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", color)} />
+                    <span className="text-slate-500 shrink-0 tabular-nums">{timestamp}</span>
+                    <span
+                      className={cn(
+                        "shrink-0 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border",
+                        sourceColor
+                      )}
                     >
-                      <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", color)} />
-                      <span className="text-slate-500 shrink-0 tabular-nums">{timestamp}</span>
-                      <span
-                        className={cn(
-                          "shrink-0 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border",
-                          sourceColor
-                        )}
-                      >
-                        {sourceKey}
-                      </span>
-                      <span className="text-slate-200 leading-relaxed break-all flex-1">{entry.message || ''}</span>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
+                      {sourceKey}
+                    </span>
+                    <span className="text-slate-200 leading-relaxed break-all flex-1">{messageContent}</span>
+                  </motion.div>
+                );
+              })
             )}
-          </div >
+          </AnimatePresence>
         </ScrollArea>
       </CardContent>
     </Card>
