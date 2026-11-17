@@ -54,13 +54,6 @@ export async function POST(req: Request) {
   let force = false;
   let body: { force?: boolean } | null = null;
 
-  if (!req || typeof req.json !== 'function') {
-    return NextResponse.json(
-      { error: "Invalid or missing Request object." },
-      { status: 400 }
-    );
-  }
-
   try {
     body = await req.json();
 
