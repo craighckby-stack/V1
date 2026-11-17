@@ -41,7 +41,7 @@ A single full-screen BIOS terminal at `/` (`src/app/page.tsx`) — black backgro
 
 | | |
 |---|---|
-| **POST** — the boot splash fetches its own live vitals and stamps 16 honest lines | ![POST](./docs/screenshots/01-splash-post.png) |
+| **POST** — the boot splash fetches its own live vitals and stamps 17 honest lines (incl. the DB mutation corpus) | ![POST](./docs/screenshots/01-splash-post.png) |
 | **Invite** — the machine asks you to enter | ![Invite](./docs/screenshots/02-splash-invite.png) |
 | **Branches** — every `loop-NN` is one successful mutation | ![Branches](./docs/screenshots/06-branches.png) |
 | **Oracle** — predicts + grades its own operational future | ![Oracle](./docs/screenshots/07-oracle.png) |

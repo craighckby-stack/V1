@@ -31,7 +31,7 @@
  *
  * The rite fires on EVERY entry — warm boot or cold. Warm boots (already
  * entered this browser session) take the fast path — the SESSION RESUMED
- * line first, then the same seven boot/scan vitals lines appended after
+ * line first, then the same nine boot/scan vitals lines appended after
  * it, so the live machine state is reported on EVERY entry, not just
  * the first. prefers-reduced-motion flattens
  * the fancy animation (the CRT effects go static) but does NOT cancel
@@ -63,12 +63,15 @@ const ASCII_LOOP = [
 
 const TAGLINE = "A MACHINE THAT REWRITES ITS OWN CODE.";
 
-/** POST line counts. Cold = 8 original + 8 boot/scan lines. Warm = the
- *  SESSION RESUMED line + the same 8 boot/scan lines. (Warm boots used
+/** POST line counts. Cold = 8 original + 9 boot/scan lines. Warm = the
+ *  SESSION RESUMED line + the same 9 boot/scan lines. (Warm boots used
  *  to show ONE line only — after the first entry, every reload looked
  *  like the splash "never updated". The scan lines now append on both
- *  paths: one definition, two ceremonies, same bytes.) */
-const SCAN_LINE_COUNT = 8;
+ *  paths: one definition, two ceremonies, same bytes.)
+ *  Keep this in sync with scanPostLines() below and the .bsp-post
+ *  min-height interpolation — the count drives the POST cadence, the
+ *  stamping total, and the layout reservation. */
+const SCAN_LINE_COUNT = 9;
 const COLD_POST_MS = (8 + SCAN_LINE_COUNT) * 130 + 260;
 const WARM_POST_MS = (1 + SCAN_LINE_COUNT) * 130 + 260;
 
@@ -98,6 +101,15 @@ interface Vitals {
   vaultSealed: string;
   /** Postmortem JSON files on disk — the wipe-proof failure record. */
   scars: string;
+  /** DB mutation-corpus counts (the OTHER failure record): lifetime
+   *  attempts / failed / enhanced from the mutationCorpus table. Unlike
+   *  `scars` (disk, survives DB wipes), this is the live database's own
+   *  tally — after a DB reset it restarts from zero, which is exactly
+   *  the honest divergence the two lines are supposed to show side by
+   *  side ("203 FAILED" on disk vs a fresh corpus after a wipe). */
+  corpusAttempts: string;
+  corpusFailed: string;
+  corpusEnhanced: string;
   /** Persistent (restart-surviving) successful hot-swap count. */
   swapsLifetime: string;
   /** The live loop's raw status word (idle/running/paused/error),
@@ -170,6 +182,9 @@ const UNKNOWN_VITALS: Vitals = {
   authLogin: "??",
   vaultSealed: "??",
   scars: "??",
+  corpusAttempts: "??",
+  corpusFailed: "??",
+  corpusEnhanced: "??",
   swapsLifetime: "??",
   autonomy: "??",
   livePhase: "??",
@@ -265,6 +280,23 @@ async function fetchVitals(): Promise<Vitals> {
         return v.sealed === true ? "SEALED" : "PLAINTEXT";
       })(),
       scars: txt(pick(asObj(scan), "scars")),
+      // ── mutation corpus mapping (the DB tally — see Vitals.corpus*) ──
+      // Honesty rules: "??" when the corpus block is unreadable; the
+      // counts themselves are plain numbers (0 is a legitimate value —
+      // e.g. right after a DB wipe, the exact moment this line earns its
+      // keep next to the disk-based MUTATION TOTALS line).
+      corpusAttempts: (() => {
+        const c = asObj(pick(asObj(scan), "corpus"));
+        return c ? txt(pick(c, "attempts")) : "??";
+      })(),
+      corpusFailed: (() => {
+        const c = asObj(pick(asObj(scan), "corpus"));
+        return c ? txt(pick(c, "failed")) : "??";
+      })(),
+      corpusEnhanced: (() => {
+        const c = asObj(pick(asObj(scan), "corpus"));
+        return c ? txt(pick(c, "enhanced")) : "??";
+      })(),
       // ── pass-rate trend mapping (from boot/scan's passRate vital) ──
       passRatePct: (() => {
         const pr = asObj(pick(asObj(scan), "passRate"));
@@ -386,7 +418,7 @@ function Scramble({ text, start, ms, className }: { text: string; start: boolean
   return <span className={className}>{out}</span>;
 }
 
-/** The seven boot/scan vitals lines — ONE definition, used by both
+/** The nine boot/scan vitals lines — ONE definition, used by both
  *  ceremonies: cold appends them after the original 8 (which stay
  *  byte-for-byte untouched), warm appends them after the SESSION
  *  RESUMED line. Same bytes on every entry — the live machine state
@@ -453,6 +485,23 @@ function scanPostLines(v: Vitals, nowMs: number): PostLine[] {
       value: `${v.branchesTotal} LIVE · ${v.scars} FAILED`,
       stamp: "OK",
       warn: v.branchesTotal === "??" || v.scars === "??",
+    },
+    {
+      // The DB-side tally — the other half of the failure record. MUTATION
+      // TOTALS above reads the DISK (live branches + postmortem scars, the
+      // wipe-proof layer); this line reads the mutationCorpus TABLE (the
+      // layer a DB rollback/reset CAN erase). The two are meant to be read
+      // together: "203 FAILED" on disk next to a near-zero corpus is the
+      // honest signature of a DB wipe, not a contradiction — the route's
+      // docstring documents this exact duality. Enhanced = gate verdict
+      // "enhanced" (a mutation that actually landed); the delta between
+      // attempts and enhanced is the gate-rejection/deferred share.
+      label: "MUTATION CORPUS",
+      value:
+        v.corpusAttempts === "??" ? "UNREADABLE"
+        : `${v.corpusAttempts} ATTEMPTS · ${v.corpusFailed} FAILED · ${v.corpusEnhanced} ENHANCED`,
+      stamp: v.corpusAttempts === "??" ? "??" : "OK",
+      warn: v.corpusAttempts === "??",
     },
     {
       // The "is compounding compounding?" line. Headline = last ≤20
@@ -627,7 +676,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
     reducedRef.current = mq.matches;
 
-    // Warm boots fetch vitals too now: their POST appends the same seven
+    // Warm boots fetch vitals too now: their POST appends the same nine
     // boot/scan lines after the SESSION RESUMED line. The fetch races
     // the (fast) warm timeline and never blocks it — the first stamp
     // still lands at 650ms; late-arriving values fill their lines in
@@ -638,7 +687,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
 
     if (isWarm) {
       // Warm boot: quick phosphor flash + the SESSION RESUMED line,
-      // then the seven scan lines stamp in — the machine reports its
+      // then the nine scan lines stamp in — the machine reports its
       // live vitals on EVERY entry — but it still asks. There is no
       // auto-enter: ENTER always runs the full rite (owner's "each
       // time" decree), so the invite is the stop.
@@ -693,7 +742,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   // POST line stamping — reveal one line per tick while in "post".
   // `warm` is settled (set at mount via a 0ms tick) long before "post"
   // can flip (≥100ms), so reading it here just picks the line count:
-  // 15 cold / 8 warm.
+  // 17 cold / 10 warm.
   useEffect(() => {
     if (phase !== "post") return;
     const total = warm ? 1 + SCAN_LINE_COUNT : 8 + SCAN_LINE_COUNT;
@@ -779,7 +828,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
   const postLines: PostLine[] = warm
     ? [
         { label: "WARM BOOT", value: "SESSION RESUMED", stamp: "OK" },
-        // The same seven scan lines as cold — the live vitals report on
+        // The same nine scan lines as cold — the live vitals report on
         // every entry, so a reload never reads as "not updated".
         ...scan,
       ]
@@ -961,7 +1010,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         .bsp-crt--flash { animation: bsp-on 700ms cubic-bezier(.2,.7,.3,1) both; }
         .bsp-crt--exit  { animation: bsp-off 650ms ease-in both; }
         .bsp-text { text-shadow: 0 0 8px rgba(255,176,0,.35), 0 0 2px rgba(255,176,0,.8); }
-        .bsp-post { min-height: ${warm ? "142px" : "288px"}; white-space: pre; overflow-x: auto; }
+        .bsp-post { min-height: ${(warm ? 1 + SCAN_LINE_COUNT : 8 + SCAN_LINE_COUNT) * 20.15}px; white-space: pre; overflow-x: auto; }
         .bsp-link { color: #ffd875; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
         .bsp-link:hover { color: #fff; text-shadow: 0 0 8px rgba(255,255,255,.4); }
         .bsp-post::-webkit-scrollbar { height: 6px; }

@@ -183,8 +183,14 @@ const cfgBtnStyle = {
 
 /** Cap for the unified console stream — long sessions (the loop never
  *  stops logging) must not grow consoleLines (and its DOM) without bound.
- *  Oldest lines drop off the top, like a real terminal's scrollback. */
-const CONSOLE_LINE_CAP = 400;
+ *  Oldest lines drop off the top, like a real terminal's scrollback.
+ *  2000 lines ≈ 20 viewports of history: scrollback mode (follow paused)
+ *  is only useful if the history being read actually STAYS in the buffer
+ *  while new logs append — at the old 400-line cap, a reader watching a
+ *  busy loop could literally have the paragraph they were reading trim
+ *  out from under them. 2000 simple text divs is still cheap for the
+ *  DOM; the line-cap slice keeps the bound. */
+const CONSOLE_LINE_CAP = 2000;
 
 /** Header chrome button — DOS-styled square key. Shared CSS lives in the
  *  <style> block inside the header (.lbtn family). Dialog openers get
@@ -391,9 +397,21 @@ export default function Home() {
   // The scroll events these produce flow through onConsoleScroll, so the
   // stick flag + paused badge stay consistent with wheel/touch scrolling.
   const SCROLL_LINE_HEIGHT_PX = 20; // ~1 console line (14px font, 1.4 lh)
+  // Flip the stick state OFF right now, from inside the user's input
+  // event — NOT from the async scroll event. See the native-listener
+  // effect below for why the timing matters.
+  const pauseFollowNow = () => {
+    stickToBottomRef.current = false;
+    setFollowPaused(true);
+  };
   const scrollConsoleBy = (dy: number) => {
     const el = logRef.current;
     if (!el) return;
+    // Unstick BEFORE the scroll (not after, not via the async scroll
+    // event): if a log append lands between the keyboard scroll and the
+    // scroll event's dispatch, the auto-snap effect would otherwise read
+    // a stale stick=true and yank the reader back to the bottom.
+    if (dy < 0) pauseFollowNow();
     el.scrollBy({ top: dy, behavior: "auto" });
   };
   const scrollConsoleTo = (pos: "top" | "bottom") => {
@@ -413,6 +431,48 @@ export default function Home() {
     // line that anchors the reader's position between hops.
     scrollConsoleBy(dir * Math.max(120, el.clientHeight * 0.8));
   };
+
+  // ── THE TAIL-FOLLOW RACE FIX (the "scroll-up STILL not working" report)
+  // ────────────────────────────────────────────────────────────────────
+  // Why scroll-up kept losing: the ONLY thing that cleared
+  // stickToBottomRef was onConsoleScroll — but scroll events dispatch
+  // ASYNCHRONOUSLY, after the browser has already moved scrollTop. When
+  // logs append every couple of seconds (status polls, oracle events,
+  // command output), the auto-snap effect on [lastLogId] could run in
+  // that gap, read a stale stick=true, and slam the viewport back to the
+  // bottom before the user's scroll event ever recorded their intent.
+  // The reader loses every race — scrolling up feels simply broken.
+  //
+  // The fix is the one every real terminal uses (xterm.js included):
+  // capture the reader's intent SYNCHRONOUSLY on the INPUT events, which
+  // run in the same task as the user's gesture — strictly before any
+  // pending append effect can fight back:
+  //   wheel (up)    → following stops immediately
+  //   touchmove     → any touch-drag of the log view pauses follow
+  //   pointerdown   → click/drag in the scrollback (text selection,
+  //                   scrollbar drag) is reading intent → pause follow
+  // Re-engaging stays automatic + unchanged: land within 40px of the
+  // bottom (wheel down, PageDown, touch flick) and onConsoleScroll
+  // re-sticks; Shift+End and clicking the follow-paused badge resume
+  // directly. ctrl+wheel is left alone (browser zoom, not scrolling).
+  useEffect(() => {
+    const el = logRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) return; // pinch-zoom / ctrl+wheel = zoom, not scroll
+      if (e.deltaY < 0) pauseFollowNow();
+    };
+    const onTouchMove = () => pauseFollowNow();
+    const onPointerDown = () => pauseFollowNow();
+    el.addEventListener("wheel", onWheel, { passive: true, capture: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: true, capture: true });
+    el.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      el.removeEventListener("wheel", onWheel, { capture: true });
+      el.removeEventListener("touchmove", onTouchMove, { capture: true });
+      el.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, []);
   const inputRef = useRef<HTMLInputElement>(null);
   const cfgTokenRef = useRef<HTMLInputElement>(null);
   const cfgRepoRef = useRef<HTMLInputElement>(null);
@@ -699,7 +759,7 @@ export default function Home() {
   //
   // FIX ("on long runs, the on-screen logs freeze so I can scroll"): the
   // effect used to depend on `consoleLines.length`, which stops changing
-  // once the buffer hits the 400-line cap (CONSOLE_LINE_CAP — .slice(-400)
+  // once the buffer hits the line cap (CONSOLE_LINE_CAP — .slice(-N)
   // pins the length). The effect stopped firing, auto-scroll silently
   // broke, and the stream appeared frozen even though new lines kept
   // appending. Depending on the LAST LINE'S ID keeps tail-follow alive
@@ -708,6 +768,14 @@ export default function Home() {
   // The stickToBottomRef check makes follow-tail POLITE: scroll up to
   // read history and the stream stops yanking you back; return to the
   // bottom and auto-follow re-engages (onConsoleScroll tracks position).
+  //
+  // RACE NOTE: this effect is only safe to trust because the scroll-up
+  // intent is now recorded SYNCHRONOUSLY on the user's input events
+  // (wheel/touchmove/pointerdown listeners + scrollConsoleBy's dy<0
+  // path — see "THE TAIL-FOLLOW RACE FIX" above). The ref is therefore
+  // never stale when this effect runs: any upward gesture has already
+  // flipped it false, in the same task, before a pending append could
+  // snap the viewport back out from under the reader.
   const lastLogId = consoleLines[consoleLines.length - 1]?.id;
   useEffect(() => {
     if (!logRef.current) return;
@@ -1228,13 +1296,16 @@ export default function Home() {
           "  clear       — Clear the terminal",
           "  help        — Show this help",
           "",
-          "Scrollback (keyboard):",
+          "Scrollback:",
+          "  mouse wheel up            — pauses tail-follow instantly",
+          "  (click / drag) in the log — pauses follow (read + select text)",
           "  PageUp / PageDown        — scroll the console up/down one page",
           "  Shift+ArrowUp/ArrowDown  — scroll ~3 lines",
           "  Shift+Home               — jump to top of scrollback",
           "  Shift+End                — jump to bottom + resume tail-follow",
-          "  (while scrolled up, new logs keep appending below — see the",
-          "   'follow paused' badge; scroll back to the bottom to re-follow)",
+          "  (while paused, new logs keep appending below — see the",
+          "   'follow paused' badge; click it, hit Shift+End, or scroll to",
+          "   the bottom to re-follow)",
           "",
         ];
 
@@ -2607,9 +2678,11 @@ export default function Home() {
           onScroll={onConsoleScroll}
         />
         {followPaused && (
-          <div
-            aria-label="Scrollback mode — new logs are not auto-followed. Press Shift+End to resume following."
-            title="Scrollback mode — you are reading history while new logs keep appending below. Press Shift+End (or scroll to the bottom) to resume tail-follow."
+          <button
+            type="button"
+            aria-label="Scrollback mode — new logs are not auto-followed. Click to jump to the bottom and resume following."
+            title="Scrollback mode — you are reading history while new logs keep appending below. Click here (or press Shift+End, or scroll to the bottom) to resume tail-follow."
+            onClick={() => scrollConsoleTo("bottom")}
             style={{
               position: "absolute",
               top: 4,
@@ -2624,12 +2697,13 @@ export default function Home() {
               color: DIM_COLOR,
               fontSize: "10px",
               letterSpacing: "0.08em",
-              pointerEvents: "none",
+              fontFamily: "inherit",
+              cursor: "pointer",
               zIndex: 5,
             }}
           >
-            ▲ scrollback · follow paused · Shift+End resumes
-          </div>
+            ▲ scrollback · follow paused · click or Shift+End resumes
+          </button>
         )}
       </div>
 
