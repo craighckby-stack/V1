@@ -169,7 +169,10 @@ export function openToken(stored: string): string {
   try {
     const body = stored.slice(ENVELOPE_PREFIX.length);
     const parts = body.split(".");
-    if (parts.length !== ENVELOPE_PARTS_COUNT) return "";
+    if (parts.length !== ENVELOPE_PARTS_COUNT) {
+      // Structure mismatch
+      return "";
+    }
     let iv: Buffer, tag: Buffer, ct: Buffer;
     
     try {
@@ -188,7 +191,11 @@ export function openToken(stored: string): string {
     decipher.setAuthTag(tag);
     const pt = Buffer.concat([decipher.update(ct), decipher.final()]);
     const opened = pt.toString("utf-8");
-    if (!opened || opened.length < MIN_PLAINTEXT_LENGTH || /\s/.test(opened)) return "";
+    
+    // Check for token validity after decryption
+    if (!opened || opened.length < MIN_PLAINTEXT_LENGTH || /\s/.test(opened)) {
+        return "";
+    }
     return opened;
   } catch (error) {
     if (!warnedKeyMissing) {
