@@ -40,7 +40,7 @@ export function OracleTaskFeedPanel() {
     setError(null);
     try {
       const response = await fetch("/api/self-enhance/tasks?limit=50");
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}: Failed to fetch tasks.`);
       const data = await response.json();
       // The API returns { tasks: [...], queue: {...} } — filter for the
       // oracle-failed-prophecy kind (the audit-8 closure: failed
@@ -49,7 +49,7 @@ export function OracleTaskFeedPanel() {
       const oracleTasks = allTasks.filter((t) => t.kind === "oracle-failed-prophecy");
       setTasks(oracleTasks);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
+      const msg = err instanceof Error ? err.message : "Unknown error during task fetch.";
       setError(msg);
       // Keep existing tasks on error — don't wipe the list on a transient failure
     } finally {
