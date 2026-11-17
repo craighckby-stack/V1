@@ -196,22 +196,28 @@ export function readOracleEvents(afterSeq?: number): {
 
     const bufferLength = s.buffer.length;
     
-    // Iterate through the buffer to find the first event whose sequence > afterSeq.
     // The sequence of the event at index i is: currentSeq - bufferLength + i
-    let startIndex = -1;
-
-    for (let i = 0; i < bufferLength; i++) {
-        const eventSeq = currentSeq - bufferLength + i;
-        if (eventSeq > afterSeq) {
-            startIndex = i;
-            break;
-        }
+    // We need the first index i such that (currentSeq - bufferLength + i) > afterSeq
+    // i > afterSeq - currentSeq + bufferLength
+    // i_start = floor(afterSeq - currentSeq + bufferLength) + 1
+    
+    const requiredMinIndex = afterSeq - currentSeq + bufferLength + 1;
+    
+    // Start index must be at least 0 and less than bufferLength
+    let startIndex = Math.max(0, requiredMinIndex);
+    
+    if (startIndex >= bufferLength) {
+        // Even the last element (index bufferLength - 1) is not newer than afterSeq
+        s.lastReadAt = Date.now();
+        return { events: [], seq: currentSeq };
     }
 
-    if (startIndex === -1) {
-      // No new events found in the current buffer snapshot greater than afterSeq.
-      s.lastReadAt = Date.now();
-      return { events: [], seq: currentSeq };
+    // Check if the calculated startIndex actually points to an event > afterSeq
+    const firstEventSeq = currentSeq - bufferLength + startIndex;
+    if (firstEventSeq <= afterSeq) {
+        // The calculated startIndex is too early, no new events found.
+        s.lastReadAt = Date.now();
+        return { events: [], seq: currentSeq };
     }
 
     // Get the events from startIndex to the end
