@@ -180,12 +180,15 @@ function bootOracleScheduler(): void {
   // Clean up ANY previous process-wide timer — first the dedicated slot
   // (survives pin clears), then the state's own handle if it somehow
   // still exists.
-  if (g.__oracleSchedulerTimer) {
-    clearInterval(g.__oracleSchedulerTimer);
+  const oldTimer1 = g.__oracleSchedulerTimer;
+  if (oldTimer1) {
+    clearInterval(oldTimer1);
     g.__oracleSchedulerTimer = null;
   }
-  if (s.timer) {
-    clearInterval(s.timer);
+  
+  const oldTimer2 = s.timer;
+  if (oldTimer2) {
+    clearInterval(oldTimer2);
     s.timer = null;
   }
   
