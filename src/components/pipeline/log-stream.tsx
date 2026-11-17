@@ -80,28 +80,28 @@ export function LogStream() {
               </div>
             ) : (
               logs.map((entry) => {
-                // Safely access type with fallback
-                const typeKey = (entry.type as string) in TYPE_ICON ? entry.type as keyof typeof TYPE_ICON : 'info';
+                // Safely access type with guard
+                const typeKey = (typeof entry.type === 'string' && TYPE_ICON[entry.type as keyof typeof TYPE_ICON]) ? entry.type as keyof typeof TYPE_ICON : 'info';
                 const Icon = TYPE_ICON[typeKey] || Info;
                 const color = TYPE_COLOR[typeKey] || "text-slate-400";
                 
-                // Safely access source with fallback
-                const sourceKey = (entry.source as string) in SOURCE_COLOR ? entry.source as keyof typeof SOURCE_COLOR : 'pipeline';
+                // Safely access source with guard
+                const sourceKey = (typeof entry.source === 'string' && SOURCE_COLOR[entry.source as keyof typeof SOURCE_COLOR]) ? entry.source as keyof typeof SOURCE_COLOR : 'pipeline';
                 const sourceColor = SOURCE_COLOR[sourceKey] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
                 
                 // Validate timestamp and provide fallback
-                const timestamp = entry.timestamp || 'invalid timestamp';
+                const timestamp = entry.timestamp || 'N/A';
                 
-                // Use a stable identifier. Prioritize a unique ID if present, otherwise use timestamp + message content if available.
-                const messageContent = entry.message || '';
+                // Use a stable identifier. Prioritize a unique ID if present.
                 let key: string;
                 if (entry.id) {
                     key = entry.id;
-                } else if (timestamp !== 'invalid timestamp' && messageContent) {
-                    key = `${timestamp}-${messageContent}`;
+                } else if (timestamp !== 'N/A' && entry.message) {
+                    // Use timestamp + first 20 chars of message for stability if ID is missing
+                    key = `${timestamp}-${entry.message.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '')}`;
                 } else {
-                    // Fallback for completely unidentifiable entries, though this should be rare with robust logging
-                    key = `fallback-${Math.random()}`; 
+                    // Fallback for completely unidentifiable entries
+                    key = `fallback-${Math.random().toString(36).substring(2, 9)}`; 
                 }
                 
                 return (
@@ -122,7 +122,7 @@ export function LogStream() {
                     >
                       {sourceKey}
                     </span>
-                    <span className="text-slate-200 leading-relaxed break-all flex-1">{messageContent}</span>
+                    <span className="text-slate-200 leading-relaxed break-all flex-1">{entry.message || ''}</span>
                   </motion.div>
                 );
               })
