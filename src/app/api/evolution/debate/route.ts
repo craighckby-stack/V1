@@ -56,7 +56,7 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     // Log the full error internally for pipeline observability before returning a sanitized response
-    console.error("LLM Debate Execution Error:", err);
+    console.error("LLM Debate Execution Error:", err, { filePath: body.filePath });
 
     let errorMessage = "An error occurred during the LLM debate execution.";
     
@@ -64,8 +64,6 @@ export async function POST(req: Request) {
       errorMessage = `Debate execution failed: ${err.message}`;
     } else if (typeof err === 'string') {
       errorMessage = `Debate execution failed: ${err}`;
-    } else {
-      errorMessage = "Debate execution failed due to an unidentifiable error type.";
     }
     
     // Return a standardized 500 response
