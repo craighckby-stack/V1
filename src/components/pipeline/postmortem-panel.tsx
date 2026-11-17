@@ -64,15 +64,17 @@ export function PostmortemPanel() {
       if (data && Array.isArray(data.postmortems)) {
         setPostmortems(data.postmortems);
       } else {
-        console.error("API response structure invalid: expected { postmortems: [...] }", data);
+        // Improved error context for invalid structure
+        const dataString = JSON.stringify(data).substring(0, 100);
+        console.error("API response structure invalid: expected { postmortems: [...] }", data, "Received snippet:", dataString);
         toast({
           title: "Data Error",
-          description: "Invalid postmortem data received from server. Expected an array under 'postmortems'.",
+          description: `Invalid postmortem data received from server. Expected an array under 'postmortems'. Received structure snippet: ${dataString}`,
           variant: "destructive",
         });
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown network or parsing error.";
+      const errorMessage = error instanceof Error ? error.message : "Unknown network or parsing error during fetch.";
       console.error("Error refreshing postmortems:", errorMessage);
       toast({
         title: "Error",
@@ -84,7 +86,7 @@ export function PostmortemPanel() {
     }
   }, [toast]);
 
-  async function dismiss(id: string, filePath: string) {
+  async function dismiss(id: string | undefined, filePath: string | undefined) {
     if (!id || typeof id !== 'string' || id.length === 0) {
       toast({
         title: "Validation Error",
