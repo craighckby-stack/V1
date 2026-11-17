@@ -212,6 +212,7 @@ export function openToken(stored: string): string {
         `[TOKEN-VAULT] failed to open a sealed token. This indicates a key mismatch, corrupted data, or tampering. Please verify key integrity at ${KEY_FILE}. Error details: ${errorMessage}`
       );
     }
+    // Intentionally ignore error as per fail-open design, returning empty string.
     return "";
   }
 }
