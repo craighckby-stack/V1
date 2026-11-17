@@ -106,7 +106,7 @@ function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
   } catch (e) {
     // Log the parsing error with context instead of silently ignoring it
     const errorMsg = e instanceof Error ? e.message : String(e);
-    console.error(`Failed to parse historySnapshot for prophecy ID ${prophecy.id} (Domain: ${prophecy.domain}): ${errorMsg}`);
+    console.error(`Failed to parse historySnapshot for prophecy ID ${prophecy.id} (Domain: ${prophecy.domain}). Context: ${errorMsg}`);
   }
   return null;
 }
@@ -159,7 +159,6 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
     return false;
   }
   
-  const evidence = buildEvidence(prophecy);
   const taskKind = TASK_KINDS[ORACLE_FAILED_PROPHECY_KIND];
   if (!taskKind) {
     console.error(`Task kind ${ORACLE_FAILED_PROPHECY_KIND} is not registered in TASK_KINDS. Cannot queue task.`);
@@ -167,6 +166,8 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
   }
   // Use default priority 7 if taskKind exists but priority is missing
   const priority = taskKind.priority ?? 7;
+
+  const evidence = buildEvidence(prophecy);
 
   try {
     await db.selfTask.upsert({
