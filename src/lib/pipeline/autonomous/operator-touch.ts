@@ -71,9 +71,6 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
     return;
   }
 
-  // Removed redundant check for 'now' validity as default is valid and caller should provide valid Date if overriding.
-  // If caller provides invalid Date, it will likely fail in toISOString() or subsequent logic, which is acceptable for caller error.
-
   try {
     const dirPath = dirname(OPERATOR_TOUCH_FILE);
     // Ensure directory exists; mkdirSync with recursive: true handles existing dirs safely.
@@ -158,8 +155,6 @@ export function isDeadMansTripped(
 
   // readOperatorTouch guarantees state.at is a valid ISO date string if it returns a state.
   const lastTouch = Date.parse(state.at);
-  // This check is technically redundant due to readOperatorTouch validation, but kept for absolute safety against external state corruption if readOperatorTouch logic were bypassed.
-  if (isNaN(lastTouch)) return true; 
 
   return now.getTime() - lastTouch > thresholdMs;
 }
