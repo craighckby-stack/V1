@@ -158,12 +158,11 @@ export function isDeadMansTripped(
     return true;
   }
 
-  const nowTime = now.getTime();
   const state = readOperatorTouch();
   if (!state) return true; // never touched, unreadable, or malformed → tripped
 
   const lastTouch = Date.parse(state.at);
   if (isNaN(lastTouch)) return true; // bad timestamp → tripped
 
-  return nowTime - lastTouch > thresholdMs;
+  return now.getTime() - lastTouch > thresholdMs;
 }
