@@ -35,6 +35,24 @@ export function AstInspectorModal() {
     low: AlertTriangle,
   };
 
+  // Ensure original and evolved are treated as strings for safe rendering/length checks
+  const originalStr = typeof original === 'string' ? original : String(original);
+  const evolvedStr = typeof evolved === 'string' ? evolved : String(evolved);
+
+  const handleCopy = async () => {
+    if (evolvedStr.length === 0) {
+      toast({ title: "Cannot copy", description: "Evolved code is unavailable or empty." });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(evolvedStr);
+      toast({ title: "Copied evolved code", description: `${evolvedStr.length} bytes to clipboard` });
+    } catch (error) {
+      // Catching generic error from clipboard API
+      toast({ title: "Failed to copy code", description: "Please try copying manually" });
+    }
+  };
+
   return (
     <AnimatePresence>
       <motion.div
@@ -88,19 +106,7 @@ export function AstInspectorModal() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  if (typeof evolved === 'string' && evolved.length > 0) {
-                    navigator.clipboard.writeText(evolved)
-                      .then(() => {
-                        toast({ title: "Copied evolved code", description: `${evolved.length} bytes to clipboard` });
-                      })
-                      .catch(() => {
-                        toast({ title: "Failed to copy code", description: "Please try copying manually" });
-                      });
-                  } else {
-                    toast({ title: "Cannot copy", description: "Evolved code is unavailable or empty." });
-                  }
-                }}
+                onClick={handleCopy}
                 className="bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-cyan-500 h-9 px-3"
                 aria-label="Copy evolved code to clipboard"
               >
@@ -124,19 +130,19 @@ export function AstInspectorModal() {
             <div className="bg-slate-950/60 overflow-y-auto p-4">
               <div className="text-xs uppercase tracking-widest text-slate-500 mb-2 flex items-center justify-between">
                 <span>Original</span>
-                <span className="font-mono text-slate-300">{original.length} bytes</span>
+                <span className="font-mono text-slate-300">{originalStr.length} bytes</span>
               </div>
               <pre className="text-[11px] font-mono text-slate-300 whitespace-pre-wrap leading-relaxed">
-                {original}
+                {originalStr}
               </pre>
             </div>
             <div className="bg-slate-950/60 overflow-y-auto p-4 border-l border-slate-800/60">
               <div className="text-xs uppercase tracking-widest text-slate-500 mb-2 flex items-center justify-between">
                 <span className="text-emerald-300">Evolved</span>
-                <span className="font-mono text-slate-300">{evolved.length} bytes</span>
+                <span className="font-mono text-slate-300">{evolvedStr.length} bytes</span>
               </div>
               <pre className="text-[11px] font-mono text-emerald-200/90 whitespace-pre-wrap leading-relaxed">
-                {evolved}
+                {evolvedStr}
               </pre>
             </div>
           </div>
