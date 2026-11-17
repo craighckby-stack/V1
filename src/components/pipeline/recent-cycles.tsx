@@ -29,11 +29,12 @@ export function RecentCycles() {
         throw new Error(`Failed to fetch recent cycles: HTTP status ${res.status} ${res.statusText}`);
       }
       const data = await res.json();
-      const apiResponse = data as { cycles: AutonomousCycleSummary[] };
-
-      if (!apiResponse || !Array.isArray(apiResponse.cycles)) {
-        throw new Error("Invalid API response: expected object containing a 'cycles' array.");
+      
+      if (typeof data !== 'object' || data === null || !Array.isArray((data as any).cycles)) {
+        throw new Error("Invalid API response structure: expected object containing a 'cycles' array.");
       }
+      
+      const apiResponse = data as { cycles: AutonomousCycleSummary[] };
       setFetched(apiResponse.cycles);
     } catch (error) {
       console.error("Error refreshing recent cycles from API:", error instanceof Error ? error.message : "Unknown error during fetch or parsing.");
@@ -48,13 +49,25 @@ export function RecentCycles() {
   }, []);
 
   // Merge: in-memory recent from WS (most recent first) + DB fetch (dedup by id).
-  const seen = new Set<string>();
-  const merged = [...cyclesFromStore, ...fetched].filter((c): c is AutonomousCycleSummary => {
-    if (!c || !c.id) return false;
-    if (seen.has(c.id)) return false;
-    seen.add(c.id);
-    return true;
+  // Use Map for O(N) deduplication instead of Set iteration during filter.
+  const seen = new Map<string, AutonomousCycleSummary>();
+  
+  // Process store cycles first (assuming they are the most up-to-date from WS)
+  cyclesFromStore.forEach(c => {
+    if (c && c.id) {
+      seen.set(c.id, c);
+    }
   });
+
+  // Process fetched cycles, only adding if ID is not already seen
+  fetched.forEach(c => {
+    if (c && c.id && !seen.has(c.id)) {
+      seen.set(c.id, c);
+    }
+  });
+
+  // Convert map values back to array. Order preservation depends on insertion order (Map preserves insertion order).
+  const merged = Array.from(seen.values());
 
   return (
     <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur shadow-xl">
