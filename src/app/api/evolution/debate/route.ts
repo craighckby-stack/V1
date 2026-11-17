@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   let body: DebateRequest;
   try {
     body = (await req.json()) as DebateRequest;
-  } catch {
+  } catch (e) {
     return NextResponse.json(
       { error: "Invalid JSON format in request body." },
       { status: 400 }
@@ -61,8 +61,8 @@ export async function POST(req: Request) {
       errorMessage = `Debate execution failed: ${err.message}`;
     } else if (typeof err === 'string') {
       errorMessage = `Debate execution failed: ${err}`;
-    } else if (err !== null && typeof err !== 'undefined') {
-      // Handle other unexpected types (objects without message, numbers, etc.)
+    } else {
+      // Handle other unexpected types (e.g., objects without message, numbers)
       errorMessage = "Debate execution failed due to an unidentifiable error type.";
     }
     

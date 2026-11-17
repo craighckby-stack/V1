@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/oracle/oracle-task-feed.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "Test gate failed: test failed (sandboxed): src/lib/pipeline/oracle/oracle-task-feed.test.ts — \nsrc/lib/pipeline/oracle/oracle-task-feed.test.ts:\n(pass) oracle-task-feed > the new kind is registered at priority 7 (lowest, advisory) [0.23ms]\n78 |           filePath: \"src/lib/pipeline/oracle/orac",
@@ -12,8 +12,8 @@
   "parentHash": "eb7ccea6ebe6288240e853c9b91b80b646892d70384f0b4e744d293ecc21423a",
   "hash": "fa0597829f09756c5555a689439a57a9a6704315e12d5e16ebeb0757b22fbf5f",
   "lastAttemptAt": "2026-11-17T06:09:59.613Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-17T06:40:19.045Z",
   "createdAt": "2026-11-17T03:09:52.509Z",
-  "updatedAt": "2026-11-17T06:09:59.613Z",
+  "updatedAt": "2026-11-17T06:40:19.045Z",
   "schema": 2
 }
