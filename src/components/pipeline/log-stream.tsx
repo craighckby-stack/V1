@@ -86,9 +86,8 @@ export function LogStream() {
                   // Validate timestamp and provide fallback
                   const timestamp = (entry.timestamp as string) || 'invalid timestamp';
                   
-                  // Use a stable identifier. If a unique ID existed, it would be preferred. 
-                  // Fallback to timestamp + message content string for animation stability.
-                  const key = timestamp + (entry.message || ''); 
+                  // Use a stable identifier. Prioritize a unique ID if present, otherwise use timestamp + message content.
+                  const key = (entry as any).id || timestamp + (entry.message || ''); 
                   
                   return (
                     <motion.div
