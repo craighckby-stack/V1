@@ -86,13 +86,15 @@ export function emitOracleEvent(
   }
 
   // Input validation for source type
-  if (typeof source !== "string" || !["generator", "evaluator", "scheduler", "auto-adjudicator"].includes(source)) {
-    throw new TypeError(`Invalid event source: ${source}. Must be one of: generator, evaluator, scheduler, auto-adjudicator`);
+  const validSources: OracleEvent["source"][] = ["generator", "evaluator", "scheduler", "auto-adjudicator"];
+  if (!validSources.includes(source as OracleEvent["source"])) {
+    throw new TypeError(`Invalid event source: ${source}. Must be one of: ${validSources.join(', ')}`);
   }
 
   // Validate type parameter
-  if (!["info", "success", "warn", "error"].includes(type)) {
-    throw new TypeError(`Invalid event type: ${type}. Must be one of: info, success, warn, error`);
+  const validTypes: OracleEvent["type"][] = ["info", "success", "warn", "error"];
+  if (!validTypes.includes(type as OracleEvent["type"])) {
+    throw new TypeError(`Invalid event type: ${type}. Must be one of: ${validTypes.join(', ')}`);
   }
 
   const s = state();
@@ -106,6 +108,7 @@ export function emitOracleEvent(
   };
   s.buffer.push(event);
   if (s.buffer.length > MAX_EVENTS) {
+    // Performance: splice(0, N) is O(N), but since N is small (MAX_EVENTS), this is acceptable for a bounded buffer.
     s.buffer.splice(0, s.buffer.length - MAX_EVENTS);
   }
   s.seq += 1;
@@ -201,6 +204,7 @@ export function readOracleEvents(afterSeq?: number): {
     // i > afterSeq - currentSeq + bufferLength
     // i_start = floor(afterSeq - currentSeq + bufferLength) + 1
     
+    // Calculate the required starting index based on sequence logic
     const requiredMinIndex = afterSeq - currentSeq + bufferLength + 1;
     
     // Start index must be at least 0 and less than bufferLength
@@ -213,6 +217,8 @@ export function readOracleEvents(afterSeq?: number): {
     }
 
     // Check if the calculated startIndex actually points to an event > afterSeq
+    // This check is crucial because Math.max(0, ...) might pull startIndex to 0, 
+    // but the event at index 0 might still be older than afterSeq.
     const firstEventSeq = currentSeq - bufferLength + startIndex;
     if (firstEventSeq <= afterSeq) {
         // The calculated startIndex is too early, no new events found.
