@@ -789,7 +789,14 @@ export async function shouldProactivelySkip(
     const missRate = probeN > 0 ? probeMiss / probeN : 0;
     const ceiling = probeN >= 3 && missRate > 0.1 ? 0.1 : 0.2;
 
-    const skip = file.finishedScore >= 0.5 && pred.confidence < ceiling;
+    // Operator re-activation (2026-11-17): threshold lowered 0.5 -> 0.4 so the
+    // self-model predicts zero-diff one no-growth earlier (finishedScore rises
+    // +0.25 per zero-diff, so 0.4 fires after the first zero-diff from a clean
+    // state vs 0.5 needing two). The skip-probe (every 4th skip spends the LLM
+    // call) + the probe miss-rate safety valve (missRate > 10% tightens the
+    // confidence ceiling 0.2 -> 0.1) are the built-in guards against
+    // over-skipping. Compounds with the lowered SATURATION_THRESHOLD (2).
+    const skip = file.finishedScore >= 0.4 && pred.confidence < ceiling;
     return {
       skip,
       reason: skip

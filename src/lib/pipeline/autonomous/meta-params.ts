@@ -53,7 +53,7 @@ export const TUNABLES: Tunable[] = [
   { key: "MAX_INJECTED", valueType: "int", seed: 5, min: 3, max: 8, step: 1, purpose: "max lessons injected into one enhance prompt" },
   { key: "PRUNE_SCORE", valueType: "float", seed: 0.35, min: 0.2, max: 0.6, step: 0.05, purpose: "trust score below which a lesson is pruned" },
   { key: "MIN_OBSERVATIONS", valueType: "int", seed: 4, min: 3, max: 10, step: 1, purpose: "verdicts required before pruning is allowed" },
-  { key: "SATURATION_THRESHOLD", valueType: "int", seed: 3, min: 2, max: 6, step: 1, purpose: "consecutive no-growth cycles before file lockout" },
+  { key: "SATURATION_THRESHOLD", valueType: "int", seed: 2, min: 2, max: 6, step: 1, purpose: "consecutive no-growth cycles before file lockout" },
 ];
 
 export function getTunable(key: string): Tunable | undefined {
