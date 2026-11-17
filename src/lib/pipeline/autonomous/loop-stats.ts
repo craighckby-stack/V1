@@ -70,17 +70,17 @@ export function writeLoopStats(state: LoopStatsState): void {
     console.error("writeLoopStats: PROJECT_ROOT is undefined or STATS_FILE is not resolvable — cannot persist stats.");
     return;
   }
-  
-  // Validate input state before attempting to write
-  if (!state || typeof state !== "object" || state === null) {
-    console.error("writeLoopStats: invalid state object provided");
+
+  // Validate input state structure first
+  if (!state || typeof state !== "object" || Array.isArray(state)) {
+    console.error("writeLoopStats: invalid state object provided (must be non-null object)");
     return;
   }
-  
-  // Check for presence of all required fields and validate types/values in one pass
+
+  // Check for presence and validate types/values for all required fields
   for (const field of NUMERIC_FIELDS) {
     if (!(field in state)) {
-      console.error(`writeLoopStats: missing required field ${field} in state object`);
+      console.error(`writeLoopStats: missing required numeric field ${field} in state object`);
       return;
     }
     const v = state[field];
@@ -90,23 +90,22 @@ export function writeLoopStats(state: LoopStatsState): void {
       v < 0 ||
       !Number.isInteger(v)
     ) {
-      console.error(`writeLoopStats: invalid value for field ${field}: ${v}`);
+      console.error(`writeLoopStats: invalid numeric value for field ${field}: ${v}`);
       return;
     }
   }
-  
+
+  // Validate lastEnhancementAt
   if (!('lastEnhancementAt' in state)) {
     console.error("writeLoopStats: missing required field lastEnhancementAt in state object");
     return;
   }
-  
-  // Validate lastEnhancementAt
   const ts = state.lastEnhancementAt;
   if (ts !== null && typeof ts === "string" && isNaN(Date.parse(ts))) {
     console.error(`writeLoopStats: invalid lastEnhancementAt value: ${ts}`);
     return;
   }
-  
+
   try {
     const infoDir = join(PROJECT_ROOT, ".git/info");
     // Ensure directory exists before attempting to write
@@ -142,7 +141,6 @@ export function readLoopStats(): LoopStatsState | null {
     if (
       !parsed ||
       typeof parsed !== "object" ||
-      parsed === null ||
       Array.isArray(parsed)
     ) {
       return null;
