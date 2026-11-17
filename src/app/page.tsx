@@ -371,7 +371,9 @@ export default function Home() {
     stickToBottomRef.current = next;
     // State mirrors the ref ONLY on flips (scroll events fire per-pixel —
     // an unguarded setState here would re-render on every tick of a drag).
-    setFollowPaused((prev) => (prev === next ? prev : !next));
+    // followPaused is the INVERSE of next (stick); the guard keeps the
+    // updater a no-op until the boolean actually changes.
+    setFollowPaused((prev) => (prev === !next ? prev : !next));
   };
   // ── Keyboard scrollback (2026-11-17, the "still not able to scroll up"
   // report) ────────────────────────────────────────────────────────────
@@ -1225,6 +1227,14 @@ export default function Home() {
           "  oracle status   — Track record: counts, calibration, Brier score",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
+          "",
+          "Scrollback (keyboard):",
+          "  PageUp / PageDown        — scroll the console up/down one page",
+          "  Shift+ArrowUp/ArrowDown  — scroll ~3 lines",
+          "  Shift+Home               — jump to top of scrollback",
+          "  Shift+End                — jump to bottom + resume tail-follow",
+          "  (while scrolled up, new logs keep appending below — see the",
+          "   'follow paused' badge; scroll back to the bottom to re-follow)",
           "",
         ];
 

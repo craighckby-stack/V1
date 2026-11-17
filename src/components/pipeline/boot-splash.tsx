@@ -21,6 +21,14 @@
  * observer and offers [ ▶ ENTER THE LOOP ] → pressing ENTER loads the
  * terminal. Splash → system, nothing in between.
  *
+ * ENTER works from ANY phase (2026-11-17 update): one press during the
+ * flash/POST/sigil commits entry directly (the ceremony fast-forwards
+ * through the exit animation). Previously Enter mid-animation only
+ * SKIPPED to the invite — a single press left the observer staring at
+ * a static splash demanding a second one. Any other key still just
+ * skips the animation to the invite, where the button (or Enter, or a
+ * click anywhere) enters.
+ *
  * The rite fires on EVERY entry — warm boot or cold. Warm boots (already
  * entered this browser session) take the fast path — the SESSION RESUMED
  * line first, then the same seven boot/scan vitals lines appended after
@@ -819,13 +827,13 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="LOOP boot sequence — press any key to skip, then Enter to enter the Loop"
+      aria-label="LOOP boot sequence — press Enter to enter the Loop (any other key skips the boot animation)"
       className={`bsp-root${phase === "exit" ? " bsp-root--exiting" : ""}`}
       onClick={skip}
     >
       <h2 className="sr-only">
         LOOP — a machine that rewrites its own code. Boot diagnostics: {postLines.length} checks.
-        Press Enter to enter the Loop.
+        Press Enter to enter the Loop — any other key skips the boot animation.
       </h2>
 
       <div
@@ -920,7 +928,9 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
 
       {phase !== "exit" && (
         <div className="bsp-hint bsp-dim" aria-hidden>
-          {phase === "invite" ? "ENTER ⏎" : "▌ PRESS ANY KEY TO SKIP"}
+          {phase === "invite"
+            ? "ENTER ⏎"
+            : "▌ ENTER ⏎ TO ENTER · ANY OTHER KEY SKIPS"}
         </div>
       )}
 

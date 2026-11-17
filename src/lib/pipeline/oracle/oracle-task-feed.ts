@@ -80,16 +80,13 @@ function hashProphecyIdToLine(prophecyId: string): number {
     // FNV prime multiply, keep in 32-bit range
     h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
   }
-  // Mask to 2^31 - 1 (positive int32) — Prisma Int field is 32-bit signed,
-  // and SelfTask.line is a 1-based line number, so positive only.
+  // Mask to ensure positive 32-bit integer (0x7fffffff)
   let line = h & 0x7fffffff;
-  if (line === 0) {
-    // If the hash results in 0 after masking, we must ensure a positive line number
-    // by incrementing, as 0 is invalid for a 1-based line number, while maintaining
-    // stability relative to the hash result.
-    line = 1;
-  }
-  return line;
+  
+  // Ensure line is at least 1, as 0 is invalid for a 1-based line number.
+  // If the hash results in 0 after masking, we map it to 1, maintaining
+  // stability relative to the hash result's zero state.
+  return line === 0 ? 1 : line;
 }
 
 /** Extract the file path a self-prophecy was about, from its stashed
@@ -119,9 +116,8 @@ function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
  *  criterion — everything the LLM executor needs to understand WHY
  *  this task exists without re-querying the Prophecy table. */
 function buildEvidence(prophecy: Prophecy): string {
-  const confidence = prophecy.confidence ?? null;
-  const confidenceStr = confidence !== null && confidence !== undefined
-    ? confidence.toFixed(2)
+  const confidenceStr = prophecy.confidence !== null && prophecy.confidence !== undefined
+    ? prophecy.confidence.toFixed(2)
     : "N/A";
   const createdAtStr = prophecy.createdAt?.toISOString() ?? "N/A";
   const evaluateByStr = prophecy.evaluateBy?.toISOString() ?? "N/A";
@@ -169,6 +165,7 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
     console.error(`Task kind ${ORACLE_FAILED_PROPHECY_KIND} is not registered in TASK_KINDS. Cannot queue task.`);
     return false;
   }
+  // Use default priority 7 if taskKind exists but priority is missing
   const priority = taskKind.priority ?? 7;
 
   try {
