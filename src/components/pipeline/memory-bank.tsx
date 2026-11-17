@@ -18,6 +18,9 @@ const PROVENANCE_META: Record<string, { icon: typeof ShieldCheck; color: string;
 export function MemoryBank() {
   const entries = usePipelineStore((s) => s.memoryEntries);
   const setEntries = usePipelineStore((s) => s.setMemoryEntries);
+  // Assuming the store might also hold a loading state, but based only on provided code,
+  // we rely on entries.length === 0 to indicate initial/empty state.
+  // If a dedicated loading state existed in the store, it should be used here.
 
   useEffect(() => {
     let cancelled = false;
@@ -25,13 +28,13 @@ export function MemoryBank() {
       try {
         const res = await fetch("/api/memory/entries");
         if (!res.ok) {
-          throw new Error(`Failed to fetch memory entries: HTTP status ${res.status}`);
+          throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
         const data = await res.json();
         
         // Validate API response structure
         if (!data || !Array.isArray(data.entries)) {
-          throw new Error("Invalid API response: expected entries array");
+          throw new Error("Invalid API response structure: expected 'entries' array in response body.");
         }
         
         if (!cancelled) {
@@ -39,7 +42,7 @@ export function MemoryBank() {
         }
       } catch (error) {
         // Log the error with context instead of silently ignoring it
-        console.error("Error loading memory entries from API:", error);
+        console.error("Error loading memory entries from API:", error instanceof Error ? error.message : String(error));
       }
     })();
     return () => {
@@ -60,15 +63,15 @@ export function MemoryBank() {
       <CardContent className="p-0">
         {entries.length === 0 ? (
           <div className="py-10 text-center">
-            <p className="text-sm text-slate-500 italic">Loading memory entries...</p>
+            <p className="text-sm text-slate-500 italic">Loading memory entries or no entries found.</p>
           </div>
         ) : (
           <ScrollArea className="h-[300px] pr-4">
             <div className="space-y-3">
               {entries.map((entry) => {
                 // Validate entry structure
-                if (!entry || !entry.id) {
-                  console.warn("Invalid memory entry missing required fields:", entry);
+                if (!entry || typeof entry !== 'object' || !entry.id) {
+                  console.warn("Invalid memory entry missing required fields or is not an object:", entry);
                   return null;
                 }
 
