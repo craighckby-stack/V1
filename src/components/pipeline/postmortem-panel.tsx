@@ -61,8 +61,13 @@ export function PostmortemPanel() {
         throw new Error(`Failed to fetch postmortems: ${res.status} ${res.statusText}`);
       }
       const data = await res.json();
+      
+      // Robust check for expected structure
       if (data && Array.isArray(data.postmortems)) {
-        setPostmortems(data.postmortems);
+        // Performance improvement: only update state if data has changed
+        if (JSON.stringify(data.postmortems) !== JSON.stringify(postmortems)) {
+            setPostmortems(data.postmortems);
+        }
       } else {
         // Improved error context for invalid structure
         const dataString = JSON.stringify(data).substring(0, 100);
@@ -84,7 +89,7 @@ export function PostmortemPanel() {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, postmortems]); // Dependency added: postmortems for comparison
 
   async function dismiss(id: string | undefined, filePath: string | undefined) {
     if (!id || typeof id !== 'string' || id.length === 0) {
