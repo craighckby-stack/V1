@@ -94,6 +94,8 @@ export async function oracleSchedulerTick(): Promise<{
   }
 
   let due: ProphecyRow[] = [];
+  let listError: Error | null = null;
+
   try {
     // Fetch due prophecies first
     due = await listDueProphecies();
@@ -109,12 +111,16 @@ export async function oracleSchedulerTick(): Promise<{
       "error",
       "scheduler",
     );
-    return { ran: false, reason: "failed to list due prophecies" };
+    listError = err instanceof Error ? err : new Error(`Unknown error during prophecy listing: ${String(err)}`);
   }
 
-  // Update tick time regardless of whether prophecies were found, as the tick ran.
+  // Update tick time regardless of whether prophecies were found or listing failed, as the tick ran.
   s.lastTickAt = Date.now();
   s.ticks += 1;
+
+  if (listError) {
+    return { ran: false, reason: "failed to list due prophecies" };
+  }
 
   if (due.length === 0) {
     return { ran: true, judged: 0, skipped: 0 };
