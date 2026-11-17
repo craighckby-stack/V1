@@ -62,15 +62,15 @@ export interface SelfEnhanceArmedState {
  *  flag remains the live source; the disk file is the restart tier). */
 export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   if (!PROJECT_ROOT || !ARMED_STATE_FILE) {
-    console.error(`markSelfEnhanceArmed: PROJECT_ROOT is not defined or ARMED_STATE_FILE could not be constructed. Cannot write armed state. PROJECT_ROOT: ${PROJECT_ROOT}`);
+    console.error(`markSelfEnhanceArmed: Cannot write armed state because PROJECT_ROOT is undefined. Cannot proceed.`);
     return;
   }
   if (typeof armed !== "boolean") {
-    console.error("markSelfEnhanceArmed: 'armed' must be a boolean");
+    console.error("markSelfEnhanceArmed: 'armed' must be a boolean.");
     return;
   }
   if (typeof by !== "string" || by.trim().length === 0) {
-    console.error("markSelfEnhanceArmed: 'by' must be a non-empty string");
+    console.error("markSelfEnhanceArmed: 'by' must be a non-empty string.");
     return;
   }
   try {
@@ -85,7 +85,7 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   } catch (error) {
     const infoDir = join(PROJECT_ROOT, ".git/info");
     console.error(
-      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}. PROJECT_ROOT: ${PROJECT_ROOT}. Error details:`,
+      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}. Error details:`,
       error instanceof Error ? error.message : String(error)
     );
   }
