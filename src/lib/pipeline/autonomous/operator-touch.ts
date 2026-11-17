@@ -78,9 +78,8 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
 
   try {
     const dirPath = dirname(OPERATOR_TOUCH_FILE);
-    if (dirPath) {
-      mkdirSync(dirPath, { recursive: true });
-    }
+    // Ensure directory exists; mkdirSync with recursive: true handles existing dirs safely.
+    mkdirSync(dirPath, { recursive: true });
     const entry: OperatorTouchState = { at: now.toISOString(), by };
     atomicWriteFileSync(OPERATOR_TOUCH_FILE, JSON.stringify(entry));
   } catch (error) {
