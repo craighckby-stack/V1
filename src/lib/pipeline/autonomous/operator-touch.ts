@@ -71,8 +71,6 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
     return;
   }
 
-  // 'now' validation is implicitly handled by default Date() or explicit Date() construction,
-  // but we rely on the caller providing a valid Date object if they override the default.
   if (!(now instanceof Date) || isNaN(now.getTime())) {
     console.error("markOperatorTouch: 'now' parameter must be a valid Date object. Persistence skipped.");
     return;
@@ -80,7 +78,9 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
 
   try {
     const dirPath = dirname(OPERATOR_TOUCH_FILE);
-    mkdirSync(dirPath, { recursive: true });
+    if (dirPath) {
+      mkdirSync(dirPath, { recursive: true });
+    }
     const entry: OperatorTouchState = { at: now.toISOString(), by };
     atomicWriteFileSync(OPERATOR_TOUCH_FILE, JSON.stringify(entry));
   } catch (error) {
