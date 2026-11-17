@@ -87,7 +87,7 @@ function parseTs(ts: string | undefined | null): number {
 
   // Full ISO-8601 with a date component
   if (/\d{4}-\d{2}-\d{2}T/.test(s) || /Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
-    const t = new Date(s).getTime();
+    const t = Date.parse(s);
     return Number.isNaN(t) ? NaN : t;
   }
 
@@ -172,17 +172,27 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
 
   const processLogRun = (run: ConsoleLine[]) => {
     if (run.length === 0) return;
+    
     // Stable sort: key = parsed epoch (NaN → -∞ so unparseable log
     // lines sink to the bottom of their run, preserving arrival order
     // among themselves via the index tiebreak).
-    const keyed = run.map((l, i) => ({ l, k: l.ts ? parseTs(l.ts) : NaN, i }));
-    keyed.sort((a, b) => {
-      const ka = Number.isNaN(a.k) ? -Infinity : a.k;
-      const kb = Number.isNaN(b.k) ? -Infinity : b.k;
-      if (ka !== kb) return ka - kb;
-      return a.i - b.i;
+    
+    // Optimized sorting without intermediate keyed array allocation
+    run.sort((a, b) => {
+      const ka = a.ts ? parseTs(a.ts) : NaN;
+      const kb = b.ts ? parseTs(b.ts) : NaN;
+      
+      const isNaA = Number.isNaN(ka);
+      const isNaB = Number.isNaN(kb);
+
+      if (isNaA && isNaB) return 0; // Both unparseable, maintain relative order (stable)
+      if (isNaA) return 1; // A is unparseable, sinks to bottom
+      if (isNaB) return -1; // B is unparseable, sinks to bottom
+      
+      return ka - kb;
     });
-    keyed.forEach(x => result.push(x.l));
+    
+    run.forEach(l => result.push(l));
   };
 
   for (const l of lines) {
@@ -191,7 +201,15 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
     if (!l || typeof l !== "object" || !l.id || !l.type) continue;
     
     if (l.type === "log") {
-      logRun.push(l);
+      // Robustness check: ensure ts is string before pushing to run, 
+      // as parseTs expects string|undefined|null.
+      if (typeof l.ts !== 'string') {
+        // Treat log lines missing string ts as unparseable/no sort key, 
+        // but still include them in the run to maintain sequence integrity.
+        logRun.push(l);
+      } else {
+        logRun.push(l);
+      }
     } else {
       // Process accumulated log run before pushing the anchor line
       processLogRun(logRun);
