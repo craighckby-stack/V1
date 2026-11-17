@@ -158,11 +158,8 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     // If spawning fails, isSpawning will be reset in finally block.
     return false;
   } finally {
-    if (!spawnSuccessful) {
-      // If spawning failed, reset immediately.
-      isSpawning = false;
-    }
-    // If spawning succeeded, isSpawning remains true until health checks complete below.
+    // Reset isSpawning flag to allow future spawn attempts
+    isSpawning = false;
   }
 
   // Wait up to ~5s for boot (pipeline import graph: Prisma + TS compiler
@@ -183,9 +180,6 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     }
   }
   
-  // Reset isSpawning regardless of health check outcome, as the attempt is complete.
-  isSpawning = false;
-
   // Return health status
   return healthCheckSuccessful;
 }
