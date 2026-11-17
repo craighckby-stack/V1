@@ -795,10 +795,21 @@ export default function Home() {
     configOpen || geminiOpen || nvidiaOpen || oracleOpen || defenseOpen || branchesOpen || mergeBackOpen || selfModelOpen;
 
   // Focus input on click anywhere — but NOT while any modal panel is open
-  // (the panel's inputs need the click to land + keep focus).
+  // (the panel's inputs need the click to land + keep focus), and NOT when
+  // the click landed inside a fixed in-page dialog/prompt. The operator-PIN
+  // unlock prompt and the API-key unlock panel are both role="dialog"
+  // fixed overlays that aren't tracked by `anyPanelOpen`; without this
+  // guard, clicking into their inputs bubbles to document and yanks focus
+  // back to the terminal, so the typed PIN/key never reaches the prompt
+  // (the PIN field appears focused, then immediately blurs on each click).
   useEffect(() => {
-    const handler = () => {
-      if (!anyPanelOpen) inputRef.current?.focus();
+    const handler = (e: MouseEvent) => {
+      if (anyPanelOpen) return;
+      const target = e.target;
+      if (target instanceof Element && target.closest('[role="dialog"]')) {
+        return;
+      }
+      inputRef.current?.focus();
     };
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
