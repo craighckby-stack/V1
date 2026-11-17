@@ -37,7 +37,8 @@ const SOURCE_COLOR = {
 };
 
 export function LogStream() {
-  const logs = usePipelineStore((s) => s.loopState?.logs || [] as LogEntry[]);
+  const loopState = usePipelineStore((s) => s.loopState);
+  const logs = loopState?.logs || [] as LogEntry[];
   const wsConnected = usePipelineStore((s) => s.wsConnected);
 
   return (
@@ -79,9 +80,6 @@ export function LogStream() {
               </div>
             ) : (
               logs.map((entry) => {
-                // Guard against null/undefined entries in the array, though type assertion above helps
-                if (!entry) return null; 
-                
                 // Safely access type with fallback
                 const typeKey = (entry.type as string) in TYPE_ICON ? entry.type as keyof typeof TYPE_ICON : 'info';
                 const Icon = TYPE_ICON[typeKey] || Info;
@@ -92,11 +90,19 @@ export function LogStream() {
                 const sourceColor = SOURCE_COLOR[sourceKey] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
                 
                 // Validate timestamp and provide fallback
-                const timestamp = (entry.timestamp as string) || 'invalid timestamp';
+                const timestamp = entry.timestamp || 'invalid timestamp';
                 
-                // Use a stable identifier. Prioritize a unique ID if present, otherwise use timestamp + message content.
+                // Use a stable identifier. Prioritize a unique ID if present, otherwise use timestamp + message content if available.
                 const messageContent = entry.message || '';
-                const key = (entry as LogEntry).id || `${timestamp}-${messageContent}`; 
+                let key: string;
+                if (entry.id) {
+                    key = entry.id;
+                } else if (timestamp !== 'invalid timestamp' && messageContent) {
+                    key = `${timestamp}-${messageContent}`;
+                } else {
+                    // Fallback for completely unidentifiable entries, though this should be rare with robust logging
+                    key = `fallback-${Math.random()}`; 
+                }
                 
                 return (
                   <motion.div
