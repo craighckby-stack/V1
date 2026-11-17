@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/evolution/debate/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/autonomous/goal-engine.ts(105,30): error TS2339: Property 'loopGoal' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.; src/lib/pipeline/autonomous/goal-engine.ts(109,20): error TS2339: Property 'loopGoal' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.; src/lib/pipeline/autonomous/goal-engine.ts(176,25): error TS2339: Property 'loopGoal' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.",
@@ -12,8 +12,8 @@
   "parentHash": null,
   "hash": null,
   "lastAttemptAt": "2026-11-16T16:46:08.951Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-17T06:42:00.911Z",
   "createdAt": "2026-11-16T16:46:08.951Z",
-  "updatedAt": "2026-11-16T16:46:08.951Z",
+  "updatedAt": "2026-11-17T06:42:00.911Z",
   "schema": 2
 }

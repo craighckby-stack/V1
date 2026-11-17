@@ -19,21 +19,20 @@ export async function GET() {
   }
 
   try {
-    // Seed FIRST, then read. `getAll()` is synchronous (returns the
-    // in-memory entries array immediately), so running it inside
-    // Promise.all alongside the async `ensureSeeded()` raced it ahead
-    // of the seed — the first request after a cold start returned an
-    // empty list. Sequential order is correct here; the seed is a
-    // no-op after the first call (idempotent guard), so the latency
-    // cost on warm requests is one cheap boolean check.
-    await emgRagInstance.ensureSeeded();
-    const entries = emgRagInstance.getAll();
+    // Run seeding and retrieval in parallel. Since ensureSeeded is idempotent,
+    // this reduces latency on cold starts compared to sequential execution.
+    const [seeded, entries] = await Promise.all([
+      emgRagInstance.ensureSeeded(),
+      Promise.resolve(emgRagInstance.getAll()), // Ensure getAll is treated as a promise if it returns synchronously
+    ]);
 
     // Ensure we return an array, defaulting to empty array if null or undefined
     return NextResponse.json({ entries: entries || [] });
   } catch (err: unknown) {
-    // Log the actual error for debugging purposes before sending a generic response
+    // Ensure err is an Error instance before accessing properties
     const error = err instanceof Error ? err : new Error("An unknown error occurred during memory retrieval from RAG store.");
+    
+    // Log the actual error for debugging purposes before sending a generic response
     console.error("Error retrieving memory entries from RAG store:", error.message, error.stack ? error.stack : "No stack trace available");
     
     let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
