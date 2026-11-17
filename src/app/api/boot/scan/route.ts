@@ -63,34 +63,36 @@ async function diskScarCount(): Promise<number> {
 
   try {
     const entries = await readdir(root);
-    let n = 0;
+    let scarCount = 0;
+    // Use a stack for iterative DFS traversal to avoid stack overflow on deep directories
+    const stack: { path: string; entries: string[] }[] = [{ path: root, entries: entries }];
 
-    const processEntry = async (e: string, dir: string) => {
-      const p = join(dir, e);
-      try {
-        const st = await stat(p);
-        if (st.isDirectory()) {
-          // Recurse into subdirectory
-          const subEntries = await readdir(p);
-          for (const subE of subEntries) {
-            await processEntry(subE, p);
+    while (stack.length > 0) {
+      const { path: currentDir, entries: currentEntries } = stack.pop()!;
+
+      for (const entryName of currentEntries) {
+        const fullPath = join(currentDir, entryName);
+        try {
+          const st = await stat(fullPath);
+          if (st.isDirectory()) {
+            // If directory, push it onto the stack for later processing
+            const subEntries = await readdir(fullPath);
+            stack.push({ path: fullPath, entries: subEntries });
+          } else if (entryName.endsWith(".json")) {
+            // If file and ends with .json, count it
+            scarCount++;
           }
-        } else if (e.endsWith(".json")) {
-          n++;
-        }
-      } catch (e) {
-        // Log specific errors for individual file/dir access failures but continue traversal
-        if (e instanceof Error) {
-          console.warn(`Could not stat or access path ${p}: ${e.message}`);
-        } else {
-          console.warn(`Unknown error accessing path ${p}:`, e);
+        } catch (e) {
+          // Log specific errors for individual file/dir access failures but continue traversal
+          if (e instanceof Error) {
+            console.warn(`Could not stat or access path ${fullPath}: ${e.message}`);
+          } else {
+            console.warn(`Unknown error accessing path ${fullPath}:`, e);
+          }
         }
       }
-    };
-
-    // Process all top-level entries concurrently
-    await Promise.all(entries.map(e => processEntry(e, root)));
-    return n;
+    }
+    return scarCount;
 
   } catch (e) {
     // Catch errors during initial directory read (e.g., directory doesn't exist or permissions denied)
