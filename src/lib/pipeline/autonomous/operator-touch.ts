@@ -72,8 +72,10 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
   }
 
   try {
+    // Ensure directory exists. We use dirname only if the file path structure requires it,
+    // but we rely on atomicWriteFileSync/fs utilities to handle path existence robustly.
+    // Explicitly ensuring the directory exists is safer for initial setup.
     const dirPath = dirname(OPERATOR_TOUCH_FILE);
-    // Ensure directory exists; mkdirSync with recursive: true handles existing dirs safely.
     mkdirSync(dirPath, { recursive: true });
     const entry: OperatorTouchState = { at: now.toISOString(), by };
     atomicWriteFileSync(OPERATOR_TOUCH_FILE, JSON.stringify(entry));
@@ -150,11 +152,12 @@ export function isDeadMansTripped(
     return true;
   }
 
+  const nowTime = now.getTime();
   const state = readOperatorTouch();
   if (!state) return true; // never touched, unreadable, or malformed → tripped
 
   // readOperatorTouch guarantees state.at is a valid ISO date string if it returns a state.
   const lastTouch = Date.parse(state.at);
 
-  return now.getTime() - lastTouch > thresholdMs;
+  return nowTime - lastTouch > thresholdMs;
 }

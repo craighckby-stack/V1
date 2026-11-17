@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/pipeline/current-cycle.test.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
+  "evidence": "Original: 5972 bytes, Refactored: 5971 bytes. Errors: Verifier produced no output",
+  "constraints": "The previous refactor of src/components/pipeline/current-cycle.test.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "4f32127b2788d56fdcd617cb355f6bfc1856fed48ee6084cf0d8306ff8b0a0d7",
+  "hash": "3db7f25767f734d082391520da6c3b838e5bae97ed94f95ed49407fc5586025d",
+  "lastAttemptAt": "2026-11-17T13:40:52.404Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-17T13:40:52.405Z",
+  "updatedAt": "2026-11-17T13:40:52.405Z",
+  "schema": 2
+}
