@@ -60,6 +60,10 @@ export interface ArmedState {
  *  never fail a start/stop that already succeeded in memory (the in-memory
  *  flag remains the live source; the disk file is the restart tier). */
 export function markArmed(armed: boolean, by: string): void {
+  if (!PROJECT_ROOT) {
+    console.error("markArmed: PROJECT_ROOT is not defined, cannot persist armed state.");
+    return;
+  }
   try {
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
     // Rely on atomicWriteFileSync to handle directory creation or fail gracefully
@@ -102,11 +106,14 @@ export function readArmedState(): ArmedState | null {
     const state = parsed as ArmedState;
 
     // Validate that parsed matches ArmedState structure and data integrity
+    // ISO 8601 format ending in Z is strictly enforced here.
+    const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+
     if (typeof state.armed !== "boolean" || 
         typeof state.at !== "string" || 
         typeof state.by !== "string" ||
         state.by.trim() === "" ||
-        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(state.at)) {
+        !iso8601Regex.test(state.at)) {
       
       console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure (e.g., invalid ISO timestamp).`);
       return null;
