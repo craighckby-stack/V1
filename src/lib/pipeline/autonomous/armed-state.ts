@@ -40,7 +40,7 @@
  * to load from anywhere (loop-runtime, API routes, instrumentation).
  */
 
-import { mkdirSync, readFileSync, existsSync } from "fs";
+import { mkdirSync, readFileSync } from "fs";
 import { atomicWriteFileSync } from "../core/atomic-file";
 import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
@@ -78,7 +78,7 @@ export function markArmed(armed: boolean, by: string): void {
   } catch (error) {
     // Log the error for debugging but don't throw to maintain the contract
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`markArmed: Failed to persist armed state to ${ARMED_STATE_FILE}. Check file system permissions. Error: ${errorMessage}`);
+    console.error(`markArmed: Failed to persist armed state to ${ARMED_STATE_FILE}. Check file system permissions. Error details: ${errorMessage}`);
   }
 }
 
@@ -95,10 +95,6 @@ export function readArmedState(): ArmedState | null {
   }
   
   try {
-    if (!existsSync(ARMED_STATE_FILE)) {
-      return null;
-    }
-    
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
     let parsed: unknown;
     
@@ -129,9 +125,9 @@ export function readArmedState(): ArmedState | null {
     
     return state;
   } catch (error) {
-    // Log the error for debugging but return null to maintain the contract
+    // This catch block now handles file not found (ENOENT) and permission errors, maintaining the fail-closed contract.
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`readArmedState: Failed to read armed state from ${ARMED_STATE_FILE}. Check file permissions or existence. Error: ${errorMessage}`);
+    console.error(`readArmedState: Failed to read armed state from ${ARMED_STATE_FILE}. This usually means the file does not exist or permissions are insufficient. Error: ${errorMessage}`);
     return null;
   }
 }
