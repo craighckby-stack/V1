@@ -63,7 +63,7 @@ export function MemoryBank() {
       <CardContent className="p-0">
         {entries.length === 0 ? (
           <div className="py-16 text-center px-6">
-            <p className="text-base text-slate-500 italic">Loading memory entries or no entries found.</p>
+            <p className="text-base text-slate-500 italic">Loading memory entries... If this persists, check the network console for API errors.</p>
           </div>
         ) : (
           <ScrollArea className="h-[300px] pr-4">

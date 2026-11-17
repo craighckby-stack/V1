@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/scramble.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/scramble.tsx(53,35): error TS2345: Argument of type '\"\\n\" | \" \"' is not assignable to parameter of type 'never'.\n  Type '\"\\n\"' is not assignable to type 'never'.; src/components/pipeline/scramble.tsx(55,35): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.",
@@ -12,8 +12,8 @@
   "parentHash": "0bb698a620672dd3e8f12f5c9f018534b6e3af534de873d42c4525c00829d366",
   "hash": "3a3c3b454ae2764983e1b3aec0f4cd6537dda0b9ce5d95e3a6fc04ecbcae2aef",
   "lastAttemptAt": "2026-11-17T12:31:10.208Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-17T13:19:45.016Z",
   "createdAt": "2026-11-17T09:15:41.310Z",
-  "updatedAt": "2026-11-17T12:31:10.208Z",
+  "updatedAt": "2026-11-17T13:19:45.016Z",
   "schema": 2
 }
