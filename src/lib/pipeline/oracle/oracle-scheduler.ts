@@ -93,18 +93,14 @@ export async function oracleSchedulerTick(): Promise<{
     return { ran: false, reason: "LLM cooldown active — skipping tick" };
   }
 
-  // Cheap pre-check: are there any due prophecies? One indexed count
-  // beats kicking off the evaluator for nothing (the evaluator's own
-  // DB read is cheap too, but this keeps the tick's happy path at
-  // exactly one query and no LLM calls at all).
   let due: ProphecyRow[] = [];
   try {
-    const result = await listDueProphecies();
+    // Fetch due prophecies first
+    due = await listDueProphecies();
     // Validate that we got an array back, and handle null/undefined result from store
-    if (result === null || result === undefined || !Array.isArray(result)) {
-      throw new Error(`listDueProphecies() returned invalid data: ${typeof result}, expected array`);
+    if (due === null || due === undefined || !Array.isArray(due)) {
+      throw new Error(`listDueProphecies() returned invalid data: ${typeof due}, expected array`);
     }
-    due = result;
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : `Unknown error during prophecy listing: ${String(err)}`;
     const stackTrace = err instanceof Error ? err.stack : 'No stack trace available';
@@ -116,16 +112,20 @@ export async function oracleSchedulerTick(): Promise<{
     return { ran: false, reason: "failed to list due prophecies" };
   }
 
-  s.lastTickAt = Date.now(); // Update tick time
-  s.ticks += 1;
-
   if (due.length === 0) {
+    s.lastTickAt = Date.now(); // Update tick time even if nothing to judge
+    s.ticks += 1;
     return { ran: true, judged: 0, skipped: 0 };
   }
 
+  s.lastTickAt = Date.now(); // Update tick time
+  s.ticks += 1;
   s.running = true;
+
   try {
+    // Run evaluation concurrently with state updates if possible, but here we await the result
     const result = await evaluateDueProphecies();
+    
     // Validate the result structure. CONTRACT: evaluateDueProphecies()
     // returns per-prophecy outcome ARRAYS —
     //   { judged: Array<{id, claim, verdict}>, skipped: Array<{id, claim, reason, error}> }
@@ -141,6 +141,15 @@ export async function oracleSchedulerTick(): Promise<{
     // COUNT the status surface expects, not the array itself.
     s.lastJudgedCount = judged.length;
     return { ran: true, judged: judged.length, skipped: skipped.length };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : `Unknown error during prophecy evaluation: ${String(err)}`;
+    const stackTrace = err instanceof Error ? err.stack : 'No stack trace available';
+    emitOracleEvent(
+      `Oracle scheduler tick failed during evaluation. Error: ${errorMessage}\n${stackTrace}`,
+      "error",
+      "scheduler",
+    );
+    return { ran: false, reason: "failed during prophecy evaluation" };
   } finally {
     s.running = false;
   }
