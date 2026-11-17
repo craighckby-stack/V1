@@ -52,7 +52,7 @@ export function CurrentCycle() {
 
   const fileResults = cycle.fileResults || [];
   const totalFiles = fileResults.length;
-  const pushedFiles = fileResults.filter((r) => r.pushed).length;
+  const pushedFiles = fileResults.reduce((count, r) => count + (r.pushed ? 1 : 0), 0);
   const firstProofHash = totalFiles > 0 ? fileResults[0]?.proofHash : undefined;
 
   return (

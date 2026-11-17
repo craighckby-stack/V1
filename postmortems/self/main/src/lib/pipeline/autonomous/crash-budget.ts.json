@@ -8,12 +8,12 @@
   "symptom": "Test gate failed: test failed (sandboxed): src/lib/pipeline/autonomous/crash-budget.test.ts — \nsrc/lib/pipeline/autonomous/crash-budget.test.ts:\n(pass) crash-budget > readCrashBudget returns null when the file is absent [0.23ms]\n(pass) crash-budget > readCrashBudget returns null for malformed ",
   "evidence": "1 test file(s) checked. The refactor broke existing behavior.",
   "constraints": "The previous refactor of src/lib/pipeline/autonomous/crash-budget.ts broke existing tests. Do not change observable behavior.",
-  "attempts": 2,
-  "parentHash": "6739d3a53e37cf512d3dfd834fbeac527f1376b4056b03bc161c866d26aa03fe",
-  "hash": "c904506ed2aabcc75d67443bd656f39bf91ed41f5a11cfb614ea9ab8c13620aa",
-  "lastAttemptAt": "2026-11-17T06:38:50.312Z",
+  "attempts": 3,
+  "parentHash": "aeb59cac46a7633e5f7d5e7850ddc2425095fc251ed31d5bc2060f2efa9c80a1",
+  "hash": "6738702e0dbc6210847cad7079795d5d518694438555b9c9bdb87b301e0ce81e",
+  "lastAttemptAt": "2026-11-17T11:19:54.532Z",
   "resolvedAt": null,
-  "createdAt": "2026-11-17T03:09:52.468Z",
-  "updatedAt": "2026-11-17T06:38:50.312Z",
+  "createdAt": "2026-11-17T09:15:41.407Z",
+  "updatedAt": "2026-11-17T11:19:54.532Z",
   "schema": 2
 }
