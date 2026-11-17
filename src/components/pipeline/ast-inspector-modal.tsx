@@ -89,13 +89,17 @@ export function AstInspectorModal() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  navigator.clipboard.writeText(evolved)
-                    .then(() => {
-                      toast({ title: "Copied evolved code", description: `${evolved.length} bytes to clipboard` });
-                    })
-                    .catch(() => {
-                      toast({ title: "Failed to copy code", description: "Please try copying manually" });
-                    });
+                  if (typeof evolved === 'string' && evolved.length > 0) {
+                    navigator.clipboard.writeText(evolved)
+                      .then(() => {
+                        toast({ title: "Copied evolved code", description: `${evolved.length} bytes to clipboard` });
+                      })
+                      .catch(() => {
+                        toast({ title: "Failed to copy code", description: "Please try copying manually" });
+                      });
+                  } else {
+                    toast({ title: "Cannot copy", description: "Evolved code is unavailable or empty." });
+                  }
                 }}
                 className="bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-200 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-cyan-500 h-9 px-3"
                 aria-label="Copy evolved code to clipboard"
