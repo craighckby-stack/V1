@@ -79,7 +79,7 @@ export function CurrentCycle() {
               )}
               aria-hidden="true"
             />
-            Cycle #{cycle.cycleNumber}
+            Cycle #{cycle.cycleNumber ?? 'N/A'}
             <span className="text-xs text-slate-400 font-normal uppercase tracking-widest hidden sm:inline ml-1">
               {cycle.mode}
             </span>
