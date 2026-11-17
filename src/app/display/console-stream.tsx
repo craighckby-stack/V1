@@ -87,7 +87,7 @@ function parseTs(ts: string | undefined | null): number {
 
   // Full ISO-8601 with a date component
   if (/\d{4}-\d{2}-\d{2}T/.test(s) || /Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
-    const t = Date.parse(s);
+    const t = new Date(s).getTime();
     return Number.isNaN(t) ? NaN : t;
   }
 
@@ -167,26 +167,6 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
   const result: ConsoleLine[] = [];
   let logRun: ConsoleLine[] = [];
 
-  const processRun = () => {
-    if (logRun.length === 0) {
-      return;
-    }
-    
-    // Stable sort: key = parsed epoch (NaN → -∞ so unparseable log
-    // lines sink to the bottom of their run, preserving arrival order
-    // among themselves via the index tiebreak).
-    const keyed = logRun.map((l, i) => ({ l, k: l.ts ? parseTs(l.ts) : NaN, i }));
-    keyed.sort((a, b) => {
-      const ka = Number.isNaN(a.k) ? -Infinity : a.k;
-      const kb = Number.isNaN(b.k) ? -Infinity : b.k;
-      if (ka !== kb) return ka - kb;
-      return a.i - b.i;
-    });
-    
-    keyed.forEach(x => result.push(x.l));
-    logRun = [];
-  };
-
   for (const l of lines) {
     // Input validation is handled by the caller/type system, but we must
     // ensure we don't crash on malformed data if the contract is violated.
@@ -195,11 +175,36 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
     if (l.type === "log") {
       logRun.push(l);
     } else {
-      processRun();
+      // Process accumulated log run before pushing the anchor line
+      if (logRun.length > 0) {
+        // Stable sort: key = parsed epoch (NaN → -∞ so unparseable log
+        // lines sink to the bottom of their run, preserving arrival order
+        // among themselves via the index tiebreak).
+        const keyed = logRun.map((l, i) => ({ l, k: l.ts ? parseTs(l.ts) : NaN, i }));
+        keyed.sort((a, b) => {
+          const ka = Number.isNaN(a.k) ? -Infinity : a.k;
+          const kb = Number.isNaN(b.k) ? -Infinity : b.k;
+          if (ka !== kb) return ka - kb;
+          return a.i - b.i;
+        });
+        
+        keyed.forEach(x => result.push(x.l));
+        logRun = [];
+      }
       result.push(l);
     }
   }
-  processRun();
+  // Process any remaining log run at the end
+  if (logRun.length > 0) {
+    const keyed = logRun.map((l, i) => ({ l, k: l.ts ? parseTs(l.ts) : NaN, i }));
+    keyed.sort((a, b) => {
+      const ka = Number.isNaN(a.k) ? -Infinity : a.k;
+      const kb = Number.isNaN(b.k) ? -Infinity : b.k;
+      if (ka !== kb) return ka - kb;
+      return a.i - b.i;
+    });
+    keyed.forEach(x => result.push(x.l));
+  }
   return result;
 }
 
