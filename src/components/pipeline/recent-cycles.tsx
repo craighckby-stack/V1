@@ -29,10 +29,12 @@ export function RecentCycles() {
         throw new Error(`Failed to fetch recent cycles: HTTP status ${res.status} ${res.statusText}`);
       }
       const data = await res.json();
-      if (!data || typeof data !== 'object' || !Array.isArray((data as { cycles: AutonomousCycleSummary[] }).cycles)) {
+      const apiResponse = data as { cycles: AutonomousCycleSummary[] };
+
+      if (!apiResponse || !Array.isArray(apiResponse.cycles)) {
         throw new Error("Invalid API response: expected object containing a 'cycles' array.");
       }
-      setFetched((data as { cycles: AutonomousCycleSummary[] }).cycles);
+      setFetched(apiResponse.cycles);
     } catch (error) {
       console.error("Error refreshing recent cycles from API:", error instanceof Error ? error.message : "Unknown error during fetch or parsing.");
       setFetched([]);
@@ -47,7 +49,7 @@ export function RecentCycles() {
 
   // Merge: in-memory recent from WS (most recent first) + DB fetch (dedup by id).
   const seen = new Set<string>();
-  const merged = [...cyclesFromStore, ...fetched].filter((c) => {
+  const merged = [...cyclesFromStore, ...fetched].filter((c): c is AutonomousCycleSummary => {
     if (!c || !c.id) return false;
     if (seen.has(c.id)) return false;
     seen.add(c.id);
@@ -84,9 +86,7 @@ export function RecentCycles() {
           <ScrollArea className="h-[300px] pr-4">
             <div className="space-y-2">
               {merged.map((c) => {
-                if (!c || !c.id) return null;
-                
-                const statusColor = STATUS_COLOR[c.status] || "bg-slate-500/15 text-slate-300 border-slate-500/40";
+                const statusColor = STATUS_COLOR[c.status!] || "bg-slate-500/15 text-slate-300 border-slate-500/40";
                 const dateStr = c.startedAt ? new Date(c.startedAt).toLocaleString() : "Invalid date";
                 
                 return (
