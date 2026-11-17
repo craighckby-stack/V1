@@ -71,11 +71,10 @@ export async function POST(req: Request) {
 
     // Validate force parameter if present
     if ('force' in body) {
-      if (typeof body.force === 'boolean') {
-        force = body.force;
-      } else {
+      if (typeof body.force !== 'boolean') {
         throw new Error("Force parameter must be a boolean.");
       }
+      force = body.force;
     }
   } catch (e) {
     // Handle JSON parsing errors specifically
