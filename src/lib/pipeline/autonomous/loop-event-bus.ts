@@ -89,7 +89,7 @@ class LoopEventBus {
           throw new Error(`LoopEventBus.emit() for kind 'stage' requires a non-empty string filePath.`);
         }
         if (!evt.stage) {
-          throw new Error(`LoopEventBus.emit() for kind 'stage' requires a defined stage object.`);
+          throw new Error("LoopEventBus.emit() for kind 'stage' requires a defined stage object.");
         }
         break;
       case "push":
