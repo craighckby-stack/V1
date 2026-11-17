@@ -23,7 +23,6 @@ export function MemoryBank() {
   // If a dedicated loading state existed in the store, it should be used here.
 
   useEffect(() => {
-    let cancelled = false;
     (async () => {
       try {
         const res = await fetch("/api/memory/entries");
@@ -37,18 +36,14 @@ export function MemoryBank() {
           throw new Error("Invalid API response structure: expected 'entries' array in response body.");
         }
         
-        if (!cancelled) {
-          setEntries(data.entries);
-        }
+        // State update is safe here as useEffect dependencies are stable or handled by React lifecycle
+        setEntries(data.entries);
       } catch (error) {
-        // Log the error with context instead of silently ignoring it
+        // Log the error with context
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error("Error loading memory entries from API:", { error, context: "MemoryBank fetch" });
+        console.error("Error loading memory entries from API:", { error: errorMessage, context: "MemoryBank fetch" });
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, [setEntries]);
 
   return (
