@@ -86,7 +86,7 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
     atomicWriteFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2));
   } catch (error) {
     console.error(
-      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}. Error details:`,
+      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE} at ${new Date().toISOString()}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}. Error details:`,
       error instanceof Error ? error.message : String(error)
     );
   }
