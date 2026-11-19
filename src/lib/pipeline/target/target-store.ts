@@ -104,8 +104,8 @@ export async function setTargetConfig(
   repoRaw: string | null | undefined,
   branch?: string | null
 ): Promise<TargetRepoConfig> {
-  if (typeof repoRaw !== 'string') {
-    throw new Error("Repository raw string must be a string to set target configuration.");
+  if (typeof repoRaw !== 'string' || repoRaw.trim().length === 0) {
+    throw new Error("Repository raw string must be a non-empty string to set target configuration.");
   }
   const repo = normalizeTargetRepo(repoRaw);
   if (!validTargetRepoFormat(repo)) {
