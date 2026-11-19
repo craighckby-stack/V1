@@ -55,8 +55,8 @@ export function githubHeaders(token: string | null | undefined): Record<string, 
     };
   }
 
-  // token is guaranteed to be a string here
-  const trimmedToken = token.trim();
+  // token is guaranteed to be a string here, but we must handle potential runtime issues if type guards fail.
+  const trimmedToken = (token as string).trim();
 
   if (trimmedToken.length < MIN_TOKEN_LENGTH) {
     const displayToken = trimmedToken.length > 4 ? `${trimmedToken.substring(0, 4)}...` : trimmedToken;
@@ -64,7 +64,8 @@ export function githubHeaders(token: string | null | undefined): Record<string, 
   }
 
   if (isInvalidToken(trimmedToken)) {
-    throw new Error(`Invalid token provided: token contains invalid prefixes or values. Token: "${trimmedToken}"`);
+    // Do not expose the full token in the error message for security
+    throw new Error(`Invalid token provided: token contains invalid prefixes or values.`);
   }
 
   const headers: Record<string, string> = {
