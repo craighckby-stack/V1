@@ -84,19 +84,30 @@ export async function getTargetConfig(): Promise<TargetRepoConfig | null> {
     const row = await db.systemFlag.findUnique({ where: { key: CONFIG_KEY } });
     if (!row || !row.value) return null;
     const parsed = JSON.parse(row.value) as TargetRepoConfig;
-    if (!parsed?.repo || !validTargetRepoFormat(parsed.repo)) return null;
+    if (!parsed?.repo || !validTargetRepoFormat(parsed.repo)) {
+      console.error(`Target config found but invalid format for repo: ${parsed?.repo}`);
+      return null;
+    }
     return parsed;
-  } catch {
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      console.error(`Failed to parse target config JSON for key ${CONFIG_KEY}:`, error);
+    } else {
+      console.error(`Database error while fetching target config ${CONFIG_KEY}:`, error);
+    }
     return null;
   }
 }
 
 /** Validate + persist the target config. Throws with an honest message. */
 export async function setTargetConfig(
-  repoRaw: string,
+  repoRaw: string | null | undefined,
   branch?: string | null
 ): Promise<TargetRepoConfig> {
-  const repo = normalizeTargetRepo(repoRaw ?? "");
+  if (repoRaw === null || repoRaw === undefined) {
+    throw new Error("Repository raw string must be provided to set target configuration.");
+  }
+  const repo = normalizeTargetRepo(repoRaw);
   if (!validTargetRepoFormat(repo)) {
     throw new Error(`Invalid repo format "${repoRaw}" — expected owner/name`);
   }
@@ -138,7 +149,8 @@ export async function clearTargetConfig(): Promise<boolean> {
     if (!existing) return false;
     await db.systemFlag.delete({ where: { key: CONFIG_KEY } });
     return true;
-  } catch {
+  } catch (error) {
+    console.error(`Failed to clear target configuration ${CONFIG_KEY}:`, error);
     return false;
   }
 }
@@ -161,8 +173,9 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
         reason: `run ${rec.status}`,
       },
     });
-  } catch {
-    /* the audit trail must never crash a run that already completed */
+  } catch (error) {
+    console.error(`Failed to record target run audit trail ${LAST_RUN_KEY}:`, error);
+    // the audit trail must never crash a run that already completed
   }
 }
 
@@ -171,7 +184,12 @@ export async function getTargetLastRun(): Promise<TargetRunRecord | null> {
     const row = await db.systemFlag.findUnique({ where: { key: LAST_RUN_KEY } });
     if (!row || !row.value) return null;
     return JSON.parse(row.value) as TargetRunRecord;
-  } catch {
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      console.error(`Failed to parse last run record JSON for key ${LAST_RUN_KEY}:`, error);
+    } else {
+      console.error(`Database error while fetching last run record ${LAST_RUN_KEY}:`, error);
+    }
     return null;
   }
 }
