@@ -75,6 +75,9 @@ export function DebateChamber() {
     badgeClasses = "bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/20";
   } else if (consensusStatus === "CONDITIONAL_APPROVAL") {
     badgeClasses = "bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/20";
+  } else if (consensusStatus) {
+    // Handle other defined statuses gracefully, defaulting to the initial rose/oppose style if not explicitly mapped
+    badgeClasses = "bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/20";
   }
 
   return (
