@@ -62,7 +62,7 @@ export interface SelfEnhanceArmedState {
  *  flag remains the live source; the disk file is the restart tier). */
 export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   if (!PROJECT_ROOT || !ARMED_STATE_FILE) {
-    console.error(`markSelfEnhanceArmed: Cannot write armed state because PROJECT_ROOT is undefined. Cannot proceed.`);
+    console.error(`markSelfEnhanceArmed: Cannot write armed state because PROJECT_ROOT is undefined. Cannot proceed with persistence.`);
     return;
   }
   if (typeof armed !== "boolean") {
