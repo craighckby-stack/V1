@@ -34,7 +34,7 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
 
     const total = text.length;
     const t0 = performance.now();
-    let raf: number = 0;
+    let raf: number | undefined = 0;
 
     const tick = (now: number) => {
       const p = Math.min(1, (now - t0) / ms);
@@ -45,10 +45,8 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
 
       // Build the scrambled tail efficiently
       const unsolvedLength = total - solved;
-      let scrambledTail = "";
-      for (let i = 0; i < unsolvedLength; i++) {
-        scrambledTail += GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
-      }
+      const scrambledTailArray = Array.from({ length: unsolvedLength }, () => GLYPHS[Math.floor(Math.random() * GLYPHS.length)]);
+      const scrambledTail = scrambledTailArray.join("");
 
       setOut(solvedPrefix + scrambledTail);
 
@@ -58,7 +56,11 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
     };
 
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      if (raf !== undefined) {
+        cancelAnimationFrame(raf);
+      }
+    };
   }, [start, text, ms]);
 
   if (text.length === 0) {
