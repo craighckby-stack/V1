@@ -37,17 +37,7 @@ export async function GET(req: Request) {
       );
     }
     
-    // Run seeding and querying in parallel to reduce latency
-    await Promise.all([
-      emgRagInstance.ensureSeeded(),
-      emgRagInstance.query(q)
-    ]);
-    
-    // Re-fetch result after parallel execution, assuming query returns the result directly
-    // NOTE: The original code awaited ensureSeeded, then called query. If query is async and returns the result,
-    // we must adjust the parallel structure or assume query handles seeding internally if it's called after ensureSeeded.
-    // Given the original structure, we assume query(q) returns the result and ensureSeeded must complete first or concurrently.
-    // Reverting to sequential if query relies on ensureSeeded completion, but optimizing the structure:
+    // Ensure seeding completes before querying to guarantee data availability.
     await emgRagInstance.ensureSeeded();
     const result = await emgRagInstance.query(q);
 
@@ -94,12 +84,12 @@ export async function GET(req: Request) {
       epistemicRuling: result.epistemicRuling,
     });
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during memory query.";
-    // Provide a more specific, actionable error message without exposing internal stack traces/details
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during memory query execution.";
+    // Provide a more specific, actionable error message with context
     return NextResponse.json(
       { 
-        error: `Failed to execute memory query due to a service error. Please check service status. Details: ${errorMessage}`,
-        operation: "ensureSeeded or query"
+        error: `Failed to execute memory query for query "${(err as any)?.query || 'N/A'}". Please check RAG service status. Details: ${errorMessage}`,
+        operation: "memory query"
       }, 
       { status: 500 }
     );
