@@ -67,8 +67,8 @@ export function TargetPanel({ open, onClose }: Props) {
     try {
       const res = await fetch("/api/pipeline/history");
       if (!res.ok) {
-        // Log error context for debugging, but do not crash UI
-        console.error(`Failed to load pipeline history: HTTP status ${res.status} ${res.statusText}`);
+        const errorText = await res.text();
+        console.error(`Failed to load pipeline history: HTTP status ${res.status}. Details: ${errorText.substring(0, 100)}`);
         setRuns([]); // Ensure runs is empty on API failure
         return;
       }
@@ -80,7 +80,7 @@ export function TargetPanel({ open, onClose }: Props) {
       }
     } catch (error) {
       // History is a convenience strip — log error but never block the panel on it.
-      console.error("Error fetching pipeline history:", error);
+      console.error("Network or parsing error fetching pipeline history:", error instanceof Error ? error.message : "Unknown error");
     } finally {
       setLoading(false);
     }
