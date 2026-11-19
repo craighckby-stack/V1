@@ -71,13 +71,6 @@ export function writeLoopStats(state: LoopStatsState): void {
     return;
   }
 
-  // Input validation is implicitly handled by TypeScript interface if called correctly,
-  // but we check for null/non-object defensively against runtime misuse.
-  if (!state) {
-    console.error("writeLoopStats: Invalid state object provided (must be non-null).");
-    return;
-  }
-
   // Validate structure and values against the defined contract.
   for (const field of NUMERIC_FIELDS) {
     const v = state[field];
