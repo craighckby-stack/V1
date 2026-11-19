@@ -34,9 +34,9 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
 
     const total = text.length;
     const t0 = performance.now();
-    let raf: number | undefined = 0;
+    let raf: number | undefined = undefined;
 
-    const tick = (now: number) => {
+    const tick = (now: DOMHighResTimeStamp) => {
       const p = Math.min(1, (now - t0) / ms);
       const solved = Math.floor(p * total);
 
