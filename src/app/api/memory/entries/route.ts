@@ -19,12 +19,8 @@ export async function GET() {
   }
 
   try {
-    // Run seeding and retrieval in parallel. ensureSeeded is idempotent,
-    // and getAll is synchronous, so this reduces latency on warm requests.
-    await Promise.all([
-      emgRagInstance.ensureSeeded(),
-      Promise.resolve(emgRagInstance.getAll()), // Wrap sync call in Promise.resolve for Promise.all
-    ]);
+    // Run seeding in parallel. ensureSeeded is idempotent.
+    await emgRagInstance.ensureSeeded();
     
     const entries = emgRagInstance.getAll();
 
