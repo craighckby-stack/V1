@@ -123,34 +123,12 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
     const key = `${kind}:${line}`;
     if (seen.has(key)) return;
     seen.add(key);
-    // Safe access using pre-split lines array
-    const evidence = (lines[line - 1] ?? "").trim().slice(0, 160);
+    // Safe access using pre-split lines array, ensuring line is valid (>= 1)
+    const evidence = (line > 0 && line <= lines.length) ? lines[line - 1].trim().slice(0, 160) : "";
     findings.push({ kind, line, evidence });
   };
 
-  // Iterate over nodes to find comments, which is more robust than line scanning alone.
-  ts.forEachChild(sf, (node) => {
-    if (ts.isTemplateLiteral(node) || ts.isStringLiteral(node)) {
-      // Check string literals for keywords, but this is imperfect for comments.
-      // We rely on the original line scan for comments as AST doesn't cleanly separate comments from code nodes.
-    }
-  });
-
-  // Re-run line scan for comments as AST traversal doesn't easily expose raw comments
-  for (let i = 0; i < lines.length; i++) {
-    if (/(\/\/|\/\*|\*).*\b(TODO|FIXME|HACK)\b/.test(lines[i])) {
-      const key = `todo-comment:${i + 1}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        findings.push({
-          kind: "todo-comment",
-          line: i + 1,
-          evidence: lines[i].trim().slice(0, 160),
-        });
-      }
-    }
-  }
-
+  // --- AST Traversal for structured findings ---
   const visit = (node: ts.Node): void => {
     // 2) empty catch blocks
     if (ts.isCatchClause(node) && node.block.statements.length === 0) {
@@ -193,8 +171,6 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
       if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
         bindings.push(clause.namedBindings.name.text);
       }
-      // "Rest of file" computed ONCE per import declaration (the same
-      // O(findings × file) fix the self scanner got in its audit).
       // Optimization: only filter lines *after* the import line.
       const restOfFileLines = lines.slice(importLineNo);
       const restOfFile = restOfFileLines.join("\n");
@@ -221,7 +197,25 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
 
     ts.forEachChild(node, visit);
   };
+
   visit(sf);
+
+  // --- Line Scan for Comments (Heuristic) ---
+  for (let i = 0; i < lines.length; i++) {
+    if (/(\/\/|\/\*|\*).*\b(TODO|FIXME|HACK)\b/.test(lines[i])) {
+      const lineNum = i + 1;
+      const key = `todo-comment:${lineNum}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        // Safe access guaranteed by loop bounds
+        findings.push({
+          kind: "todo-comment",
+          line: lineNum,
+          evidence: lines[i].trim().slice(0, 160),
+        });
+      }
+    }
+  }
 
   return findings;
 }
