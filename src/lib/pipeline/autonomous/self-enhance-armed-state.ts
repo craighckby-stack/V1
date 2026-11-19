@@ -62,7 +62,7 @@ export interface SelfEnhanceArmedState {
  *  flag remains the live source; the disk file is the restart tier). */
 export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   if (!PROJECT_ROOT || !ARMED_STATE_FILE) {
-    console.error(`markSelfEnhanceArmed: Cannot write armed state because PROJECT_ROOT is undefined. Cannot proceed with persistence.`);
+    console.error(`markSelfEnhanceArmed: Cannot write armed state because PROJECT_ROOT is undefined. Persistence skipped.`);
     return;
   }
   if (typeof armed !== "boolean") {
@@ -98,7 +98,7 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
  *  a bad read. */
 export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
   if (!PROJECT_ROOT || !ARMED_STATE_FILE) {
-    console.error("readSelfEnhanceArmedState: PROJECT_ROOT is not defined, cannot check state.");
+    // Fail closed: if we can't locate the file, assume not armed.
     return null;
   }
   try {
