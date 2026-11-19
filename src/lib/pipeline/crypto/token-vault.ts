@@ -188,8 +188,8 @@ export function openToken(stored: string): string {
       return "";
     }
     
-    // Validate IV and tag lengths
-    if (!iv || iv.length !== IV_LENGTH || !tag || tag.length !== GCM_TAG_LENGTH) return "";
+    // Validate IV and tag lengths, and ensure buffers are not empty
+    if (!iv || iv.length !== IV_LENGTH || !tag || tag.length !== GCM_TAG_LENGTH || !ct) return "";
 
     // Check for empty parts which can result from malformed input like "a..c"
     if (parts[0].length === 0 || parts[1].length === 0 || parts[2].length === 0) return "";
