@@ -76,7 +76,7 @@ export function MemoryBank() {
         ) : (
           <ScrollArea className="h-[300px] pr-4">
             <div className="space-y-4 p-4 sm:p-6">
-              {entries.map((entry) => {
+              {Array.isArray(entries) && entries.map((entry) => {
                 // Validate entry structure
                 if (!entry || typeof entry !== 'object' || !entry.id) {
                   console.warn("Invalid memory entry missing required fields or is not an object:", entry);
