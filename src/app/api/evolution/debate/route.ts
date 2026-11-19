@@ -45,15 +45,13 @@ export async function POST(req: Request) {
 
   try {
     const effectiveTopic = body.topic ?? `Code Review for ${body.filePath}`;
-    const { verdict, usedLlm, llmError } = await conductLlmDebate(
+    const result = await conductLlmDebate(
       effectiveTopic,
       body.candidateCode,
       body.filePath
     );
     return NextResponse.json({
-      ...verdict,
-      usedLlm,
-      llmError,
+      ...result,
     });
   } catch (err: unknown) {
     // Log the full error internally for pipeline observability before returning a sanitized response
