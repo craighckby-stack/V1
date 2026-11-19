@@ -83,7 +83,7 @@ export function markArmed(armed: boolean, by: string): void {
  *  auto-arm only proceeds when the disk EXPLICITLY says armed:true. */
 export function readArmedState(): ArmedState | null {
   if (!PROJECT_ROOT) {
-    console.error("readArmedState: PROJECT_ROOT is not defined");
+    console.error("readArmedState: PROJECT_ROOT is not defined, cannot read armed state.");
     return null;
   }
   
