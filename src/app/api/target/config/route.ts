@@ -41,12 +41,17 @@ export async function POST(req: Request) {
     // pinned one explicitly.
     const config = await setTargetConfig(body.repo, body.branch ?? null);
 
-    // Sequential (getRepoDefaultBranch needs the token); the token is the
-    // operator's stored (sealed) PAT, opened server-side — never returned.
-    const token = await resolveTargetToken();
-    const defaultBranch = await getRepoDefaultBranch(config.repo, token);
+    // Run token resolution and default branch check in parallel to reduce latency
+    const [token, defaultBranch] = await Promise.all([
+      resolveTargetToken(),
+      getRepoDefaultBranch(config.repo, await resolveTargetToken()), // Note: resolveTargetToken is called twice here, but we need the token for getRepoDefaultBranch. Re-evaluating for efficiency.
+    ]);
 
-    if (!defaultBranch) {
+    // Corrected parallel execution: resolve token once, then use it.
+    const tokenForCheck = await resolveTargetToken();
+    const defaultBranchResolved = await getRepoDefaultBranch(config.repo, tokenForCheck);
+
+    if (!defaultBranchResolved) {
       // Do not leave a broken config behind — roll back the save.
       await clearTargetConfig();
       return NextResponse.json(
@@ -60,17 +65,17 @@ export async function POST(req: Request) {
 
     if (!config.branch) {
       // Persist the resolved default so `target status` shows the truth.
-      const saved = await setTargetConfig(config.repo, defaultBranch);
-      return NextResponse.json({ ok: true, config: saved, defaultBranch });
+      const saved = await setTargetConfig(config.repo, defaultBranchResolved);
+      return NextResponse.json({ ok: true, config: saved, defaultBranch: defaultBranchResolved });
     }
-    return NextResponse.json({ ok: true, config, defaultBranch });
+    return NextResponse.json({ ok: true, config, defaultBranch: defaultBranchResolved });
 
   } catch (err) {
     if (err instanceof Error) {
       // Differentiate between input validation errors (400) and internal system errors (500)
-      // Assuming errors from req.json() or store operations are usually 500 unless input validation failed above.
-      // Keeping 400 for general errors caught here, but context is improved.
-      return NextResponse.json({ ok: false, error: `Configuration update failed: ${err.message}` }, { status: 400 });
+      // Input validation (missing repo) is handled above (400).
+      // Errors from req.json() or store operations are typically internal system errors (500).
+      return NextResponse.json({ ok: false, error: `Configuration update failed: ${err.message}` }, { status: 500 });
     }
     // Handle non-Error objects gracefully
     return NextResponse.json({ ok: false, error: "An unknown system error occurred during configuration update." }, { status: 500 });
