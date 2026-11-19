@@ -113,10 +113,10 @@ export function readArmedState(): ArmedState | null {
     if (typeof state.armed !== "boolean" ||
         typeof state.at !== "string" ||
         typeof state.by !== "string" ||
-        state.by.trim() === "" ||
+        state.by.trim() === "" || // Added explicit check for non-empty 'by'
         !iso8601Regex.test(state.at)) {
 
-      console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure (e.g., invalid ISO timestamp).`);
+      console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure (e.g., invalid ISO timestamp or empty 'by').`);
       return null;
     }
 
