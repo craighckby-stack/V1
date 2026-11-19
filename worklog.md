@@ -1960,3 +1960,72 @@ tree; .loop-sandbox/ empty after every run; tsc flags a type error in an
 overlay and passes a clean one.
 
 Verified: lint clean, tsc clean, server 200, dev.log clean.
+
+## 2026-11-19 — Target mode: the strict gate chain pointed at EXTERNAL repos (Direction 3, level 1)
+
+Decision (operator-delegated): ADD. The system's own diagnosis — a
+well-built engine with no destination (DIRECTIONS.md "The Honest Starting
+Point") — plus the fact that the self-loop converges into saturation
+(PASS COMPLETE) meant external targets add real work, and the gates that
+were missing in the original 7,000-garbage-commit era now exist. This is
+NOT the rea 6-stage pipeline (that revival already exists as the TARGET
+panel / unified-pipeline remote path, AST score-tolerance, shared
+evolution branch); it is the SELF-path gate contract applied to foreign
+code, complementing it.
+
+New (src/lib/pipeline/target/ — outside every protected prefix, so the
+loop itself may improve it):
+- target-scan.ts    — the self-task-generator detectors (TS compiler API)
+                      as a PURE (path, text) → findings function; same
+                      7 issue classes; isMutableTargetPath() reuses
+                      isProtectedPath so OUR control-surface path names
+                      are refused even in foreign repos (defense in depth;
+                      the mutation guard enforces the same predicate).
+                      Test files excluded — we cannot run foreign tests,
+                      and rewriting them would be the garbage-commit
+                      failure mode again.
+- target-github.ts  — lib-level GitHub helpers (tree, contents fetch,
+                      ensure-branch via git/refs, Contents-PUT commit with
+                      blob-sha re-resolution, branch listing, loop-t-NN
+                      numbering) + a pure LCS unified-diff builder for the
+                      secret-scan gate. Token only ever in headers.
+- target-store.ts   — config + last-run audit trail in the SystemFlag KV
+                      (NO schema migration); token resolution
+                      client → sealed push-target PAT → anonymous.
+- target-runner.ts  — ONE cycle: tree → candidates (rotate past last
+                      attempted) → probe ≤6 files → pick finding → LLM
+                      (one focused improvement) → runGateChain with
+                      TARGET_PATH_POLICY (guard+structural+ast STRICT+
+                      syntax; typecheck honestly skipped — no local dep
+                      tree; all steps reported) → secret-scan(diff+msg)
+                      → debate tribunal (fail closed) → dry-run stop OR
+                      branch loop-t-NN from base ref + Contents-PUT.
+                      Failures → postmortemStore.recordFailure under
+                      (repo, baseRef, filePath) — repo-scoped, no leakage
+                      into self prompts; constraints feed the next try.
+Routes: /api/target/config (GET/POST/DELETE — POST verifies
+reachability and rolls back a broken save), /api/target/run (POST
+{dryRun} — 15s route cooldown, operator touch, duress safe-mode checked
+in-runner). Both inherit the middleware x-loop-key gate.
+Console: executeTargetCommand() in console-commands.ts, wired into BOTH
+dispatchers — page.tsx's LIVE inline switch keeps bare `target`/`rea`
+opening the rea panel but delegates `target dry|run|status|off|
+<owner/repo>` to the strict chain (discovered during wiring: page.tsx
+never imports console-commands.ts; the extracted dispatcher is inert).
+
+Verification: 27 new unit tests (scan detectors, protection boundary,
+diff patch round-trip incl. multi-hunk + truncation, branch numbering,
+repo/branch validators) — all pass; full suite 447 pass / 3 pre-existing
+failures in saturation SCAN_SCOPES (loop's own 2026-11-17 mutation,
+dca1bd89, predates this work — flagged, not mine); tsc clean; eslint
+clean on all touched files. LIVE smoke test: unjs/defu configured,
+dry-run PASS end to end — probed 2 files, picked src/defu.ts (4
+findings), 17b proposal, all 5 deterministic gates green, secret scan
+clean, tribunal APPROVED 0.95, correctly stopped before landing
+(would-be branch loop-t-1). No writes to any remote; no local disk
+writes by the runner (postmortems/audit trail only, via DB).
+
+Left for later (deliberate): workspace-clone mode (Level 2) to enable
+typecheck + the target's own tests as gates; loop-integrated autonomous
+target cycling (Level 1 is operator-triggered by design — dead-man's
+switch semantics stay simple); a CONFIG-modal field for the target repo.

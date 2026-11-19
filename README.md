@@ -56,6 +56,20 @@ A single full-screen BIOS terminal at `/` (`src/app/page.tsx`) — black backgro
 
 Type `target` (or click `[TARGET]`) and the same 6-stage gauntlet the machine uses on itself — sanitize → reason (LLM) → AST gate → debate tribunal — runs against **any GitHub repository you choose**: fetch a file, propose a refactor, and if it survives the gates, push it to a `<branch>-evolution` branch of that repo (never the target branch itself). Reads work anonymously on public repos; pushes need a PAT with repo scope. This is the original "rea" pipeline revived on the hardened plumbing (see `DIRECTIONS.md`, Direction 3).
 
+### Target mode — the STRICT gate chain, one `loop-t-NN` branch per mutation
+
+The panel runs the 6-stage remote pipeline. For the **self-parity gate chain** — the same deterministic gauntlet a self-mutation must survive — use the console subcommands:
+
+```
+target <owner/repo> [branch]   — point the loop at an external repo (reachability-verified)
+target dry                     — full gate rehearsal: NOTHING lands on GitHub
+target run                     — one gated mutation, committed to a fresh loop-t-NN branch
+target status                  — the configured target + last-run audit trail
+target off                     — disconnect
+```
+
+`target run` picks a file the same way the self-loop picks its own (same static-analysis detectors: TODOs, empty catches, `any` usage, unused imports, magic numbers, non-null assertions), generates ONE focused improvement, then runs: **mutation-guard → structural → ast-diff (strict) → syntax → secret-scan → debate tribunal**. Typecheck and sandbox tests are skipped *honestly* — an external repo has no local dependency tree — and every run says so. Rejections write postmortems into the same repo-scoped scar memory the self-loop uses, so the constraints from a failed attempt on `owner/repo/src/foo.ts` shape the next attempt on that same file. Survivors land on their own `loop-t-NN` branch (`git diff loop-t-4..loop-t-5` = exactly one improvement), never on the base branch. Implementation: `src/lib/pipeline/target/` (`target-runner.ts` is the cycle, `TARGET_PATH_POLICY` is the gate contract).
+
 ### The SATURATION panel and the `[unlock]` buttons
 
 Near the bottom of the terminal there's a strip that looks like:

@@ -43,9 +43,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    const topic = body.topic ?? `Code Review for ${body.filePath}`;
     const { verdict, usedLlm, llmError } = await conductLlmDebate(
-      topic,
+      body.topic ?? `Code Review for ${body.filePath}`,
       body.candidateCode,
       body.filePath
     );
@@ -64,6 +63,9 @@ export async function POST(req: Request) {
       errorMessage = `Debate execution failed for ${body.filePath}: ${err.message}`;
     } else if (typeof err === 'string') {
       errorMessage = `Debate execution failed for ${body.filePath}: ${err}`;
+    } else {
+      // Handle other unknown types gracefully without crashing or assuming string structure
+      errorMessage = `Debate execution failed for ${body.filePath}: An unknown error type was thrown.`;
     }
     
     // Return a standardized 500 response
