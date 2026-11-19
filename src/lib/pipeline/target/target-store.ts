@@ -116,7 +116,7 @@ export async function setTargetConfig(
     const b = String(branch).trim();
     if (b.length > 0) {
       if (!validTargetBranchFormat(b)) {
-        throw new Error(`Invalid branch "${b}"`);
+        throw new Error(`Invalid branch "${b}" — must be a valid git branch name`);
       } else {
         branchValue = b;
       }
@@ -181,7 +181,7 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
       },
     });
   } catch (error) {
-    console.error(`Failed to record target run audit trail ${LAST_RUN_KEY}:`, error);
+    console.error(`Failed to record target run audit trail ${LAST_RUN_KEY} for status ${rec.status}:`, error);
     // the audit trail must never crash a run that already completed
   }
 }
@@ -210,6 +210,6 @@ export async function getTargetLastRun(): Promise<TargetRunRecord | null> {
 export async function resolveTargetToken(clientToken?: string): Promise<string | null> {
   if (clientToken && clientToken.length >= 8) return clientToken;
   const stored = await getStoredTarget().catch(() => null);
-  if (stored && stored.token && stored.token.length >= 8) return stored.token;
+  if (stored?.token && stored.token.length >= 8) return stored.token;
   return null;
 }
