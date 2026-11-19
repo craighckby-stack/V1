@@ -19,12 +19,14 @@ export function MemoryBank() {
   const entries = usePipelineStore((s) => s.memoryEntries);
   const setEntries = usePipelineStore((s) => s.setMemoryEntries);
   const hasFetchedRef = useRef(false);
+  const isFetchingRef = useRef(false);
 
-  // Determine if we are still loading: fetch hasn't been initiated yet.
-  const isLoading = !hasFetchedRef.current;
+  // Determine if we are currently fetching or if the fetch has never been initiated.
+  const isLoading = !hasFetchedRef.current || isFetchingRef.current;
 
   useEffect(() => {
     (async () => {
+      isFetchingRef.current = true;
       try {
         const res = await fetch("/api/memory/entries");
         if (!res.ok) {
@@ -46,9 +48,10 @@ export function MemoryBank() {
       } finally {
         // Mark as fetched regardless of success or failure to stop perpetual loading state
         hasFetchedRef.current = true;
+        isFetchingRef.current = false;
       }
     })();
-  }, []); // Removed setEntries from dependency array as it is stable
+  }, []);
 
   return (
     <Card className="bg-slate-950/60 border border-slate-800/60 backdrop-blur transition-shadow duration-200 hover:shadow-2xl">
@@ -61,7 +64,7 @@ export function MemoryBank() {
             <BookOpen className="h-5 w-5 text-emerald-300" aria-hidden="true" />
           </span>
           Memory Bank 
-          <span className="text-xs text-slate-400 font-normal ml-2 hidden sm:inline">(RAG)</span > 
+          <span className="text-xs text-slate-400 font-normal ml-2 hidden sm:inline">(RAG)</span> 
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
