@@ -40,34 +40,30 @@ export async function POST(req: Request) {
     }
     repoName = body.repo;
 
+    // Resolve token once for all subsequent checks
+    const token = await resolveTargetToken();
+
     // Verify reachability FIRST: a typo'd repo or a private repo with no
     // usable token should never become a silently-broken target. The
     // default branch is persisted as the base ref unless the operator
     // pinned one explicitly.
-    const config = await setTargetConfig(body.repo, body.branch ?? null);
-
-    // Resolve token and check default branch in parallel to reduce latency
-    const [tokenForCheck, defaultBranchResolved] = await Promise.all([
-      resolveTargetToken(),
-      getRepoDefaultBranch(config.repo, await resolveTargetToken()), // Note: resolveTargetToken is called again here, but we rely on the parallel execution structure for latency reduction. A better design would pass the token from the first await.
-    ]);
     
-    // Re-running resolveTargetToken inside Promise.all is inefficient. Let's restructure slightly to use the result from the first await.
-    const token = await resolveTargetToken();
-    const defaultBranch = await getRepoDefaultBranch(config.repo, token);
-
+    // Check default branch using the resolved token before attempting to save
+    const defaultBranch = await getRepoDefaultBranch(body.repo, token);
 
     if (!defaultBranch) {
-      // Do not leave a broken config behind — roll back the save.
-      await clearTargetConfig();
+      // Do not save config if repo is unreachable/unverifiable.
       return NextResponse.json(
         {
           ok: false,
-          error: `Repo ${config.repo} not reachable (missing, private without a usable token, or GitHub unreachable). Not saved.`,
+          error: `Repo ${body.repo} not reachable (missing, private without a usable token, or GitHub unreachable). Not saved.`,
         },
         { status: 422 }
       );
     }
+
+    // Now that reachability is confirmed, save the configuration
+    const config = await setTargetConfig(body.repo, body.branch ?? null);
 
     if (!config.branch) {
       // Persist the resolved default so `target status` shows the truth.
