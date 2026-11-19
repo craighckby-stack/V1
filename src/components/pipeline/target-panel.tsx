@@ -66,17 +66,31 @@ export function TargetPanel({ open, onClose }: Props) {
     setLoading(true);
     try {
       const res = await fetch("/api/pipeline/history");
-      const data = (await res.json()) as { runs?: HistoryRun[] };
-      if (res.ok) setRuns(data.runs ?? []);
-    } catch {
-      // History is a convenience strip — never block the panel on it.
+      if (!res.ok) {
+        // Log error context for debugging, but do not crash UI
+        console.error(`Failed to load pipeline history: HTTP status ${res.status} ${res.statusText}`);
+        setRuns([]); // Ensure runs is empty on API failure
+        return;
+      }
+      const data = await res.json();
+      if (data && Array.isArray(data.runs)) {
+        setRuns(data.runs);
+      } else {
+        setRuns([]); // Handle case where response is OK but structure is unexpected
+      }
+    } catch (error) {
+      // History is a convenience strip — log error but never block the panel on it.
+      console.error("Error fetching pipeline history:", error);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (open) void loadHistory();
+    if (open) {
+      // Only load when opening, not on subsequent re-renders while open
+      loadHistory();
+    }
   }, [open, loadHistory]);
 
   if (!open) return null;
