@@ -130,6 +130,15 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
 
   // 1) TODO/FIXME/HACK comments — comment-marker required so string
   //    literals that merely mention the words are not flagged.
+  // Iterate over nodes to find comments, which is more robust than line scanning alone.
+  ts.forEachChild(sf, (node) => {
+    if (ts.isTemplateLiteral(node) || ts.isStringLiteral(node)) {
+      // Check string literals for keywords, but this is imperfect for comments.
+      // We rely on the original line scan for comments as AST doesn't cleanly separate comments from code nodes.
+    }
+  });
+
+  // Re-run line scan for comments as AST traversal doesn't easily expose raw comments
   for (let i = 0; i < lines.length; i++) {
     if (/(\/\/|\/\*|\*).*\b(TODO|FIXME|HACK)\b/.test(lines[i])) {
       const key = `todo-comment:${i + 1}`;
