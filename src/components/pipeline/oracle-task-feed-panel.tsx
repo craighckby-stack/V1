@@ -35,10 +35,16 @@ export function OracleTaskFeedPanel() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = useCallback(async (isInitialLoad: boolean = false) => {
     if (refreshing) return; // Prevent concurrent refreshes
-    setRefreshing(true);
-    setError(null);
+    
+    if (isInitialLoad) {
+        setLoading(true);
+    } else {
+        setRefreshing(true);
+        setError(null);
+    }
+
     try {
       const response = await fetch("/api/self-enhance/tasks?limit=50");
       if (!response.ok) throw new Error(`HTTP ${response.status}: Failed to fetch tasks.`);
@@ -55,18 +61,19 @@ export function OracleTaskFeedPanel() {
       // Keep existing tasks on error — don't wipe the list on a transient failure
     } finally {
       setRefreshing(false);
-      // Only set loading to false if it was true initially (i.e., first load)
-      if (loading) {
+      if (isInitialLoad) {
         setLoading(false);
       }
     }
-  }, [loading, refreshing]);
+  }, [refreshing]);
 
   useEffect(() => {
     // Initial fetch
-    fetchTasks();
+    fetchTasks(true);
     // Poll every 60s to reduce API load while still surfacing tasks reasonably fast.
-    const interval = setInterval(fetchTasks, 60_000);
+    const interval = setInterval(() => {
+        fetchTasks(false);
+    }, 60_000);
     return () => clearInterval(interval);
   }, [fetchTasks]);
 
@@ -101,7 +108,7 @@ export function OracleTaskFeedPanel() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={fetchTasks}
+          onClick={() => fetchTasks(false)}
           disabled={refreshing}
           className="h-9 px-2 transition-colors duration-150 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-gray-400"
           aria-label="Refresh oracle task feed"
