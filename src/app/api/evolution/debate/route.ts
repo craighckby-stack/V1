@@ -20,12 +20,11 @@ interface DebateRequest {
 export async function POST(req: Request) {
   let body: DebateRequest;
   try {
-    body = (await req.json()) as DebateRequest;
-  } catch {
-    // Optional catch binding: the parse error is not surfaced (the 400
-    // message is generic on purpose — no token/path leakage).
+    body = await req.json() as DebateRequest;
+  } catch (e) {
+    // Provide a specific 400 error for JSON parsing failure without leaking internal details.
     return NextResponse.json(
-      { error: "Invalid JSON format in request body. Ensure the body is valid JSON." },
+      { error: "Invalid JSON format in request body." },
       { status: 400 }
     );
   }
@@ -63,12 +62,13 @@ export async function POST(req: Request) {
     let errorMessage = "An error occurred during the LLM debate execution.";
     
     if (err instanceof Error) {
-      errorMessage = `Debate execution failed for ${body.filePath}: ${err.message}`;
+      // Use the error message from the LLM execution context, but keep it sanitized for the client.
+      errorMessage = `Debate execution failed for ${body.filePath}. Please check the logs for details.`;
     } else if (typeof err === 'string') {
-      errorMessage = `Debate execution failed for ${body.filePath}: ${err}`;
+      errorMessage = `Debate execution failed for ${body.filePath}. Please check the logs for details.`;
     } else {
-      // Handle other unknown types gracefully without assuming string structure
-      errorMessage = `Debate execution failed for ${body.filePath}: An unknown error type was thrown during LLM execution.`;
+      // Handle other unknown types gracefully
+      errorMessage = `Debate execution failed for ${body.filePath}. An unknown error occurred during LLM execution.`;
     }
     
     // Return a standardized 500 response
