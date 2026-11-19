@@ -104,18 +104,17 @@ export async function oracleSchedulerTick(): Promise<{
       throw new Error(`listDueProphecies() returned invalid data: ${typeof due}, expected array`);
     }
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : `Unknown error during prophecy listing: ${String(err)}`;
+    const error = err instanceof Error ? err : new Error(`Unknown error during prophecy listing: ${String(err)}`);
     const stackTrace = err instanceof Error ? err.stack : 'No stack trace available';
     emitOracleEvent(
-      `Oracle scheduler tick failed while listing due prophecies. Error: ${errorMessage}\n${stackTrace}`,
+      `Oracle scheduler tick failed while listing due prophecies. Error: ${error.message}\n${stackTrace}`,
       "error",
       "scheduler",
     );
-    listError = err instanceof Error ? err : new Error(`Unknown error during prophecy listing: ${String(err)}`);
+    listError = error;
   }
 
-  // Only update tick time and count if prophecy listing was successful or if we are proceeding past the listing phase.
-  // If listError exists, we return early without updating tick time/count for a failed fetch.
+  // Only update tick time and count if prophecy listing was successful.
   if (listError) {
     return { ran: false, reason: "failed to list due prophecies" };
   }
@@ -150,10 +149,10 @@ export async function oracleSchedulerTick(): Promise<{
     s.lastJudgedCount = judged.length;
     return { ran: true, judged: judged.length, skipped: skipped.length };
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : `Unknown error during prophecy evaluation: ${String(err)}`;
+    const error = err instanceof Error ? err : new Error(`Unknown error during prophecy evaluation: ${String(err)}`);
     const stackTrace = err instanceof Error ? err.stack : 'No stack trace available';
     emitOracleEvent(
-      `Oracle scheduler tick failed during evaluation. Error: ${errorMessage}\n${stackTrace}`,
+      `Oracle scheduler tick failed during evaluation. Error: ${error.message}\n${stackTrace}`,
       "error",
       "scheduler",
     );
