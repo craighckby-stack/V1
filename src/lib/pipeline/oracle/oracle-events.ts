@@ -208,7 +208,7 @@ export function readOracleEvents(afterSeq?: number): {
     const requiredMinIndex = afterSeq - currentSeq + bufferLength + 1;
     
     // Start index must be at least 0 and less than bufferLength
-    const startIndex = Math.max(0, requiredMinIndex);
+    let startIndex = Math.max(0, requiredMinIndex);
     
     if (startIndex >= bufferLength) {
         // Even the last element (index bufferLength - 1) is not newer than afterSeq
@@ -217,8 +217,6 @@ export function readOracleEvents(afterSeq?: number): {
     }
 
     // Check if the calculated startIndex actually points to an event > afterSeq
-    // This check is crucial because Math.max(0, ...) might pull startIndex to 0, 
-    // but the event at index 0 might still be older than afterSeq.
     const firstEventSeq = currentSeq - bufferLength + startIndex;
     if (firstEventSeq <= afterSeq) {
         // The calculated startIndex is too early, no new events found.
@@ -237,8 +235,9 @@ export function readOracleEvents(afterSeq?: number): {
   }
 
   // No afterSeq provided or invalid, return all events
+  const events = s.buffer; // Avoid unnecessary copy if caller iterates directly
   s.lastReadAt = Date.now(); // Update lastReadAt when returning all events
-  return { events: s.buffer, seq: s.seq };
+  return { events, seq: s.seq };
 }
 
 /** Current sequence — lets a first-time caller snapshot "now" and only

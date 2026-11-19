@@ -10,7 +10,6 @@ import {
   setTargetConfig,
   clearTargetConfig,
   resolveTargetToken,
-  getTargetConfig,
 } from "@/lib/pipeline/target/target-store";
 import { getRepoDefaultBranch } from "@/lib/pipeline/target/target-github";
 import { runTargetMutation } from "@/lib/pipeline/target/target-runner";
