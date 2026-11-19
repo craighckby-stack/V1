@@ -95,9 +95,7 @@ export function writeLoopStats(state: LoopStatsState): void {
   try {
     const infoDir = join(PROJECT_ROOT, ".git/info");
     // Ensure directory exists before attempting to write
-    if (!existsSync(infoDir)) {
-      mkdirSync(infoDir, { recursive: true });
-    }
+    mkdirSync(infoDir, { recursive: true });
     atomicWriteFileSync(STATS_FILE, JSON.stringify(state, null, 2));
   } catch (error) {
     // Best-effort by contract: log, never throw.
@@ -133,29 +131,19 @@ export function readLoopStats(): LoopStatsState | null {
     }
     const obj = parsed as Record<string, unknown>;
 
-    // Check for presence of all required fields first
+    // Check for presence of all required fields and validate their types
     for (const field of NUMERIC_FIELDS) {
-      if (!(field in obj)) return null;
-    }
-    if (!('lastEnhancementAt' in obj)) return null;
-
-    // Every numeric field must be a finite, non-negative integer.
-    for (const field of NUMERIC_FIELDS) {
-      const v = obj[field];
-      if (
-        typeof v !== "number" ||
-        !Number.isFinite(v) ||
-        v < 0 ||
-        !Number.isInteger(v)
-      ) {
+      if (!(field in obj) || typeof obj[field] !== "number" || 
+          !Number.isFinite(obj[field]) || obj[field] < 0 || 
+          !Number.isInteger(obj[field])) {
         return null;
       }
     }
-    // lastEnhancementAt: null or a parseable ISO string.
+    // Check lastEnhancementAt presence and type
+    if (!('lastEnhancementAt' in obj)) return null;
     const ts = obj.lastEnhancementAt;
-    if (ts !== null && typeof ts === "string" && isNaN(Date.parse(ts))) {
-      return null;
-    }
+    if (ts !== null && typeof ts !== "string") return null;
+    if (ts !== null && isNaN(Date.parse(ts))) return null;
 
     return {
       totalScanned: obj.totalScanned as number,
