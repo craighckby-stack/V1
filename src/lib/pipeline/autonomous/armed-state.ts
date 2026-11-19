@@ -67,7 +67,7 @@ export function markArmed(armed: boolean, by: string): void {
   } catch (error) {
     // Log the error for debugging but don't throw to maintain the contract
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`markArmed: Failed to persist armed state to ${ARMED_STATE_FILE}. Check file system permissions. Error details: ${errorMessage}`);
+    console.error(`markArmed: Failed to persist armed state to ${ARMED_STATE_FILE} (by: ${by}). Check file system permissions. Error details: ${errorMessage}`);
   }
 }
 
@@ -78,13 +78,10 @@ export function markArmed(armed: boolean, by: string): void {
  *  a bad read. This is the dual-layer fail-closed contract: the boot
  *  auto-arm only proceeds when the disk EXPLICITLY says armed:true. */
 export function readArmedState(): ArmedState | null {
-  // PROJECT_ROOT is assumed to be available if this function is called in a valid pipeline context.
-  // If it's missing, join() might throw or result in an incorrect path, which the try/catch handles.
-
   try {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
+    
     let parsed: unknown;
-
     try {
       parsed = JSON.parse(raw);
     } catch (jsonError) {
