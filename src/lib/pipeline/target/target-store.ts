@@ -208,7 +208,7 @@ export async function getTargetLastRun(): Promise<TargetRunRecord | null> {
  * headers only.
  */
 export async function resolveTargetToken(clientToken?: string): Promise<string | null> {
-  const client = (clientToken ?? "").trim();
+  const client = clientToken ?? "";
   if (client.length >= 8) return client;
   const stored = await getStoredTarget().catch(() => null);
   if (stored && stored.token && stored.token.length >= 8) return stored.token;
