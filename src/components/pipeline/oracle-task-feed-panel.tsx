@@ -84,13 +84,13 @@ export function OracleTaskFeedPanel() {
     return (
       <Card className="w-full">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Brain className="h-4 w-4" />
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Brain className="h-5 w-5" />
             Oracle → Task Feed
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-xs text-gray-300">Loading failed-prophecy tasks...</p>
+          <p className="text-sm text-gray-400">Loading failed-prophecy tasks...</p>
         </CardContent>
       </Card>
     );
@@ -98,12 +98,12 @@ export function OracleTaskFeedPanel() {
 
   return (
     <Card className="w-full">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm">
-          <Brain className="h-4 w-4" />
+      <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-2 sm:space-y-0 pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Brain className="h-5 w-5" />
           Oracle → Task Feed
           {tasks.length > 0 && (
-            <Badge variant="secondary" className="ml-1 text-[10px]">
+            <Badge variant="secondary" className="ml-2 text-xs h-6 px-2">
               {tasks.length}
             </Badge>
           )}
@@ -113,54 +113,54 @@ export function OracleTaskFeedPanel() {
           size="sm"
           onClick={() => fetchTasks(false)}
           disabled={refreshing}
-          className="h-9 px-2 transition-colors duration-150 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-gray-400"
+          className="h-10 w-10 p-0 transition-colors duration-150 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-indigo-500"
           aria-label="Refresh oracle task feed"
         >
-          <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
+          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
         </Button>
       </CardHeader>
       <CardContent>
         {error && (
-          <p className="text-xs text-amber-500 mb-2" role="alert">
+          <p className="text-sm text-amber-600 mb-3 p-2 bg-amber-50 border border-amber-200 rounded" role="alert">
             {error}
           </p>
         )}
         {tasks.length === 0 && !loading ? (
-          <p className="text-xs text-gray-300">
-            No failed prophecies feeding tasks. The oracle&apos;s predictions are
+          <p className="text-sm text-gray-500 p-4 bg-gray-50 rounded-lg">
+            No failed prophecies feeding tasks. The oracle's predictions are
             either unjudged, fulfilled, or not yet past their deadline.
           </p>
         ) : (
-          <ScrollArea className="max-h-72">
-            <ul className="space-y-2 pr-2 sm:space-y-3">
+          <ScrollArea className="max-h-[400px]">
+            <ul className="space-y-3 pr-2 sm:space-y-4">
               {tasks.map((task) => {
                 const style = STATUS_STYLES[task.status] ?? STATUS_STYLES.pending;
                 const StatusIcon = style.icon;
                 return (
                   <li
                     key={task.id}
-                    className="border rounded-lg p-2 sm:p-3 space-y-1 transition-colors duration-150 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400"
+                    className="border border-gray-200 rounded-xl p-3 space-y-2 transition-all duration-150 hover:shadow-sm hover:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-500"
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-mono text-gray-300 truncate" title={task.filePath}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-mono text-gray-700 truncate" title={task.filePath}>
                         {task.filePath}
                       </span>
-                      <Badge variant={style.variant} className="text-[9px] uppercase tracking-wide flex items-center gap-1">
-                        <StatusIcon className="h-2.5 w-2.5" />
+                      <Badge variant={style.variant} className="text-xs uppercase tracking-wider flex items-center gap-1 h-7 px-2">
+                        <StatusIcon className="h-3 w-3" />
                         <span className="sr-only">{style.label} status</span>
                         {style.label}
                       </Badge>
                     </div>
-                    <p className="text-[10px] text-gray-300 line-clamp-2" title={task.evidence}>
+                    <p className="text-sm text-gray-700 line-clamp-2" title={task.evidence}>
                       {task.evidence}
                     </p>
                     {(task.attempts > 0 || task.lastError) && (
-                      <div className="flex items-center gap-2 text-[9px] text-gray-300">
-                        {task.attempts > 0 && <span>attempts: {task.attempts}</span>}
-                        {task.deferred > 0 && <span>deferred: {task.deferred}</span>}
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                        {task.attempts > 0 && <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Attempts: {task.attempts}</span>}
+                        {task.deferred > 0 && <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Deferred: {task.deferred}</span>}
                         {task.lastError && (
-                          <span className="text-amber-500 truncate" title={task.lastError}>
-                            err: {task.lastError.slice(0, 60)}
+                          <span className="text-amber-600 truncate" title={task.lastError}>
+                            Error: {task.lastError.slice(0, 60)}
                           </span>
                         )}
                       </div>
