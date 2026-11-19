@@ -113,14 +113,12 @@ export function HeaderBar() {
           </Badge>
 
           {/* Cycle count */}
-          {stats && (
-            <Badge
-              variant="outline"
-              className="text-[10px] uppercase tracking-widest bg-slate-900/60 text-amber-300 border-amber-700/40 whitespace-nowrap"
-            >
-              cycles: <span className="ml-1 font-mono tabular-nums">{stats.totalRuns ?? 0}</span>
-            </Badge>
-          )}
+          <Badge
+            variant="outline"
+            className="text-[10px] uppercase tracking-widest bg-slate-900/60 text-amber-300 border-amber-700/40 whitespace-nowrap"
+          >
+            cycles: <span className="ml-1 font-mono tabular-nums">{stats?.totalRuns ?? 0}</span>
+          </Badge>
         </div >
       </div >
     </header>
