@@ -1,5 +1,46 @@
 # Worklog — Architecture Helper Pipeline (Next.js 16 Rebuild)
 
+## 2026-11-19 — Operator change: TARGET panel — the "rea" external-repo pipeline revived (DIRECTIONS.md Direction 3)
+
+Operator decision after full-system analysis: the external-repo pipeline ADDS to
+the system (it is the system's origin and its own roadmap's Direction 3: "was
+built, needs revival"; the self-loop stays byte-identical). What was missing was
+not an engine — `unified-pipeline.ts` (6-stage, gates hardened + binding),
+`/api/pipeline/run` (+history), the GitHub routes, and the `ManualPipelineRunner`
+UI all existed — but (a) the runner was ORPHANED (imported by nothing, invisible
+on `/`), and (b) stage 5 stopped at a proof hash: nothing ever landed on the
+target repo.
+
+Changes (all additive; no protected file touched; self-mode untouched):
+- NEW `src/components/pipeline/target-panel.tsx` — CRT modal (OraclePanel house
+  pattern) wrapping the runner + a run-history strip (GET /api/pipeline/history).
+- `page.tsx` — `[TARGET]` header button, `target`/`rea` console command, help
+  line, panel state wired into anyPanelOpen + Escape chain.
+- `manual-runner.tsx` — stage-5 dispatch: "Push to <branch>-evolution" button
+  (COMPLETED runs only; blob-sha re-push support; honest "no push — the gauntlet
+  returned REJECTED" note otherwise). Empty repo default (stale 404 default
+  removed); Run disabled until repo + code present.
+- `api/github/commit-file` — optional `baseBranch`: auto-creates the target
+  branch from base/default HEAD on first push (fail-open: unexpected errors let
+  the PUT surface the real GitHub error).
+- `api/github/repo-tree` — FIX: response never set `isCodeFile`, so the runner's
+  file-list filter dropped every file (latent bug, invisible while the runner
+  was orphaned). Now flagged true (all entries pass CODE_EXT_REGEX).
+- README: [TARGET] button/command documented + a TARGET panel section.
+
+Verified (agent-browser, live): panel opens via command + button; scan lists 691
+real files from craighckby-stack/V1; three real pipeline runs executed end-to-end
+(real LLM + gates, ~8-15s each) — ALL THREE REJECTED by the gauntlet (AST gate /
+tribunal), exactly the anti-"7000-garbage-commits" protection binding; runs
+persisted to PipelineRun and rendered in the history strip; "no push" note
+confirmed in-DOM; Escape/focus-guard intact; mobile viewport OK (screenshots:
+target-panel-mobile.png, target-panel-post-run-mobile.png, target-panel-rea-revival.png).
+NOT verified: the actual GitHub push (needs an operator PAT by design — the
+sealed vault token is never exfiltrated to a client), and note the anonymous
+GitHub API on this sandbox's shared egress IP is frequently rate-limited (403) —
+paste a PAT in the panel for reliable scans/pushes.
+
+
 Project: Re-implementing the "Architecture Helper Pipeline v4.0" uploaded by the user
 as a Next.js 16 + App Router application. The centerpiece is a fully autonomous
 self-enhancement loop engine that lets the pipeline refactor GitHub repositories
@@ -1478,7 +1519,7 @@ Work Log:
 
 - Commit 9c77b68: "fix stop/start race (C) + retry/log honesty (E)" — 3 files changed, 102 insertions(+), 12 deletions(-).
 
-- PUSH BLOCKER RESOLVED. Previous attempts with `credential.helper='!f() { echo username=x-access-token; echo password="$GH_PAT"; }; f'` failed with "Invalid username or token" — turns out the token IS valid, the auth METHOD was wrong. The LOOP's own push-target.ts (line 378) uses `http.https://github.com/.extraheader` set to `Authorization: Basic base64(x-access-token:<token>)` via GIT_CONFIG_COUNT env vars. Replicating that method: `git -c http.https://github.com/.extraheader="Authorization: Basic <base64>" push origin main` succeeded. Pushed: `0bd0d74..9c77b68  main -> main`. Both this commit (9c77b68) and the earlier cleanup (ca47150) and the loop's own commit (0bd0d74) are now on origin/main. `git rev-list --left-right --count origin/main...HEAD` returns `0	0` — fully in sync.
+- PUSH BLOCKER RESOLVED. Previous attempts with `credential.helper='!f() { echo username=x-access-token; echo password="$GH_PAT"; }; f'` failed with "Invalid username or token" — turns out the token IS valid, the auth METHOD was wrong. The LOOP's own push-target.ts (line 378) uses `http.https://github.com/.extraheader` set to `Authorization: Basic base64(x-access-token:<token>)` via GIT_CONFIG_COUNT env vars. Replicating that method: `git -c http.https://github.com/.extraheader="Authorization: Basic <base64>" push origin main` succeeded. Pushed: `0bd0d74..9c77b68  main -> main`. Both this commit (9c77b68) and the earlier cleanup (ca47150) and the loop's own commit (0bd0d74) are now on origin/main. `git rev-list --left-right --count origin/main...HEAD` returns `0    0` — fully in sync.
 
 Stage Summary:
 - Fix C (stop/start race) is live and verified via Agent Browser. The run-token (runId) pattern works: stop() bumps the generation counter, runCycle's for-loop checks it and breaks, enhanceFile has a checkpoint between ratchet and enhance. Total drain after stop went from 54min (old) to 2.4min (new); the residual is the ratchet's in-call retry budget which Fix A will address.

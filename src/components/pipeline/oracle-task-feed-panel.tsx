@@ -40,6 +40,7 @@ export function OracleTaskFeedPanel() {
     
     if (isInitialLoad) {
         setLoading(true);
+        setError(null); // Clear previous errors on fresh start
     } else {
         setRefreshing(true);
         setError(null);
@@ -77,7 +78,8 @@ export function OracleTaskFeedPanel() {
     return () => clearInterval(interval);
   }, [fetchTasks]);
 
-  if (loading && tasks.length === 0) {
+  // Show loading only if we haven't loaded yet AND there's no error state indicating failure
+  if (loading && !error) {
     return (
       <Card className="w-full">
         <CardHeader>
@@ -122,7 +124,7 @@ export function OracleTaskFeedPanel() {
             {error}
           </p>
         )}
-        {tasks.length === 0 ? (
+        {tasks.length === 0 && !loading ? (
           <p className="text-xs text-gray-300">
             No failed prophecies feeding tasks. The oracle&apos;s predictions are
             either unjudged, fulfilled, or not yet past their deadline.

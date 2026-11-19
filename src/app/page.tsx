@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ConsoleStream, type ConsoleLine } from "./display/console-stream";
 import { OraclePanel } from "@/components/pipeline/oracle-panel";
 import { TargetPanel } from "@/components/pipeline/target-panel";
+import { executeTargetCommand } from "@/lib/console-commands";
 import { SelfModelPanel } from "@/components/pipeline/self-model-panel";
 import { DefensePanel } from "@/components/pipeline/defense-panel";
 import { BranchesPanel } from "@/components/pipeline/branches-panel";
@@ -1299,6 +1300,9 @@ export default function Home() {
           "  push clear  — Disconnect the push target",
           "  config      — Open the Git config panel (or click [CONFIG] in header)",
           "  target      — Open the external-repo pipeline panel (rea revival)",
+          "  target <owner/repo> — Point the STRICT gate chain at an external repo",
+          "  target dry  — full gate rehearsal, nothing lands | target run — land it",
+          "  target status — audit trail | target off — disconnect",
           "  logs        — Show recent logs",
           "  files       — List files being enhanced",
           "  tasks [status] — Self-generated task queue (system-defined input)",
@@ -1541,6 +1545,15 @@ export default function Home() {
 
       case "target":
       case "rea": {
+        // Bare `target` / `rea` keeps the established UX: open the 6-stage
+        // rea pipeline panel (same as the [TARGET] header button). The
+        // SUBCOMMANDS route to the strict-gate target mode (shared module
+        // with the extracted dispatcher in src/lib/console-commands.ts):
+        //   target <owner/repo> [branch] | target dry | target run |
+        //   target status | target off
+        if (parts.length > 1) {
+          return executeTargetCommand(parts, emitOutput);
+        }
         setTargetOpen(true);
         return [
           "Opening TARGET panel — external repository pipeline...",
@@ -1549,6 +1562,10 @@ export default function Home() {
           "evolution branch. Reads are anonymous on public repos; pushes need",
           "a PAT with repo scope. (This is the 'rea' pipeline, revived — see",
           "DIRECTIONS.md Direction 3.)",
+          "",
+          "For the STRICT gate chain (self-parity guards + scar memory + one",
+          "loop-t-NN branch per mutation): target <owner/repo>, then 'target dry'",
+          "or 'target run'. 'target status' shows the audit trail.",
         ];
       }
 
