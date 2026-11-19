@@ -61,13 +61,11 @@ export async function POST(req: Request) {
 
     let errorMessage = `Debate execution failed for ${body.filePath}. Please check the logs for details.`;
     
-    // Handle errors robustly without unnecessary type checks for string vs Error
     if (err instanceof Error) {
-      // Use the error message from the LLM execution context, but keep it sanitized for the client.
-      // The default message is already sanitized, so we only override if we want to expose specific context, 
-      // but adhering to the requirement of keeping it sanitized, we stick to the default structure.
+      // Provide a slightly more contextual error message derived from the LLM execution context, 
+      // while still adhering to the requirement of keeping the client response sanitized.
+      errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${err.message}. Check logs for full details.`;
     } 
-    // If it's not an Error instance, it's treated as an unknown failure, covered by the default message.
     
     // Return a standardized 500 response
     return NextResponse.json(
