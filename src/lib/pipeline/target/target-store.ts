@@ -84,8 +84,8 @@ export async function getTargetConfig(): Promise<TargetRepoConfig | null> {
     const row = await db.systemFlag.findUnique({ where: { key: CONFIG_KEY } });
     if (!row || !row.value) return null;
     const parsed = JSON.parse(row.value) as TargetRepoConfig;
-    if (!parsed?.repo || !validTargetRepoFormat(parsed.repo)) {
-      console.error(`Target config found but invalid format for repo: ${parsed?.repo}`);
+    if (!parsed || !parsed.repo || !validTargetRepoFormat(parsed.repo)) {
+      console.error(`Target config found but invalid format for repo: ${parsed?.repo || 'Unknown'}`);
       return null;
     }
     return parsed;
@@ -104,21 +104,26 @@ export async function setTargetConfig(
   repoRaw: string | null | undefined,
   branch?: string | null
 ): Promise<TargetRepoConfig> {
-  if (repoRaw === null || repoRaw === undefined) {
-    throw new Error("Repository raw string must be provided to set target configuration.");
+  if (typeof repoRaw !== 'string') {
+    throw new Error("Repository raw string must be a string to set target configuration.");
   }
   const repo = normalizeTargetRepo(repoRaw);
   if (!validTargetRepoFormat(repo)) {
     throw new Error(`Invalid repo format "${repoRaw}" — expected owner/name`);
   }
   let branchValue: string | null = null;
-  if (branch !== undefined && branch !== null && String(branch).trim() !== "") {
+  if (branch !== undefined && branch !== null) {
     const b = String(branch).trim();
-    if (!validTargetBranchFormat(b)) {
+    if (b.length > 0 && !validTargetBranchFormat(b)) {
       throw new Error(`Invalid branch "${b}"`);
+    } else if (b.length === 0) {
+      // If branch was provided but empty/whitespace, treat as null (repo default)
+      branchValue = null;
+    } else {
+      branchValue = b;
     }
-    branchValue = b;
   }
+  
   const config: TargetRepoConfig = {
     repo,
     branch: branchValue,

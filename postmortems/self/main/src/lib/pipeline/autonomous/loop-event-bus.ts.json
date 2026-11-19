@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/autonomous/loop-event-bus.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/autonomous/loop-event-bus.ts(114,84): error TS2339: Property 'kind' does not exist on type 'never'.",
@@ -12,8 +12,8 @@
   "parentHash": "8160d7ed29bbca19e9fa6b70a44fa5f7b63c16bd18888dcafb64c8b5588248ac",
   "hash": "014a8f544b7d7efc7885f9858fd0d6d81396155d00d0ccc46ca3cf3a06d25f5e",
   "lastAttemptAt": "2026-11-19T06:07:51.642Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-19T14:09:08.848Z",
   "createdAt": "2026-11-19T04:30:41.092Z",
-  "updatedAt": "2026-11-19T06:07:51.642Z",
+  "updatedAt": "2026-11-19T14:09:08.848Z",
   "schema": 2
 }
