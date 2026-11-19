@@ -66,7 +66,7 @@ export function AstInspectorModal() {
       const errorMessage = error instanceof Error ? error.message : 'Unknown clipboard access error';
       toast({ 
         title: "Failed to copy code", 
-        description: `Clipboard access denied or failed. Error: ${errorMessage}. Please try copying manually.` 
+        description: `Clipboard access denied or failed. Check permissions or try copying manually. Error: ${errorMessage}` 
       });
     }
   };
