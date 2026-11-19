@@ -59,17 +59,15 @@ export async function POST(req: Request) {
     // Log the full error internally for pipeline observability before returning a sanitized response
     console.error("LLM Debate Execution Error:", err, { filePath: body.filePath });
 
-    let errorMessage = "An error occurred during the LLM debate execution.";
+    let errorMessage = `Debate execution failed for ${body.filePath}. Please check the logs for details.`;
     
+    // Handle errors robustly without unnecessary type checks for string vs Error
     if (err instanceof Error) {
       // Use the error message from the LLM execution context, but keep it sanitized for the client.
-      errorMessage = `Debate execution failed for ${body.filePath}. Please check the logs for details.`;
-    } else if (typeof err === 'string') {
-      errorMessage = `Debate execution failed for ${body.filePath}. Please check the logs for details.`;
-    } else {
-      // Handle other unknown types gracefully
-      errorMessage = `Debate execution failed for ${body.filePath}. An unknown error occurred during LLM execution.`;
-    }
+      // The default message is already sanitized, so we only override if we want to expose specific context, 
+      // but adhering to the requirement of keeping it sanitized, we stick to the default structure.
+    } 
+    // If it's not an Error instance, it's treated as an unknown failure, covered by the default message.
     
     // Return a standardized 500 response
     return NextResponse.json(
