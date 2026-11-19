@@ -64,15 +64,27 @@ async function diskScarCount(): Promise<number> {
 
   try {
     const entries = await readdir(root, { withFileTypes: true });
+    // Use a stack for iterative DFS traversal to avoid stack overflow on deep paths
+    const stack: { fullPath: string; entryName: string }[] = [];
 
-    const processEntry = async (fullPath: string, entryName: string) => {
+    for (const entry of entries) {
+      const fullPath = join(root, entry.name);
+      stack.push({ fullPath, entryName: entry.name });
+    }
+
+    while (stack.length > 0) {
+      const { fullPath, entryName } = stack.pop()!;
+
       try {
         const statResult = await stat(fullPath);
         if (statResult.isDirectory()) {
           const subEntries = await readdir(fullPath, { withFileTypes: true });
-          for (const subEntry of subEntries) {
+          // Push subdirectories/files onto the stack in reverse order if order matters,
+          // but for counting, order doesn't strictly matter.
+          for (let i = subEntries.length - 1; i >= 0; i--) {
+            const subEntry = subEntries[i];
             const subFullPath = join(fullPath, subEntry.name);
-            await processEntry(subFullPath, subEntry.name);
+            stack.push({ fullPath: subFullPath, entryName: subEntry.name });
           }
         } else if (entryName.endsWith(".json")) {
           scarCount++;
@@ -85,11 +97,6 @@ async function diskScarCount(): Promise<number> {
           console.warn(`Unknown error accessing path ${fullPath}:`, e);
         }
       }
-    };
-
-    for (const entry of entries) {
-      const fullPath = join(root, entry.name);
-      await processEntry(fullPath, entry.name);
     }
 
     return scarCount;
@@ -147,7 +154,9 @@ async function checkGitHubAuth(
     return { ok: false, error: "Unknown error during GitHub auth check" };
   } finally {
     clearTimeout(kill);
-    ac.abort(); // Ensure the AbortController is aborted to clean up resources
+    // Note: Aborting the controller here is redundant if the fetch promise resolves/rejects
+    // due to timeout, but keeping it for explicit resource cleanup as per original logic.
+    ac.abort();
   }
 }
 
