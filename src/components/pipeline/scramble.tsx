@@ -45,11 +45,11 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
 
       // Build the scrambled tail efficiently
       const unsolvedLength = total - solved;
-      const scrambledTailArray: string[] = [];
-      for (let i = 0; i < unsolvedLength; i++) {
-        scrambledTailArray.push(GLYPHS[Math.floor(Math.random() * GLYPHS.length)]);
-      }
-      const scrambledTail = scrambledTailArray.join("");
+      
+      // Optimized tail construction: use Array.from for cleaner, potentially faster allocation than repeated push
+      const scrambledTail = Array.from({ length: unsolvedLength }, () => 
+        GLYPHS[Math.floor(Math.random() * GLYPHS.length)]
+      ).join("");
 
       setOut(solvedPrefix + scrambledTail);
 
