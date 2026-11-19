@@ -73,8 +73,10 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
     console.error("markSelfEnhanceArmed: 'by' must be a non-empty string.");
     return;
   }
+
+  const infoDir = join(PROJECT_ROOT, ".git/info");
+
   try {
-    const infoDir = join(PROJECT_ROOT, ".git/info");
     mkdirSync(infoDir, { recursive: true });
     const entry: SelfEnhanceArmedState = {
       armed,
@@ -83,7 +85,6 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
     };
     atomicWriteFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2));
   } catch (error) {
-    const infoDir = join(PROJECT_ROOT, ".git/info");
     console.error(
       `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}. Error details:`,
       error instanceof Error ? error.message : String(error)
