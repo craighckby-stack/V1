@@ -178,6 +178,17 @@ function bootOracleScheduler(): void {
     return;
   }
   
+  // Check for valid TICK_MS before proceeding
+  if (typeof TICK_MS !== 'number' || TICK_MS <= 0) {
+    emitOracleEvent(
+      `Scheduler configuration error: TICK_MS (${TICK_MS}) must be a positive number. Scheduler not started.`,
+      "error",
+      "scheduler",
+    );
+    s.booted = true; // Mark as handled even if failed to start due to config
+    return;
+  }
+
   // Clean up ANY previous process-wide timer — first the dedicated slot
   // (survives pin clears), then the state's own handle if it somehow
   // still exists.
@@ -194,16 +205,6 @@ function bootOracleScheduler(): void {
   }
   
   s.booted = true;
-
-  // Check for valid TICK_MS before proceeding
-  if (typeof TICK_MS !== 'number' || TICK_MS <= 0) {
-    emitOracleEvent(
-      `Scheduler configuration error: TICK_MS (${TICK_MS}) must be a positive number. Scheduler not started.`,
-      "error",
-      "scheduler",
-    );
-    return;
-  }
 
   // First tick after a short delay (not immediately) — gives the
   // server a moment to finish booting before we touch the DB/LLM.

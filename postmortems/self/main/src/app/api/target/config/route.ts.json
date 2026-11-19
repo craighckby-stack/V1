@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/target/config/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "LLM output truncated: parse error at end of output: Unterminated string literal.",
@@ -12,8 +12,8 @@
   "parentHash": "741d950c3553f8de8144e5e356c5d7e8676df05b578bc4cdacda8f09ba9b8057",
   "hash": "9851ada37a10daa38bbcafd48fdecd4a7b9bdfbdb07ddccf9b98486c2c915bf1",
   "lastAttemptAt": "2026-11-19T15:15:28.798Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-19T15:43:14.408Z",
   "createdAt": "2026-11-19T13:59:58.612Z",
-  "updatedAt": "2026-11-19T15:15:28.798Z",
+  "updatedAt": "2026-11-19T15:43:14.408Z",
   "schema": 2
 }
