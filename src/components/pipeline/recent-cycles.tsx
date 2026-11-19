@@ -30,7 +30,7 @@ export function RecentCycles() {
       }
       const data = await res.json();
       
-      if (typeof data !== 'object' || data === null || !Array.isArray((data as any).cycles)) {
+      if (typeof data !== 'object' || data === null || !Array.isArray((data as { cycles?: unknown }).cycles)) {
         throw new Error("Invalid API response structure: expected object containing a 'cycles' array.");
       }
       

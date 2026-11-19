@@ -1,11 +1,14 @@
 import { describe, test, expect } from "bun:test";
 import { loopEventBus, type LoopEvent } from "./loop-event-bus";
+import type { LoopLogEntry, LoopState } from "./loop-runtime";
+import type { PipelineStageState } from "../core/unified-pipeline";
 
-// Mock dependencies required for constructing valid events, as they are not exported
-// We only test the logic within loopEventBus, not the external types/objects they reference.
-const mockLoopState = {} as any;
-const mockLoopLogEntry = {} as any;
-const mockPipelineStageState = {} as any;
+// Mock state objects for constructing events. The bus validates only the
+// event envelope (presence/kind/timestamp), not the internals of these
+// payloads, so empty objects cast to the real payload types suffice.
+const mockLoopState = {} as LoopState;
+const _mockLoopLogEntry = {} as LoopLogEntry;
+const mockPipelineStageState = {} as PipelineStageState;
 
 describe("loopEventBus", () => {
   test("should successfully emit a 'state' event with a valid positive timestamp", () => {
@@ -15,7 +18,7 @@ describe("loopEventBus", () => {
   });
 
   test("should throw an error if 'state' event is emitted without a state object", () => {
-    const invalidEvent: LoopEvent = { kind: "state", timestamp: 1, state: undefined as any };
+    const invalidEvent: LoopEvent = { kind: "state", timestamp: 1, state: undefined as unknown as LoopState };
     expect(() => loopEventBus.emit(invalidEvent)).toThrow("LoopEventBus.emit() for kind 'state' requires a defined state object.");
   });
 
@@ -25,12 +28,12 @@ describe("loopEventBus", () => {
   });
 
   test("should throw an error if 'push' event is emitted with an invalid outcome string", () => {
-    const invalidEvent: LoopEvent = { kind: "push", timestamp: 1, cycleId: "c1", filePath: "p1", outcome: "unknown_outcome" } as any;
+    const invalidEvent = { kind: "push", timestamp: 1, cycleId: "c1", filePath: "p1", outcome: "unknown_outcome" } as unknown as LoopEvent;
     expect(() => loopEventBus.emit(invalidEvent)).toThrow("LoopEventBus.emit() for kind 'push' has invalid or missing outcome: unknown_outcome.");
   });
 
   test("should throw an error if 'log' event is emitted without a log entry", () => {
-    const invalidEvent: LoopEvent = { kind: "log", timestamp: 1, log: undefined as any } as any;
+    const invalidEvent: LoopEvent = { kind: "log", timestamp: 1, log: undefined as unknown as LoopLogEntry };
     expect(() => loopEventBus.emit(invalidEvent)).toThrow("LoopEventBus.emit() for kind 'log' requires a defined log entry.");
   });
 

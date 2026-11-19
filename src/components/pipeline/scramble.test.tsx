@@ -1,5 +1,4 @@
 import { describe, test, expect } from "bun:test";
-import { Scramble } from "./scramble";
 
 // Mocking necessary browser APIs for pure logic testing, as Scramble relies on them.
 // Since we are testing the *logic* derived from inputs, we must simulate the environment
@@ -7,13 +6,22 @@ import { Scramble } from "./scramble";
 // For these characterization tests, we focus on the synchronous/initial state or conditions
 // that prevent the RAF loop from starting/running.
 
+// Structural stand-in mirroring Scramble's props contract:
+// { text, start, ms, className? }.
+interface MockScrambleProps {
+  text: string;
+  start: boolean;
+  ms: number;
+  className?: string;
+}
+
 describe("Scramble", () => {
   // Test case 1: Initial state check (before start=true)
   test("should display the full text initially when start is false", () => {
     // When start=false, useEffect returns immediately, state remains initial value (text).
     const text = "Hello World";
     // We mock the component rendering to check the initial state derived from useState(text)
-    const mockComponent = (props: any) => ({
+    const mockComponent = (props: MockScrambleProps) => ({
       props,
       // Simulate rendering the initial state 'out'
       render: () => props.text,
@@ -25,7 +33,7 @@ describe("Scramble", () => {
   // Test case 2: Edge case - Empty text
   test("should display empty string if input text is empty, regardless of start/ms", () => {
     const text = "";
-    const mockComponent = (props: any) => ({
+    const mockComponent = (props: MockScrambleProps) => ({
       props,
       render: () => props.text, // Initial state is text
     });
@@ -36,7 +44,7 @@ describe("Scramble", () => {
   // Test case 3: Edge case - Zero duration
   test("should display the full text if ms is zero, regardless of start", () => {
     const text = "Test";
-    const mockComponent = (props: any) => ({
+    const mockComponent = (props: MockScrambleProps) => ({
       props,
       render: () => props.text, // Initial state is text
     });
@@ -47,7 +55,7 @@ describe("Scramble", () => {
   // Test case 4: Edge case - Negative duration
   test("should display the full text if ms is negative, regardless of start", () => {
     const text = "Test";
-    const mockComponent = (props: any) => ({
+    const mockComponent = (props: MockScrambleProps) => ({
       props,
       render: () => props.text, // Initial state is text
     });
@@ -58,7 +66,7 @@ describe("Scramble", () => {
   // Test case 5: Behavior when start is true but text is short (boundary check)
   test("should maintain initial text if text length is 1 and start is true", () => {
     const text = "A";
-    const mockComponent = (props: any) => ({
+    const mockComponent = (props: MockScrambleProps) => ({
       props,
       render: () => props.text, // Initial state is text
     });

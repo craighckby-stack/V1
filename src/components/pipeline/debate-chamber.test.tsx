@@ -1,15 +1,20 @@
 import { describe, test, expect } from "bun:test";
-import { DebateChamber } from "./debate-chamber";
 
 // Mocking external dependencies required for testing the component's logic flow.
 // Since this is a characterization test, we must mock the state dependency (usePipelineStore)
 // to control the observable output of DebateChamber.
 // In a real setup, we would mock the hook, but for this isolated test, we simulate the state checks.
 
+// Minimal structural stand-in for the zustand store state consumed by
+// DebateChamber (it only selects `pipelineReport`).
+interface MockPipelineState {
+  pipelineReport: unknown;
+}
+
 // Mocking the hook behavior for testing different states
-const mockUsePipelineStore = (initialState: any) => {
+const _mockUsePipelineStore = (initialState: MockPipelineState) => {
   // This mock simulates the hook returning the provided state for the component to consume.
-  return (selector: (s: any) => any) => selector(initialState);
+  return (selector: (s: MockPipelineState) => unknown) => selector(initialState);
 };
 
 // We need to temporarily override the actual usePipelineStore import for testing purposes.
@@ -34,7 +39,7 @@ describe("DebateChamber rendering states", () => {
 
   // Test 2: Report exists but verdict is missing
   test("renders verdict unavailable message when report exists but reviewVerdict is null", () => {
-    const report = { pipelineReport: {} }; // Report exists, but verdict is missing
+    const _report = { pipelineReport: {} }; // Report exists, but verdict is missing
     const verdict = null;
     expect(verdict === null).toBe(true); // Asserting the condition that triggers the second return block
   });
@@ -56,7 +61,7 @@ describe("DebateChamber rendering states", () => {
 
   // Test 4: Consensus calculation (High consensus)
   test("calculates consensus percentage correctly for 0.95 coefficient", () => {
-    const verdict = {
+    const _verdict = {
       consensus: "APPROVED",
       consensusCoefficient: 0.95,
       cognitiveFriction: 0.05,
@@ -71,7 +76,7 @@ describe("DebateChamber rendering states", () => {
 
   // Test 5: Consensus calculation (Low consensus, rounding down)
   test("calculates consensus percentage correctly for 0.44 coefficient", () => {
-    const verdict = {
+    const _verdict = {
       consensus: "CONDITIONAL_APPROVAL",
       consensusCoefficient: 0.44,
       cognitiveFriction: 0.1,
@@ -86,7 +91,7 @@ describe("DebateChamber rendering states", () => {
 
   // Test 6: Friction calculation (Boundary case 1.0)
   test("calculates friction percentage correctly for 1.0 coefficient", () => {
-    const verdict = {
+    const _verdict = {
       consensus: "OPPOSE",
       consensusCoefficient: 0.1,
       cognitiveFriction: 1.0,

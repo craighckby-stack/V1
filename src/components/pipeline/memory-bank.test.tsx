@@ -7,19 +7,38 @@ import { describe, test, expect } from "bun:test";
 // In a real scenario, this would require @testing-library/react or similar.
 // For this exercise, we assert the logic paths based on the state structure.
 
+// Structural stand-in for the memory entries the component renders
+// (superset of the real MemoryEntry: provenance is optional here because
+// one test exercises the "provenance key missing" fallback path).
+interface MockMemoryEntry {
+  id: string;
+  provenance?: string;
+  content: string;
+  trust: string;
+  filePath?: string;
+  diagnosis?: string;
+  cleanSnippet?: string;
+}
+
+// Structural stand-in for the slice of store state MemoryBank consumes.
+interface MockMemoryBankStoreState {
+  memoryEntries: MockMemoryEntry[];
+  setMemoryEntries: (entries: MockMemoryEntry[]) => void;
+}
+
 // Mocking dependencies to allow testing the rendering logic paths
-const mockUsePipelineStore = (selector: (s: any) => any) => {
+const _mockUsePipelineStore = (_selector: (s: MockMemoryBankStoreState) => unknown) => {
   // This mock simulates the store returning a specific state based on test context
   return {
     memoryEntries: [], // Default mock state
-    setMemoryEntries: (entries: any[]) => {},
+    setMemoryEntries: (_entries: MockMemoryEntry[]) => {},
   };
 };
 
 // Mocking the component to accept props/mocked context for testing logic paths
 // In a real test, we would render <MemoryBank /> wrapped in a provider.
 // Here, we simulate the logic branches based on the component's internal checks.
-const MemoryBank = (mockEntries: any[]) => {
+const MemoryBank = (mockEntries: MockMemoryEntry[]) => {
   // Simulate the component logic path based on mockEntries
   if (mockEntries.length === 0) {
     return { hasEntries: false, content: "Loading memory entries..." };
@@ -27,9 +46,9 @@ const MemoryBank = (mockEntries: any[]) => {
   return { hasEntries: true, content: "Rendered entries" };
 };
 
-// We must import the actual function, but since it's a component, we test its logic paths.
-// We assume the import works for the structure, even if runtime execution requires a React environment.
-import { MemoryBank as ActualMemoryBank } from "./memory-bank"; 
+// The real <MemoryBank /> component requires a React rendering environment
+// (hooks, provider context); the logic branches are asserted via the
+// simulated function above instead.
 
 describe("MemoryBank component logic paths (State-dependent rendering)", () => {
   // Test 1: Initial state (empty entries) should show loading message

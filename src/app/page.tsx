@@ -2589,6 +2589,17 @@ export default function Home() {
               flexWrap: "wrap",
               fontSize: "11px",
               color: DIM_COLOR,
+              // MOBILE CRUSH FIX ("screen doesn't scroll up still"): with
+              // 16+ locked files the wrapped chip wall grows past 950px on
+              // a 390px viewport — taller than the screen. The root is a
+              // fixed, overflow:hidden flex column, so the wall crushed
+              // the console to ~36px and NOTHING on the page could scroll
+              // (the only scrollable element was invisible). Cap the panel
+              // at ~3 chip rows (20vh on short viewports) and let it
+              // scroll internally; the console reclaims the space.
+              maxHeight: "min(132px, 22vh)",
+              overflowY: "auto",
+              flexShrink: 0,
             }}
           >
             <span style={{ color: allLocked ? WARN_COLOR : DIM_COLOR, fontWeight: "bold" }}>

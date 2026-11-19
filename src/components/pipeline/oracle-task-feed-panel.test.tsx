@@ -4,14 +4,22 @@ import { describe, test, expect } from "bun:test";
 // We must pin the observable *output* based on the props/state that would drive the render.
 // For this characterization test, we simulate the state transitions that lead to specific JSX outputs.
 // We mock the component's rendering logic based on its internal state variables: loading, tasks.length, error, refreshing.
-import { OracleTaskFeedPanel } from "./oracle-task-feed-panel";
 
 // --- Mocking Environment for Component Output Pinning ---
 // Since bun:test is not a React renderer, we must assert on the *conditions* that lead to specific UI states,
 // rather than the rendered DOM structure itself. We simulate the component's output based on its state logic.
 
+// Structural stand-in for the self-enhancement task objects the panel renders
+// (subset of the component's internal SelfTask shape: only the fields the
+// simulated rendering logic below depends on).
+interface MockOracleTask {
+  id: string;
+  kind: string;
+  status: string;
+}
+
 // Mock implementation to simulate the component's rendering based on state inputs
-const renderMock = (loading: boolean, tasks: any[], refreshing: boolean, error: string | null) => {
+const renderMock = (loading: boolean, tasks: MockOracleTask[], refreshing: boolean, error: string | null) => {
     if (loading && tasks.length === 0) {
         return { type: "LOADING_INITIAL" };
     }

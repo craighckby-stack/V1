@@ -96,7 +96,7 @@ function ensureKey(): Buffer | null {
       if (tmpCreated && existsSync(tmp)) {
         try {
           unlinkSync(tmp);
-        } catch (e) {
+        } catch {
           // Ignore cleanup failures
         }
       }
@@ -185,7 +185,7 @@ export function openToken(stored: string): string {
       iv = Buffer.from(parts[0], "base64url");
       tag = Buffer.from(parts[1], "base64url");
       ct = Buffer.from(parts[2], "base64url");
-    } catch (e) {
+    } catch {
       // Invalid base64url encoding
       return "";
     }

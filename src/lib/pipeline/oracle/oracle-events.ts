@@ -208,7 +208,7 @@ export function readOracleEvents(afterSeq?: number): {
     const requiredMinIndex = afterSeq - currentSeq + bufferLength + 1;
     
     // Start index must be at least 0 and less than bufferLength
-    let startIndex = Math.max(0, requiredMinIndex);
+    const startIndex = Math.max(0, requiredMinIndex);
     
     if (startIndex >= bufferLength) {
         // Even the last element (index bufferLength - 1) is not newer than afterSeq

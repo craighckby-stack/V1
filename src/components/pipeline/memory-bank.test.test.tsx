@@ -8,8 +8,21 @@ import { describe, test, expect } from "bun:test";
 // we must simulate the import structure used in the source for the test to run against the logic.
 // In a real scenario, we would mock the dependency, but here we replicate the logic test structure.
 
+// Structural stand-in for the memory entries the component renders
+// (superset of the real MemoryEntry: provenance is optional here because
+// one test exercises the "provenance key missing" fallback path).
+interface MockMemoryEntry {
+  id: string;
+  provenance?: string;
+  content: string;
+  trust: string;
+  filePath?: string;
+  diagnosis?: string;
+  cleanSnippet?: string;
+}
+
 // Replicating the simulated MemoryBank function from the source for test execution
-const MemoryBank = (mockEntries: any[]) => {
+const MemoryBank = (mockEntries: MockMemoryEntry[]) => {
   if (mockEntries.length === 0) {
     return { hasEntries: false, content: "Loading memory entries..." };
   }

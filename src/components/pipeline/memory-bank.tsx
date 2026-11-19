@@ -44,7 +44,7 @@ export function MemoryBank() {
         console.error("Error loading memory entries from API:", { error: errorMessage, context: "MemoryBank fetch" });
       }
     })();
-  }, []); // Removed setEntries from dependency array as it is stable from the store hook
+  }, [setEntries]); // setEntries is a stable zustand store setter — safe to include as a dependency
 
   return (
     <Card className="bg-slate-950/60 border border-slate-800/60 backdrop-blur transition-shadow duration-200 hover:shadow-2xl">

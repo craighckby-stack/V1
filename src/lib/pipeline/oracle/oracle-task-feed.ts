@@ -81,7 +81,7 @@ function hashProphecyIdToLine(prophecyId: string): number {
     h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
   }
   // Mask to ensure positive 32-bit integer (0x7fffffff)
-  let line = h & 0x7fffffff;
+  const line = h & 0x7fffffff;
   
   // Ensure line is at least 1, as 0 is invalid for a 1-based line number.
   // If the hash results in 0 after masking, we map it to 1, maintaining

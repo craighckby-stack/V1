@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { usePipelineStore, type LoopConfig, type LoopStats, type LoopLogEntry, type FileResult, type AutonomousCycleState, type AutonomousCycleSummary, type LoopState, type PipelineStageState, type PipelineReport, type MemoryEntry, type LoopMode, type LoopStatus } from "./pipeline-store";
+import { usePipelineStore, type LoopConfig, type LoopStats, type LoopLogEntry, type AutonomousCycleState, type AutonomousCycleSummary, type LoopState, type PipelineStageState, type PipelineReport, type MemoryEntry, type LoopStatus } from "./pipeline-store";
 
 describe("usePipelineStore initial state and setters", () => {
   test("should initialize with default values", () => {
@@ -44,13 +44,13 @@ describe("usePipelineStore initial state and setters", () => {
       astScore: 0,
       consensus: "A" as const,
       stages: {} as Record<string, PipelineStageState>,
-      sanitizerResult: { clean: true, violations: [], errorClass: "", highEntropyTokensFound: 0 } as any,
-      reviewVerdict: { consensus: "A", consensusCoefficient: 1, cognitiveFriction: 0, securityPoints: [], architecturePoints: [], leadSummary: "", arguments: [] } as any,
-      astDiffResult: { passed: true, astScore: 0, structuralDriftRatio: 0, brandingInjections: [], violations: [] as any, symbolMap: { originalCount: 1, proposedCount: 1, retainedCount: 1 } } as any,
+      sanitizerResult: { clean: true, violations: [], errorClass: "", highEntropyTokensFound: 0 },
+      reviewVerdict: { consensus: "A", consensusCoefficient: 1, cognitiveFriction: 0, securityPoints: [], architecturePoints: [], leadSummary: "", arguments: [] },
+      astDiffResult: { passed: true, astScore: 0, structuralDriftRatio: 0, brandingInjections: [], violations: [], symbolMap: { originalCount: 1, proposedCount: 1, retainedCount: 1 } },
       originalCode: "code" as const,
       evolvedCode: "code" as const,
       logs: [] as LoopLogEntry[],
-      config: { targetRepo: "repo" as const, filePath: "file" as const, targetBranch: "branch" as const, userPrompt: "prompt" as const } as any,
+      config: { targetRepo: "repo" as const, filePath: "file" as const, targetBranch: "branch" as const, userPrompt: "prompt" as const },
     };
     const setState = usePipelineStore.getState().setPipelineReport;
     setState(mockReport);

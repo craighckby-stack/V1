@@ -5,31 +5,51 @@ import { join } from "path";
 import { existsSync, readdirSync, statSync } from "fs";
 
 /**
- * Characterization tests for the v4 scan scope (operator-directed,
- * 2026-11-12). The scope was rolled back from `src/components` to
- * `src/lib/pipeline` + `src/app` because 88% of mutations on
- * `src/components/ui` (vendored shadcn primitives) were convergent
- * defensive no-ops.
+ * Characterization tests for the scan scope (operator-directed).
  *
- * These tests pin the scope so a future "the loop should also scan X"
+ * History:
+ *   v4 (2026-11-12): scope rolled back from `src/components` to
+ *   `src/lib/pipeline` + `src/app` because 88% of mutations on
+ *   `src/components/ui` (vendored shadcn primitives) were convergent
+ *   defensive no-ops.
+ *   v5 (2026-11-17): LOOP-authored display panels RE-ADDED as
+ *   `src/components/pipeline` (.tsx). The vendored `src/components/ui`
+ *   subtree stays excluded (third-party code). Control-surface
+ *   components inside the re-added subtree (api-unlock.tsx,
+ *   boot-splash.tsx) are protected individually in PROTECTED_FILES;
+ *   the operator-PIN gate on [unlock] + the convergent-move guard are
+ *   the friction layers that made the re-expansion safe.
+ *
+ * These tests pin the v5 scope so a future "the loop should also scan X"
  * expansion has to update this file (and an operator has to review it).
  * The enforcement is architectural: `saturation.ts` is in PROTECTED_FILES
  * (protected-files.ts), so the loop itself cannot edit SCAN_SCOPES —
  * only a human-directed change to this protected file can. These tests
  * are the documentation + the regression canary.
  */
-describe("SCAN_SCOPES (v4 operator-directed rollback)", () => {
-  test("exactly two scopes: src/lib/pipeline and src/app", () => {
-    expect(SCAN_SCOPES).toHaveLength(2);
+describe("SCAN_SCOPES (v5 operator-directed re-expansion)", () => {
+  test("exactly three scopes: src/lib/pipeline, src/app, src/components/pipeline", () => {
+    expect(SCAN_SCOPES).toHaveLength(3);
     expect(SCAN_SCOPES[0].dir).toBe("src/lib/pipeline");
     expect(SCAN_SCOPES[1].dir).toBe("src/app");
+    expect(SCAN_SCOPES[2].dir).toBe("src/components/pipeline");
   });
 
-  test("does NOT include src/components (the rolled-back vendored/ui subtree)", () => {
-    // The whole src/components dir is gone — neither ui nor pipeline.
+  test("includes ONLY src/components/pipeline — not all of src/components, not the vendored ui subtree", () => {
+    // v5 re-added the LOOP-authored display panels as a narrow scope.
+    // The scope must be exactly "src/components/pipeline": broader
+    // ("src/components") would re-sweep the vendored shadcn primitives;
+    // narrower would miss panels. Anything under src/components/ui
+    // stays uncovered.
     for (const scope of SCAN_SCOPES) {
-      expect(scope.dir.startsWith("src/components")).toBe(false);
+      if (scope.dir.startsWith("src/components")) {
+        expect(scope.dir).toBe("src/components/pipeline");
+      }
     }
+    const uiInScope = SCAN_SCOPES.some((s) =>
+      s.dir === "src/components" || s.dir.startsWith("src/components/ui")
+    );
+    expect(uiInScope).toBe(false);
   });
 
   test("src/lib/pipeline scope is .ts only (no .tsx exists there)", () => {
@@ -86,9 +106,9 @@ describe("SCAN_SCOPES (v4 operator-directed rollback)", () => {
     }
   });
 
-  test("src/components/ui is NOT scannable (the vendored primitives the operator rolled back)", () => {
+  test("src/components/ui is NOT scannable (vendored primitives stay excluded in v5)", () => {
     // Even though src/components/ui is not in PROTECTED_FILES, it is
-    // no longer in any SCAN_SCOPE — so scanFiles() never enumerates it.
+    // not in any SCAN_SCOPE — so scanFiles() never enumerates it.
     // This test confirms the negative: no scope covers it.
     const uiSample = "src/components/ui/button.tsx";
     // It's not protected (it's third-party, not control surface):
@@ -98,10 +118,12 @@ describe("SCAN_SCOPES (v4 operator-directed rollback)", () => {
     expect(inScope).toBe(false);
   });
 
-  test("the merge reduced the scannable surface (no src/components file is in any scope)", () => {
-    // Walk src/components and confirm nothing there is covered by a scope.
-    // This is the regression canary: if a future change re-adds
-    // src/components, this test breaks loudly.
+  test("v5 boundary inside src/components: pipeline files ARE in scope, ui files are NOT", () => {
+    // Walk src/components and pin the v5 split: LOOP-authored pipeline
+    // panels are scannable, the vendored shadcn primitives are not.
+    // This is the regression canary: if a future change broadens the
+    // components scope past src/components/pipeline (re-sweeping the
+    // vendored subtree) or drops it entirely, this test breaks loudly.
     const componentFiles: string[] = [];
     const walk = (dir: string) => {
       if (!existsSync(dir)) return;
@@ -113,9 +135,16 @@ describe("SCAN_SCOPES (v4 operator-directed rollback)", () => {
       }
     };
     walk(join(process.cwd(), "src/components"));
+    expect(componentFiles.length).toBeGreaterThan(0);
     for (const f of componentFiles) {
       const inScope = SCAN_SCOPES.some((s) => f.startsWith(s.dir + "/"));
-      expect(inScope).toBe(false);
+      if (f.startsWith("src/components/pipeline/")) {
+        // v5: LOOP-authored panels are intentionally scannable...
+        expect(inScope).toBe(true);
+      } else {
+        // ...everything else under src/components (vendored ui) is not.
+        expect(inScope).toBe(false);
+      }
     }
   });
 });

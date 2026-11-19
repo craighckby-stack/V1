@@ -52,7 +52,7 @@ export function AstInspectorModal() {
         navigator.clipboard.writeText(evolvedStr),
       ]);
       toast({ title: "Copied evolved code", description: `${evolvedStr.length} bytes to clipboard` });
-    } catch (error) {
+    } catch {
       // Catching generic error from clipboard API
       toast({ title: "Failed to copy code", description: "Please try copying manually" });
     }

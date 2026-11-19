@@ -79,7 +79,7 @@ export function LogStream() {
                 No telemetry yet. Start the loop or trigger a cycle to see live logs.
               </div>
             ) : (
-              logs.map((entry) => {
+              logs.map((entry, idx) => {
                 // Safely access type with guard
                 const typeKey = (typeof entry.type === 'string' && TYPE_ICON[entry.type as keyof typeof TYPE_ICON]) ? entry.type as keyof typeof TYPE_ICON : 'info';
                 const Icon = TYPE_ICON[typeKey] || Info;
@@ -100,8 +100,13 @@ export function LogStream() {
                     // Use timestamp + first 20 chars of message for stability if ID is missing
                     key = `${timestamp}-${entry.message.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '')}`;
                 } else {
-                    // Fallback for completely unidentifiable entries
-                    key = `fallback-${Math.random().toString(36).substring(2, 9)}`; 
+                    // Deterministic positional fallback. Math.random() here
+                    // made the render IMPURE — the React compiler lint flags
+                    // it, and a re-render would mint a brand-new key for the
+                    // same entry, remounting the row (flicker + lost hover
+                    // state). The map index is stable for this buffer's
+                    // append-only lifecycle.
+                    key = `fallback-${idx}`;
                 }
                 
                 return (

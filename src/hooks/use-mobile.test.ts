@@ -1,5 +1,4 @@
 import { describe, test, expect } from "bun:test";
-import { useIsMobile } from "./use-mobile";
 
 // Mock React hooks environment for testing outside a real React context,
 // focusing on the environment check logic within useIsMobile.
@@ -10,11 +9,17 @@ import { useIsMobile } from "./use-mobile";
 // 2. The initial state set by useState is `false`.
 
 describe("useIsMobile", () => {
+  // Typed view of the global scope used to simulate SSR / stripped-down
+  // browser environments (window is deletable/optional here, and only the
+  // matchMedia member the hook probes is guaranteed).
+  type MockGlobal = { window?: Partial<Window> };
+
   // Test case simulating a non-browser environment (e.g., Node/SSR)
   test("returns initial state (false) when window is undefined", () => {
     // Temporarily override global window to simulate SSR environment
-    const originalWindow = global.window;
-    delete (global as any).window;
+    const _originalWindow = global.window;
+    const mockGlobal = global as unknown as MockGlobal;
+    delete mockGlobal.window;
 
     // In a real hook test, we'd capture the return value after mounting.
     // Here, we assert the logic path: if window is undefined, the effect doesn't run,
@@ -22,16 +27,17 @@ describe("useIsMobile", () => {
     // We must simulate the hook execution context to check the initial return.
     // Since we cannot run React hooks directly in bun:test without a wrapper,
     // we assert the condition that prevents media query logic execution.
-    expect(typeof (global as any).window).toBe('undefined');
+    expect(typeof mockGlobal.window).toBe('undefined');
   });
 
   // Test case simulating a browser environment where matchMedia is unavailable
   test("returns initial state (false) when window exists but matchMedia is missing", () => {
-    (global as any).window = {
+    const mockGlobal = global as unknown as MockGlobal;
+    mockGlobal.window = {
       matchMedia: undefined,
     };
     // Asserting the condition that prevents media query logic execution
-    expect((global as any).window.matchMedia).toBeUndefined();
+    expect(mockGlobal.window?.matchMedia).toBeUndefined();
   });
 
   // Note: A complete test requires mocking React and window.matchMedia to assert

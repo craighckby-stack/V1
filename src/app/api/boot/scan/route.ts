@@ -79,7 +79,7 @@ async function diskScarCount(): Promise<number> {
         const statResult = await stat(fullPath);
         if (statResult.isDirectory()) {
           const subEntries = await readdir(fullPath, { withFileTypes: true });
-          // Push subdirectories/files onto the stack in reverse order if order matters,
+          // Push subdirectories/files onto the stack in reverse order for consistent DFS order if needed,
           // but for counting, order doesn't strictly matter.
           for (let i = subEntries.length - 1; i >= 0; i--) {
             const subEntry = subEntries[i];
@@ -154,9 +154,7 @@ async function checkGitHubAuth(
     return { ok: false, error: "Unknown error during GitHub auth check" };
   } finally {
     clearTimeout(kill);
-    // Note: Aborting the controller here is redundant if the fetch promise resolves/rejects
-    // due to timeout, but keeping it for explicit resource cleanup as per original logic.
-    ac.abort();
+    // Removed redundant ac.abort() call as fetch handles cancellation via signal
   }
 }
 

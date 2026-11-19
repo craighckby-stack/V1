@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { emgRagInstance } from "@/lib/pipeline/emg/emg-rag";
+import { emgRagInstance, type VectorEntry } from "@/lib/pipeline/emg/emg-rag";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -60,7 +60,7 @@ export async function GET(req: Request) {
     }
 
     // Helper to map and clean array elements
-    const mapResultArray = (arr: any[]) => 
+    const mapResultArray = (arr: VectorEntry[]) => 
       arr.filter(e => e != null).map((e) => ({
         id: e.id,
         provenance: e.provenance,
@@ -88,7 +88,7 @@ export async function GET(req: Request) {
     // Provide a more specific, actionable error message with context
     return NextResponse.json(
       { 
-        error: `Failed to execute memory query for query "${(err as any)?.query || 'N/A'}". Please check RAG service status. Details: ${errorMessage}`,
+        error: `Failed to execute memory query for query "${(err as { query?: string })?.query || 'N/A'}". Please check RAG service status. Details: ${errorMessage}`,
         operation: "memory query"
       }, 
       { status: 500 }

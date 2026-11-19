@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { POST, dynamic, runtime } from "./route";
+import { dynamic, runtime } from "./route";
 
 // Mock dependencies required by POST
 // Since we cannot mock Next.js Request/NextResponse easily in a pure bun:test environment
@@ -51,9 +51,24 @@ describe("route constants", () => {
   });
 });
 
+// Shape of the simulated route responses returned by executePost below
+// (mirrors the JSON bodies POST produces: 400/500 errors and the 200 result
+// payload built from mockSanitizeAndGovern's output).
+interface MockRouteResponse {
+  status: number;
+  body: {
+    clean?: string;
+    sanitizedCode?: string;
+    violations?: Array<{ type: string }>;
+    errorClass?: string;
+    highEntropyTokensFound?: boolean;
+    error?: string;
+  };
+}
+
 describe("POST handler", () => {
   // Helper to simulate request body parsing and execution flow
-  const executePost = async (body: { code: string | any }): Promise<any> => {
+  const executePost = async (body: { code: string | number }): Promise<MockRouteResponse> => {
     // Simulate Request object structure needed by POST
     const mockRequest = {
       json: async () => body,
