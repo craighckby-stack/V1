@@ -87,8 +87,8 @@ function parseTs(ts: string | undefined | null): number {
 
   // Full ISO-8601 with a date component
   if (/\d{4}-\d{2}-\d{2}T/.test(s) || /Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
-    const t = new Date(s);
-    return Number.isNaN(t.getTime()) ? NaN : t.getTime();
+    const t = Date.parse(s);
+    return isNaN(t) ? NaN : t;
   }
 
   // 12-hour AM/PM, time only — server is UTC, infer today (UTC).
@@ -97,13 +97,14 @@ function parseTs(ts: string | undefined | null): number {
     const h = parseInt(m12[1], 10);
     const min = parseInt(m12[2], 10);
     const sec = parseInt(m12[3], 10);
+    const ampm = m12[4].toUpperCase();
 
     if (Number.isNaN(h) || Number.isNaN(min) || Number.isNaN(sec)) return NaN;
 
     let hour = h;
-    if (m12[4].toUpperCase() === "AM") {
+    if (ampm === "AM") {
       if (h === 12) hour = 0;
-    } else {
+    } else { // PM
       if (h !== 12) hour += 12;
     }
     const now = new Date();
