@@ -123,7 +123,7 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
     const key = `${kind}:${line}`;
     if (seen.has(key)) return;
     seen.add(key);
-    // Safe access using pre-split lines array, ensuring line is valid (>= 1)
+    // Safe access: line is 1-based, lines is 0-based. Check bounds explicitly.
     const evidence = (line > 0 && line <= lines.length) ? lines[line - 1].trim().slice(0, 160) : "";
     findings.push({ kind, line, evidence });
   };
@@ -257,16 +257,15 @@ export function pickTargetFinding(
   findingsByFile: Array<{ file: string; findings: TargetFinding[] }>
 ): { file: string; finding: TargetFinding } | null {
   let best: { file: string; finding: TargetFinding } | null = null;
+
   for (const entry of findingsByFile) {
-    // Balance per kind within the file, same cap philosophy as the self scan.
     const counts = new Map<string, number>();
-    const capped = entry.findings.filter((f) => {
+    
+    for (const f of entry.findings) {
       const n = counts.get(f.kind) ?? 0;
-      if (n >= MAX_FINDINGS_PER_KIND) return false;
+      if (n >= MAX_FINDINGS_PER_KIND) continue;
       counts.set(f.kind, n + 1);
-      return true;
-    });
-    for (const f of capped) {
+
       const fPriority = TARGET_KIND_PRIORITY[f.kind];
       const bestPriority = best?.finding.kind ? TARGET_KIND_PRIORITY[best.finding.kind] : Infinity;
 

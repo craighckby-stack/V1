@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/evolution/debate/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/api/evolution/debate/route.ts(50,12): error TS2451: Cannot redeclare block-scoped variable 'verdict'.; src/app/api/evolution/debate/route.ts(50,21): error TS2451: Cannot redeclare block-scoped variable 'usedLlm'.; src/app/api/evolution/debate/route.ts(50,30): error TS2451: Cannot redeclare block-scoped variable 'llmError'.",
@@ -12,8 +12,8 @@
   "parentHash": "d0a0e01d90d232440dda9ebf4401201bb29c8f353ca18bee415f68d959d2d3b4",
   "hash": "286dd1f7fefb9c1f889766c62afc71c7cd1e4a9957ab7fcde918d8b852eae752",
   "lastAttemptAt": "2026-11-19T15:34:30.091Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-19T16:02:58.119Z",
   "createdAt": "2026-11-19T13:59:58.609Z",
-  "updatedAt": "2026-11-19T15:34:30.091Z",
+  "updatedAt": "2026-11-19T16:02:58.119Z",
   "schema": 2
 }
