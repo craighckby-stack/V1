@@ -87,8 +87,8 @@ function parseTs(ts: string | undefined | null): number {
 
   // Full ISO-8601 with a date component
   if (/\d{4}-\d{2}-\d{2}T/.test(s) || /Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
-    const t = Date.parse(s);
-    return Number.isNaN(t) ? NaN : t;
+    const t = new Date(s);
+    return Number.isNaN(t.getTime()) ? NaN : t.getTime();
   }
 
   // 12-hour AM/PM, time only — server is UTC, infer today (UTC).
@@ -192,9 +192,11 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
   };
 
   for (const l of lines) {
-    // Input validation is handled by the caller/type system, but we must
-    // ensure we don't crash on malformed data if the contract is violated.
-    if (!l || typeof l !== "object" || !l.id || !l.type) continue;
+    // Input validation: Ensure essential properties exist before processing
+    if (!l || typeof l !== "object" || !l.id || !l.type) {
+        // Skip malformed entries without logging to prevent noise in production stream
+        continue;
+    }
     
     if (l.type === "log") {
       logRun.push(l);
@@ -243,12 +245,9 @@ export function ConsoleStream({ lines, logRef, onScroll }: ConsoleStreamProps) {
       }}
     >
       {ordered.map((line) => {
-        // Since orderLogRuns filters out invalid entries, we rely on the
-        // type system and the filtering in orderLogRuns. We only need
-        // to check for necessary properties for rendering.
+        // orderLogRuns filters out invalid entries, so we primarily check rendering requirements.
         if (typeof line.text !== "string") {
-          // This should ideally not happen if orderLogRuns is correct, but
-          // serves as a final safeguard against corrupted data.
+          // This indicates a structural issue in the input data that bypassed orderLogRuns checks.
           console.error("ConsoleStream: Line missing critical rendering properties. Line data:", line);
           return null;
         }
@@ -271,7 +270,6 @@ export function ConsoleStream({ lines, logRef, onScroll }: ConsoleStreamProps) {
           showTimestamp = typeof line.ts === 'string' && line.ts.length > 0;
         } else if (line.type === "log" && !line.logType) {
           // Handle 'log' type lines missing logType property gracefully
-          console.error("ConsoleStream: Log line encountered without a logType. Defaulting to text color. Line ID:", line.id);
           color = TEXT_COLOR;
           showTimestamp = typeof line.ts === 'string' && line.ts.length > 0;
         }
