@@ -65,7 +65,7 @@ export interface OperatorTouchState {
  *  a persistence failure must not fail a start/stop that already
  *  succeeded in memory. */
 export function markOperatorTouch(by: string, now: Date = new Date()): void {
-  if (typeof by !== "string" || by.trim() === "") {
+  if (typeof by !== "string" || by.trim().length === 0) {
     // Input validation failure, but must not throw per contract. Log and exit gracefully.
     console.error("markOperatorTouch: 'by' parameter must be a non-empty string. Persistence skipped.");
     return;
@@ -143,7 +143,7 @@ export function isDeadMansTripped(
     return true;
   }
 
-  // Use Date.now() if the provided 'now' is invalid, ensuring a deterministic check against current time if possible.
+  // Determine the time reference once. Use provided 'now' if valid, otherwise use current time.
   const checkNow = (now instanceof Date && !isNaN(now.getTime())) ? now : new Date();
   const nowTime = checkNow.getTime();
 
