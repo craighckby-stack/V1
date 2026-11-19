@@ -113,21 +113,23 @@ function scriptKindFor(relPath: string): ts.ScriptKind {
  * for script-kind detection and evidence lines).
  */
 export function scanTargetContent(relPath: string, text: string): TargetFinding[] {
+  const lines = text.split("\n");
   const sf = ts.createSourceFile(relPath, text, ts.ScriptTarget.Latest, true, scriptKindFor(relPath));
   const findings: TargetFinding[] = [];
   const seen = new Set<string>();
+
   const push = (kind: TargetTaskKind, pos: number) => {
     const line = lineOf(sf, pos);
     const key = `${kind}:${line}`;
     if (seen.has(key)) return;
     seen.add(key);
-    const evidence = (text.split("\n")[line - 1] ?? "").trim().slice(0, 160);
+    // Safe access using pre-split lines array
+    const evidence = (lines[line - 1] ?? "").trim().slice(0, 160);
     findings.push({ kind, line, evidence });
   };
 
   // 1) TODO/FIXME/HACK comments — comment-marker required so string
   //    literals that merely mention the words are not flagged.
-  const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
     if (/(\/\/|\/\*|\*).*\b(TODO|FIXME|HACK)\b/.test(lines[i])) {
       const key = `todo-comment:${i + 1}`;
@@ -186,8 +188,12 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
       }
       // "Rest of file" computed ONCE per import declaration (the same
       // O(findings × file) fix the self scanner got in its audit).
-      const restOfFile = lines.filter((_, i) => i !== importLineNo - 1).join("\n");
+      // Optimization: only filter lines *after* the import line.
+      const restOfFileLines = lines.slice(importLineNo);
+      const restOfFile = restOfFileLines.join("\n");
+
       for (const b of bindings) {
+        // Ensure proper regex escaping for binding names
         const re = new RegExp(`\\b${b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
         if ((restOfFile.match(re) ?? []).length === 0) {
           push("unused-import", node.getStart());
