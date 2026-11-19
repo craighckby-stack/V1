@@ -67,6 +67,7 @@ async function diskScarCount(): Promise<number> {
     // Stack stores paths to process: string (fullPath)
     const stack: string[] = [];
 
+    // Initialize stack with immediate entries
     for (const entry of entries) {
       const fullPath = join(root, entry.name);
       stack.push(fullPath);
@@ -226,9 +227,7 @@ export async function GET() {
     }
   })();
 
-  const scarsPromise = (async () => {
-    return await diskScarCount();
-  })();
+  const scarsPromise = diskScarCount();
 
   const hotSwapPromise = (async () => {
     try {
