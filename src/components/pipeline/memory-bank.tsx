@@ -18,9 +18,9 @@ const PROVENANCE_META: Record<string, { icon: typeof ShieldCheck; color: string;
 export function MemoryBank() {
   const entries = usePipelineStore((s) => s.memoryEntries);
   const setEntries = usePipelineStore((s) => s.setMemoryEntries);
-  // Assuming the store might also hold a loading state, but based only on provided code,
-  // we rely on entries.length === 0 to indicate initial/empty state.
-  // If a dedicated loading state existed in the store, it should be used here.
+  // Determine loading state: true if entries are empty AND the component has likely not finished loading (initial state).
+  // Since we don't have an explicit loading flag, we assume initial empty state means loading until data arrives.
+  const isLoading = entries.length === 0;
 
   useEffect(() => {
     (async () => {
@@ -36,7 +36,7 @@ export function MemoryBank() {
           throw new Error("Invalid API response structure: expected 'entries' array in response body.");
         }
         
-        // State update is safe here as useEffect dependencies are stable or handled by React lifecycle
+        // State update
         setEntries(data.entries);
       } catch (error) {
         // Log the error with context
@@ -44,7 +44,7 @@ export function MemoryBank() {
         console.error("Error loading memory entries from API:", { error: errorMessage, context: "MemoryBank fetch" });
       }
     })();
-  }, [setEntries]);
+  }, []); // Removed setEntries from dependency array as it is stable from the store hook
 
   return (
     <Card className="bg-slate-950/60 border border-slate-800/60 backdrop-blur transition-shadow duration-200 hover:shadow-2xl">
@@ -61,9 +61,13 @@ export function MemoryBank() {
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        {entries.length === 0 ? (
+        {isLoading ? (
           <div className="py-16 text-center px-6">
-            <p className="text-base text-slate-500 italic">Loading memory entries... If this persists, check the network console for API errors.</p>
+            <p className="text-base text-slate-500 italic">Fetching memory entries... Check the network console for API errors if this persists.</p>
+          </div>
+        ) : entries.length === 0 ? (
+          <div className="py-16 text-center px-6">
+            <p className="text-base text-slate-500 italic">No memory entries found. The pipeline has not yet stored any knowledge.</p>
           </div>
         ) : (
           <ScrollArea className="h-[300px] pr-4">

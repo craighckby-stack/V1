@@ -29,6 +29,7 @@ interface RepoFileEntry {
   path: string;
   sha: string;
   size?: number;
+  isCodeFile: boolean;
 }
 
 export async function POST(req: Request) {
@@ -75,6 +76,10 @@ export async function POST(req: Request) {
         path: item.path,
         sha: item.sha,
         size: item.size,
+        // Every file in this response already passed CODE_EXT_REGEX —
+        // flag it so consumers (manual-runner's file list) don't have to
+        // re-derive code-file-ness from the extension again.
+        isCodeFile: true,
       }));
 
     return NextResponse.json({
