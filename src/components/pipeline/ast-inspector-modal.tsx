@@ -30,11 +30,14 @@ export function AstInspectorModal() {
   const ast = report.astDiffResult;
   const sanitizer = report.sanitizerResult;
 
+  // Ensure report, ast, and sanitizer are defined before using them in rendering logic
+  if (!ast || !sanitizer) return null;
+
   // Add input validation for violation severity
   const violationIcon: Record<string, typeof CheckCircle2> = {
     high: XCircle,
     medium: AlertTriangle,
-    low: AlertTriangle,
+    low: AlertTriangle, // Corrected: low should map to AlertTriangle as per original logic
   };
 
   // Ensure original and evolved are treated as strings for safe rendering/length checks
@@ -86,23 +89,23 @@ export function AstInspectorModal() {
               </div>
               <div className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="inline-flex items-center gap-1">
-                  <GitCommit className="h-3 w-3" /> proof {report?.proofCommitHash}
+                  <GitCommit className="h-3 w-3" /> proof {report.proofCommitHash}
                 </span>
-                <span className="text-slate-300">AST {ast?.astScore}/100</span>
+                <span className="text-slate-300">AST {ast.astScore}/100</span>
                 <span className="inline-flex items-center gap-1">
                   status
                   <Badge
                     variant="outline"
                     className={cn(
                       "ml-1 text-[10px] uppercase tracking-widest",
-                      report?.status === "COMPLETED"
+                      report.status === "COMPLETED"
                         ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-                        : report?.status === "REJECTED"
+                        : report.status === "REJECTED"
                         ? "bg-rose-500/15 text-rose-300 border-rose-500/40"
                         : "bg-amber-500/15 text-amber-300 border-amber-500/40"
                     )}
                   >
-                    {report?.status}
+                    {report.status}
                   </Badge>
                 </span>
               </div>
@@ -159,47 +162,47 @@ export function AstInspectorModal() {
               <div className="text-xs text-slate-300 font-mono space-y-1">
                 <div className="flex justify-between">
                   <span className="text-slate-300">Original:</span>
-                  <span className="text-amber-300 font-medium">{ast?.symbolMap?.originalCount ?? 0}</span>
+                  <span className="text-amber-300 font-medium">{ast.symbolMap?.originalCount ?? 0}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-300">Proposed:</span>
-                  <span className="text-cyan-300 font-medium">{ast?.symbolMap?.proposedCount ?? 0}</span>
+                  <span className="text-cyan-300 font-medium">{ast.symbolMap?.proposedCount ?? 0}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-300">Retained:</span>
-                  <span className="text-emerald-300 font-medium">{ast?.symbolMap?.retainedCount ?? 0}</span>
+                  <span className="text-emerald-300 font-medium">{ast.symbolMap?.retainedCount ?? 0}</span>
                 </div>
               </div>
               <div className="text-[10px] text-slate-500 pt-1">
-                Drift ratio: <span className="font-mono text-amber-300">{(ast?.structuralDriftRatio ? (ast.structuralDriftRatio * 100).toFixed(0) : '0')}%</span>
+                Drift ratio: <span className="font-mono text-amber-300">{(ast.structuralDriftRatio ? (ast.structuralDriftRatio * 100).toFixed(0) : '0')}%</span>
               </div>
             </div>
             <div className="space-y-3">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Sanitizer</div>
               <div className="text-xs text-slate-300 flex justify-between items-center">
                 <span className="text-slate-300">Clean:</span>
-                <span className={sanitizer?.clean ? "text-emerald-300 font-medium" : "text-rose-300 font-medium"}>
-                  {sanitizer?.clean ? "YES" : "NO"}
+                <span className={sanitizer.clean ? "text-emerald-300 font-medium" : "text-rose-300 font-medium"}>
+                  {sanitizer.clean ? "YES" : "NO"}
                 </span>
               </div>
               <div className="text-xs text-slate-300 flex justify-between items-center">
                 <span className="text-slate-300">Violations:</span>
-                <span className="font-mono text-amber-300">{sanitizer?.violations?.length || 0}</span>
+                <span className="font-mono text-amber-300">{sanitizer.violations?.length || 0}</span>
               </div>
               <div className="text-xs text-slate-300 flex justify-between items-center">
                 <span className="text-slate-300">High-entropy:</span>
-                <span className="font-mono text-amber-300">{sanitizer?.highEntropyTokensFound || 0}</span>
+                <span className="font-mono text-amber-300">{sanitizer.highEntropyTokensFound || 0}</span>
               </div>
             </div>
             <div className="space-y-3">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">AST Violations</div>
-              {ast?.violations?.length === 0 ? (
+              {ast.violations?.length === 0 ? (
                 <div className="text-xs text-emerald-300 flex items-center gap-1.5 p-2 bg-slate-800/30 rounded transition-colors duration-150 hover:bg-slate-800/50">
                   <CheckCircle2 className="h-3 w-3" /> None — passed all gates
                 </div>
               ) : (
                 <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
-                  {(ast?.violations || []).map((v, i) => {
+                  {(ast.violations || []).map((v, i) => {
                     // Add fallback for unknown severity values
                     const Icon = violationIcon[v.severity] || AlertTriangle;
                     return (
