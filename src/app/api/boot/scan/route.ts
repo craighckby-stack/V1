@@ -54,7 +54,7 @@ export const runtime = "nodejs";
  * returned as null/0, never faked — the POST line stamps ?? for it.
  */
 
-/** Count *.json scar files under postmortems/ (recursive, async). */
+/** Count *.json scar files under postmortems/ (iterative DFS, async). */
 async function diskScarCount(): Promise<number> {
   if (typeof PROJECT_ROOT !== 'string' || !PROJECT_ROOT) {
     return 0; // Honesty rule: return 0 if path is invalid, do not throw.
@@ -63,17 +63,14 @@ async function diskScarCount(): Promise<number> {
 
   try {
     const entries = await readdir(root, { withFileTypes: true });
-    // Use a stack for iterative DFS traversal
-    // Stack stores paths to process: string (fullPath)
     const stack: string[] = [];
+    let scarCount = 0;
 
     // Initialize stack with immediate entries
     for (const entry of entries) {
       const fullPath = join(root, entry.name);
       stack.push(fullPath);
     }
-
-    let scarCount = 0;
 
     while (stack.length > 0) {
       const fullPath = stack.pop()!;
@@ -82,10 +79,8 @@ async function diskScarCount(): Promise<number> {
         const statResult = await stat(fullPath);
         if (statResult.isDirectory()) {
           const subEntries = await readdir(fullPath, { withFileTypes: true });
-          // Push subdirectories/files onto the stack in reverse order for consistent DFS order if needed,
-          // but for counting, order doesn't strictly matter.
-          for (let i = subEntries.length - 1; i >= 0; i--) {
-            const subEntry = subEntries[i];
+          // Push subdirectories/files onto the stack
+          for (const subEntry of subEntries) {
             const subFullPath = join(fullPath, subEntry.name);
             stack.push(subFullPath);
           }
