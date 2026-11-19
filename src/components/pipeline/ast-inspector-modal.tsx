@@ -34,7 +34,7 @@ export function AstInspectorModal() {
   if (!ast || !sanitizer) return null;
 
   // Ensure violationIcon mapping is complete by providing a default fallback
-  const violationIcon: Record<string, typeof CheckCircle2> = {
+  const violationIcon: Record<string, typeof AlertTriangle> = {
     high: XCircle,
     medium: AlertTriangle,
     low: AlertTriangle,
@@ -49,6 +49,15 @@ export function AstInspectorModal() {
       toast({ title: "Cannot copy", description: "Evolved code is unavailable or empty." });
       return;
     }
+    
+    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+        toast({ 
+            title: "Clipboard Error", 
+            description: "Clipboard API is not available in this environment. Please copy manually." 
+        });
+        return;
+    }
+
     try {
       await navigator.clipboard.writeText(evolvedStr);
       toast({ title: "Copied evolved code", description: `${evolvedStr.length} bytes to clipboard` });
