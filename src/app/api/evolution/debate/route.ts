@@ -21,9 +21,9 @@ export async function POST(req: Request) {
   let body: DebateRequest;
   try {
     body = (await req.json()) as DebateRequest;
-  } catch {
-    // Optional catch binding: the parse error itself is not surfaced
-    // (the 400 message is generic on purpose — no token/path leakage).
+  } catch (e) {
+    // Catching the specific error type from req.json() failure is better than bare catch.
+    // Maintain generic 400 response for security against leakage.
     return NextResponse.json(
       { error: "Invalid JSON format in request body. Ensure the body is valid JSON." },
       { status: 400 }
