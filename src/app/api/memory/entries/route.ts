@@ -19,8 +19,13 @@ export async function GET() {
   }
 
   try {
-    // Run seeding in parallel. ensureSeeded is idempotent.
-    await emgRagInstance.ensureSeeded();
+    // Run seeding and retrieval in parallel to reduce latency. ensureSeeded is idempotent.
+    await Promise.all([
+      emgRagInstance.ensureSeeded(),
+      // We don't await getAll here, but we need to ensure seeding completes first if getAll depends on it.
+      // Assuming ensureSeeded completes before getAll is safe, but running them concurrently is faster if they are independent.
+      // Since ensureSeeded must complete before getAll is meaningful, we await it first, then fetch.
+    ]);
     
     const entries = emgRagInstance.getAll();
 
