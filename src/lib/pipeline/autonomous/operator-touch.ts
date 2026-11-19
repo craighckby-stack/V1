@@ -150,6 +150,8 @@ export function isDeadMansTripped(
     return true;
   }
 
+  const nowTime = now.getTime();
+
   const state = readOperatorTouch();
   if (!state) return true; // never touched, unreadable, or malformed → tripped
 
@@ -163,6 +165,5 @@ export function isDeadMansTripped(
     return true; // Treat as tripped if internal state is inconsistent
   }
 
-  const nowTime = now.getTime();
   return nowTime - lastTouch > thresholdMs;
 }
