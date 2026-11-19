@@ -102,8 +102,9 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
     // Fail closed: if we can't locate the file, assume not armed.
     return null;
   }
+  if (!existsSync(ARMED_STATE_FILE)) return null;
+  
   try {
-    if (!existsSync(ARMED_STATE_FILE)) return null;
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
     const parsed: unknown = JSON.parse(raw);
 
