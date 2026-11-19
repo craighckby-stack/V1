@@ -38,7 +38,7 @@
  * Pure leaf: fs + path + PROJECT_ROOT only.
  */
 
-import { mkdirSync, readFileSync } from "fs";
+import { mkdirSync, readFileSync, existsSync } from "fs";
 import { atomicWriteFileSync } from "../core/atomic-file";
 import { join, dirname } from "path";
 import { PROJECT_ROOT } from "../core/paths";
@@ -87,6 +87,9 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
  *  the caller (isDeadMansTripped) treats null as "tripped" (never
  *  fabricate a recent touch from a missing or bad file). */
 export function readOperatorTouch(): OperatorTouchState | null {
+  if (!existsSync(OPERATOR_TOUCH_FILE)) {
+    return null; // Absent
+  }
   try {
     const raw = readFileSync(OPERATOR_TOUCH_FILE, "utf8");
     let parsed: unknown;
@@ -119,7 +122,7 @@ export function readOperatorTouch(): OperatorTouchState | null {
 
     return state;
   } catch (error) {
-    // Catches file not found, read errors
+    // Catches read errors (permissions, etc.)
     console.error(`Failed to read operator touch file at ${OPERATOR_TOUCH_FILE}:`, error);
     return null;
   }
@@ -150,12 +153,6 @@ export function isDeadMansTripped(
   // readOperatorTouch guarantees state.at is a valid ISO date string if it returns a state.
   const lastTouch = Date.parse(state.at);
 
-  // Since readOperatorTouch validated the timestamp, lastTouch should not be NaN,
-  // but we check defensively against potential logic errors in readOperatorTouch.
-  if (isNaN(lastTouch)) {
-    console.error(`Internal consistency error: readOperatorTouch returned state but timestamp '${state.at}' is invalid.`);
-    return true; // Treat as tripped if internal state is inconsistent
-  }
-
+  // Since readOperatorTouch validated the timestamp, lastTouch must be a valid number here.
   return nowTime - lastTouch > thresholdMs;
 }
