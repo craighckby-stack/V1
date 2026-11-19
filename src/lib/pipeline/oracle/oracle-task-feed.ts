@@ -69,11 +69,7 @@ export const ORACLE_FAILED_PROPHECY_KIND = "oracle-failed-prophecy";
  *  A different prophecy on the same file hashes differently → a new
  *  task is created (the old one's verdict may still be pending). */
 function hashProphecyIdToLine(prophecyId: string): number {
-  if (typeof prophecyId !== 'string' || !prophecyId) {
-    throw new Error("Prophecy ID must be a non-empty string for hashing.");
-  }
-  // FNV-1a 32-bit, then mask to positive int. Stable across runs and
-  // platforms (no BigInt, no platform-dependent hash).
+  // FNV-1a 32-bit implementation.
   let h = 0x811c9dc5;
   for (let i = 0; i < prophecyId.length; i++) {
     h ^= prophecyId.charCodeAt(i);
@@ -82,10 +78,8 @@ function hashProphecyIdToLine(prophecyId: string): number {
   }
   // Mask to ensure positive 32-bit integer (0x7fffffff)
   const line = h & 0x7fffffff;
-  
+
   // Ensure line is at least 1, as 0 is invalid for a 1-based line number.
-  // If the hash results in 0 after masking, we map it to 1, maintaining
-  // stability relative to the hash result's zero state.
   return line === 0 ? 1 : line;
 }
 
@@ -147,7 +141,7 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
 
   const filePath = filePathFromSelfProphecy(prophecy);
   if (!filePath) return false; // not a self-prophecy — not actionable
-  
+
   let line: number;
   try {
     line = hashProphecyIdToLine(prophecy.id);
@@ -156,12 +150,13 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
     console.error(`Failed to hash prophecy ID ${prophecy.id} for task creation: ${errorMessage}`);
     return false;
   }
-  
+
   const taskKind = TASK_KINDS[ORACLE_FAILED_PROPHECY_KIND];
   if (!taskKind) {
     console.error(`Task kind ${ORACLE_FAILED_PROPHECY_KIND} is not registered in TASK_KINDS. Cannot queue task.`);
     return false;
   }
+  
   // Use default priority 7 if taskKind exists but priority is missing
   const priority = taskKind.priority ?? 7;
 
