@@ -195,6 +195,10 @@ export function ManualPipelineRunner() {
   }
 
   async function runPipeline() {
+    if (!form.repo.trim()) {
+      toast({ title: "No repository", description: "Enter the target repository (owner/repo) above.", variant: "destructive" });
+      return;
+    }
     if (!code) {
       toast({ title: "No code", description: "Fetch a file first or paste code to run the pipeline.", variant: "destructive" });
       return;
@@ -375,7 +379,7 @@ export function ManualPipelineRunner() {
         <div className="flex flex-wrap items-center gap-2">
           <Button
             onClick={runPipeline}
-            disabled={pipelineRunning || !code}
+            disabled={pipelineRunning || !code || !form.repo.trim()}
             className="bg-cyan-600 hover:bg-cyan-500 text-white"
           >
             {pipelineRunning ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}

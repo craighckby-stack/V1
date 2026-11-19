@@ -60,10 +60,6 @@ export interface ArmedState {
  *  never fail a start/stop that already succeeded in memory (the in-memory
  *  flag remains the live source; the disk file is the restart tier). */
 export function markArmed(armed: boolean, by: string): void {
-  if (!PROJECT_ROOT) {
-    console.error("markArmed: PROJECT_ROOT is not defined, cannot persist armed state.");
-    return;
-  }
   try {
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
     // Rely on atomicWriteFileSync to handle directory creation or fail gracefully
@@ -86,21 +82,22 @@ export function readArmedState(): ArmedState | null {
     console.error("readArmedState: PROJECT_ROOT is not defined, cannot read armed state.");
     return null;
   }
-  
+
+  // Check existence first to distinguish 'not found' from 'read error'
   try {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
     let parsed: unknown;
-    
+
     try {
       parsed = JSON.parse(raw);
     } catch (jsonError) {
       console.error(`readArmedState: Failed to parse armed state JSON from ${ARMED_STATE_FILE}. File content is invalid JSON. Error: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}`);
       return null;
     }
-    
+
     if (typeof parsed !== "object" || parsed === null) {
-        console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - root element is not an object.`);
-        return null;
+      console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - root element is not an object.`);
+      return null;
     }
 
     const state = parsed as ArmedState;
@@ -109,26 +106,27 @@ export function readArmedState(): ArmedState | null {
     // ISO 8601 format ending in Z is strictly enforced here.
     const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 
-    if (typeof state.armed !== "boolean" || 
-        typeof state.at !== "string" || 
+    if (typeof state.armed !== "boolean" ||
+        typeof state.at !== "string" ||
         typeof state.by !== "string" ||
         state.by.trim() === "" ||
         !iso8601Regex.test(state.at)) {
-      
+
       console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure (e.g., invalid ISO timestamp).`);
       return null;
     }
-    
+
     return state;
   } catch (error) {
     // Handle file not found (ENOENT) explicitly for clearer logging, while maintaining fail-closed contract.
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-        // File not found is expected on first run, treated as not armed.
-        return null;
+      // File not found is expected on first run, treated as not armed.
+      return null;
     }
-    
+
+    // Catch other I/O errors (permissions, etc.)
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`readArmedState: Failed to read armed state from ${ARMED_STATE_FILE}. File missing or permission error. Error: ${errorMessage}`);
+    console.error(`readArmedState: Failed to read armed state from ${ARMED_STATE_FILE}. Check file permissions or disk integrity. Error: ${errorMessage}`);
     return null;
   }
 }
