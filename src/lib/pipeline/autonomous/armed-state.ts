@@ -40,7 +40,7 @@
  * to load from anywhere (loop-runtime, API routes, instrumentation).
  */
 
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { atomicWriteFileSync } from "../core/atomic-file";
 import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
@@ -67,7 +67,7 @@ export function markArmed(armed: boolean, by: string): void {
   } catch (error) {
     // Log the error for debugging but don't throw to maintain the contract
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`markArmed: Failed to persist armed state to ${ARMED_STATE_FILE} (by: ${by}). Check file system permissions. Error details: ${errorMessage}`);
+    console.error(`markArmed: Failed to persist armed state to ${ARMED_STATE_FILE} (by: ${by}, armed: ${armed}). Check file system permissions. Error details: ${errorMessage}`);
   }
 }
 
@@ -78,8 +78,18 @@ export function markArmed(armed: boolean, by: string): void {
  *  a bad read. This is the dual-layer fail-closed contract: the boot
  *  auto-arm only proceeds when the disk EXPLICITLY says armed:true. */
 export function readArmedState(): ArmedState | null {
+  if (!existsSync(ARMED_STATE_FILE)) {
+    // File not found is expected on first run, treated as not armed.
+    return null;
+  }
+
   try {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
+
+    if (raw.trim() === "") {
+      console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is empty.`);
+      return null;
+    }
     
     let parsed: unknown;
     try {
@@ -112,13 +122,7 @@ export function readArmedState(): ArmedState | null {
 
     return state;
   } catch (error) {
-    // Handle file not found (ENOENT) explicitly for clearer logging, while maintaining fail-closed contract.
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      // File not found is expected on first run, treated as not armed.
-      return null;
-    }
-
-    // Catch other I/O errors (permissions, etc.)
+    // Catch other I/O errors (permissions, etc.) that exist even if existsSync passed (e.g., race condition where file is deleted between checks)
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`readArmedState: Failed to read armed state from ${ARMED_STATE_FILE}. Check file permissions or disk integrity. Error: ${errorMessage}`);
     return null;

@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/target/target-scan.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "Test gate failed: test failed (sandboxed): src/lib/pipeline/target/target-scan.test.ts — \nsrc/lib/pipeline/target/target-scan.test.ts:\n3849 |     debugger;\n3850 |     const e = new Error(message ? `Debug Failure. ${message}` : \"Debug Failure.\");\n3851 |     if (Error.captureStackTrace) {\n3",
@@ -12,8 +12,8 @@
   "parentHash": "9b3a71381e7e22f4c9e6fd655efbf826cf36374372505c3aeee0e7cb085de14a",
   "hash": "a4a4f05b928c3d4c0c312f64097cd491046364bdf70fe42c628a31a10e43750c",
   "lastAttemptAt": "2026-11-19T14:53:37.630Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-19T15:26:54.637Z",
   "createdAt": "2026-11-19T13:59:58.688Z",
-  "updatedAt": "2026-11-19T14:53:37.630Z",
+  "updatedAt": "2026-11-19T15:26:54.637Z",
   "schema": 2
 }
