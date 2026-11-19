@@ -103,17 +103,19 @@ export function readOperatorTouch(): OperatorTouchState | null {
     }
 
     // Validate the parsed object strictly against the required structure
-    if (!parsed || typeof parsed !== "object" || parsed === null ||
-        !("at" in parsed) || !("by" in parsed) ||
-        typeof parsed.at !== "string" || typeof parsed.by !== "string") {
+    if (
+        typeof parsed !== "object" || parsed === null ||
+        !("at" in parsed) || typeof (parsed as any).at !== "string" ||
+        !("by" in parsed) || typeof (parsed as any).by !== "string"
+    ) {
       console.error(`Invalid operator touch file format at ${OPERATOR_TOUCH_FILE}: missing required 'at' or 'by' fields or wrong types`);
       return null;
     }
 
     // Validate timestamp format before returning
-    const timestamp = Date.parse(parsed.at);
+    const timestamp = Date.parse((parsed as OperatorTouchState).at);
     if (isNaN(timestamp)) {
-      console.error(`Invalid timestamp in operator touch file at ${OPERATOR_TOUCH_FILE}: '${parsed.at}' is not a valid ISO date`);
+      console.error(`Invalid timestamp in operator touch file at ${OPERATOR_TOUCH_FILE}: '${(parsed as OperatorTouchState).at}' is not a valid ISO date`);
       return null;
     }
 
