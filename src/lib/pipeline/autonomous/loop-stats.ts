@@ -71,18 +71,15 @@ export function writeLoopStats(state: LoopStatsState): void {
     return;
   }
 
-  // Validate input state structure first
+  // Input validation is implicitly handled by TypeScript interface if called correctly,
+  // but we check for null/non-object defensively against runtime misuse.
   if (!state || typeof state !== "object" || Array.isArray(state)) {
     console.error("writeLoopStats: Invalid state object provided (must be non-null object).");
     return;
   }
 
-  // Check for presence and validate types/values for all required fields
+  // Validate structure and values against the defined contract.
   for (const field of NUMERIC_FIELDS) {
-    if (!(field in state)) {
-      console.error(`writeLoopStats: Missing required numeric field ${field} in state object.`);
-      return;
-    }
     const v = state[field];
     if (
       typeof v !== "number" ||
@@ -96,10 +93,6 @@ export function writeLoopStats(state: LoopStatsState): void {
   }
 
   // Validate lastEnhancementAt
-  if (!('lastEnhancementAt' in state)) {
-    console.error("writeLoopStats: Missing required field lastEnhancementAt in state object.");
-    return;
-  }
   const ts = state.lastEnhancementAt;
   if (ts !== null && typeof ts === "string" && isNaN(Date.parse(ts))) {
     console.error(`writeLoopStats: Invalid lastEnhancementAt value: ${ts}. Must be a valid ISO string or null.`);
