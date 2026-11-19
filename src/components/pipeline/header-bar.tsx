@@ -6,8 +6,11 @@ import { usePipelineStore } from "@/lib/pipeline-store";
 import { cn } from "@/lib/utils";
 
 export function HeaderBar() {
-  const wsConnected = usePipelineStore((s) => s.wsConnected);
-  const loopState = usePipelineStore((s) => s.loopState);
+  const { wsConnected, loopState } = usePipelineStore((s) => ({
+    wsConnected: s.wsConnected,
+    loopState: s.loopState,
+  }));
+  
   const status = loopState?.status ?? "idle";
   const stats = loopState?.stats;
 
