@@ -24,9 +24,11 @@ export function AstInspectorModal() {
   if (!inspectorFile) return null;
   const { path, original, evolved, report } = inspectorFile;
   
-  // Add null checks for nested properties
-  const ast = report?.astDiffResult;
-  const sanitizer = report?.sanitizerResult;
+  // Ensure report exists before accessing nested properties
+  if (!report) return null;
+
+  const ast = report.astDiffResult;
+  const sanitizer = report.sanitizerResult;
 
   // Add input validation for violation severity
   const violationIcon: Record<string, typeof CheckCircle2> = {
@@ -45,7 +47,10 @@ export function AstInspectorModal() {
       return;
     }
     try {
-      await navigator.clipboard.writeText(evolvedStr);
+      // Using Promise.all for potential parallelization, though only one await here.
+      await Promise.all([
+        navigator.clipboard.writeText(evolvedStr),
+      ]);
       toast({ title: "Copied evolved code", description: `${evolvedStr.length} bytes to clipboard` });
     } catch (error) {
       // Catching generic error from clipboard API

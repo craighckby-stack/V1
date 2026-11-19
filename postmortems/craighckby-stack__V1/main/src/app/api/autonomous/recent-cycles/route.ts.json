@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/V1",
+  "branch": "main",
+  "filePath": "src/app/api/autonomous/recent-cycles/route.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "OTHER",
+  "symptom": "Mutation guard rejected (finalAuthority)",
+  "evidence": "protected path: src/app/api/autonomous/recent-cycles/route.ts is in the runtime-gate or scaffolding protected set — the loop may not mutate its own scaffolding",
+  "constraints": "The mutation guard rejected your last proposed change.\nDo NOT introduce any of: eval(, new Function(, child_process, __import__(,\n  require('fs'/'child_process'/'net'/'os'), fetch() to non-allowlisted hosts,\n  path-traversal literals (../../), process.mainModule, weak crypto (md5/sha1).\nDo NOT mutate protected paths: prisma/schema.prisma, package.json,\n  next.config.*, tsconfig.json, .env, Caddyfile, start-dev.sh, or any file\n  in the loop runtime / gates / LLM wrappers / UI control surface.",
+  "attempts": 2,
+  "parentHash": "ceb0b6a7d33808550baac84e64e66dd62f40babd9a196eb737ff9a640937e4cb",
+  "hash": "853329e87018f25788fa363803454aa5c27992c55bef203d43e05a8ebfc5c6a6",
+  "lastAttemptAt": "2026-11-19T04:50:16.639Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-19T04:30:40.894Z",
+  "updatedAt": "2026-11-19T04:50:16.639Z",
+  "schema": 2
+}
