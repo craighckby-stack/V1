@@ -145,8 +145,9 @@ async function checkGitHubAuth(
         return { ok: false, error: "No login found or invalid response structure in /user response body" };
       }
       return { ok: true, login: user.login as string };
-    } catch (e) {
-      // Handle case where response is OK (2xx) but body is not valid JSON (e.g., empty body)
+    } catch {
+      // Optional catch binding: the parse error is not used; the 4xx
+      // response body was not valid JSON (empty or malformed).
       return { ok: false, error: "Failed to parse JSON response from GitHub API (response body might be empty or malformed)" };
     }
   } catch (e) {

@@ -78,12 +78,9 @@ export function markArmed(armed: boolean, by: string): void {
  *  a bad read. This is the dual-layer fail-closed contract: the boot
  *  auto-arm only proceeds when the disk EXPLICITLY says armed:true. */
 export function readArmedState(): ArmedState | null {
-  if (!PROJECT_ROOT) {
-    console.error("readArmedState: PROJECT_ROOT is not defined, cannot read armed state.");
-    return null;
-  }
+  // PROJECT_ROOT is assumed to be available if this function is called in a valid pipeline context.
+  // If it's missing, join() might throw or result in an incorrect path, which the try/catch handles.
 
-  // Check existence first to distinguish 'not found' from 'read error'
   try {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
     let parsed: unknown;

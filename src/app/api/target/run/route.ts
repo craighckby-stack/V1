@@ -10,8 +10,12 @@
  *     driving — this feeds the dead-man's-switch clock)
  *   - safe-mode (duress) checked inside the runner itself
  *
- * Body: { dryRun?: boolean } — dryRun runs the FULL gate chain and
- * reports the would-be branch, but never creates anything on GitHub.
+ * Body: { dryRun?: boolean, landOnMain?: boolean }
+ *   - dryRun runs the FULL gate chain and reports the would-be branch,
+ *     but never creates anything on GitHub.
+ *   - landOnMain commits the survivor directly to the base ref (main)
+ *     instead of an isolated loop-t-NN branch. Opt-in; default is the
+ *     safe, reviewable, reversible isolated branch.
  */
 
 import { NextResponse } from "next/server";
@@ -34,15 +38,17 @@ export async function POST(req: Request) {
   }
 
   let dryRun = false;
-  let body: { dryRun?: boolean } | null = null;
+  let landOnMain = false;
+  let body: { dryRun?: boolean; landOnMain?: boolean } | null = null;
 
   try {
     body = await req.json();
     dryRun = body?.dryRun === true;
+    landOnMain = body?.landOnMain === true;
   } catch {
     // If JSON parsing fails (e.g., empty body or invalid JSON), treat
-    // as no explicit dryRun flag provided. The contract implies an
-    // empty body means live run (dryRun=false).
+    // as no explicit flags provided. The contract implies an empty body
+    // means a live run on the isolated branch (dryRun=false, landOnMain=false).
     body = {};
   }
 
@@ -50,16 +56,6 @@ export async function POST(req: Request) {
   // Sync + non-throwing by contract (operator-touch.ts).
   markOperatorTouch("target-mode");
 
-  // Run mutation and operator touch concurrently if dryRun is true, as operator touch is synchronous and non-blocking relative to the mutation probe.
-  const mutationPromise = runTargetMutation({ dryRun });
-  
-  if (dryRun) {
-    // If dryRun, we only need the mutation result, operator touch is already done.
-    const result = await mutationPromise;
-    return NextResponse.json(result, { status: result.ok ? 200 : 422 });
-  } else {
-    // Live run: wait for mutation
-    const result = await mutationPromise;
-    return NextResponse.json(result, { status: result.ok ? 200 : 422 });
-  }
+  const result = await runTargetMutation({ dryRun, landOnMain });
+  return NextResponse.json(result, { status: result.ok ? 200 : 422 });
 }

@@ -187,14 +187,18 @@ export async function executeTargetCommand(
           "Target mode points the loop at an EXTERNAL GitHub repo:",
           "  target <owner/repo> [branch] — set the target (reachability-verified)",
           "  target dry                   — full gate chain, nothing lands",
+          "  target dry --main            — rehearse landing directly on main",
           "  target run                   — land one gated loop-t-NN branch",
+          "  target run --main            — land one gated commit on main",
           "  target status                — this panel",
           "  target off                   — disconnect",
           "",
           "Every proposal passes the same gate chain as self-mutations:",
           "mutation-guard → structural → ast-diff(strict) → syntax → secret-scan →",
           "debate tribunal. Typecheck/sandbox are skipped honestly (no local dep",
-          "tree), and every attempt lands on its own loop-t-NN branch — never main.",
+          "tree). Default landing is an isolated loop-t-NN branch (reviewable,",
+          "reversible). Pass --main to commit the survivor directly to the base",
+          "branch (main may be protected → honest 403).",
           "(Bare 'target' opens the 6-stage rea pipeline panel instead.)",
         ];
       }
@@ -214,7 +218,8 @@ export async function executeTargetCommand(
       }
       lines.push(
         "",
-        "Run 'target dry' for a no-write rehearsal, 'target run' to land a mutation."
+        "Run 'target dry' for a no-write rehearsal, 'target run' to land a mutation.",
+        "Add --main to either to land directly on the base branch."
       );
       return lines;
     }
@@ -227,15 +232,22 @@ export async function executeTargetCommand(
 
     if (sub === "dry" || sub === "run") {
       const dry = sub === "dry";
+      // `--main` (or `-m`) opts into land-on-main: the survivor commits
+      // directly to the base ref instead of an isolated loop-t-NN branch.
+      const landOnMain = parts.slice(2).some((p) => p === "--main" || p === "-m");
       emitOutput?.([
         dry
-          ? "[TARGET DRY] Probing, generating, gating — nothing lands on GitHub..."
-          : "[TARGET RUN] Probing, generating, gating — survivor commits to loop-t-NN...",
+          ? landOnMain
+            ? "[TARGET DRY --main] Rehearsing a direct-to-main landing — nothing lands on GitHub..."
+            : "[TARGET DRY] Probing, generating, gating — nothing lands on GitHub..."
+          : landOnMain
+            ? "[TARGET RUN --main] Probing, generating, gating — survivor commits directly to main..."
+            : "[TARGET RUN] Probing, generating, gating — survivor commits to loop-t-NN...",
       ]);
       const res = await fetch("/api/target/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dryRun: dry }),
+        body: JSON.stringify({ dryRun: dry, landOnMain }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string; log?: string[] };
       const lines = [...(data.log ?? [])];
@@ -261,13 +273,14 @@ export async function executeTargetCommand(
       return [
         `Target configured: github.com/${data.config.repo} (base: ${data.config.branch ?? "repo default"})`,
         "'target dry' = no-write gate rehearsal. 'target run' = land one gated",
-        "loop-t-NN branch. 'target status' = audit trail. 'target off' = disconnect.",
+        "loop-t-NN branch (or 'target run --main' to commit on main directly).",
+        "'target status' = audit trail. 'target off' = disconnect.",
       ];
     }
 
     return [
       `Unknown target subcommand "${sub}".`,
-      "Usage: target <owner/repo> [branch] | target dry | target run | target status | target off",
+      "Usage: target <owner/repo> [branch] | target dry [--main] | target run [--main] | target status | target off",
       "(Bare 'target' opens the 6-stage rea pipeline panel.)",
     ];
   } catch (e) {

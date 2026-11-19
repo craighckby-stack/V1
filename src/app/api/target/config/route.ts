@@ -35,20 +35,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "repo is required (owner/name)" }, { status: 400 });
     }
 
-    // Verify reachability FIRST
+    // Verify reachability FIRST: a typo'd repo or a private repo with no
+    // usable token should never become a silently-broken target. The
+    // default branch is persisted as the base ref unless the operator
+    // pinned one explicitly.
     const config = await setTargetConfig(body.repo, body.branch ?? null);
-    
-    // Run token resolution and default branch check concurrently
-    const [token, defaultBranch] = await Promise.all([
-      resolveTargetToken(),
-      getRepoDefaultBranch(config.repo, await resolveTargetToken()), // Note: resolveTargetToken is awaited inside getRepoDefaultBranch if needed, but we await it once above for efficiency. Re-evaluating dependency: getRepoDefaultBranch needs token.
-    ]);
 
-    // Corrected concurrent execution: resolve token first, then use it for branch check
-    const tokenResolved = await resolveTargetToken();
-    const defaultBranchResolved = await getRepoDefaultBranch(config.repo, tokenResolved);
+    // Sequential (getRepoDefaultBranch needs the token); the token is the
+    // operator's stored (sealed) PAT, opened server-side — never returned.
+    const token = await resolveTargetToken();
+    const defaultBranch = await getRepoDefaultBranch(config.repo, token);
 
-    if (!defaultBranchResolved) {
+    if (!defaultBranch) {
       // Do not leave a broken config behind — roll back the save.
       await clearTargetConfig();
       return NextResponse.json(
@@ -59,15 +57,13 @@ export async function POST(req: Request) {
         { status: 422 }
       );
     }
-    
+
     if (!config.branch) {
       // Persist the resolved default so `target status` shows the truth.
-      const saved = await setTargetConfig(config.repo, defaultBranchResolved);
-      return NextResponse.json({ ok: true, config: saved, defaultBranch: defaultBranchResolved });
+      const saved = await setTargetConfig(config.repo, defaultBranch);
+      return NextResponse.json({ ok: true, config: saved, defaultBranch });
     }
-    
-    // If branch was provided, return the original config (which already includes the repo)
-    return NextResponse.json({ ok: true, config, defaultBranch: defaultBranchResolved });
+    return NextResponse.json({ ok: true, config, defaultBranch });
 
   } catch (err) {
     if (err instanceof Error) {

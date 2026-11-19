@@ -102,7 +102,7 @@ describe("POST /api/target/run", () => {
     const res = await POST(jsonReq({ dryRun: true }));
     expect(res.status).toBe(200);
     expect(runTargetMutationMock).toHaveBeenCalledTimes(1);
-    expect(runTargetMutationMock).toHaveBeenCalledWith({ dryRun: true });
+    expect(runTargetMutationMock).toHaveBeenCalledWith({ dryRun: true, landOnMain: false });
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.status).toBe("no-work");
@@ -111,7 +111,19 @@ describe("POST /api/target/run", () => {
   test("dryRun=false (explicit) forwards dryRun:false and returns 200 on ok", async () => {
     const res = await POST(jsonReq({ dryRun: false }));
     expect(res.status).toBe(200);
-    expect(runTargetMutationMock).toHaveBeenCalledWith({ dryRun: false });
+    expect(runTargetMutationMock).toHaveBeenCalledWith({ dryRun: false, landOnMain: false });
+  });
+
+  test("landOnMain=true forwards landOnMain to runTargetMutation", async () => {
+    const res = await POST(jsonReq({ landOnMain: true }));
+    expect(res.status).toBe(200);
+    expect(runTargetMutationMock).toHaveBeenCalledWith({ dryRun: false, landOnMain: true });
+  });
+
+  test("dryRun=true and landOnMain=true are both forwarded (rehearse land-on-main)", async () => {
+    const res = await POST(jsonReq({ dryRun: true, landOnMain: true }));
+    expect(res.status).toBe(200);
+    expect(runTargetMutationMock).toHaveBeenCalledWith({ dryRun: true, landOnMain: true });
   });
 
   test("returns 422 when runTargetMutation reports ok:false", async () => {
@@ -138,7 +150,7 @@ describe("POST /api/target/run", () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
-    expect(runTargetMutationMock).toHaveBeenCalledWith({ dryRun: false });
+    expect(runTargetMutationMock).toHaveBeenCalledWith({ dryRun: false, landOnMain: false });
   });
 
   test("refreshes the operator dead-man's clock on every successful run", async () => {

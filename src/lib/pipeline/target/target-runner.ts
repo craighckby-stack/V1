@@ -134,6 +134,11 @@ function mapFailureType(
  */
 export async function runTargetMutation(opts?: {
   dryRun?: boolean;
+  /** Commit the survivor directly to the base ref (main) instead of an
+   *  isolated loop-t-NN branch. Opt-in — the default stays the safe,
+   *  reviewable, reversible isolated branch. Main may be protected →
+ *  GitHub returns 403 and the error is surfaced honestly. */
+  landOnMain?: boolean;
   clientToken?: string;
 }): Promise<TargetRunResult> {
   const log: string[] = [];
@@ -317,7 +322,11 @@ Output the COMPLETE new content for this file with the improvement applied.`;
   for (const e of gateResult.errors.slice(0, 3)) say(`gate error: ${e.slice(0, 180)}`);
 
   // 12. Secret scan — on the built unified diff AND the commit message.
-  const commitMessage = buildCommitMessage(repo, baseRef, file, chosen.findings);
+  // The commit message is built once (landOnMain known from opts) and
+  // reused at the land step so the scanned message is byte-identical to
+  // the one that actually lands on GitHub.
+  const landOnMain = opts?.landOnMain === true;
+  const commitMessage = buildCommitMessage(repo, baseRef, file, chosen.findings, landOnMain);
   const diffText = unifiedDiff(file, originalCode, newCode);
   const secretFindings = [...scanDiff(diffText, file), ...scanCommitMessage(commitMessage)];
   say(`secret-scan: ${secretFindings.length} finding(s)`);
@@ -384,11 +393,19 @@ Output the COMPLETE new content for this file with the improvement applied.`;
     };
   }
 
-  // 15. Dry run — everything passed; stop BEFORE any write-back.
-  const branchNumber = nextTargetBranchNumber(await listTargetBranches(repo, token));
-  const branchName = `loop-t-${branchNumber}`;
+  // 15. Decide the landing branch. landOnMain commits directly to the
+  //     base ref (main) — no loop-t-NN. The default stays the isolated
+  //     branch (reviewable, reversible, never touches main).
+  let branchName: string;
+  if (landOnMain) {
+    branchName = baseRef;
+    say(`land mode: committing directly to ${baseRef} (operator --main)`);
+  } else {
+    const branchNumber = nextTargetBranchNumber(await listTargetBranches(repo, token));
+    branchName = `loop-t-${branchNumber}`;
+  }
   if (dryRun) {
-    say(`RESULT: DRY RUN PASS — would create ${branchName} and commit ${file}`);
+    say(`RESULT: DRY RUN PASS — would commit ${file} to ${branchName}${landOnMain ? " (main)" : ""}`);
     await recordTargetRun({ at: new Date().toISOString(), repo, status: "dry-run", file, branch: branchName });
     return {
       ok: true,
@@ -405,12 +422,15 @@ Output the COMPLETE new content for this file with the improvement applied.`;
     };
   }
 
-  // 16. Land: branch from baseRef, then Contents-PUT the file.
-  say(`creating branch ${branchName} from ${baseRef}...`);
-  const ensured = await ensureTargetBranch(repo, branchName, baseRef, token);
-  if (!ensured.ok) {
-    await recordTargetRun({ at: new Date().toISOString(), repo, status: "failed", file, branch: branchName, reason: ensured.error });
-    return { ok: false, status: "failed", repo, file, branch: branchName, error: ensured.error, log };
+  // 16. Land. Isolated-branch mode creates the branch first; land-on-main
+  //     commits straight to baseRef (main may be protected → honest 403).
+  if (!landOnMain) {
+    say(`creating branch ${branchName} from ${baseRef}...`);
+    const ensured = await ensureTargetBranch(repo, branchName, baseRef, token);
+    if (!ensured.ok) {
+      await recordTargetRun({ at: new Date().toISOString(), repo, status: "failed", file, branch: branchName, reason: ensured.error });
+      return { ok: false, status: "failed", repo, file, branch: branchName, error: ensured.error, log };
+    }
   }
   const commit = await commitTargetFile({
     repo,
@@ -449,13 +469,18 @@ Output the COMPLETE new content for this file with the improvement applied.`;
   };
 }
 
-/** First line ≤72 chars; body documents the gate reality honestly. */
+/** First line ≤72 chars; body documents the gate reality honestly,
+ *  including WHERE the mutation landed (main vs isolated branch). */
 function buildCommitMessage(
   repo: string,
   baseRef: string,
   file: string,
-  findings: TargetFinding[]
+  findings: TargetFinding[],
+  landOnMain: boolean
 ): string {
+  const landing = landOnMain
+    ? `Landed directly on ${baseRef} (operator --main mode).`
+    : `Landed on an isolated loop-t-NN branch (reviewable, reversible).`;
   return [
     `target-enhance: ${file} (${kindSummary(findings)})`.slice(0, 72),
     "",
@@ -464,6 +489,7 @@ function buildCommitMessage(
     "secret-scan, debate tribunal.",
     "Skipped honestly: typecheck + sandbox tests (external target has no",
     "local dependency tree — workspace-clone mode is the Level 2 upgrade).",
+    landing,
     `Source: ${repo}@${baseRef}`,
   ].join("\n");
 }
