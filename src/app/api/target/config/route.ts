@@ -40,8 +40,12 @@ export async function POST(req: Request) {
     // stored PAT or a client token. The default branch is persisted as
     // the base ref unless the operator pinned one explicitly.
     const config = await setTargetConfig(body.repo, body.branch ?? null);
+    
+    // Resolve token concurrently with branch check setup if possible, 
+    // but dependency on config.repo means we proceed sequentially here.
     const token = await resolveTargetToken();
     const defaultBranch = await getRepoDefaultBranch(config.repo, token);
+    
     if (!defaultBranch) {
       // Do not leave a broken config behind — roll back the save.
       await clearTargetConfig();
@@ -60,7 +64,11 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ ok: true, config, defaultBranch });
   } catch (err) {
-    return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 400 });
+    if (err instanceof Error) {
+      return NextResponse.json({ ok: false, error: err.message }, { status: 400 });
+    }
+    // Handle non-Error objects gracefully
+    return NextResponse.json({ ok: false, error: "An unknown error occurred during configuration update." }, { status: 500 });
   }
 }
 
