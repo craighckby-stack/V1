@@ -73,8 +73,8 @@ export function writeLoopStats(state: LoopStatsState): void {
 
   // Input validation is implicitly handled by TypeScript interface if called correctly,
   // but we check for null/non-object defensively against runtime misuse.
-  if (!state || typeof state !== "object" || Array.isArray(state)) {
-    console.error("writeLoopStats: Invalid state object provided (must be non-null object).");
+  if (!state) {
+    console.error("writeLoopStats: Invalid state object provided (must be non-null).");
     return;
   }
 
@@ -172,7 +172,7 @@ export function readLoopStats(): LoopStatsState | null {
       testsWritten: obj.testsWritten as number,
       cyclesCompleted: obj.cyclesCompleted as number,
       tasksGenerated: obj.tasksGenerated as number,
-      lastEnhancementAt: (ts as string | null),
+      lastEnhancementAt: ts as string | null,
     };
   } catch (error) {
     // Missing, unreadable, or torn — first-boot semantics. Log the error for debugging persistence issues.
