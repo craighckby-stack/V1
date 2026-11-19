@@ -45,7 +45,10 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
 
       // Build the scrambled tail efficiently
       const unsolvedLength = total - solved;
-      const scrambledTailArray = Array.from({ length: unsolvedLength }, () => GLYPHS[Math.floor(Math.random() * GLYPHS.length)]);
+      const scrambledTailArray: string[] = [];
+      for (let i = 0; i < unsolvedLength; i++) {
+        scrambledTailArray.push(GLYPHS[Math.floor(Math.random() * GLYPHS.length)]);
+      }
       const scrambledTail = scrambledTailArray.join("");
 
       setOut(solvedPrefix + scrambledTail);
