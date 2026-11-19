@@ -61,9 +61,9 @@ class LoopEventBus {
       throw new Error(`LoopEventBus.emit() called with invalid timestamp (must be a positive finite number, got: ${evt.timestamp})`);
     }
     
-    const validKinds = ["state", "log", "stage", "push"];
-    if (!validKinds.includes(evt.kind as string)) {
-        throw new Error(`LoopEventBus.emit() called with unknown event kind: ${evt.kind}. Must be one of: ${validKinds.join(', ')}.`);
+    // Use type narrowing to ensure kind is valid
+    if (!("kind" in evt) || !["state", "log", "stage", "push"].includes(evt.kind)) {
+        throw new Error(`LoopEventBus.emit() called with unknown event kind: ${evt.kind}. Must be one of: state, log, stage, push.`);
     }
 
     // Input validation based on kind using type guards
