@@ -30,10 +30,12 @@ export async function GET() {
     const entries = emgRagInstance.getAll();
 
     // Ensure we return an array, defaulting to empty array if null or undefined
-    return NextResponse.json({ entries: entries || [] });
+    return NextResponse.json({ entries: entries });
   } catch (err: unknown) {
-    // Log the actual error for debugging purposes before sending a generic response
+    // Ensure 'error' is always an Error instance before accessing properties
     const error = err instanceof Error ? err : new Error("An unknown error occurred during memory retrieval from RAG store.");
+    
+    // Log the actual error for debugging purposes before sending a generic response
     console.error("Error retrieving memory entries from RAG store:", error.message, error.stack ? error.stack : "No stack trace available");
     
     let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
