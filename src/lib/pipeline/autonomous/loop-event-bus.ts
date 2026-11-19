@@ -60,12 +60,9 @@ class LoopEventBus {
     if (typeof evt.timestamp !== "number" || !Number.isFinite(evt.timestamp) || evt.timestamp <= 0) {
       throw new Error(`LoopEventBus.emit() called with invalid timestamp (must be a positive finite number, got: ${evt.timestamp})`);
     }
-    if (!evt.kind || typeof evt.kind !== "string") {
-      throw new Error("LoopEventBus.emit() called with missing or invalid kind");
-    }
-
+    
     const validKinds = ["state", "log", "stage", "push"];
-    if (!validKinds.includes(evt.kind)) {
+    if (!validKinds.includes(evt.kind as string)) {
         throw new Error(`LoopEventBus.emit() called with unknown event kind: ${evt.kind}. Must be one of: ${validKinds.join(', ')}.`);
     }
 
