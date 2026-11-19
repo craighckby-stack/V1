@@ -21,9 +21,10 @@ export async function POST(req: Request) {
   let body: DebateRequest;
   try {
     body = (await req.json()) as DebateRequest;
-  } catch {
+  } catch (e) {
+    // Use 'e' instead of bare catch, and provide context in the error message
     return NextResponse.json(
-      { error: "Invalid JSON format in request body." },
+      { error: "Invalid JSON format in request body. Ensure the body is valid JSON." },
       { status: 400 }
     );
   }
@@ -43,8 +44,9 @@ export async function POST(req: Request) {
   }
 
   try {
+    const effectiveTopic = body.topic ?? `Code Review for ${body.filePath}`;
     const { verdict, usedLlm, llmError } = await conductLlmDebate(
-      body.topic ?? `Code Review for ${body.filePath}`,
+      effectiveTopic,
       body.candidateCode,
       body.filePath
     );
@@ -64,8 +66,8 @@ export async function POST(req: Request) {
     } else if (typeof err === 'string') {
       errorMessage = `Debate execution failed for ${body.filePath}: ${err}`;
     } else {
-      // Handle other unknown types gracefully without crashing or assuming string structure
-      errorMessage = `Debate execution failed for ${body.filePath}: An unknown error type was thrown.`;
+      // Handle other unknown types gracefully without assuming string structure
+      errorMessage = `Debate execution failed for ${body.filePath}: An unknown error type was thrown during LLM execution.`;
     }
     
     // Return a standardized 500 response
