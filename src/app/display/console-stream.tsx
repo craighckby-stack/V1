@@ -87,9 +87,14 @@ function parseTs(ts: string | undefined | null): number {
 
   // Full ISO-8601 with a date component
   if (/\d{4}-\d{2}-\d{2}T/.test(s) || /Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
-    const t = Date.parse(s);
+    const t = new Date(s).getTime();
     return isNaN(t) ? NaN : t;
   }
+
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth();
+  const day = now.getUTCDate();
 
   // 12-hour AM/PM, time only — server is UTC, infer today (UTC).
   const m12 = s.match(/^(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i);
@@ -107,9 +112,8 @@ function parseTs(ts: string | undefined | null): number {
     } else { // PM
       if (h !== 12) hour += 12;
     }
-    const now = new Date();
     // Use Date.UTC to ensure the inferred date is based on UTC components
-    const t = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour, min, sec);
+    const t = Date.UTC(year, month, day, hour, min, sec);
     return isNaN(t) ? NaN : t;
   }
 
@@ -122,16 +126,8 @@ function parseTs(ts: string | undefined | null): number {
 
     if (Number.isNaN(h) || Number.isNaN(min) || Number.isNaN(sec)) return NaN;
 
-    const now = new Date();
     // Use Date.UTC to ensure the inferred date is based on UTC components
-    const t = Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate(),
-      h,
-      min,
-      sec,
-    );
+    const t = Date.UTC(year, month, day, h, min, sec);
     return isNaN(t) ? NaN : t;
   }
 
