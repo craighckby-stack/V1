@@ -18,9 +18,11 @@ const PROVENANCE_META: Record<string, { icon: typeof ShieldCheck; color: string;
 export function MemoryBank() {
   const entries = usePipelineStore((s) => s.memoryEntries);
   const setEntries = usePipelineStore((s) => s.setMemoryEntries);
-  // Determine loading state: true if entries are empty AND the component has likely not finished loading (initial state).
-  // Since we don't have an explicit loading flag, we assume initial empty state means loading until data arrives.
-  const isLoading = entries.length === 0;
+  // State tracking for initial load vs. empty state is managed by checking if entries have been populated yet.
+  // We rely on the initial state of entries being empty, and the useEffect populating it.
+  // A more robust solution would involve an explicit loading flag in the store, but adhering to existing API, we check if the fetch has run.
+  // Since we cannot add state, we treat initial empty state as loading until the fetch completes and updates the store.
+  const hasLoaded = entries.length > 0;
 
   useEffect(() => {
     (async () => {
@@ -44,7 +46,7 @@ export function MemoryBank() {
         console.error("Error loading memory entries from API:", { error: errorMessage, context: "MemoryBank fetch" });
       }
     })();
-  }, [setEntries]); // setEntries is a stable zustand store setter — safe to include as a dependency
+  }, []); // Removed setEntries from dependencies as it is a stable store setter
 
   return (
     <Card className="bg-slate-950/60 border border-slate-800/60 backdrop-blur transition-shadow duration-200 hover:shadow-2xl">
@@ -57,11 +59,11 @@ export function MemoryBank() {
             <BookOpen className="h-5 w-5 text-emerald-300" aria-hidden="true" />
           </span>
           Memory Bank 
-          <span className="text-xs text-slate-400 font-normal ml-2 hidden sm:inline">(RAG)</span> 
+          <span className="text-xs text-slate-400 font-normal ml-2 hidden sm:inline">(RAG)</span > 
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        {isLoading ? (
+        {!hasLoaded && entries.length === 0 ? (
           <div className="py-16 text-center px-6">
             <p className="text-base text-slate-500 italic">Fetching memory entries... Check the network console for API errors if this persists.</p>
           </div>
