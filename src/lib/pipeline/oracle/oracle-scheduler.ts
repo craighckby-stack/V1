@@ -114,7 +114,7 @@ export async function oracleSchedulerTick(): Promise<{
     listError = error;
   }
 
-  // Only update tick time and count if prophecy listing was successful.
+  // Only proceed with state updates and evaluation if prophecy listing was successful.
   if (listError) {
     return { ran: false, reason: "failed to list due prophecies" };
   }
@@ -196,9 +196,9 @@ function bootOracleScheduler(): void {
   s.booted = true;
 
   // Check for valid TICK_MS before proceeding
-  if (TICK_MS <= 0) {
+  if (typeof TICK_MS !== 'number' || TICK_MS <= 0) {
     emitOracleEvent(
-      `Scheduler configuration error: TICK_MS (${TICK_MS}) must be positive. Scheduler not started.`,
+      `Scheduler configuration error: TICK_MS (${TICK_MS}) must be a positive number. Scheduler not started.`,
       "error",
       "scheduler",
     );
