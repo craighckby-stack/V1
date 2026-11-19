@@ -47,14 +47,14 @@ export function AstInspectorModal() {
       return;
     }
     try {
-      // Using Promise.all for potential parallelization, though only one await here.
-      await Promise.all([
-        navigator.clipboard.writeText(evolvedStr),
-      ]);
+      await navigator.clipboard.writeText(evolvedStr);
       toast({ title: "Copied evolved code", description: `${evolvedStr.length} bytes to clipboard` });
-    } catch {
-      // Catching generic error from clipboard API
-      toast({ title: "Failed to copy code", description: "Please try copying manually" });
+    } catch (error) {
+      // Catching generic error from clipboard API with context
+      toast({ 
+        title: "Failed to copy code", 
+        description: `Clipboard access denied or failed. Error: ${error instanceof Error ? error.message : 'Unknown error'}. Please try copying manually.` 
+      });
     }
   };
 
