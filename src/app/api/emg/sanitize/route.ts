@@ -12,7 +12,9 @@ export async function POST(req: Request) {
   let body: SanitizeRequest;
   try {
     body = (await req.json()) as SanitizeRequest;
-  } catch (e) {
+  } catch {
+    // Optional catch binding: the parse error is not used; the 400
+    // response is the same regardless of the specific JSON failure.
     return NextResponse.json(
       { error: "Invalid JSON format in request body." },
       { status: 400 }

@@ -64,16 +64,17 @@ async function diskScarCount(): Promise<number> {
 
   try {
     const entries = await readdir(root, { withFileTypes: true });
-    // Use a stack for iterative DFS traversal to avoid stack overflow on deep paths
-    const stack: { fullPath: string; entryName: string }[] = [];
+    // Use a stack for iterative DFS traversal
+    // Stack stores paths to process: { fullPath: string }
+    const stack: string[] = [];
 
     for (const entry of entries) {
       const fullPath = join(root, entry.name);
-      stack.push({ fullPath, entryName: entry.name });
+      stack.push(fullPath);
     }
 
     while (stack.length > 0) {
-      const { fullPath, entryName } = stack.pop()!;
+      const fullPath = stack.pop()!;
 
       try {
         const statResult = await stat(fullPath);
@@ -84,9 +85,9 @@ async function diskScarCount(): Promise<number> {
           for (let i = subEntries.length - 1; i >= 0; i--) {
             const subEntry = subEntries[i];
             const subFullPath = join(fullPath, subEntry.name);
-            stack.push({ fullPath: subFullPath, entryName: subEntry.name });
+            stack.push(subFullPath);
           }
-        } else if (entryName.endsWith(".json")) {
+        } else if (fullPath.endsWith(".json")) {
           scarCount++;
         }
       } catch (e) {
@@ -133,7 +134,9 @@ async function checkGitHubAuth(
       signal: ac.signal,
     });
     if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status}: ${res.statusText || 'Unknown Error'}` };
+      // Provide more context on HTTP errors
+      const errorText = await res.text();
+      return { ok: false, error: `HTTP ${res.status}: ${res.statusText || 'Unknown Error'}. Response body snippet: ${errorText.substring(0, 100)}` };
     }
     try {
       const user = await res.json();
@@ -141,7 +144,8 @@ async function checkGitHubAuth(
         return { ok: false, error: "No login found or invalid response structure in /user response body" };
       }
       return { ok: true, login: user.login as string };
-    } catch {
+    } catch (e) {
+      // Handle case where response is OK (2xx) but body is not valid JSON (e.g., empty body)
       return { ok: false, error: "Failed to parse JSON response from GitHub API (response body might be empty or malformed)" };
     }
   } catch (e) {
@@ -154,7 +158,6 @@ async function checkGitHubAuth(
     return { ok: false, error: "Unknown error during GitHub auth check" };
   } finally {
     clearTimeout(kill);
-    // Removed redundant ac.abort() call as fetch handles cancellation via signal
   }
 }
 

@@ -28,8 +28,9 @@ export async function POST(req: Request) {
   let body: unknown;
   try {
     body = await req.json();
-  } catch (e) {
-    // Improved error context for JSON parsing failure
+  } catch {
+    // Optional catch binding: the parse error is not surfaced (the 400
+    // message is generic, no path/token leakage).
     return NextResponse.json(
         { error: "Failed to parse request body. Ensure the request content type is application/json and the body is valid JSON." },
         { status: 400 }

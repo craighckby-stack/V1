@@ -46,7 +46,9 @@ export function MemoryBank() {
         console.error("Error loading memory entries from API:", { error: errorMessage, context: "MemoryBank fetch" });
       }
     })();
-  }, []); // Removed setEntries from dependencies as it is a stable store setter
+  }, [setEntries]); // Zustand store actions have stable identity, so this
+  // dependency never changes — but listing it satisfies the
+  // exhaustive-deps rule and documents the real data flow.
 
   return (
     <Card className="bg-slate-950/60 border border-slate-800/60 backdrop-blur transition-shadow duration-200 hover:shadow-2xl">

@@ -1,131 +1,143 @@
-import { describe, test, expect } from "bun:test";
-import { dynamic, runtime } from "./route";
+import { describe, test, expect, mock, beforeEach } from "bun:test";
 
-// Mock dependencies required by POST
-// Since we cannot mock Next.js Request/NextResponse easily in a pure bun:test environment
-// we must simulate the environment or mock the external dependency `sanitizeAndGovern`.
-// For this characterization test, we assume a mock implementation of sanitizeAndGovern
-// that returns a predictable structure based on the input code.
+/**
+ * Real route tests for POST /api/emg/sanitize.
+ *
+ * The sanitizer dependency is replaced with a bun:test mock.module fake
+ * BEFORE the route is imported, so the route binds to the fake. Every
+ * test invokes the real POST handler with a real Request and asserts on
+ * the actual NextResponse — never on a hand-rolled reimplementation.
+ *
+ * Pinned contract:
+ *   - invalid JSON body        → 400 "Invalid JSON format …"
+ *   - missing/non-string code  → 400 "code (string) is required …"
+ *   - valid code, clean        → 200 with the sanitizer's full output
+ *   - valid code, violations   → 200 surfacing violations/errorClass
+ *   - sanitizer throws         → 500 "Sanitization failed: <message>"
+ */
 
-// Mocking the external dependency for predictable testing
-const mockSanitizeAndGovern = (code: string) => {
-  if (code === "safe_code") {
-    return {
-      clean: "safe_code",
-      sanitizedCode: "safe_code",
-      violations: [],
-      errorClass: "none",
-      highEntropyTokensFound: false,
-    };
-  }
-  if (code === "unsafe_code") {
-    return {
-      clean: "sanitized_code",
-      sanitizedCode: "sanitized_code",
-      violations: [{ type: "XSS" }],
-      errorClass: "high",
-      highEntropyTokensFound: true,
-    };
-  }
-  // Default for other inputs
-  return {
-    clean: code,
-    sanitizedCode: code,
-    violations: [],
-    errorClass: "none",
-    highEntropyTokensFound: false,
-  };
-};
+// The shape the route reads off the sanitizer result. Typed inline so the
+// test does not couple to the real module's exported type (and so a
+// future rename of that export cannot silently break this contract).
+interface SanitizeResult {
+  clean: string;
+  sanitizedCode: string;
+  violations: Array<{ type: string }>;
+  errorClass: string;
+  highEntropyTokensFound: boolean;
+}
 
-// We need to temporarily override the import dependency for testing purposes.
-// In a real setup, dependency injection would be used. Here, we simulate the logic flow.
-// Since we cannot easily mock imports in this constrained environment, we test the logic paths
-// assuming the mock behavior above is what sanitizeAndGovern produces.
+const sanitizeAndGovernMock = mock((code: string): SanitizeResult => ({
+  clean: code,
+  sanitizedCode: code,
+  violations: [],
+  errorClass: "none",
+  highEntropyTokensFound: false,
+}));
+
+mock.module("@/lib/pipeline/emg/sanitizer", () => ({
+  sanitizeAndGovern: sanitizeAndGovernMock,
+}));
+
+// Dynamic import after the mock is registered: the route's import of
+// sanitizeAndGovern resolves to the fake above.
+const { POST, dynamic, runtime } = await import("./route");
+
+function jsonReq(body: unknown): Request {
+  return new Request("http://localhost/api/emg/sanitize", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+}
 
 describe("route constants", () => {
-  test("dynamic constant must be 'force-dynamic'", () => {
+  test("dynamic is 'force-dynamic'", () => {
     expect(dynamic).toBe("force-dynamic");
   });
-  test("runtime constant must be 'nodejs'", () => {
+  test("runtime is 'nodejs'", () => {
     expect(runtime).toBe("nodejs");
   });
 });
 
-// Shape of the simulated route responses returned by executePost below
-// (mirrors the JSON bodies POST produces: 400/500 errors and the 200 result
-// payload built from mockSanitizeAndGovern's output).
-interface MockRouteResponse {
-  status: number;
-  body: {
-    clean?: string;
-    sanitizedCode?: string;
-    violations?: Array<{ type: string }>;
-    errorClass?: string;
-    highEntropyTokensFound?: boolean;
-    error?: string;
-  };
-}
-
-describe("POST handler", () => {
-  // Helper to simulate request body parsing and execution flow
-  const executePost = async (body: { code: string | number }): Promise<MockRouteResponse> => {
-    // Simulate Request object structure needed by POST
-    const mockRequest = {
-      json: async () => body,
-    } as unknown as Request;
-
-    // Since we cannot truly mock the internal call to sanitizeAndGovern,
-    // we rely on the structure of the expected output based on the input code
-    // and assume the mockSanitizeAndGovern logic is what the real function does.
-    // In a real test, we would mock the module import.
-    
-    // For this test, we must simulate the successful path using the known mock behavior.
-    // We manually check the logic flow based on the input body.
-    
-    try {
-        const bodyParsed = (await mockRequest.json()) as { code: string };
-        if (typeof bodyParsed.code !== "string") {
-            // Simulate 400 response
-            return { status: 400, body: { error: "code (string) is required" } };
-        }
-        
-        // Simulate successful call to sanitizeAndGovern
-        const result = mockSanitizeAndGovern(bodyParsed.code);
-
-        // Simulate 200 response
-        return {
-            status: 200,
-            body: {
-                clean: result.clean,
-                sanitizedCode: result.sanitizedCode,
-                violations: result.violations,
-                errorClass: result.errorClass,
-                highEntropyTokensFound: result.highEntropyTokensFound,
-            }
-        };
-    } catch (e) {
-        // Simulate 500 response
-        return { status: 500, body: { error: (e as Error).message } };
-    }
-  };
-
-  test("returns 400 error when code is not a string", async () => {
-    const response = await executePost({ code: 123 });
-    expect(response.status).toBe(400);
-    expect(response.body.error).toBe("code (string) is required");
+describe("POST /api/emg/sanitize", () => {
+  beforeEach(() => {
+    sanitizeAndGovernMock.mockReset();
+    // Default: identity sanitizer (clean in, clean out, no violations).
+    sanitizeAndGovernMock.mockImplementation((code: string) => ({
+      clean: code,
+      sanitizedCode: code,
+      violations: [],
+      errorClass: "none",
+      highEntropyTokensFound: false,
+    }));
   });
 
-  test("returns 200 with expected structure for safe code input", async () => {
-    const response = await executePost({ code: "safe_code" });
-    expect(response.status).toBe(200);
-    expect(response.body.clean).toBe("safe_code");
-    expect(response.body.violations).toEqual([]);
+  test("returns 400 on invalid JSON body and never calls the sanitizer", async () => {
+    const req = new Request("http://localhost/api/emg/sanitize", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not valid json",
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("Invalid JSON format");
+    expect(sanitizeAndGovernMock).toHaveBeenCalledTimes(0);
   });
 
-  test("returns 200 with expected structure for unsafe code input", async () => {
-    const response = await executePost({ code: "unsafe_code" });
-    expect(response.status).toBe(200);
-    expect(response.body.errorClass).toBe("high");
-    expect(response.body.highEntropyTokensFound).toBe(true);
+  test("returns 400 when code is missing and never calls the sanitizer", async () => {
+    const res = await POST(jsonReq({}));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("code");
+    expect(sanitizeAndGovernMock).toHaveBeenCalledTimes(0);
+  });
+
+  test("returns 400 when code is not a string and never calls the sanitizer", async () => {
+    const res = await POST(jsonReq({ code: 123 }));
+    expect(res.status).toBe(400);
+    expect(sanitizeAndGovernMock).toHaveBeenCalledTimes(0);
+  });
+
+  test("returns 200 with the sanitizer output for clean code", async () => {
+    const res = await POST(jsonReq({ code: "const x = 1;" }));
+    expect(res.status).toBe(200);
+    expect(sanitizeAndGovernMock).toHaveBeenCalledTimes(1);
+    expect(sanitizeAndGovernMock).toHaveBeenCalledWith("const x = 1;");
+    const body = await res.json();
+    expect(body.clean).toBe("const x = 1;");
+    expect(body.sanitizedCode).toBe("const x = 1;");
+    expect(body.violations).toEqual([]);
+    expect(body.errorClass).toBe("none");
+    expect(body.highEntropyTokensFound).toBe(false);
+  });
+
+  test("returns 200 and surfaces violations when the sanitizer finds issues", async () => {
+    sanitizeAndGovernMock.mockReturnValue({
+      clean: "safe",
+      sanitizedCode: "safe",
+      violations: [{ type: "XSS" }],
+      errorClass: "high",
+      highEntropyTokensFound: true,
+    });
+    const res = await POST(jsonReq({ code: "<script>alert(1)</script>" }));
+    expect(res.status).toBe(200);
+    expect(sanitizeAndGovernMock).toHaveBeenCalledWith("<script>alert(1)</script>");
+    const body = await res.json();
+    expect(body.violations).toEqual([{ type: "XSS" }]);
+    expect(body.errorClass).toBe("high");
+    expect(body.highEntropyTokensFound).toBe(true);
+  });
+
+  test("returns 500 with the error message when the sanitizer throws", async () => {
+    sanitizeAndGovernMock.mockImplementation(() => {
+      throw new Error("sanitizer exploded");
+    });
+    const res = await POST(jsonReq({ code: "anything" }));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toContain("Sanitization failed");
+    expect(body.error).toContain("sanitizer exploded");
   });
 });

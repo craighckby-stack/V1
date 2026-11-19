@@ -39,9 +39,10 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
     dryRun = body?.dryRun === true;
-  } catch (e) {
-    // If JSON parsing fails (e.g., empty body or invalid JSON), treat as no explicit dryRun flag provided.
-    // The contract implies an empty body means live run (dryRun=false).
+  } catch {
+    // If JSON parsing fails (e.g., empty body or invalid JSON), treat
+    // as no explicit dryRun flag provided. The contract implies an
+    // empty body means live run (dryRun=false).
     body = {};
   }
 
