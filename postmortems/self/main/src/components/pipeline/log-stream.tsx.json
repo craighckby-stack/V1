@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/log-stream.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/log-stream.tsx(96,27): error TS2339: Property 'id' does not exist on type 'LogEntry'.; src/components/pipeline/log-stream.tsx(97,33): error TS2339: Property 'id' does not exist on type 'LogEntry'.",
@@ -12,8 +12,8 @@
   "parentHash": "d696d60eeea536f8e60f65494236db8e94cd1c58020e8648349a67ab73307c29",
   "hash": "197c2c7e51be07af75ec069f07c0c19148d81db3029ae5f58b55c400806cbab5",
   "lastAttemptAt": "2026-11-19T06:07:11.891Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-19T07:09:45.693Z",
   "createdAt": "2026-11-19T04:30:41.011Z",
-  "updatedAt": "2026-11-19T06:07:11.891Z",
+  "updatedAt": "2026-11-19T07:09:45.693Z",
   "schema": 2
 }

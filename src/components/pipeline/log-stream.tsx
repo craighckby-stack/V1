@@ -98,14 +98,10 @@ export function LogStream() {
                     key = entry.id;
                 } else if (timestamp !== 'N/A' && entry.message) {
                     // Use timestamp + first 20 chars of message for stability if ID is missing
-                    key = `${timestamp}-${entry.message.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '')}`;
+                    const safeMessage = entry.message.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '');
+                    key = `${timestamp}-${safeMessage}`;
                 } else {
-                    // Deterministic positional fallback. Math.random() here
-                    // made the render IMPURE — the React compiler lint flags
-                    // it, and a re-render would mint a brand-new key for the
-                    // same entry, remounting the row (flicker + lost hover
-                    // state). The map index is stable for this buffer's
-                    // append-only lifecycle.
+                    // Deterministic positional fallback, only used when timestamp/message are insufficient.
                     key = `fallback-${idx}`;
                 }
                 
