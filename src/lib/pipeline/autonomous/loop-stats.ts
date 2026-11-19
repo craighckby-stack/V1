@@ -67,20 +67,20 @@ const NUMERIC_FIELDS: Array<keyof LoopStatsState> = [
  *  object remains the live source; the file is the restart tier). */
 export function writeLoopStats(state: LoopStatsState): void {
   if (!PROJECT_ROOT || !STATS_FILE) {
-    console.error("writeLoopStats: PROJECT_ROOT is undefined or STATS_FILE is not resolvable — cannot persist stats.");
+    console.error("writeLoopStats: Cannot persist stats because PROJECT_ROOT is undefined or STATS_FILE is not resolvable.");
     return;
   }
 
   // Validate input state structure first
   if (!state || typeof state !== "object" || Array.isArray(state)) {
-    console.error("writeLoopStats: invalid state object provided (must be non-null object)");
+    console.error("writeLoopStats: Invalid state object provided (must be non-null object).");
     return;
   }
 
   // Check for presence and validate types/values for all required fields
   for (const field of NUMERIC_FIELDS) {
     if (!(field in state)) {
-      console.error(`writeLoopStats: missing required numeric field ${field} in state object`);
+      console.error(`writeLoopStats: Missing required numeric field ${field} in state object.`);
       return;
     }
     const v = state[field];
@@ -90,19 +90,19 @@ export function writeLoopStats(state: LoopStatsState): void {
       v < 0 ||
       !Number.isInteger(v)
     ) {
-      console.error(`writeLoopStats: invalid numeric value for field ${field}: ${v}`);
+      console.error(`writeLoopStats: Invalid numeric value for field ${field}: ${v}. Must be a finite, non-negative integer.`);
       return;
     }
   }
 
   // Validate lastEnhancementAt
   if (!('lastEnhancementAt' in state)) {
-    console.error("writeLoopStats: missing required field lastEnhancementAt in state object");
+    console.error("writeLoopStats: Missing required field lastEnhancementAt in state object.");
     return;
   }
   const ts = state.lastEnhancementAt;
   if (ts !== null && typeof ts === "string" && isNaN(Date.parse(ts))) {
-    console.error(`writeLoopStats: invalid lastEnhancementAt value: ${ts}`);
+    console.error(`writeLoopStats: Invalid lastEnhancementAt value: ${ts}. Must be a valid ISO string or null.`);
     return;
   }
 
@@ -115,8 +115,9 @@ export function writeLoopStats(state: LoopStatsState): void {
     atomicWriteFileSync(STATS_FILE, JSON.stringify(state, null, 2));
   } catch (error) {
     // Best-effort by contract: log, never throw.
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(
-      `writeLoopStats: failed to persist stats to ${STATS_FILE}. Error details: ${(error instanceof Error ? error.message : String(error))}`
+      `writeLoopStats: Failed to persist stats to ${STATS_FILE}. Check file system permissions or disk space. Error: ${errorMessage}`
     );
   }
 }
@@ -129,7 +130,7 @@ export function writeLoopStats(state: LoopStatsState): void {
  *  or null). */
 export function readLoopStats(): LoopStatsState | null {
   if (!PROJECT_ROOT || !STATS_FILE) {
-    console.error("readLoopStats: PROJECT_ROOT is undefined or STATS_FILE is not resolvable — cannot read stats.");
+    console.error("readLoopStats: Cannot read stats because PROJECT_ROOT is undefined or STATS_FILE is not resolvable.");
     return null;
   }
   try {
@@ -182,7 +183,8 @@ export function readLoopStats(): LoopStatsState | null {
     };
   } catch (error) {
     // Missing, unreadable, or torn — first-boot semantics. Log the error for debugging persistence issues.
-    console.error(`readLoopStats: failed to read or parse stats from ${STATS_FILE}. Treating as first boot. Error: ${(error instanceof Error ? error.message : String(error))}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`readLoopStats: Failed to read or parse stats from ${STATS_FILE}. Treating as first boot. Error: ${errorMessage}`);
     return null;
   }
 }
