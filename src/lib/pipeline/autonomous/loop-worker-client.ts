@@ -121,17 +121,17 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   lastSpawnAt = Date.now();
   isSpawning = true;
 
-  let spawnSuccessful = false;
   let healthCheckSuccessful = false;
   let outFd: number | "ignore" = "ignore";
 
   try {
     // Attempt to open log file first to isolate FS errors
     try {
-      outFd = await import("fs").then(fs => fs.openSync(
+      const fs = await import("fs");
+      outFd = fs.openSync(
         path.join("mini-services", "loop-worker", "worker.log"),
         "a"
-      ));
+      );
     } catch (error) {
       console.error("Failed to open worker log file:", error);
       // outFd remains "ignore" if this fails, which is safe.
@@ -152,7 +152,6 @@ export async function ensureWorkerRunning(): Promise<boolean> {
       }
     );
     child.unref();
-    spawnSuccessful = true;
   } catch (error) {
     console.error("Failed to spawn loop worker:", error);
     // If spawning fails, isSpawning will be reset in finally block.
