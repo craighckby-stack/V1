@@ -61,11 +61,10 @@ export async function POST(req: Request) {
     let errorMessage = "An error occurred during the LLM debate execution.";
     
     if (err instanceof Error) {
-      errorMessage = `Debate execution failed: ${err.message}`;
+      errorMessage = `Debate execution failed for ${body.filePath}: ${err.message}`;
     } else if (typeof err === 'string') {
-      errorMessage = `Debate execution failed: ${err}`;
+      errorMessage = `Debate execution failed for ${body.filePath}: ${err}`;
     }
-    // If it's neither Error nor string, errorMessage remains the default, which is safe.
     
     // Return a standardized 500 response
     return NextResponse.json(
