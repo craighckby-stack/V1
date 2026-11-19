@@ -123,7 +123,7 @@ export function LogStream() {
                     >
                       {sourceKey}
                     </span>
-                    <span className="text-slate-200 leading-relaxed break-all flex-1">{entry.message || ''}</span>
+                    <span className="text-slate-200 leading-relaxed break-all flex-1">{entry.message ?? ''}</span>
                   </motion.div>
                 );
               })
