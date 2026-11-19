@@ -87,7 +87,7 @@ function parseTs(ts: string | undefined | null): number {
 
   // Full ISO-8601 with a date component
   if (/\d{4}-\d{2}-\d{2}T/.test(s) || /Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
-    const t = Date.parse(s);
+    const t = new Date(s).getTime();
     return isNaN(t) ? NaN : t;
   }
 
@@ -194,7 +194,7 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
 
   for (const l of lines) {
     // Input validation: Ensure essential properties exist before processing
-    if (!l || typeof l !== "object" || !l.id || !l.type) {
+    if (!l || typeof l !== "object" || !l.id || !l.type || typeof l.text !== 'string') {
         // Skip malformed entries without logging to prevent noise in production stream
         continue;
     }
