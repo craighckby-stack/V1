@@ -114,13 +114,15 @@ export async function setTargetConfig(
   let branchValue: string | null = null;
   if (branch !== undefined && branch !== null) {
     const b = String(branch).trim();
-    if (b.length > 0 && !validTargetBranchFormat(b)) {
-      throw new Error(`Invalid branch "${b}"`);
-    } else if (b.length === 0) {
+    if (b.length > 0) {
+      if (!validTargetBranchFormat(b)) {
+        throw new Error(`Invalid branch "${b}"`);
+      } else {
+        branchValue = b;
+      }
+    } else {
       // If branch was provided but empty/whitespace, treat as null (repo default)
       branchValue = null;
-    } else {
-      branchValue = b;
     }
   }
   
