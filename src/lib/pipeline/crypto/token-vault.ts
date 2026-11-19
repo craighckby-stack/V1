@@ -138,9 +138,6 @@ export function sealToken(plain: string): string {
   if (isSealedEnvelope(plain)) return plain;
   if (trimmedPlain.length < MIN_PLAINTEXT_LENGTH) return plain;
   
-  // Input validation: ensure it contains only allowed characters before length check passes
-  if (!/[a-zA-Z0-9._\-\/+=]/.test(trimmedPlain)) return plain; 
-
   const key = ensureKey();
   if (!key) return plain;
   try {
@@ -179,6 +176,10 @@ export function openToken(stored: string): string {
       // Structure mismatch
       return "";
     }
+    
+    // Check for empty parts which can result from malformed input like "a..c"
+    if (parts.some(p => p.length === 0)) return "";
+
     let iv: Buffer, tag: Buffer, ct: Buffer;
     
     try {
@@ -191,11 +192,8 @@ export function openToken(stored: string): string {
     }
     
     // Validate IV and tag lengths, and ensure buffers are not empty
-    if (!iv || iv.length !== IV_LENGTH || !tag || tag.length !== GCM_TAG_LENGTH || !ct) return "";
+    if (iv.length !== IV_LENGTH || tag.length !== GCM_TAG_LENGTH || ct.length === 0) return "";
 
-    // Check for empty parts which can result from malformed input like "a..c"
-    if (parts[0].length === 0 || parts[1].length === 0 || parts[2].length === 0) return "";
-    
     const decipher = createDecipheriv("aes-256-gcm", key, iv);
     decipher.setAuthTag(tag);
     const pt = Buffer.concat([decipher.update(ct), decipher.final()]);
