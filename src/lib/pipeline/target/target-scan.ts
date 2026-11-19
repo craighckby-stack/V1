@@ -128,8 +128,6 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
     findings.push({ kind, line, evidence });
   };
 
-  // 1) TODO/FIXME/HACK comments — comment-marker required so string
-  //    literals that merely mention the words are not flagged.
   // Iterate over nodes to find comments, which is more robust than line scanning alone.
   ts.forEachChild(sf, (node) => {
     if (ts.isTemplateLiteral(node) || ts.isStringLiteral(node)) {

@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/header-bar.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/header-bar.tsx(121,76): error TS2339: Property 'totalRuns' does not exist on type 'LoopStats | {}'.\n  Property 'totalRuns' does not exist on type '{}'.",
@@ -12,8 +12,8 @@
   "parentHash": "7d27e77d87fc0bbe310e421503996b263f59143bf539c6bb28e85395cfdd9261",
   "hash": "e70feec3e701024bb4e693439fc60ad88cbbb0c66da2f6685e510aefb87cbe98",
   "lastAttemptAt": "2026-11-17T11:45:11.492Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-19T15:04:24.602Z",
   "createdAt": "2026-11-17T09:15:41.298Z",
-  "updatedAt": "2026-11-17T11:45:11.492Z",
+  "updatedAt": "2026-11-19T15:04:24.602Z",
   "schema": 2
 }
