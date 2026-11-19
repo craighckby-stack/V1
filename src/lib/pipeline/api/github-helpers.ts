@@ -55,8 +55,8 @@ export function githubHeaders(token: string | null | undefined): Record<string, 
     };
   }
 
-  // token is guaranteed to be a string here, but we must handle potential runtime issues if type guards fail.
-  const trimmedToken = (token as string).trim();
+  // token is guaranteed to be a string here because of the guard above.
+  const trimmedToken = token.trim();
 
   if (trimmedToken.length < MIN_TOKEN_LENGTH) {
     const displayToken = trimmedToken.length > 4 ? `${trimmedToken.substring(0, 4)}...` : trimmedToken;
