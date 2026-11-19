@@ -192,29 +192,22 @@ export function readOracleEvents(afterSeq?: number): {
 
   if (typeof afterSeq === "number" && Number.isInteger(afterSeq) && afterSeq >= 0) {
     if (afterSeq >= currentSeq) {
-      // No new events since the last check.
-      s.lastReadAt = Date.now();
+      // No new events since the last check. Do not update lastReadAt here.
       return { events: [], seq: currentSeq };
     }
 
     const bufferLength = s.buffer.length;
-    
-    // The sequence of the event at index i is: currentSeq - bufferLength + i
-    // We need the first index i such that (currentSeq - bufferLength + i) > afterSeq
+
+    // We need the first index i such that the event sequence (currentSeq - bufferLength + i) > afterSeq
     // i > afterSeq - currentSeq + bufferLength
     // i_start = floor(afterSeq - currentSeq + bufferLength) + 1
-    
-    // Calculate the required starting index based on sequence logic
     const requiredMinIndex = afterSeq - currentSeq + bufferLength + 1;
-    
+
     // Start index must be at least 0 and less than bufferLength.
-    // Never reassigned after this point — const per the exhaustive-deps
-    // / prefer-const contract (the branches below all return early).
     const startIndex = Math.max(0, requiredMinIndex);
-    
+
     if (startIndex >= bufferLength) {
-        // Even the last element (index bufferLength - 1) is not newer than afterSeq
-        s.lastReadAt = Date.now();
+        // Even the last element is not newer than afterSeq
         return { events: [], seq: currentSeq };
     }
 
@@ -222,14 +215,14 @@ export function readOracleEvents(afterSeq?: number): {
     const firstEventSeq = currentSeq - bufferLength + startIndex;
     if (firstEventSeq <= afterSeq) {
         // The calculated startIndex is too early, no new events found.
-        s.lastReadAt = Date.now();
         return { events: [], seq: currentSeq };
     }
 
     // Get the events from startIndex to the end
     const events = s.buffer.slice(startIndex);
 
-    s.lastReadAt = Date.now(); // Update lastReadAt after reading events
+    // Update lastReadAt ONLY when events are successfully read
+    s.lastReadAt = Date.now();
     return {
       events,
       seq: currentSeq,
@@ -237,8 +230,9 @@ export function readOracleEvents(afterSeq?: number): {
   }
 
   // No afterSeq provided or invalid, return all events
-  const events = s.buffer; // Avoid unnecessary copy if caller iterates directly
-  s.lastReadAt = Date.now(); // Update lastReadAt when returning all events
+  const events = s.buffer;
+  // Update lastReadAt when returning all events
+  s.lastReadAt = Date.now();
   return { events, seq: s.seq };
 }
 
