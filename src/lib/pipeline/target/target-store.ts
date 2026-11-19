@@ -204,6 +204,6 @@ export async function resolveTargetToken(clientToken?: string): Promise<string |
   const client = (clientToken ?? "").trim();
   if (client.length >= 8) return client;
   const stored = await getStoredTarget().catch(() => null);
-  if (stored?.token && stored.token.length >= 8) return stored.token;
+  if (stored && stored.token && stored.token.length >= 8) return stored.token;
   return null;
 }
