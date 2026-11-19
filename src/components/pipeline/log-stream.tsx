@@ -96,10 +96,10 @@ export function LogStream() {
                 let key: string;
                 if (entry.id) {
                     key = entry.id;
-                } else if (timestamp !== 'N/A' && entry.message) {
+                } else if (entry.timestamp && entry.message) {
                     // Use timestamp + first 20 chars of message for stability if ID is missing
                     const safeMessage = entry.message.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '');
-                    key = `${timestamp}-${safeMessage}`;
+                    key = `${entry.timestamp}-${safeMessage}`;
                 } else {
                     // Deterministic positional fallback, only used when timestamp/message are insufficient.
                     key = `fallback-${idx}`;
