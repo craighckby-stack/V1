@@ -56,14 +56,14 @@ export function RecentCycles() {
   
   // Process store cycles first (assuming they are the most up-to-date from WS)
   cyclesFromStore.forEach(c => {
-    if (c && c.id) {
+    if (c?.id) {
       seen.set(c.id, c);
     }
   });
 
   // Process fetched cycles, only adding if ID is not already seen
   fetched.forEach(c => {
-    if (c && c.id && !seen.has(c.id)) {
+    if (c?.id && !seen.has(c.id)) {
       seen.set(c.id, c);
     }
   });
@@ -101,7 +101,7 @@ export function RecentCycles() {
           <ScrollArea className="h-[300px] pr-4">
             <div className="space-y-2">
               {merged.map((c) => {
-                const statusColor = STATUS_COLOR[c.status!] || "bg-slate-500/15 text-slate-300 border-slate-500/40";
+                const statusColor = STATUS_COLOR[c.status || 'error'] || "bg-slate-500/15 text-slate-300 border-slate-500/40";
                 const dateStr = c.startedAt ? new Date(c.startedAt).toLocaleString() : "Invalid date";
                 
                 return (
@@ -124,7 +124,7 @@ export function RecentCycles() {
                           statusColor
                         )}
                       >
-                        {c.status}
+                        {c.status || 'unknown'}
                       </Badge>
                       <span className="ml-auto text-xs text-slate-300 font-mono shrink-0">
                         {dateStr}
