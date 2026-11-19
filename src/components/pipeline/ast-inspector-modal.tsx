@@ -33,11 +33,11 @@ export function AstInspectorModal() {
   // Ensure report, ast, and sanitizer are defined before using them in rendering logic
   if (!ast || !sanitizer) return null;
 
-  // Add input validation for violation severity
+  // Ensure violationIcon mapping is complete by providing a default fallback
   const violationIcon: Record<string, typeof CheckCircle2> = {
     high: XCircle,
     medium: AlertTriangle,
-    low: AlertTriangle, // Corrected: low should map to AlertTriangle as per original logic
+    low: AlertTriangle,
   };
 
   // Ensure original and evolved are treated as strings for safe rendering/length checks
@@ -54,9 +54,10 @@ export function AstInspectorModal() {
       toast({ title: "Copied evolved code", description: `${evolvedStr.length} bytes to clipboard` });
     } catch (error) {
       // Catching generic error from clipboard API with context
+      const errorMessage = error instanceof Error ? error.message : 'Unknown clipboard access error';
       toast({ 
         title: "Failed to copy code", 
-        description: `Clipboard access denied or failed. Error: ${error instanceof Error ? error.message : 'Unknown error'}. Please try copying manually.` 
+        description: `Clipboard access denied or failed. Error: ${errorMessage}. Please try copying manually.` 
       });
     }
   };
@@ -203,7 +204,7 @@ export function AstInspectorModal() {
               ) : (
                 <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
                   {(ast.violations || []).map((v, i) => {
-                    // Add fallback for unknown severity values
+                    // Use fallback for unknown severity values
                     const Icon = violationIcon[v.severity] || AlertTriangle;
                     return (
                       <div key={i} className="flex items-start gap-2 text-[11px] focus-visible:ring-1 focus-visible:ring-slate-500 p-1 rounded transition-colors duration-150 hover:bg-slate-800/50">
