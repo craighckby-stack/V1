@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/target/target-scan.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "Test gate failed: test failed (sandboxed): src/lib/pipeline/target/target-scan.test.ts — \nsrc/lib/pipeline/target/target-scan.test.ts:\n38 |     expect(kinds.has(\"any-usage\")).toBe(true);\n39 |     expect(kinds.has(\"empty-catch\")).toBe(true);\n40 |     expect(kinds.has(\"missing-return-type\")",
@@ -12,8 +12,8 @@
   "parentHash": "9b3a71381e7e22f4c9e6fd655efbf826cf36374372505c3aeee0e7cb085de14a",
   "hash": "9313543942037f8e8550292e4e288538b9542ab18c7e630d6342e2bb25e22478",
   "lastAttemptAt": "2026-11-19T15:41:58.249Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-19T16:05:04.892Z",
   "createdAt": "2026-11-19T13:59:58.688Z",
-  "updatedAt": "2026-11-19T15:41:58.249Z",
+  "updatedAt": "2026-11-19T16:05:04.892Z",
   "schema": 2
 }

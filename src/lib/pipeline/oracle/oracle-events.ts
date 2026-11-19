@@ -198,17 +198,20 @@ export function readOracleEvents(afterSeq?: number): {
 
     const bufferLength = s.buffer.length;
 
-    // Calculate the index corresponding to the first event whose sequence is > afterSeq.
     // The sequence of the event at index `i` is `currentSeq - bufferLength + i`.
-    // We need: currentSeq - bufferLength + i > afterSeq
+    // We need the smallest index `i` such that: currentSeq - bufferLength + i > afterSeq
     // i > afterSeq - currentSeq + bufferLength
     // i_start = floor(afterSeq - currentSeq + bufferLength) + 1
+    
+    // Calculate the required starting index based on sequence number.
     let requiredMinIndex = afterSeq - currentSeq + bufferLength + 1;
-
-    // Start index must be at least 0 and less than bufferLength.
+    
+    // Clamp the start index to be within [0, bufferLength]
     let startIndex = Math.max(0, requiredMinIndex);
+    startIndex = Math.min(bufferLength, startIndex);
 
-    // If startIndex is out of bounds, no events match the criteria.
+
+    // If startIndex is out of bounds or points past the end, no events match.
     if (startIndex >= bufferLength) {
         return { events: [], seq: currentSeq };
     }
