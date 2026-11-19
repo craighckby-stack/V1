@@ -34,11 +34,13 @@ export function AstInspectorModal() {
   if (!ast || !sanitizer) return null;
 
   // Ensure violationIcon mapping is complete by providing a default fallback
-  const violationIcon: Record<string, typeof AlertTriangle> = {
-    high: XCircle,
-    medium: AlertTriangle,
-    low: AlertTriangle,
-  };
+  const violationIcon: Record<string, typeof AlertTriangle> = Object.fromEntries(
+    [
+      ["high", XCircle],
+      ["medium", AlertTriangle],
+      ["low", AlertTriangle],
+    ]
+  );
 
   // Ensure original and evolved are treated as strings for safe rendering/length checks
   const originalStr = typeof original === 'string' ? original : String(original);
@@ -63,7 +65,7 @@ export function AstInspectorModal() {
       toast({ title: "Copied evolved code", description: `${evolvedStr.length} bytes to clipboard` });
     } catch (error) {
       // Catching generic error from clipboard API with context
-      const errorMessage = error instanceof Error ? error.message : 'Unknown clipboard access error';
+      const errorMessage = error instanceof Error ? error.message : 'Unknown clipboard access error during writeText';
       toast({ 
         title: "Failed to copy code", 
         description: `Clipboard access denied or failed. Check permissions or try copying manually. Error: ${errorMessage}` 
@@ -99,7 +101,7 @@ export function AstInspectorModal() {
               </div>
               <div className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="inline-flex items-center gap-1">
-                  <GitCommit className="h-3 w-3" /> proof {report.proofCommitHash}
+                  <GitCommit className="h-3 w-3" /> proof {report.proofCommitHash ?? 'N/A'}
                 </span>
                 <span className="text-slate-300">AST {ast.astScore}/100</span>
                 <span className="inline-flex items-center gap-1">
@@ -197,11 +199,11 @@ export function AstInspectorModal() {
               </div>
               <div className="text-xs text-slate-300 flex justify-between items-center">
                 <span className="text-slate-300">Violations:</span>
-                <span className="font-mono text-amber-300">{sanitizer.violations?.length || 0}</span>
+                <span className="font-mono text-amber-300">{sanitizer.violations?.length ?? 0}</span>
               </div>
               <div className="text-xs text-slate-300 flex justify-between items-center">
                 <span className="text-slate-300">High-entropy:</span>
-                <span className="font-mono text-amber-300">{sanitizer.highEntropyTokensFound || 0}</span>
+                <span className="font-mono text-amber-300">{sanitizer.highEntropyTokensFound ?? 0}</span>
               </div>
             </div>
             <div className="space-y-3">
