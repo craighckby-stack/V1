@@ -41,14 +41,10 @@ export async function POST(req: Request) {
     // pinned one explicitly.
     const config = await setTargetConfig(body.repo, body.branch ?? null);
 
-    // Run token resolution and default branch check in parallel to reduce latency
-    const [token, defaultBranch] = await Promise.all([
-      resolveTargetToken(),
-      getRepoDefaultBranch(config.repo, await resolveTargetToken()), // Note: resolveTargetToken is called twice here, but we need the token for getRepoDefaultBranch. Re-evaluating for efficiency.
-    ]);
-
-    // Corrected parallel execution: resolve token once, then use it.
+    // Resolve token once to reduce latency and avoid redundant calls
     const tokenForCheck = await resolveTargetToken();
+    
+    // Run default branch check using the resolved token
     const defaultBranchResolved = await getRepoDefaultBranch(config.repo, tokenForCheck);
 
     if (!defaultBranchResolved) {
@@ -75,7 +71,9 @@ export async function POST(req: Request) {
       // Differentiate between input validation errors (400) and internal system errors (500)
       // Input validation (missing repo) is handled above (400).
       // Errors from req.json() or store operations are typically internal system errors (500).
-      return NextResponse.json({ ok: false, error: `Configuration update failed: ${err.message}` }, { status: 500 });
+      return NextResponse.json({ ok: false, error: `Configuration update failed for repo ${
+        (err as any).repo || 'unknown'
+      }: ${err.message}` }, { status: 500 });
     }
     // Handle non-Error objects gracefully
     return NextResponse.json({ ok: false, error: "An unknown system error occurred during configuration update." }, { status: 500 });
