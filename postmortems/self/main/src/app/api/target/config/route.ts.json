@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/target/config/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "TOCTOU conflict on src/app/api/target/config/route.ts: disk content changed between read and gated write",
@@ -12,8 +12,8 @@
   "parentHash": "e48f89a243ac6aafd0c37be096d55aa0dd033f42a23567f11b8c81fe7ba85d52",
   "hash": "afb631fa8e3161cbb00f80651ddce5b856f277e6daabd4d70353cc892f8538a7",
   "lastAttemptAt": "2026-11-19T06:58:02.594Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-19T14:33:05.768Z",
   "createdAt": "2026-11-19T05:05:27.981Z",
-  "updatedAt": "2026-11-19T06:58:02.594Z",
+  "updatedAt": "2026-11-19T14:33:05.768Z",
   "schema": 2
 }

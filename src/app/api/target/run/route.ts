@@ -39,19 +39,16 @@ export async function POST(req: Request) {
 
   let dryRun = false;
   let landOnMain = false;
-  let body: { dryRun?: boolean; landOnMain?: boolean } | null = null;
 
   try {
-    body = await req.json();
+    const body = await req.json();
     // Explicitly check for true to avoid truthiness pitfalls if input is non-boolean but truthy
     dryRun = body?.dryRun === true;
     landOnMain = body?.landOnMain === true;
   } catch (error) {
-    // Handle JSON parsing errors explicitly instead of silently defaulting flags
-    // If parsing fails, we proceed with default (dryRun=false, landOnMain=false)
-    // but log/handle the error contextually if necessary for debugging.
-    console.error("Failed to parse request body for target run:", error instanceof Error ? error.message : "Unknown error");
-    body = {}; // Use empty object to allow subsequent logic to proceed with defaults
+    // Handle JSON parsing errors explicitly. Default flags (dryRun=false, landOnMain=false) are already set.
+    console.error("Failed to parse request body for target run:", error instanceof Error ? error.message : "Unknown error during JSON parsing");
+    // No need to set body = {} as we only use dryRun/landOnMain derived from it.
   }
 
   // The operator is present and driving — refresh the dead-man's clock.
