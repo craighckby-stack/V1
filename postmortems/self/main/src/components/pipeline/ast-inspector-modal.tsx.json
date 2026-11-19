@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/ast-inspector-modal.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/ast-inspector-modal.tsx(30,28): error TS1308: 'await' expressions are only allowed within async functions and at the top levels of modules.",
@@ -12,8 +12,8 @@
   "parentHash": "6782d03daf010e3555366dd93c4f2d67e6ca5b4296bdcc0ec3167a47aff8323e",
   "hash": "2b908e3fef4aa8e17dc361f262b689e55ffcbbfdc1f667adb0f658d68abb0d55",
   "lastAttemptAt": "2026-11-19T06:56:21.940Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-19T14:27:46.478Z",
   "createdAt": "2026-11-19T04:30:41.002Z",
-  "updatedAt": "2026-11-19T06:56:21.940Z",
+  "updatedAt": "2026-11-19T14:27:46.478Z",
   "schema": 2
 }

@@ -81,6 +81,7 @@ export function TargetPanel({ open, onClose }: Props) {
     } catch (error) {
       // History is a convenience strip — log error but never block the panel on it.
       console.error("Network or parsing error fetching pipeline history:", error instanceof Error ? error.message : "Unknown error");
+      setRuns([]); // Ensure runs is empty on network/parsing failure
     } finally {
       setLoading(false);
     }
@@ -176,7 +177,7 @@ export function TargetPanel({ open, onClose }: Props) {
             }}
           >
             <span>RECENT RUNS (newest 25, persisted in PipelineRun)</span>
-            <button type="button" onClick={() => void loadHistory()} style={btnStyle} aria-label="Refresh run history">
+            <button type="button" onClick={loadHistory} style={btnStyle} aria-label="Refresh run history">
               [ REFRESH ]
             </button>
           </div>
