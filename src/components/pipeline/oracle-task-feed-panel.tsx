@@ -48,7 +48,7 @@ export function OracleTaskFeedPanel() {
 
     try {
       const response = await fetch("/api/self-enhance/tasks?limit=50");
-      if (!response.ok) throw new Error(`HTTP ${response.status}: Failed to fetch tasks.`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}: Failed to fetch tasks from /api/self-enhance/tasks.`);
       const data = await response.json();
       // The API returns { tasks: [...], queue: {...} } — filter for the
       // oracle-failed-prophecy kind (the audit-8 closure: failed
@@ -58,7 +58,7 @@ export function OracleTaskFeedPanel() {
       setTasks(oracleTasks);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error during task fetch.";
-      setError(`Last refresh failed: ${msg}. Showing cached data.`);
+      setError(`Last refresh failed for /api/self-enhance/tasks: ${msg}. Showing cached data.`);
       // Keep existing tasks on error — don't wipe the list on a transient failure
     } finally {
       setRefreshing(false);
@@ -71,10 +71,10 @@ export function OracleTaskFeedPanel() {
   useEffect(() => {
     // Initial fetch
     fetchTasks(true);
-    // Poll every 60s to reduce API load while still surfacing tasks reasonably fast.
+    // Poll every 30s to reduce latency while still managing API load.
     const intervalId = setInterval(() => {
         fetchTasks(false);
-    }, 60_000);
+    }, 30_000);
     
     return () => clearInterval(intervalId);
   }, [fetchTasks]);
