@@ -60,18 +60,19 @@ async function diskScarCount(): Promise<number> {
     return 0; // Honesty rule: return 0 if path is invalid, do not throw.
   }
   const root = join(PROJECT_ROOT, "postmortems");
-  let scarCount = 0;
 
   try {
     const entries = await readdir(root, { withFileTypes: true });
     // Use a stack for iterative DFS traversal
-    // Stack stores paths to process: { fullPath: string }
+    // Stack stores paths to process: string (fullPath)
     const stack: string[] = [];
 
     for (const entry of entries) {
       const fullPath = join(root, entry.name);
       stack.push(fullPath);
     }
+
+    let scarCount = 0;
 
     while (stack.length > 0) {
       const fullPath = stack.pop()!;
@@ -109,7 +110,7 @@ async function diskScarCount(): Promise<number> {
     } else {
       console.error(`Unknown fatal error during scar file traversal starting at ${root}:`, e);
     }
-    return 0; // Return 0 on fatal traversal error
+    return 0; // Return 0 on fatal traversal error (Honesty rule)
   }
 }
 
@@ -273,8 +274,8 @@ export async function GET() {
     }
   })();
 
-  // Await all independent tasks in parallel
-  const [corpus, passRate, scarsResult, hotSwap, autonomy, zai] = await Promise.all([
+  // Await all independent tasks in parallel using allSettled to ensure partial success is returned
+  const results = await Promise.allSettled([
     corpusPromise,
     passRatePromise,
     scarsPromise,
@@ -282,6 +283,14 @@ export async function GET() {
     autonomyPromise,
     zaiPromise,
   ]);
+
+  // Extract results, handling rejected promises by defaulting to null (as per Honesty rule)
+  const corpus = results[0].status === 'fulfilled' ? results[0].value : null;
+  const passRate = results[1].status === 'fulfilled' ? results[1].value : null;
+  const scarsResult = results[2].status === 'fulfilled' ? results[2].value : 0; // Scars must be a number (0 on failure)
+  const hotSwap = results[3].status === 'fulfilled' ? results[3].value : null;
+  const autonomy = results[4].status === 'fulfilled' ? results[4].value : null;
+  const zai = results[5].status === 'fulfilled' ? results[5].value : null;
 
   return NextResponse.json({
     ok: true,
