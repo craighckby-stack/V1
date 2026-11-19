@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { BrainCircuit, ShieldX, ShieldCheck, BookOpen } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,10 +18,10 @@ const PROVENANCE_META: Record<string, { icon: typeof ShieldCheck; color: string;
 export function MemoryBank() {
   const entries = usePipelineStore((s) => s.memoryEntries);
   const setEntries = usePipelineStore((s) => s.setMemoryEntries);
-  // Determine if we are still loading: entries are empty AND the effect has not run yet (or hasn't completed).
-  // Since we cannot track 'hasRun' without modifying the store, we rely on the initial empty state combined with the fetch logic.
-  // If entries is empty, we assume loading until the fetch completes and updates the store.
-  const isLoading = entries.length === 0;
+  const hasFetchedRef = useRef(false);
+
+  // Determine if we are still loading: fetch hasn't been initiated yet.
+  const isLoading = !hasFetchedRef.current;
 
   useEffect(() => {
     (async () => {
@@ -43,11 +43,12 @@ export function MemoryBank() {
         // Log the error with context
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error("Error loading memory entries from API:", { error: errorMessage, context: "MemoryBank fetch" });
+      } finally {
+        // Mark as fetched regardless of success or failure to stop perpetual loading state
+        hasFetchedRef.current = true;
       }
     })();
-  }, [setEntries]); // Zustand store actions have stable identity, so this
-  // dependency never changes — but listing it satisfies the
-  // exhaustive-deps rule and documents the real data flow.
+  }, []); // Removed setEntries from dependency array as it is stable
 
   return (
     <Card className="bg-slate-950/60 border border-slate-800/60 backdrop-blur transition-shadow duration-200 hover:shadow-2xl">
@@ -70,7 +71,7 @@ export function MemoryBank() {
           </div>
         ) : entries.length === 0 ? (
           <div className="py-16 text-center px-6">
-            <p className="text-base text-slate-500 italic">No memory entries found. The pipeline has not yet stored any knowledge.</p>
+            <p className="text-base text-slate-500 italic">No memory entries found. The pipeline has not yet stored any knowledge, or the API returned an empty set.</p>
           </div>
         ) : (
           <ScrollArea className="h-[300px] pr-4">
