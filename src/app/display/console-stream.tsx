@@ -260,6 +260,7 @@ export function ConsoleStream({ lines, logRef, onScroll }: ConsoleStreamProps) {
         }
 
         let color = TEXT_COLOR;
+        let showTimestamp = false;
 
         if (line.type === "command") {
           color = USER_INPUT_COLOR;
@@ -267,10 +268,12 @@ export function ConsoleStream({ lines, logRef, onScroll }: ConsoleStreamProps) {
           // Safely determine color using COLOR_MAP, defaulting to TEXT_COLOR if logType is unknown
           const logTypeKey = line.logType as keyof typeof COLOR_MAP;
           color = COLOR_MAP[logTypeKey] || TEXT_COLOR;
+          showTimestamp = typeof line.ts === 'string' && line.ts.length > 0;
         } else if (line.type === "log" && !line.logType) {
           // Handle 'log' type lines missing logType property gracefully
           console.error("ConsoleStream: Log line encountered without a logType. Defaulting to text color. Line ID:", line.id);
           color = TEXT_COLOR;
+          showTimestamp = typeof line.ts === 'string' && line.ts.length > 0;
         }
 
         return (
@@ -289,7 +292,7 @@ export function ConsoleStream({ lines, logRef, onScroll }: ConsoleStreamProps) {
             }}
           >
             {line.type === "command" && "> "}
-            {line.type === "log" && typeof line.ts === 'string' && line.ts.length > 0 && (
+            {showTimestamp && (
               <span style={{ color: DIM_COLOR }}>[{formatTs(line.ts)}]{" "}</span>
             )}
             {line.text || "\u00a0"}
