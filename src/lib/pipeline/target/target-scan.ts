@@ -275,11 +275,13 @@ export function pickTargetFinding(
       return true;
     });
     for (const f of capped) {
+      const fPriority = TARGET_KIND_PRIORITY[f.kind];
+      const bestPriority = best?.finding.kind ? TARGET_KIND_PRIORITY[best.finding.kind] : Infinity;
+
       if (
         !best ||
-        TARGET_KIND_PRIORITY[f.kind] < TARGET_KIND_PRIORITY[best.finding.kind] ||
-        (TARGET_KIND_PRIORITY[f.kind] === TARGET_KIND_PRIORITY[best.finding.kind] &&
-          f.line < best.finding.line)
+        fPriority < bestPriority ||
+        (fPriority === bestPriority && f.line < best.finding.line)
       ) {
         best = { file: entry.file, finding: f };
       }
