@@ -173,11 +173,7 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
   const processLogRun = (run: ConsoleLine[]) => {
     if (run.length === 0) return;
     
-    // Stable sort: key = parsed epoch (NaN → -∞ so unparseable log
-    // lines sink to the bottom of their run, preserving arrival order
-    // among themselves via the index tiebreak).
-    
-    // Optimized sorting without intermediate keyed array allocation
+    // Stable sort: key = parsed epoch (NaN → effectively last in run)
     run.sort((a, b) => {
       const ka = a.ts ? parseTs(a.ts) : NaN;
       const kb = b.ts ? parseTs(b.ts) : NaN;
@@ -201,15 +197,7 @@ function orderLogRuns(lines: ConsoleLine[]): ConsoleLine[] {
     if (!l || typeof l !== "object" || !l.id || !l.type) continue;
     
     if (l.type === "log") {
-      // Robustness check: ensure ts is string before pushing to run, 
-      // as parseTs expects string|undefined|null.
-      if (typeof l.ts !== 'string') {
-        // Treat log lines missing string ts as unparseable/no sort key, 
-        // but still include them in the run to maintain sequence integrity.
-        logRun.push(l);
-      } else {
-        logRun.push(l);
-      }
+      logRun.push(l);
     } else {
       // Process accumulated log run before pushing the anchor line
       processLogRun(logRun);
