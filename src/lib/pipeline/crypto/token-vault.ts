@@ -138,7 +138,7 @@ export function sealToken(plain: string): string {
   if (isSealedEnvelope(plain)) return plain;
   if (trimmedPlain.length < MIN_PLAINTEXT_LENGTH) return plain;
   
-  // Input validation: ensure it contains more than just whitespace/control chars if length check passes
+  // Input validation: ensure it contains only allowed characters before length check passes
   if (!/[a-zA-Z0-9._\-\/+=]/.test(trimmedPlain)) return plain; 
 
   const key = ensureKey();
@@ -185,7 +185,7 @@ export function openToken(stored: string): string {
       iv = Buffer.from(parts[0], "base64url");
       tag = Buffer.from(parts[1], "base64url");
       ct = Buffer.from(parts[2], "base64url");
-    } catch {
+    } catch (e) {
       // Invalid base64url encoding
       return "";
     }
