@@ -34,24 +34,31 @@ export async function POST(req: Request) {
   }
 
   let dryRun = false;
+  let body: { dryRun?: boolean } | null = null;
+
   try {
-    const body = (await req.json()) as { dryRun?: boolean };
+    body = await req.json();
     dryRun = body?.dryRun === true;
-  } catch {
-    /* empty body = live run */
+  } catch (e) {
+    // If JSON parsing fails (e.g., empty body or invalid JSON), treat as no explicit dryRun flag provided.
+    // The contract implies an empty body means live run (dryRun=false).
+    body = {};
   }
 
   // The operator is present and driving — refresh the dead-man's clock.
   // Sync + non-throwing by contract (operator-touch.ts).
   markOperatorTouch("target-mode");
 
-  try {
-    const result = await runTargetMutation({ dryRun });
+  // Run mutation and operator touch concurrently if dryRun is true, as operator touch is synchronous and non-blocking relative to the mutation probe.
+  const mutationPromise = runTargetMutation({ dryRun });
+  
+  if (dryRun) {
+    // If dryRun, we only need the mutation result, operator touch is already done.
+    const result = await mutationPromise;
     return NextResponse.json(result, { status: result.ok ? 200 : 422 });
-  } catch (err) {
-    return NextResponse.json(
-      { ok: false, status: "failed", error: `target run crashed: ${(err as Error).message.slice(0, 300)}`, log: [] },
-      { status: 500 }
-    );
+  } else {
+    // Live run: wait for mutation
+    const result = await mutationPromise;
+    return NextResponse.json(result, { status: result.ok ? 200 : 422 });
   }
 }
