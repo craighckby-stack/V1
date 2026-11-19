@@ -133,7 +133,7 @@ export function MergeBackPanel({ open, onClose }: Props) {
           setCandidates(j.candidates ?? []);
           // Auto-select the highest-numbered (newest) branch.
           if ((j.candidates ?? []).length > 0) {
-            setSelected(j.candidates[0].name);
+            setSelected(j.candidates.reduce((prev, current) => (current.number > prev.number ? current : prev), j.candidates[0]).name);
           }
         } else {
           setError(j.error || "Could not load merge-back candidates.");
@@ -330,7 +330,7 @@ export function MergeBackPanel({ open, onClose }: Props) {
               <span style={{ color: OK_COLOR }}>{plan.branch}</span>
               <span style={{ color: DIM_COLOR }}> ({plan.branchSha})</span>
               {" — main ("}
-              <span style={{ color: PROMPT_COLOR }}>{plan.mainSha}</span>):
+              <span style={{ color: PROMPT_COLOR }}>{plan.mainSha}</span>:
             </div>
 
             {/* Direction guard banner (2026-11-17): the branch tip is an
@@ -361,7 +361,7 @@ export function MergeBackPanel({ open, onClose }: Props) {
                 contains everything it has (main is{" "}
                 {plan.commitsBehind} commit(s) ahead). Nothing to catch up —
                 the {(plan.mainNewerFiles ?? []).length} src/ file(s) listed
-                below differ only because <b>main is newer</b>. Executing
+                below differ only because <b style={{ color: PROMPT_COLOR }}>main is newer</b>. Executing
                 would copy the branch&apos;s older snapshots over main&apos;s
                 newer files — a regression — so it&apos;s disabled. Pick a
                 branch showing &quot;+N&quot; commits ahead in the list above,
@@ -414,7 +414,7 @@ export function MergeBackPanel({ open, onClose }: Props) {
             {!plan.alreadyMerged && (plan.divergedFiles ?? []).length > 0 && (
               <div style={{ color: WARN_COLOR, fontSize: "0.82em", marginBottom: "10px", lineHeight: 1.6 }}>
                 ⚠ {(plan.divergedFiles ?? []).length} file(s) will be{" "}
-                <b>skipped</b> — main changed them since this branch forked
+                <b style={{ color: WARN_COLOR }}>skipped</b> — main changed them since this branch forked
                 (staging the branch&apos;s version would clobber main&apos;s
                 independent changes; they need manual review, not automatic
                 theirs): {(plan.divergedFiles ?? []).slice(0, 5).join(", ")}

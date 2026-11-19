@@ -373,6 +373,7 @@ export function unifiedDiff(
     endA--;
     endB--;
   }
+  if (start === endA && start === endB) return ""; // no changes at all
   const midA = aLines.slice(start, endA);
   const midB = bLines.slice(start, endB);
   const ops: DiffOp[] = [
@@ -381,55 +382,71 @@ export function unifiedDiff(
     ...aLines.slice(endA).map((t) => ({ op: " " as const, text: t })),
   ];
 
+  // Precompute the original/new file line number for EVERY op — hunk
+  // headers must count - and + lines independently once the sequences
+  // diverge (slice-index arithmetic alone drifts after the first hunk).
+  const aNum: number[] = new Array(ops.length);
+  const bNum: number[] = new Array(ops.length);
+  let aLine = 1;
+  let bLine = 1;
+  for (let k = 0; k < ops.length; k++) {
+    aNum[k] = aLine;
+    bNum[k] = bLine;
+    if (ops[k].op !== "+") aLine++;
+    if (ops[k].op !== "-") bLine++;
+  }
+
   const out: string[] = [`--- a/${relPath}`, `+++ b/${relPath}`];
 
-  // Group into hunks: changes separated by > 2*CONTEXT context lines
-  // become separate hunks (standard unified-diff behavior).
   let bodyLines = 0;
-  let truncated = false;
   let i = 0;
   while (i < ops.length) {
-    // find next change
+    // Find the next change.
     while (i < ops.length && ops[i].op === " ") i++;
     if (i >= ops.length) break;
     const hunkStart = Math.max(0, i - CONTEXT);
-    // extend through the change cluster plus trailing context
+
+    // Extend through the change cluster (context gaps <= CONTEXT merge
+    // clusters into one hunk), then add up to CONTEXT trailing context.
     let j = i;
-    let pendingContext = 0;
-    let hunkEnd = i;
+    let runCtx = 0;
+    let lastChangeEnd = i;
     while (j < ops.length) {
       if (ops[j].op !== " ") {
-        pendingContext = 0;
-        hunkEnd = j + 1;
+        runCtx = 0;
+        lastChangeEnd = j + 1;
         j++;
       } else {
-        pendingContext++;
+        runCtx++;
         j++;
-        if (pendingContext > CONTEXT) break;
-        hunkEnd = j;
+        if (runCtx > CONTEXT) break;
       }
     }
-    hunkEnd = Math.min(ops.length, hunkEnd);
+    const hunkEnd = Math.min(ops.length, lastChangeEnd + CONTEXT);
     const slice = ops.slice(hunkStart, hunkEnd);
 
-    const aFrom = hunkStart + 1;
-    const bFrom = hunkStart + 1;
     let aCount = 0;
     let bCount = 0;
     for (const o of slice) {
       if (o.op !== "+") aCount++;
       if (o.op !== "-") bCount++;
     }
+    // Standard convention: zero-count sides point at the line BEFORE.
+    let aFrom = aNum[hunkStart];
+    let bFrom = bNum[hunkStart];
+    if (aCount === 0) aFrom = Math.max(0, aFrom - 1);
+    if (bCount === 0) bFrom = Math.max(0, bFrom - 1);
     out.push(`@@ -${aFrom},${aCount} +${bFrom},${bCount} @@`);
+
+    let hitCap = false;
     for (const o of slice) {
-      bodyLines++;
-      if (bodyLines > maxDiffLines) {
-        truncated = true;
+      if (++bodyLines > maxDiffLines) {
+        hitCap = true;
         break;
       }
       out.push(`${o.op}${o.text}`);
     }
-    if (truncated) {
+    if (hitCap) {
       out.push("[diff truncated by target-mode]");
       break;
     }

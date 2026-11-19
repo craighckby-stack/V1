@@ -208,6 +208,12 @@ export async function executeCommand(
           "  oracle judge    — Evaluate all due prophecies now",
           "  oracle list     — List recent prophecies + verdicts",
           "  oracle status   — Track record: counts, calibration, Brier score",
+          "  target <owner/repo> [branch] — Point the loop at an EXTERNAL repo",
+          "                (same gate chain as self-mutations; lands on loop-t-NN)",
+          "  target dry  — One gated mutation attempt, NOTHING lands on GitHub",
+          "  target run  — One gated mutation, committed to a loop-t-NN branch",
+          "  target status — Show the configured target + last run outcome",
+          "  target off  — Disconnect the external target",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
           "",
@@ -410,6 +416,120 @@ export async function executeCommand(
           const data = await res.json();
           if (data.pushed) return [`Pushed to GitHub: commit ${data.commitSha} (${data.repo})`];
           return [`Push failed: ${data.error ?? "unknown error"}`];
+        } catch (e) {
+          return [`Error: ${(e as Error).message}`];
+        }
+      }
+
+      case "target": {
+        // External-target mode (DIRECTIONS.md Direction 3): the loop
+        // works on a foreign GitHub repo through the SAME gate chain the
+        // self-mutation path uses. All state changes go through
+        // /api/target/* (middleware auth applies). Local type
+        // mirrors of the API payloads keep this file dependency-free.
+        const sub = (parts[1] ?? "").toLowerCase();
+        try {
+          if (!sub || sub === "status") {
+            const res = await fetch("/api/target/config");
+            const data = (await res.json()) as {
+              config: { repo: string; branch: string | null; updatedAt: string } | null;
+              lastRun: {
+                at: string;
+                status: string;
+                file?: string;
+                branch?: string;
+                commitSha?: string;
+                reason?: string;
+              } | null;
+            };
+            if (!data.config) {
+              return [
+                "No target repository configured.",
+                "",
+                "Target mode points the loop at an EXTERNAL GitHub repo:",
+                "  target <owner/repo> [branch] — set the target (reachability-verified)",
+                "  target dry                   — full gate chain, nothing lands",
+                "  target run                   — land one gated loop-t-NN branch",
+                "  target status                — this panel",
+                "  target off                   — disconnect",
+                "",
+                "Every proposal passes the same gates as self-mutations:",
+                "guard → structural → ast-diff(strict) → syntax → secret-scan → debate.",
+                "Typecheck/sandbox are skipped honestly (no local dependency tree),",
+                "and every attempt lands on its own loop-t-NN branch — never on main.",
+              ];
+            }
+            const lines = [
+              `Target repo:    github.com/${data.config.repo}`,
+              `Base branch:    ${data.config.branch ?? "(repo default)"}`,
+              `Updated:        ${data.config.updatedAt}`,
+            ];
+            if (data.lastRun) {
+              lines.push(`Last run:       ${data.lastRun.status} at ${data.lastRun.at}`);
+              if (data.lastRun.file) lines.push(`  file:         ${data.lastRun.file}`);
+              if (data.lastRun.branch) lines.push(`  branch:       ${data.lastRun.branch}`);
+              if (data.lastRun.commitSha) lines.push(`  commit:       ${data.lastRun.commitSha}`);
+              if (data.lastRun.reason) lines.push(`  reason:       ${data.lastRun.reason}`);
+            } else {
+              lines.push("Last run:       never");
+            }
+            lines.push(
+              "",
+              "Run 'target dry' for a no-write rehearsal, 'target run' to land a mutation."
+            );
+            return lines;
+          }
+
+          if (sub === "off") {
+            const res = await fetch("/api/target/config", { method: "DELETE" });
+            const data = (await res.json()) as { had?: boolean };
+            return [data.had ? "Target repository disconnected" : "No target was configured"];
+          }
+
+          if (sub === "dry" || sub === "run") {
+            const dry = sub === "dry";
+            emitOutput([
+              dry
+                ? "[TARGET DRY] Probing, generating, gating — nothing lands on GitHub..."
+                : "[TARGET RUN] Probing, generating, gating — survivor commits to loop-t-NN...",
+            ]);
+            const res = await fetch("/api/target/run", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ dryRun: dry }),
+            });
+            const data = (await res.json()) as { ok?: boolean; error?: string; log?: string[] };
+            const lines = [...(data.log ?? [])];
+            if (!data.ok) lines.push(`FAILED: ${data.error ?? "unknown error"}`);
+            return lines.length > 0 ? lines : [`Target ${sub} returned no output (HTTP ${res.status})`];
+          }
+
+          // target <owner/repo> [branch] — configure
+          const repoArg = parts[1] ?? "";
+          if (/^[A-Za-z0-9][A-Za-z0-9._-]*\/([A-Za-z0-9][A-Za-z0-9._-]*)$/.test(repoArg)) {
+            emitOutput([`[TARGET] Verifying ${repoArg} is reachable...`]);
+            const res = await fetch("/api/target/config", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ repo: parts[1], branch: parts[2] }),
+            });
+            const data = (await res.json()) as {
+              ok?: boolean;
+              error?: string;
+              config?: { repo: string; branch: string | null };
+            };
+            if (!data.ok || !data.config) return [`Target config failed: ${data.error ?? "unknown"}`];
+            return [
+              `Target configured: github.com/${data.config.repo} (base: ${data.config.branch ?? "repo default"})`,
+              "'target dry' = no-write gate rehearsal. 'target run' = land one gated",
+              "loop-t-NN branch. 'target status' = audit trail. 'target off' = disconnect.",
+            ];
+          }
+
+          return [
+            `Unknown target subcommand "${sub}".`,
+            "Usage: target <owner/repo> [branch] | target dry | target run | target status | target off",
+          ];
         } catch (e) {
           return [`Error: ${(e as Error).message}`];
         }
