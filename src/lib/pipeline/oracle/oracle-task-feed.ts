@@ -116,9 +116,7 @@ function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
  *  criterion — everything the LLM executor needs to understand WHY
  *  this task exists without re-querying the Prophecy table. */
 function buildEvidence(prophecy: Prophecy): string {
-  const confidenceStr = prophecy.confidence !== null && prophecy.confidence !== undefined
-    ? prophecy.confidence.toFixed(2)
-    : "N/A";
+  const confidenceStr = prophecy.confidence?.toFixed(2) ?? "N/A";
   const createdAtStr = prophecy.createdAt?.toISOString() ?? "N/A";
   const evaluateByStr = prophecy.evaluateBy?.toISOString() ?? "N/A";
   const claim = prophecy.claim ?? "N/A";
@@ -181,9 +179,6 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
       update: {
         status: "pending",
         evidence,
-        // Reset attempts only if the task had permanently failed — a
-        // pending/in-progress task keeps its attempts count (the loop
-        // may already be working on it).
       },
       create: {
         kind: ORACLE_FAILED_PROPHECY_KIND,

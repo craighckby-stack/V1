@@ -1,0 +1,100 @@
+/**
+ * One-off: TEST the target-repo pipeline against an external repo with a
+ * DRY RUN — full gate chain (scan → LLM → mutation-guard → structural →
+ * ast-diff strict → syntax → secret-scan → debate tribunal) but stops
+ * BEFORE any branch/commit, so ZERO writes land on the target repo.
+ *
+ * Usage:  bun run scripts/test-target-dry.ts <owner/repo>
+ */
+import {
+  setTargetConfig,
+  clearTargetConfig,
+  resolveTargetToken,
+  getTargetConfig,
+} from "@/lib/pipeline/target/target-store";
+import { getRepoDefaultBranch } from "@/lib/pipeline/target/target-github";
+import { runTargetMutation } from "@/lib/pipeline/target/target-runner";
+
+const REPO = process.argv[2] ?? "craighckby-stack/Wonder-Craig-Game-Demo";
+
+function line(s: string) {
+  console.log(s);
+}
+
+async function main() {
+  line(`\n================ TARGET DRY-RUN TEST ================`);
+  line(`repo: ${REPO}`);
+  line(`mode: DRY RUN (zero writes to target repo)`);
+  line(`====================================================\n`);
+
+  // STEP 1 — set config (normalize + format-validate + persist to DB).
+  line("[1/3] setting target config (validate + persist)...");
+  const cfg = await setTargetConfig(REPO, null);
+  line(`      saved repo: ${cfg.repo}`);
+
+  // STEP 2 — verify reachability using the operator's stored PAT (sealed),
+  // which resolveTargetToken reuses server-side. Roll back if not reachable.
+  line("[2/3] verifying reachability with stored token...");
+  const token = await resolveTargetToken();
+  line(`      token resolved: ${token ? `yes (len ${token.length})` : "no — anonymous"}`);
+  const defaultBranch = await getRepoDefaultBranch(cfg.repo, token);
+  line(`      default branch: ${defaultBranch ?? "(unreachable)"}`);
+  if (!defaultBranch) {
+    line(`\n[!] REPO NOT REACHABLE — rolling back config. The repo may be`);
+    line(`    private and no usable token is stored, or GitHub rate-limited.`);
+    await clearTargetConfig();
+    process.exitCode = 1;
+    return;
+  }
+  const saved = await setTargetConfig(cfg.repo, defaultBranch);
+  line(`      persisted branch: ${saved.branch}`);
+
+  // STEP 3 — DRY-RUN the full gated pipeline. No branch, no commit, no push.
+  line("[3/3] running DRY-RUN mutation (full gate chain, no write-back)...\n");
+  const result = await runTargetMutation({ dryRun: true });
+
+  line(`\n================ RESULT ================`);
+  line(`ok:             ${result.ok}`);
+  line(`status:         ${result.status}`);
+  line(`repo:           ${result.repo ?? "(none)"}`);
+  line(`file:           ${result.file ?? "(none)"}`);
+  line(`would-branch:   ${result.branch ?? "(none)"}`);
+  line(`commitSha:      ${result.commitSha ?? "(none)"}`);
+  line(`secretFindings: ${result.secretFindings ?? 0}`);
+  line(`debate:         ${JSON.stringify(result.debate) ?? "(none)"}`);
+  line(`error/reason:   ${result.error ?? result.reason ?? "(none)"}`);
+
+  if (result.findings && result.findings.length) {
+    line(`\nfindings on ${result.file}:`);
+    for (const f of result.findings) {
+      line(`  - [${f.kind}] line ${f.line}: ${f.evidence}`);
+    }
+  }
+
+  if (result.gates && result.gates.length) {
+    line(`\ngate chain:`);
+    for (const g of result.gates) {
+      line(`  - ${g.gate}: ${g.status} (${g.durationMs}ms)`);
+    }
+    if (result.gateErrors && result.gateErrors.length) {
+      line(`gate errors (first 5):`);
+      for (const e of result.gateErrors) line(`  ! ${e.slice(0, 200)}`);
+    }
+  }
+
+  line(`\n================ PIPELINE TRACE ================`);
+  for (const l of result.log) line(`  ${l}`);
+
+  line(`\n================ DONE ================`);
+  line(`Dry-run complete. ZERO writes were made to ${cfg.repo}.`);
+  line(`Target config is left SET so a real run is one command away:`);
+  line(`  • console: 'target run'   (creates branch loop-t-NN + 1 commit)`);
+  line(`  • console: 'target off'    (disconnect the target)`);
+  line(`  • API:     POST /api/target/run   (with x-loop-key if LOOP_API_KEY set)`);
+  line(`=======================================\n`);
+}
+
+main().catch((e) => {
+  console.error("\nFATAL:", e);
+  process.exitCode = 2;
+});
