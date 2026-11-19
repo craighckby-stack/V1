@@ -22,7 +22,7 @@ export function MemoryBank() {
   const isFetchingRef = useRef(false);
 
   // Determine if we are currently fetching or if the fetch has never been initiated.
-  const isLoading = !hasFetchedRef.current || isFetchingRef.current;
+  const isLoading = !hasFetchedRef.current && isFetchingRef.current;
 
   useEffect(() => {
     (async () => {
@@ -80,8 +80,8 @@ export function MemoryBank() {
           <ScrollArea className="h-[300px] pr-4">
             <div className="space-y-4 p-4 sm:p-6">
               {entries.map((entry) => {
-                // Validate entry structure
-                if (!entry || typeof entry !== 'object' || !entry.id) {
+                // Validate entry structure minimally before accessing properties
+                if (!entry || typeof entry !== 'object' || !('id' in entry)) {
                   console.warn("Invalid memory entry missing required fields or is not an object:", entry);
                   return null;
                 }
