@@ -79,11 +79,7 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
     atomicWriteFileSync(OPERATOR_TOUCH_FILE, JSON.stringify(entry));
   } catch (error) {
     /* best-effort - log the error for debugging if needed, but never throw */
-    if (error instanceof Error) {
-      console.error(`Failed to write operator touch file to ${OPERATOR_TOUCH_FILE}: ${error.message}`);
-    } else {
-      console.error(`Failed to write operator touch file to ${OPERATOR_TOUCH_FILE}: Unknown error during file system operation`);
-    }
+    console.error(`Failed to write operator touch file to ${OPERATOR_TOUCH_FILE}:`, error);
   }
 }
 
@@ -98,35 +94,33 @@ export function readOperatorTouch(): OperatorTouchState | null {
     try {
       parsed = JSON.parse(raw);
     } catch (jsonError) {
-      console.error(`Failed to parse operator touch JSON at ${OPERATOR_TOUCH_FILE}: ${jsonError instanceof Error ? jsonError.message : 'Unknown JSON parsing error'}`);
+      console.error(`Failed to parse operator touch JSON at ${OPERATOR_TOUCH_FILE}:`, jsonError);
       return null;
     }
 
     // Validate the parsed object strictly against the required structure
     if (
         typeof parsed !== "object" || parsed === null ||
-        !("at" in parsed) || typeof (parsed as any).at !== "string" ||
-        !("by" in parsed) || typeof (parsed as any).by !== "string"
+        !('at' in parsed) || typeof (parsed as OperatorTouchState).at !== "string" ||
+        !('by' in parsed) || typeof (parsed as OperatorTouchState).by !== "string"
     ) {
       console.error(`Invalid operator touch file format at ${OPERATOR_TOUCH_FILE}: missing required 'at' or 'by' fields or wrong types`);
       return null;
     }
 
+    const state = parsed as OperatorTouchState;
+
     // Validate timestamp format before returning
-    const timestamp = Date.parse((parsed as OperatorTouchState).at);
+    const timestamp = Date.parse(state.at);
     if (isNaN(timestamp)) {
-      console.error(`Invalid timestamp in operator touch file at ${OPERATOR_TOUCH_FILE}: '${(parsed as OperatorTouchState).at}' is not a valid ISO date`);
+      console.error(`Invalid timestamp in operator touch file at ${OPERATOR_TOUCH_FILE}: '${state.at}' is not a valid ISO date`);
       return null;
     }
 
-    return parsed as OperatorTouchState;
+    return state;
   } catch (error) {
     // Catches file not found, read errors
-    if (error instanceof Error) {
-      console.error(`Failed to read operator touch file at ${OPERATOR_TOUCH_FILE}: ${error.message}`);
-    } else {
-      console.error(`Failed to read operator touch file at ${OPERATOR_TOUCH_FILE}: Unknown error during file system operation`);
-    }
+    console.error(`Failed to read operator touch file at ${OPERATOR_TOUCH_FILE}:`, error);
     return null;
   }
 }
@@ -146,13 +140,9 @@ export function isDeadMansTripped(
     return true;
   }
 
-  if (!(now instanceof Date) || isNaN(now.getTime())) {
-    // Handle invalid 'now' input gracefully, treating it as if time cannot be determined (tripped)
-    console.error("isDeadMansTripped: Invalid 'now' Date object provided. Treating as tripped for safety.");
-    return true;
-  }
-
-  const nowTime = now.getTime();
+  // Use Date.now() if the provided 'now' is invalid, ensuring a deterministic check against current time if possible.
+  const checkNow = (now instanceof Date && !isNaN(now.getTime())) ? now : new Date();
+  const nowTime = checkNow.getTime();
 
   const state = readOperatorTouch();
   if (!state) return true; // never touched, unreadable, or malformed → tripped
