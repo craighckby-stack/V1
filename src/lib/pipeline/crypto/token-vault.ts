@@ -132,19 +132,21 @@ export function isSealedEnvelope(value: string): boolean {
  *   - key unavailable → returned unchanged (PLAINTEXT beats a bricked push)
  */
 export function sealToken(plain: string): string {
-  if (typeof plain !== "string" || !plain.trim()) return plain;
+  if (typeof plain !== "string") return plain;
+  const trimmedPlain = plain.trim();
+  if (!trimmedPlain) return plain;
   if (isSealedEnvelope(plain)) return plain;
-  if (plain.length < MIN_PLAINTEXT_LENGTH) return plain;
+  if (trimmedPlain.length < MIN_PLAINTEXT_LENGTH) return plain;
   
   // Input validation: ensure it contains more than just whitespace/control chars if length check passes
-  if (!/[a-zA-Z0-9._\-\/+=]/.test(plain)) return plain; 
+  if (!/[a-zA-Z0-9._\-\/+=]/.test(trimmedPlain)) return plain; 
 
   const key = ensureKey();
   if (!key) return plain;
   try {
     const iv = randomBytes(IV_LENGTH);
     const cipher = createCipheriv("aes-256-gcm", key, iv);
-    const ct = Buffer.concat([cipher.update(plain, "utf-8"), cipher.final()]);
+    const ct = Buffer.concat([cipher.update(trimmedPlain, "utf-8"), cipher.final()]);
     const tag = cipher.getAuthTag();
     return `${ENVELOPE_PREFIX}${iv.toString("base64url")}.${tag.toString("base64url")}.${ct.toString("base64url")}`;
   } catch (error) {

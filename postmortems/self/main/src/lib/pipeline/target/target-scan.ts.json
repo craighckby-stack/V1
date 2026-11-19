@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/target/target-scan.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "OTHER",
+  "symptom": "Test gate failed: test failed (sandboxed): src/lib/pipeline/target/target-scan.test.ts — \nsrc/lib/pipeline/target/target-scan.test.ts:\n38 |     expect(kinds.has(\"any-usage\")).toBe(true);\n39 |     expect(kinds.has(\"empty-catch\")).toBe(true);\n40 |     expect(kinds.has(\"missing-return-type\")",
+  "evidence": "1 test file(s) checked. The refactor broke existing behavior.",
+  "constraints": "The previous refactor of src/lib/pipeline/target/target-scan.ts broke existing tests. Do not change observable behavior.",
+  "attempts": 1,
+  "parentHash": "f176dda284c66deabb4abe789c74b90c4d0372c7fdaf467abda06c9df4a5f685",
+  "hash": "97e5310fa577f3dfccbe46c4101ee79927e6c8d92ab70269db8c4af27cf369b3",
+  "lastAttemptAt": "2026-11-19T05:02:28.038Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-19T05:02:28.038Z",
+  "updatedAt": "2026-11-19T05:02:28.038Z",
+  "schema": 2
+}
