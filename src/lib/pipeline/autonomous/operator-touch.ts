@@ -72,9 +72,7 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
   }
 
   try {
-    // Ensure directory exists. We use dirname only if the file path structure requires it,
-    // but we rely on atomicWriteFileSync/fs utilities to handle path existence robustly.
-    // Explicitly ensuring the directory exists is safer for initial setup.
+    // Ensure directory exists for atomic write to succeed reliably on first run.
     const dirPath = dirname(OPERATOR_TOUCH_FILE);
     mkdirSync(dirPath, { recursive: true });
     const entry: OperatorTouchState = { at: now.toISOString(), by };
@@ -152,12 +150,19 @@ export function isDeadMansTripped(
     return true;
   }
 
-  const nowTime = now.getTime();
   const state = readOperatorTouch();
   if (!state) return true; // never touched, unreadable, or malformed → tripped
 
   // readOperatorTouch guarantees state.at is a valid ISO date string if it returns a state.
   const lastTouch = Date.parse(state.at);
 
+  // Since readOperatorTouch validated the timestamp, lastTouch should not be NaN,
+  // but we check defensively against potential logic errors in readOperatorTouch.
+  if (isNaN(lastTouch)) {
+    console.error(`Internal consistency error: readOperatorTouch returned state but timestamp '${state.at}' is invalid.`);
+    return true; // Treat as tripped if internal state is inconsistent
+  }
+
+  const nowTime = now.getTime();
   return nowTime - lastTouch > thresholdMs;
 }
