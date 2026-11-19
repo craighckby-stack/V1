@@ -72,14 +72,15 @@ export function OracleTaskFeedPanel() {
     // Initial fetch
     fetchTasks(true);
     // Poll every 60s to reduce API load while still surfacing tasks reasonably fast.
-    const interval = setInterval(() => {
+    const intervalId = setTimeout(() => {
         fetchTasks(false);
     }, 60_000);
-    return () => clearInterval(interval);
+    
+    return () => clearTimeout(intervalId);
   }, [fetchTasks]);
 
   // Show loading only if we haven't loaded yet AND there's no error state indicating failure
-  if (loading && !error) {
+  if (loading && tasks.length === 0 && !error) {
     return (
       <Card className="w-full">
         <CardHeader>
