@@ -114,13 +114,15 @@ export async function oracleSchedulerTick(): Promise<{
     listError = err instanceof Error ? err : new Error(`Unknown error during prophecy listing: ${String(err)}`);
   }
 
-  // Update tick time regardless of whether prophecies were found or listing failed, as the tick ran.
-  s.lastTickAt = Date.now();
-  s.ticks += 1;
-
+  // Only update tick time and count if prophecy listing was successful or if we are proceeding past the listing phase.
+  // If listError exists, we return early without updating tick time/count for a failed fetch.
   if (listError) {
     return { ran: false, reason: "failed to list due prophecies" };
   }
+
+  // Update tick time and count only after successful listing
+  s.lastTickAt = Date.now();
+  s.ticks += 1;
 
   if (due.length === 0) {
     return { ran: true, judged: 0, skipped: 0 };
