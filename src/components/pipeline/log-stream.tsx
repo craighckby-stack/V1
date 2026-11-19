@@ -81,13 +81,13 @@ export function LogStream() {
             ) : (
               logs.map((entry, idx) => {
                 // Safely access type with guard
-                const typeKey = (typeof entry.type === 'string' && TYPE_ICON[entry.type as keyof typeof TYPE_ICON]) ? entry.type as keyof typeof TYPE_ICON : 'info';
-                const Icon = TYPE_ICON[typeKey] || Info;
-                const color = TYPE_COLOR[typeKey] || "text-slate-400";
+                const typeKey = TYPE_ICON[entry.type as keyof typeof TYPE_ICON] ? entry.type : 'info';
+                const Icon = TYPE_ICON[typeKey as keyof typeof TYPE_ICON] || Info;
+                const color = TYPE_COLOR[typeKey as keyof typeof TYPE_COLOR] || "text-slate-400";
                 
                 // Safely access source with guard
-                const sourceKey = (typeof entry.source === 'string' && SOURCE_COLOR[entry.source as keyof typeof SOURCE_COLOR]) ? entry.source as keyof typeof SOURCE_COLOR : 'pipeline';
-                const sourceColor = SOURCE_COLOR[sourceKey] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
+                const sourceKey = SOURCE_COLOR[entry.source as keyof typeof SOURCE_COLOR] ? entry.source : 'pipeline';
+                const sourceColor = SOURCE_COLOR[sourceKey as keyof typeof SOURCE_COLOR] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
                 
                 // Validate timestamp and provide fallback
                 const timestamp = entry.timestamp || 'N/A';
