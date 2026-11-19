@@ -18,11 +18,10 @@ const PROVENANCE_META: Record<string, { icon: typeof ShieldCheck; color: string;
 export function MemoryBank() {
   const entries = usePipelineStore((s) => s.memoryEntries);
   const setEntries = usePipelineStore((s) => s.setMemoryEntries);
-  // State tracking for initial load vs. empty state is managed by checking if entries have been populated yet.
-  // We rely on the initial state of entries being empty, and the useEffect populating it.
-  // A more robust solution would involve an explicit loading flag in the store, but adhering to existing API, we check if the fetch has run.
-  // Since we cannot add state, we treat initial empty state as loading until the fetch completes and updates the store.
-  const hasLoaded = entries.length > 0;
+  // Determine if we are still loading: entries are empty AND the effect has not run yet (or hasn't completed).
+  // Since we cannot track 'hasRun' without modifying the store, we rely on the initial empty state combined with the fetch logic.
+  // If entries is empty, we assume loading until the fetch completes and updates the store.
+  const isLoading = entries.length === 0;
 
   useEffect(() => {
     (async () => {
@@ -65,7 +64,7 @@ export function MemoryBank() {
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        {!hasLoaded && entries.length === 0 ? (
+        {isLoading ? (
           <div className="py-16 text-center px-6">
             <p className="text-base text-slate-500 italic">Fetching memory entries... Check the network console for API errors if this persists.</p>
           </div>
