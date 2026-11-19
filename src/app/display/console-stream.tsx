@@ -81,13 +81,13 @@ const DIM_COLOR = "#777777";
  * as "no sort key" and leave the line in its original position.
  */
 function parseTs(ts: string | undefined | null): number {
-  if (ts === null || ts === undefined) return NaN;
+  if (!ts) return NaN;
   const s = String(ts).trim();
   if (s.length === 0) return NaN;
 
   // Full ISO-8601 with a date component
   if (/\d{4}-\d{2}-\d{2}T/.test(s) || /Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
-    const t = new Date(s).getTime();
+    const t = Date.parse(s);
     return isNaN(t) ? NaN : t;
   }
 
