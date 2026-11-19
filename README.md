@@ -48,9 +48,13 @@ A single full-screen BIOS terminal at `/` (`src/app/page.tsx`) — black backgro
 | **Config** — sealed-PAT push target | ![Config](./docs/screenshots/08-config.png) |
 | **Defense** — duress / red-team / secret-scan grafts | ![Defense](./docs/screenshots/09-defense.png) |
 
-**The header** has `[START]`, `[CLEAR]`, `[CONFIG]`, `[ORACLE]`, `[DEFENSE]`, `[BRANCHES]`, `[MERGE-BACK]` buttons, plus a `LOOP ●` heartbeat.
+**The header** has `[START]`, `[CLEAR]`, `[CONFIG]`, `[TARGET]`, `[ORACLE]`, `[DEFENSE]`, `[BRANCHES]`, `[MERGE-BACK]` buttons, plus a `LOOP ●` heartbeat.
 
-**The console stream** (`console-stream.tsx`) shows every scan, gate, push, retry, and backoff in real time. You can also type commands: `start` / `stop` / `status` / `about` / `help` / `trigger` / `task <goal>` / `push` / `config` / `oracle` / `skip` / `rescan` / `clear`.
+**The console stream** (`console-stream.tsx`) shows every scan, gate, push, retry, and backoff in real time. You can also type commands: `start` / `stop` / `status` / `about` / `help` / `trigger` / `task <goal>` / `push` / `config` / `target` / `oracle` / `skip` / `rescan` / `clear`.
+
+### The TARGET panel — the machine pointed at YOUR repo
+
+Type `target` (or click `[TARGET]`) and the same 6-stage gauntlet the machine uses on itself — sanitize → reason (LLM) → AST gate → debate tribunal — runs against **any GitHub repository you choose**: fetch a file, propose a refactor, and if it survives the gates, push it to a `<branch>-evolution` branch of that repo (never the target branch itself). Reads work anonymously on public repos; pushes need a PAT with repo scope. This is the original "rea" pipeline revived on the hardened plumbing (see `DIRECTIONS.md`, Direction 3).
 
 ### The SATURATION panel and the `[unlock]` buttons
 

@@ -45,6 +45,12 @@ export function ManualPipelineRunner() {
   const [code, setCode] = useState<string>("");
   const [fetchingFiles, setFetchingFiles] = useState(false);
   const [validatingToken, setValidatingToken] = useState(false);
+  // Stage-5 dispatch (the missing piece of the rea revival): after a
+  // gate-passing run, land the evolved code on the evolution branch.
+  const pipelineReport = usePipelineStore((s) => s.pipelineReport);
+  const [pushing, setPushing] = useState(false);
+  const [pushResult, setPushResult] = useState<{ sha: string; url: string; branch: string } | null>(null);
+  const [pushError, setPushError] = useState<string | null>(null);
 
   async function validateToken() {
     setValidatingToken(true);
@@ -112,6 +118,77 @@ export function ManualPipelineRunner() {
       toast({ title: "File loaded", description: `${path} (${(data.content ?? "").length} bytes)` });
     } catch (e) {
       toast({ title: "Fetch failed", description: (e as Error).message, variant: "destructive" });
+    }
+  }
+
+  /**
+   * Stage-5 dispatch — push a gate-passing result to the target repo's
+   * evolution branch. The branch is created from the target branch on
+   * first push (commit-file auto-create via baseBranch). A re-push of
+   * the same file carries the blob sha so GitHub accepts the update.
+   */
+  async function pushToEvolution() {
+    const report = usePipelineStore.getState().pipelineReport;
+    if (!report) return;
+    const evolutionBranch = `${form.branch}-evolution`;
+    setPushing(true);
+    setPushError(null);
+    setPushResult(null);
+    try {
+      // Resolve the file's blob sha on the evolution branch (404 = file
+      // not there yet = a create, not an update).
+      let sha: string | undefined;
+      try {
+        const fres = await fetch("/api/github/fetch-file", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repo: form.repo, path: report.config.filePath, branch: evolutionBranch, token: form.token || undefined }),
+        });
+        if (fres.ok) {
+          const fdata = (await fres.json()) as { sha?: string };
+          sha = fdata.sha || undefined;
+        }
+      } catch {
+        // 404/network — treat as a fresh file on the branch.
+      }
+
+      const message = [
+        `pipeline: refactor ${report.config.filePath}`,
+        `AST ${report.astScore} · ${report.consensus} · proof ${report.proofCommitHash}`,
+        `prompt: ${report.config.userPrompt.slice(0, 200)}`,
+      ].join("\n\n");
+
+      const res = await fetch("/api/github/commit-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo: form.repo,
+          path: report.config.filePath,
+          branch: evolutionBranch,
+          baseBranch: form.branch,
+          content: report.evolvedCode,
+          message,
+          ...(sha ? { sha } : {}),
+          token: form.token || undefined,
+        }),
+      });
+      const data = (await res.json()) as { sha?: string; commit?: { sha?: string }; message?: string; error?: string };
+      if (!res.ok) throw new Error(data?.error ?? data?.message ?? `GitHub commit failed (HTTP ${res.status})`);
+      const commitSha = data.commit?.sha ?? data.sha ?? "";
+      setPushResult({
+        sha: commitSha,
+        url: `https://github.com/${form.repo}/commit/${commitSha}`,
+        branch: evolutionBranch,
+      });
+      toast({
+        title: "Pushed to evolution branch",
+        description: `${form.repo}@${evolutionBranch} · ${commitSha.slice(0, 7)}`,
+      });
+    } catch (e) {
+      setPushError((e as Error).message);
+      toast({ title: "Push failed", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setPushing(false);
     }
   }
 
@@ -302,6 +379,17 @@ export function ManualPipelineRunner() {
             {pipelineRunning ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
             Run 6-Stage Pipeline
           </Button>
+          {pipelineReport && pipelineReport.status === "COMPLETED" && (
+            <Button
+              onClick={pushToEvolution}
+              disabled={pushing}
+              variant="outline"
+              className="bg-emerald-900/40 border-emerald-700/60 hover:bg-emerald-800/50 text-emerald-200"
+            >
+              {pushing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Github className="h-3.5 w-3.5 mr-1.5" />}
+              Push to {form.branch}-evolution
+            </Button>
+          )}
           {usePipelineStore.getState().pipelineReport && (
             <Button
               variant="outline"
@@ -341,6 +429,31 @@ export function ManualPipelineRunner() {
             </Button>
           )}
         </div>
+
+        {/* Stage-5 dispatch outcome / gate verdict note */}
+        {pushResult && (
+          <div className="rounded-md border border-emerald-800/60 bg-emerald-950/40 px-3 py-2 text-xs text-emerald-200 font-mono break-all">
+            PUSHED → {pushResult.branch} · commit{" "}
+            <a
+              href={pushResult.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-emerald-100"
+            >
+              {pushResult.sha.slice(0, 10)}
+            </a>
+          </div>
+        )}
+        {pushError && (
+          <div className="rounded-md border border-rose-800/60 bg-rose-950/40 px-3 py-2 text-xs text-rose-200 font-mono break-all">
+            PUSH FAILED → {pushError}
+          </div>
+        )}
+        {pipelineReport && pipelineReport.status !== "COMPLETED" && (
+          <div className="rounded-md border border-slate-800/60 bg-slate-900/40 px-3 py-2 text-xs text-slate-400 font-mono">
+            no push — the gauntlet returned {pipelineReport.status} (status !== COMPLETED). Inspect the AST diff, adjust the prompt, re-run.
+          </div>
+        )}
       </CardContent>
     </Card>
   );

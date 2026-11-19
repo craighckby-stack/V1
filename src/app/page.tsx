@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ConsoleStream, type ConsoleLine } from "./display/console-stream";
 import { OraclePanel } from "@/components/pipeline/oracle-panel";
+import { TargetPanel } from "@/components/pipeline/target-panel";
 import { SelfModelPanel } from "@/components/pipeline/self-model-panel";
 import { DefensePanel } from "@/components/pipeline/defense-panel";
 import { BranchesPanel } from "@/components/pipeline/branches-panel";
@@ -302,6 +303,10 @@ export default function Home() {
   // open/close is the only state page.tsx owns; the panel manages its
   // own polling, fetch, and rendering internally (see OraclePanel).
   const [oracleOpen, setOracleOpen] = useState(false);
+  // Target panel (rea revival, DIRECTIONS.md Direction 3): the 6-stage
+  // verified pipeline pointed at an EXTERNAL repository. Same modal
+  // pattern as Oracle — page owns open/close, the panel owns the rest.
+  const [targetOpen, setTargetOpen] = useState(false);
   // Self-model panel (audit 7): the loop's measured self-knowledge —
   // bandit scores, calibration curve, Brier verdict. Same modal pattern.
   const [selfModelOpen, setSelfModelOpen] = useState(false);
@@ -792,7 +797,7 @@ export default function Home() {
   // typed/pasted key lands in the terminal, not the key field. Same for
   // Oracle / Defense / Branches / Config panels.
   const anyPanelOpen =
-    configOpen || geminiOpen || nvidiaOpen || oracleOpen || defenseOpen || branchesOpen || mergeBackOpen || selfModelOpen;
+    configOpen || geminiOpen || nvidiaOpen || oracleOpen || defenseOpen || branchesOpen || mergeBackOpen || selfModelOpen || targetOpen;
 
   // Focus input on click anywhere — but NOT while any modal panel is open
   // (the panel's inputs need the click to land + keep focus), and NOT when
@@ -838,11 +843,13 @@ export default function Home() {
         setBranchesOpen(false);
       } else if (mergeBackOpen) {
         setMergeBackOpen(false);
+      } else if (targetOpen) {
+        setTargetOpen(false);
       }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [anyPanelOpen, configOpen, nvidiaOpen, geminiOpen, oracleOpen, defenseOpen, branchesOpen, mergeBackOpen, selfModelOpen]);
+  }, [anyPanelOpen, configOpen, nvidiaOpen, geminiOpen, oracleOpen, defenseOpen, branchesOpen, mergeBackOpen, selfModelOpen, targetOpen]);
 
   /** Append output lines to the unified console stream. */
   function emitOutput(lines: string[]) {
@@ -1291,6 +1298,7 @@ export default function Home() {
           "  push force  — (removed) force-push disabled (audit 3); runs a normal push",
           "  push clear  — Disconnect the push target",
           "  config      — Open the Git config panel (or click [CONFIG] in header)",
+          "  target      — Open the external-repo pipeline panel (rea revival)",
           "  logs        — Show recent logs",
           "  files       — List files being enhanced",
           "  tasks [status] — Self-generated task queue (system-defined input)",
@@ -1529,6 +1537,19 @@ export default function Home() {
       case "cfg": {
         openConfig();
         return ["Opening Git config panel... (or click [CONFIG] in the header)"];
+      }
+
+      case "target":
+      case "rea": {
+        setTargetOpen(true);
+        return [
+          "Opening TARGET panel — external repository pipeline...",
+          "The 6-stage gauntlet pointed at any GitHub repo: fetch → sanitize →",
+          "reason (LLM) → AST gate → debate tribunal → push survivors to an",
+          "evolution branch. Reads are anonymous on public repos; pushes need",
+          "a PAT with repo scope. (This is the 'rea' pipeline, revived — see",
+          "DIRECTIONS.md Direction 3.)",
+        ];
       }
 
       case "logs": {
@@ -2285,6 +2306,13 @@ export default function Home() {
             active={configOpen}
           />
           <HeaderBtn
+            label="TARGET"
+            onClick={() => setTargetOpen(true)}
+            title="External-repo pipeline (rea revival) — run the 6-stage gauntlet against any GitHub repo"
+            dialog
+            active={targetOpen}
+          />
+          <HeaderBtn
             label="NVIDIA"
             onClick={() => setNvidiaOpen(true)}
             title="Tier-1 LLM provider — paste an NVIDIA key for free-catalog NIM models (nvidia first → gemini → Z.AI)"
@@ -3038,6 +3066,7 @@ export default function Home() {
           manages its own polling, fetch, and rendering; page.tsx just
           owns the open/close state. */}
       <OraclePanel open={oracleOpen} onClose={() => setOracleOpen(false)} />
+      <TargetPanel open={targetOpen} onClose={() => setTargetOpen(false)} />
       <SelfModelPanel open={selfModelOpen} onClose={() => setSelfModelOpen(false)} />
       <DefensePanel open={defenseOpen} onClose={() => setDefenseOpen(false)} />
       <BranchesPanel open={branchesOpen} onClose={() => setBranchesOpen(false)} />
