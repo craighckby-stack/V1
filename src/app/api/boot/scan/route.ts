@@ -60,38 +60,38 @@ async function diskScarCount(): Promise<number> {
     return 0; // Honesty rule: return 0 if path is invalid, do not throw.
   }
   const root = join(PROJECT_ROOT, "postmortems");
+  let scarCount = 0;
 
   try {
-    const entries = await readdir(root);
-    let scarCount = 0;
-    // Use a stack for iterative DFS traversal to avoid stack overflow on deep directories
-    const stack: { path: string; entries: string[] }[] = [{ path: root, entries: entries }];
+    const entries = await readdir(root, { withFileTypes: true });
 
-    while (stack.length > 0) {
-      const { path: currentDir, entries: currentEntries } = stack.pop()!;
-
-      for (const entryName of currentEntries) {
-        const fullPath = join(currentDir, entryName);
-        try {
-          const st = await stat(fullPath);
-          if (st.isDirectory()) {
-            // If directory, read entries and push onto the stack for later processing
-            const subEntries = await readdir(fullPath);
-            stack.push({ path: fullPath, entries: subEntries });
-          } else if (entryName.endsWith(".json")) {
-            // If file and ends with .json, count it
-            scarCount++;
+    const processEntry = async (fullPath: string, entryName: string) => {
+      try {
+        const statResult = await stat(fullPath);
+        if (statResult.isDirectory()) {
+          const subEntries = await readdir(fullPath, { withFileTypes: true });
+          for (const subEntry of subEntries) {
+            const subFullPath = join(fullPath, subEntry.name);
+            await processEntry(subFullPath, subEntry.name);
           }
-        } catch (e) {
-          // Log specific errors for individual file/dir access failures but continue traversal
-          if (e instanceof Error) {
-            console.warn(`Could not stat or access path ${fullPath}: ${e.message}`);
-          } else {
-            console.warn(`Unknown error accessing path ${fullPath}:`, e);
-          }
+        } else if (entryName.endsWith(".json")) {
+          scarCount++;
+        }
+      } catch (e) {
+        // Log specific errors for individual file/dir access failures but continue traversal
+        if (e instanceof Error) {
+          console.warn(`Could not stat or access path ${fullPath}: ${e.message}`);
+        } else {
+          console.warn(`Unknown error accessing path ${fullPath}:`, e);
         }
       }
+    };
+
+    for (const entry of entries) {
+      const fullPath = join(root, entry.name);
+      await processEntry(fullPath, entry.name);
     }
+
     return scarCount;
 
   } catch (e) {
