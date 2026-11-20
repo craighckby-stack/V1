@@ -103,7 +103,7 @@ export async function POST(req: Request) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE() : Promise<NextResponse<{ ok: boolean; had: boolean; }>> {
   const had = await clearTargetConfig();
   return NextResponse.json({ ok: true, had });
 }

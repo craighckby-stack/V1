@@ -8,12 +8,12 @@
   "symptom": "Push to main rejected: remote has commits local doesn't (divergence)",
   "evidence": "git push stderr: To https://github.com/craighckby-stack/V1.git\n ! [rejected]          HEAD -> main (fetch first)\nerror: failed to push some refs to 'https://github.com/craighckby-stack/V1.git'\nhint: Updates were rejected because the remote contains work that you do not\nhint: have locally. This is usually caused by a",
   "constraints": "The remote branch diverged from local history. Never auto-discard remote content: inspect origin/main and reconcile deliberately (rebase or merge) before pushing again.",
-  "attempts": 30,
-  "parentHash": "5ee6c93dd7fbb89576fcf89bf69496bdfb93e3d7fd8d87990e0f39f5398605f4",
-  "hash": "892c6571bb03af380f4237fe5788e331f8673b53b27c9ddd874f5d5ff670821c",
-  "lastAttemptAt": "2026-11-19T15:06:07.832Z",
+  "attempts": 31,
+  "parentHash": "bcdcc1827facef4de16f2fea4664344d499030091f43a77cdde236860336feda",
+  "hash": "8b54c93d4aaf9a731136e15a08fb547858e4b2601628f1480b8df8ec5acd23bf",
+  "lastAttemptAt": "2026-11-20T22:08:44.994Z",
   "resolvedAt": null,
-  "createdAt": "2026-11-19T13:59:58.712Z",
-  "updatedAt": "2026-11-19T15:06:07.832Z",
+  "createdAt": "2026-11-20T21:36:36.724Z",
+  "updatedAt": "2026-11-20T22:08:44.994Z",
   "schema": 2
 }
