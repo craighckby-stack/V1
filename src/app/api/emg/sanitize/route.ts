@@ -11,8 +11,9 @@ interface SanitizeRequest {
 export async function POST(req: Request) {
   let body: SanitizeRequest | undefined;
   try {
-    body = (await req.json()) as SanitizeRequest;
-  } catch {
+    const parsedBody = await req.json();
+    body = parsedBody as SanitizeRequest;
+  } catch (e) {
     // Catch JSON parsing errors specifically
     return NextResponse.json(
       { error: "Invalid JSON format in request body." },
@@ -21,6 +22,7 @@ export async function POST(req: Request) {
   }
 
   // Check for undefined body (e.g., empty body that resolves but isn't a valid object structure)
+  // Also checks if the structure matches SanitizeRequest requirements
   if (!body || typeof body.code !== "string") {
     return NextResponse.json(
       { error: "code (string) is required in the request body." },
