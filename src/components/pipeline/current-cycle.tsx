@@ -12,10 +12,17 @@ const getConsensusDisplay = (() => {
   const consensusMap: Record<string, string> = {};
   return (consensus: string) => {
     if (!consensusMap[consensus]) {
-      consensusMap[consensus] = consensus === "APPROVED" ? "APR" :
-                               consensus === "CONDITIONAL_APPROVAL" ? "COND" :
-                               consensus === "REQUIRES_REWRITE" ? "REJ" :
-                               consensus;
+      let display: string;
+      if (consensus === "APPROVED") {
+        display = "APR";
+      } else if (consensus === "CONDITIONAL_APPROVAL") {
+        display = "COND";
+      } else if (consensus === "REQUIRES_REWRITE") {
+        display = "REJ";
+      } else {
+        display = consensus;
+      }
+      consensusMap[consensus] = display;
     }
     return consensusMap[consensus];
   };
@@ -25,11 +32,16 @@ const getConsensusClass = (() => {
   const consensusClassMap: Record<string, string> = {};
   return (consensus: string) => {
     if (!consensusClassMap[consensus]) {
-      consensusClassMap[consensus] = consensus === "APPROVED" ?
-                                   "bg-emerald-500/15 text-emerald-300 border-emerald-500/40" :
-                                   consensus === "CONDITIONAL_APPROVAL" ?
-                                   "bg-amber-500/15 text-amber-300 border-amber-500/40" :
-                                   "bg-rose-500/15 text-rose-300 border-rose-500/40";
+      let classes: string;
+      if (consensus === "APPROVED") {
+        classes = "bg-emerald-500/15 text-emerald-300 border-emerald-500/40";
+      } else if (consensus === "CONDITIONAL_APPROVAL") {
+        classes = "bg-amber-500/15 text-amber-300 border-amber-500/40";
+      } else {
+        // Covers REQUIRES_REWRITE and any other unexpected string
+        classes = "bg-rose-500/15 text-rose-300 border-rose-500/40";
+      }
+      consensusClassMap[consensus] = classes;
     }
     return consensusClassMap[consensus];
   };
@@ -62,7 +74,10 @@ export function CurrentCycle() {
 
   const fileResults = cycle.fileResults || [];
   const totalFiles = fileResults.length;
-  const pushedFiles = fileResults.filter(r => r.pushed).length;
+  
+  // Calculate pushedFiles efficiently
+  const pushedFiles = fileResults.reduce((count, r) => count + (r.pushed ? 1 : 0), 0);
+  
   const firstProofHash = totalFiles > 0 ? fileResults[0]?.proofHash : undefined;
 
   return (
@@ -89,7 +104,7 @@ export function CurrentCycle() {
               )}
               aria-hidden="true"
             />
-            Cycle #{cycle.cycleNumber ?? 'N/A'}
+            Cycle #{cycle.cycleNumber ?? 0}
             <span className="text-xs text-slate-400 font-normal uppercase tracking-widest hidden sm:inline ml-1">
               {cycle.mode}
             </span>
