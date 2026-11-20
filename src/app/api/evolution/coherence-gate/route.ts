@@ -71,12 +71,6 @@ export async function POST(req: Request) {
     structuralDriftRatio = Math.abs(propLen - origLen) / origLen;
   }
       
-  // Since origLen > 0 implies structuralDriftRatio is finite or NaN (which Math.abs/division shouldn't produce here),
-  // we only need to handle the Infinity case explicitly for saturationScore calculation.
-  if (isNaN(structuralDriftRatio)) {
-    structuralDriftRatio = Infinity;
-  }
-  
   const passed = structuralDriftRatio < 0.7;
   
   // Calculate saturationScore: 0 if drift is Infinity, otherwise max(0, 1 - ratio)
