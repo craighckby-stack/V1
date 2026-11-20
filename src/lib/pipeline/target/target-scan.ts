@@ -96,6 +96,7 @@ function isMagicNumber(node: ts.NumericLiteral): boolean {
 
 /** Line number (1-based) for a position in a parsed source file. */
 function lineOf(sf: ts.SourceFile, pos: number): number {
+  if (!sf) return 1; // Default to line 1 if source file is undefined
   return sf.getLineAndCharacterOfPosition(pos).line + 1;
 }
 
@@ -267,7 +268,7 @@ export function pickTargetFinding(
       counts.set(f.kind, n + 1);
 
       const fPriority = TARGET_KIND_PRIORITY[f.kind];
-      const bestPriority = best?.finding.kind ? TARGET_KIND_PRIORITY[best.finding.kind] : Infinity;
+      const bestPriority = best?.finding ? TARGET_KIND_PRIORITY[best.finding.kind] : Infinity;
 
       if (
         !best ||
