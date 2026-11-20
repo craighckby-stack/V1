@@ -36,17 +36,11 @@ export async function GET(req: Request) {
   }
   
   try {
-    // Run seeding and querying in parallel to reduce latency
-    await Promise.all([
-      emgRagInstance.ensureSeeded(),
-      emgRagInstance.query(q)
-    ]);
-    
-    const queryResult = await emgRagInstance.query(q); // Re-querying is necessary if ensureSeeded is async and doesn't return the result, but based on original structure, we assume query is the final step. Reverting to sequential for safety unless query is idempotent/cached after ensureSeeded.
-    // Reverting to sequential execution as parallelizing ensureSeeded() and query(q) might lead to query running before seeding is complete, despite Promise.all structure.
+    // Ensure seeding completes before querying to guarantee data availability.
     await emgRagInstance.ensureSeeded();
+    
+    // Perform the query once after seeding is guaranteed.
     const queryResultSequential = await emgRagInstance.query(q);
-
 
     if (!queryResultSequential) {
       return NextResponse.json(
@@ -94,7 +88,7 @@ export async function GET(req: Request) {
     
     return NextResponse.json(
       { 
-        error: `Failed to execute memory query for query "${q || 'N/A'}". Please check RAG service status. Details: ${errorMessage}`,
+        error: `Failed to execute memory query for query "${q}". Please check RAG service status. Details: ${errorMessage}`,
         operation: "memory query"
       }, 
       { status: 500 }
