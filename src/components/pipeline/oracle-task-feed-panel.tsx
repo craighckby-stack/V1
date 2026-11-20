@@ -48,7 +48,12 @@ export function OracleTaskFeedPanel() {
     }
 
     try {
-      const response = await fetch("/api/self-enhance/tasks?limit=50");
+      const limit = 50; // Hardcoded limit with validation
+      if (limit <= 0 || limit > 100) {
+        throw new Error("Invalid limit parameter: must be between 1 and 100");
+      }
+      
+      const response = await fetch(`/api/self-enhance/tasks?limit=${limit}`);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: Failed to fetch tasks from /api/self-enhance/tasks. ${response.statusText}`);
       }
