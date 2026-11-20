@@ -15,7 +15,7 @@
  * backed by /api/pipeline/history (PipelineRun table, newest 25).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { ManualPipelineRunner } from "./manual-runner";
 
 const PROMPT_COLOR = "#e0e0e0";
@@ -61,30 +61,63 @@ function statusColor(status: string): string {
 export function TargetPanel({ open, onClose }: Props) {
   const [runs, setRuns] = useState<HistoryRun[]>([]);
   const [loading, setLoading] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const loadHistory = useCallback(async () => {
+    // Cancel any ongoing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+    
     setLoading(true);
     try {
-      const res = await fetch("/api/pipeline/history");
+      // Add timeout to prevent hanging requests
+      const timeoutId = setTimeout(() => {
+        if (signal.aborted) return;
+        abortControllerRef.current?.abort();
+        console.error("Pipeline history request timed out");
+        setRuns([]);
+        setLoading(false);
+      }, 10000); // 10 second timeout
+      
+      const res = await fetch("/api/pipeline/history", { signal });
+      clearTimeout(timeoutId);
+      
+      if (signal.aborted) return;
+      
       if (!res.ok) {
         const errorText = await res.text();
         console.error(`Failed to load pipeline history: HTTP status ${res.status}. Details: ${errorText.substring(0, 100)}`);
         setRuns([]); // Ensure runs is empty on API failure
         return;
       }
+      
       const data = await res.json();
-      if (data && Array.isArray(data.runs)) {
-        setRuns(data.runs);
-      } else {
+      
+      // Validate response structure
+      if (!data || !Array.isArray(data.runs)) {
         console.error("Unexpected response structure from pipeline history API");
         setRuns([]); // Handle case where response is OK but structure is unexpected
+        return;
       }
+      
+      setRuns(data.runs);
     } catch (error) {
+      // Ignore abort errors
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
+      
       // History is a convenience strip — log error but never block the panel on it.
       console.error("Network or parsing error fetching pipeline history:", error instanceof Error ? error.message : "Unknown error");
       setRuns([]); // Ensure runs is empty on network/parsing failure
     } finally {
-      setLoading(false);
+      if (!signal.aborted) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -93,6 +126,13 @@ export function TargetPanel({ open, onClose }: Props) {
       // Only load when opening, not on subsequent re-renders while open
       loadHistory();
     }
+    
+    // Cleanup function to cancel pending requests when component unmounts or closes
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [open, loadHistory]);
 
   if (!open) return null;
