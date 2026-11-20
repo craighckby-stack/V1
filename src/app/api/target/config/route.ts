@@ -40,6 +40,11 @@ export async function POST(req: Request) {
     }
     repoName = body.repo;
 
+    // Validate branch parameter if provided
+    if (body.branch !== undefined && typeof body.branch !== "string") {
+      return NextResponse.json({ ok: false, error: "branch must be a string if provided" }, { status: 400 });
+    }
+
     // Resolve token once for all subsequent checks
     const token = await resolveTargetToken();
 
@@ -68,9 +73,9 @@ export async function POST(req: Request) {
     if (!config.branch) {
       // Persist the resolved default so `target status` shows the truth.
       const saved = await setTargetConfig(config.repo, defaultBranch);
-      return NextResponse.json({ ok: true, config: saved, defaultBranch: defaultBranch });
+      return NextResponse.json({ ok: true, config: saved, defaultBranch });
     }
-    return NextResponse.json({ ok: true, config, defaultBranch: defaultBranch });
+    return NextResponse.json({ ok: true, config, defaultBranch });
 
   } catch (err) {
     if (err instanceof Error) {
