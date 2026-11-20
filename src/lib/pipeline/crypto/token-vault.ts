@@ -177,9 +177,6 @@ export function openToken(stored: string): string {
       return "";
     }
     
-    // Check for empty parts which can result from malformed input like "a..c"
-    if (parts.some(p => p.length === 0)) return "";
-
     let iv: Buffer, tag: Buffer, ct: Buffer;
     
     try {
@@ -191,7 +188,7 @@ export function openToken(stored: string): string {
       return "";
     }
     
-    // Validate IV and tag lengths, and ensure buffers are not empty
+    // Validate IV, tag, and ciphertext lengths immediately after decoding
     if (iv.length !== IV_LENGTH || tag.length !== GCM_TAG_LENGTH || ct.length === 0) return "";
 
     const decipher = createDecipheriv("aes-256-gcm", key, iv);

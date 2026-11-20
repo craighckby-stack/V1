@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/emg/sanitize/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "Test gate failed: test failed (sandboxed): src/app/api/emg/sanitize/route.test.ts — \nsrc/app/api/emg/sanitize/route.test.ts:\n(pass) route constants > dynamic is 'force-dynamic' [0.08ms]\n(pass) route constants > runtime is 'nodejs' [0.01ms]\n80 |       body: \"{not valid json\",\n81 |    ",
@@ -12,8 +12,8 @@
   "parentHash": "52fbe380458998b484729fd96dbc69a5333d79528458830e17790e9c56507196",
   "hash": "67ae3548ef0fe21d4f7a8f048bbf1e4b8998629a9fdb991474b78d19a1b228de",
   "lastAttemptAt": "2026-11-19T14:52:29.690Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-20T10:27:34.257Z",
   "createdAt": "2026-11-19T13:59:58.616Z",
-  "updatedAt": "2026-11-19T14:52:29.690Z",
+  "updatedAt": "2026-11-20T10:27:34.257Z",
   "schema": 2
 }
