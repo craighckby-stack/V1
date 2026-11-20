@@ -61,12 +61,7 @@ class LoopEventBus {
       throw new Error(`LoopEventBus.emit() called with invalid timestamp (must be a positive finite number, got: ${evt.timestamp})`);
     }
     
-    // Use type narrowing to ensure kind is valid
-    if (!("kind" in evt) || !["state", "log", "stage", "push"].includes(evt.kind)) {
-        throw new Error(`LoopEventBus.emit() called with unknown event kind: ${evt.kind}. Must be one of: state, log, stage, push.`);
-    }
-
-    // Input validation based on kind using type guards
+    // Use type narrowing via switch statement which is exhaustive for the union type
     switch (evt.kind) {
       case "state":
         if (!evt.state) {
@@ -111,6 +106,11 @@ class LoopEventBus {
           throw new Error(`LoopEventBus.emit() for kind 'push' has invalid sha: ${evt.sha}. Must be a string if provided.`);
         }
         break;
+      default:
+        // This case is now exhaustive due to the LoopEvent union type, preventing TS2339 errors.
+        // If execution reaches here, it implies a structural issue in the LoopEvent definition itself,
+        // which is a critical bug, not just bad input.
+        throw new Error(`LoopEventBus.emit() called with an unhandled or unknown event kind.`);
     }
 
     // EventEmitter.emit returns boolean | null. We return true if it didn't return null, false otherwise.
