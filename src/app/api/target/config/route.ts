@@ -45,8 +45,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "branch must be a string if provided" }, { status: 400 });
     }
 
-    // Resolve token once for all subsequent checks
+    // Resolve token first to ensure we have authentication before any validation
     const token = await resolveTargetToken();
+    if (!token) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `No GitHub token available to verify repo ${body.repo}. Please configure a token first.`,
+        },
+        { status: 422 }
+      );
+    }
 
     // Verify reachability FIRST: a typo'd repo or a private repo with no
     // usable token should never become a silently-broken target. The
