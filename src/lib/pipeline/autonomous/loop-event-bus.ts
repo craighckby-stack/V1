@@ -123,7 +123,12 @@ class LoopEventBus {
     }
     this.emitter.on("event", listener);
     return () => {
-      this.emitter.off("event", listener);
+      try {
+        this.emitter.off("event", listener);
+      } catch (error) {
+        // Log the error but don't throw to ensure cleanup always completes
+        console.error("Error removing listener from LoopEventBus:", error);
+      }
     };
   }
 }
