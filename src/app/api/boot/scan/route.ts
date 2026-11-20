@@ -69,20 +69,10 @@ async function diskScarCount(): Promise<number> {
       for (const entry of entries) {
         const fullPath = join(dirPath, entry.name);
         
-        try {
-          const statResult = await stat(fullPath);
-          if (statResult.isDirectory()) {
-            count += await countFilesInDirectory(fullPath);
-          } else if (fullPath.endsWith(".json")) {
-            count++;
-          }
-        } catch (e) {
-          // Log specific errors for individual file/dir access failures but continue traversal
-          if (e instanceof Error) {
-            console.warn(`Could not stat or access path ${fullPath}: ${e.message}`);
-          } else {
-            console.warn(`Unknown error accessing path ${fullPath}:`, e);
-          }
+        if (entry.isDirectory()) {
+          count += await countFilesInDirectory(fullPath);
+        } else if (entry.isFile() && fullPath.endsWith(".json")) {
+          count++;
         }
       }
       
@@ -90,11 +80,11 @@ async function diskScarCount(): Promise<number> {
     } catch (e) {
       // Catch errors during directory read (e.g., directory doesn't exist or permissions denied)
       if (e instanceof Error) {
-        console.error(`Fatal error reading directory ${dirPath}: ${e.message}`);
+        console.error(`Error reading directory ${dirPath}: ${e.message}`);
       } else {
-        console.error(`Unknown fatal error reading directory ${dirPath}:`, e);
+        console.error(`Unknown error reading directory ${dirPath}:`, e);
       }
-      return 0;
+      return 0; // Return 0 on failure as per honesty rule
     }
   }
 
@@ -273,7 +263,8 @@ export async function GET() {
   // Extract results, handling rejected promises by defaulting to null (as per Honesty rule)
   const corpus = results[0].status === 'fulfilled' ? results[0].value : null;
   const passRate = results[1].status === 'fulfilled' ? results[1].value : null;
-  const scarsResult = results[2].status === 'fulfilled' ? results[2].value : 0; // Scars must be a number (0 on failure)
+  // Scars must be a number (0 on failure) as per Honesty rule.
+  const scarsResult = results[2].status === 'fulfilled' ? results[2].value : 0; 
   const hotSwap = results[3].status === 'fulfilled' ? results[3].value : null;
   const autonomy = results[4].status === 'fulfilled' ? results[4].value : null;
   const zai = results[5].status === 'fulfilled' ? results[5].value : null;
