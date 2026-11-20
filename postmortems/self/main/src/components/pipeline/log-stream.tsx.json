@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/log-stream.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/log-stream.tsx(97,27): error TS2339: Property 'id' does not exist on type 'LoopLogEntry'.; src/components/pipeline/log-stream.tsx(98,33): error TS2339: Property 'id' does not exist on type 'LoopLogEntry'.",
@@ -12,8 +12,8 @@
   "parentHash": "f47a3041128560209bd14993c4275f84caf0247efdd445fd45fde69461eb1150",
   "hash": "bdb7e7abb943b0972fe49a191ea2dd282eabc5dba6b50f12bc35811b1e4712b6",
   "lastAttemptAt": "2026-11-20T07:04:20.373Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-20T10:23:24.174Z",
   "createdAt": "2026-11-20T06:42:11.834Z",
-  "updatedAt": "2026-11-20T07:04:20.373Z",
+  "updatedAt": "2026-11-20T10:23:24.174Z",
   "schema": 2
 }

@@ -8,25 +8,31 @@ import { usePipelineStore } from "@/lib/pipeline-store";
 import { cn } from "@/lib/utils";
 
 // Memoize consensus display functions to prevent unnecessary re-computations
-const getConsensusDisplay = ((consensusMap: Record<string, string> = {}) => (consensus: string) => {
-  if (!consensusMap[consensus]) {
-    consensusMap[consensus] = consensus === "APPROVED" ? "APR" :
-                             consensus === "CONDITIONAL_APPROVAL" ? "COND" :
-                             consensus === "REQUIRES_REWRITE" ? "REJ" :
-                             consensus;
-  }
-  return consensusMap[consensus];
+const getConsensusDisplay = (() => {
+  const consensusMap: Record<string, string> = {};
+  return (consensus: string) => {
+    if (!consensusMap[consensus]) {
+      consensusMap[consensus] = consensus === "APPROVED" ? "APR" :
+                               consensus === "CONDITIONAL_APPROVAL" ? "COND" :
+                               consensus === "REQUIRES_REWRITE" ? "REJ" :
+                               consensus;
+    }
+    return consensusMap[consensus];
+  };
 })();
 
-const getConsensusClass = ((consensusClassMap: Record<string, string> = {}) => (consensus: string) => {
-  if (!consensusClassMap[consensus]) {
-    consensusClassMap[consensus] = consensus === "APPROVED" ?
+const getConsensusClass = (() => {
+  const consensusClassMap: Record<string, string> = {};
+  return (consensus: string) => {
+    if (!consensusClassMap[consensus]) {
+      consensusClassMap[consensus] = consensus === "APPROVED" ?
                                    "bg-emerald-500/15 text-emerald-300 border-emerald-500/40" :
                                    consensus === "CONDITIONAL_APPROVAL" ?
                                    "bg-amber-500/15 text-amber-300 border-amber-500/40" :
                                    "bg-rose-500/15 text-rose-300 border-rose-500/40";
-  }
-  return consensusClassMap[consensus];
+    }
+    return consensusClassMap[consensus];
+  };
 })();
 
 export function CurrentCycle() {
@@ -56,7 +62,7 @@ export function CurrentCycle() {
 
   const fileResults = cycle.fileResults || [];
   const totalFiles = fileResults.length;
-  const pushedFiles = fileResults.reduce((count, r) => count + (r.pushed ? 1 : 0), 0);
+  const pushedFiles = fileResults.filter(r => r.pushed).length;
   const firstProofHash = totalFiles > 0 ? fileResults[0]?.proofHash : undefined;
 
   return (
