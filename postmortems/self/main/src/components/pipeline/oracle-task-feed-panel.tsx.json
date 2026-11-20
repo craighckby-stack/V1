@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/oracle-task-feed-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/oracle-task-feed-panel.tsx(66,9): error TS2322: Type 'string | boolean' is not assignable to type 'boolean'.\n  Type 'string' is not assignable to type 'boolean'.",
@@ -12,8 +12,8 @@
   "parentHash": "31aca6f8567f0434c76d6c6dd80e17d5275e6afc3acbbf8141865047de619b92",
   "hash": "1b9bd2c96fca4ad2cb3935c203e04487036f758fa887b5cda0de92884db32a08",
   "lastAttemptAt": "2026-11-20T10:37:42.056Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-20T11:15:57.166Z",
   "createdAt": "2026-11-20T09:14:34.494Z",
-  "updatedAt": "2026-11-20T10:37:42.056Z",
+  "updatedAt": "2026-11-20T11:15:57.166Z",
   "schema": 2
 }
