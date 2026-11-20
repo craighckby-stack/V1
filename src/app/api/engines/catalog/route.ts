@@ -41,10 +41,23 @@ export async function GET() {
     }
 
     // Check for required structure: 'patterns' must exist and be an array.
-    // We check the structure before attempting to cast to SiphonSource.
     if (!('patterns' in source) || !Array.isArray(source.patterns)) {
       invalidSources.push({ index: i, reason: "Source is missing 'patterns' array or 'patterns' is not an array." });
       return; // Skip invalid entry
+    }
+    
+    // Check if patterns array is empty
+    if (source.patterns.length === 0) {
+      invalidSources.push({ index: i, reason: "Source patterns array is empty." });
+      return; // Skip invalid entry
+    }
+    
+    // Validate each pattern in the array
+    for (const pattern of source.patterns) {
+      if (typeof pattern !== 'string') {
+        invalidSources.push({ index: i, reason: `Pattern at index ${source.patterns.indexOf(pattern)} is not a string.` });
+        return; // Skip invalid entry
+      }
     }
     
     // Safely cast after structural validation

@@ -96,6 +96,7 @@ function isMagicNumber(node: ts.NumericLiteral): boolean {
 
 /** Line number (1-based) for a position in a parsed source file. */
 function lineOf(sf: ts.SourceFile, pos: number): number {
+  if (!sf) return 1; // Default to line 1 if source file is undefined
   return sf.getLineAndCharacterOfPosition(pos).line + 1;
 }
 
@@ -113,6 +114,10 @@ function scriptKindFor(relPath: string): ts.ScriptKind {
  * for script-kind detection and evidence lines).
  */
 export function scanTargetContent(relPath: string, text: string): TargetFinding[] {
+  if (!text || typeof text !== "string") {
+    return [];
+  }
+  
   const lines = text.split("\n");
   const sf = ts.createSourceFile(relPath, text, ts.ScriptTarget.Latest, true, scriptKindFor(relPath));
   const findings: TargetFinding[] = [];
@@ -177,7 +182,8 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
 
       for (const b of bindings) {
         // Ensure proper regex escaping for binding names
-        const re = new RegExp(`\\b${b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
+        const escapedBinding = b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const re = new RegExp(`\\b${escapedBinding}\\b`, "g");
         if ((restOfFile.match(re) ?? []).length === 0) {
           push("unused-import", node.getStart());
           break;
@@ -267,7 +273,7 @@ export function pickTargetFinding(
       counts.set(f.kind, n + 1);
 
       const fPriority = TARGET_KIND_PRIORITY[f.kind];
-      const bestPriority = best?.finding.kind ? TARGET_KIND_PRIORITY[best.finding.kind] : Infinity;
+      const bestPriority = best?.finding ? TARGET_KIND_PRIORITY[best.finding.kind] : Infinity;
 
       if (
         !best ||

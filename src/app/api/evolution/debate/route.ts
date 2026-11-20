@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   let body: DebateRequest;
   try {
     body = await req.json() as DebateRequest;
-  } catch (e) {
+  } catch {
     // Provide a specific 400 error for JSON parsing failure without leaking internal details.
     return NextResponse.json(
       { error: "Invalid JSON format in request body." },
@@ -29,14 +29,23 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!body.filePath || typeof body.filePath !== "string" || body.filePath.length === 0 || typeof body.candidateCode !== "string" || body.candidateCode.length === 0) {
+  // Validate required fields
+  if (!body.filePath || typeof body.filePath !== "string" || body.filePath.trim().length === 0) {
     return NextResponse.json(
-      { error: "filePath and candidateCode are required and must be non-empty strings." },
+      { error: "filePath is required and must be a non-empty string." },
       { status: 400 }
     );
   }
 
-  if (body.topic !== undefined && (typeof body.topic !== "string" || body.topic.length === 0)) {
+  if (!body.candidateCode || typeof body.candidateCode !== "string" || body.candidateCode.trim().length === 0) {
+    return NextResponse.json(
+      { error: "candidateCode is required and must be a non-empty string." },
+      { status: 400 }
+    );
+  }
+
+  // Validate optional topic field
+  if (body.topic !== undefined && (typeof body.topic !== "string" || body.topic.trim().length === 0)) {
     return NextResponse.json(
       { error: "If provided, topic must be a non-empty string." },
       { status: 400 }

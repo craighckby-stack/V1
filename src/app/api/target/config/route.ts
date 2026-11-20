@@ -38,10 +38,33 @@ export async function POST(req: Request) {
     if (!body?.repo || typeof body.repo !== "string") {
       return NextResponse.json({ ok: false, error: "repo is required (owner/name)" }, { status: 400 });
     }
+    
+    // Validate repo format (should be in owner/name format)
+    if (!body.repo.includes("/")) {
+      return NextResponse.json({ 
+        ok: false, 
+        error: "repo must be in 'owner/name' format" 
+      }, { status: 400 });
+    }
+    
     repoName = body.repo;
 
-    // Resolve token once for all subsequent checks
+    // Validate branch parameter if provided
+    if (body.branch !== undefined && typeof body.branch !== "string") {
+      return NextResponse.json({ ok: false, error: "branch must be a string if provided" }, { status: 400 });
+    }
+
+    // Resolve token first to ensure we have authentication before any validation
     const token = await resolveTargetToken();
+    if (!token) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `No GitHub token available to verify repo ${body.repo}. Please configure a token first.`,
+        },
+        { status: 422 }
+      );
+    }
 
     // Verify reachability FIRST: a typo'd repo or a private repo with no
     // usable token should never become a silently-broken target. The
@@ -63,14 +86,9 @@ export async function POST(req: Request) {
     }
 
     // Now that reachability is confirmed, save the configuration
-    const config = await setTargetConfig(body.repo, body.branch ?? null);
+    const config = await setTargetConfig(body.repo, body.branch ?? defaultBranch);
 
-    if (!config.branch) {
-      // Persist the resolved default so `target status` shows the truth.
-      const saved = await setTargetConfig(config.repo, defaultBranch);
-      return NextResponse.json({ ok: true, config: saved, defaultBranch: defaultBranch });
-    }
-    return NextResponse.json({ ok: true, config, defaultBranch: defaultBranch });
+    return NextResponse.json({ ok: true, config, defaultBranch });
 
   } catch (err) {
     if (err instanceof Error) {

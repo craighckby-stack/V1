@@ -87,7 +87,7 @@ export function writeLoopStats(state: LoopStatsState): void {
 
   // Validate lastEnhancementAt
   const ts = state.lastEnhancementAt;
-  if (ts !== null && typeof ts === "string" && isNaN(Date.parse(ts))) {
+  if (ts !== null && (typeof ts !== "string" || isNaN(Date.parse(ts)))) {
     console.error(`writeLoopStats: Invalid lastEnhancementAt value: ${ts}. Must be a valid ISO string or null.`);
     return;
   }
@@ -131,7 +131,7 @@ export function readLoopStats(): LoopStatsState | null {
     }
     const obj = parsed as Record<string, unknown>;
 
-    // Check for presence of all required fields and validate their types
+    // Fail fast on missing required fields
     for (const field of NUMERIC_FIELDS) {
       if (!(field in obj) || typeof obj[field] !== "number" || 
           !Number.isFinite(obj[field]) || obj[field] < 0 || 
@@ -139,11 +139,13 @@ export function readLoopStats(): LoopStatsState | null {
         return null;
       }
     }
+    
     // Check lastEnhancementAt presence and type
     if (!('lastEnhancementAt' in obj)) return null;
     const ts = obj.lastEnhancementAt;
-    if (ts !== null && typeof ts !== "string") return null;
-    if (ts !== null && isNaN(Date.parse(ts))) return null;
+    if (ts !== null && (typeof ts !== "string" || isNaN(Date.parse(ts)))) {
+      return null;
+    }
 
     return {
       totalScanned: obj.totalScanned as number,

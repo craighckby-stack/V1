@@ -55,6 +55,7 @@ import { getMetaInt, getMetaFloat } from "./meta-params";
 import { getCorpusDigest } from "./mutation-corpus";
 import { getNamedPatterns } from "./dreamer";
 import { exportLessonsMarkdown } from "./lessons-markdown";
+import { getFleetDigest } from "./githistory-corpus";
 import { scrubSectionMarkers } from "../core/prompt-scrub";
 
 /** Seeds (see module doc — the live values live in MetaParam, D8). */
@@ -354,6 +355,12 @@ async function buildHistoryDigest(): Promise<string> {
     if (named) {
       sections.push(`Recurring transforms (named by the idle-time dreamer — an interpretation of the corpus, not a fact):\n${named}`);
     }
+    // GitHistory-Sync fleet digest — external evidence from the
+    // operator's sibling deployments (memory/commit-history.*.json).
+    // Fenced with the digest below (treat-as-data + marker scrub),
+    // fail-soft: an absent corpus is an empty string, not an error.
+    const fleet = getFleetDigest();
+    if (fleet) sections.push(fleet);
     return sections.join("\n");
   } catch {
     return "(postmortem history unavailable)";
@@ -573,6 +580,50 @@ export async function maybeDistill(cyclesCompleted: number): Promise<number> {
   const interval = await getMetaInt("DISTILL_INTERVAL", DISTILL_INTERVAL);
   if (cyclesCompleted <= 0 || cyclesCompleted % interval !== 0) return 0;
   return distillLessons();
+}
+
+/** Aggregate lesson OUTCOME metrics (helped/hindered totals across all
+ *  active lessons). This is the system's only honest "did the
+ *  enhancements actually help?" signal — the dashboard's enhanced/
+ *  rejected/pushed/cycles counters are ACTIVITY (how much the loop did),
+ *  not OUTCOME (whether what it did worked). Lessons track helped/
+ *  hindered per row because the distiller down-weights lessons that
+ *  hinder more than they help; this aggregates that signal so the
+ *  operator can see it at a glance.
+ *
+ *  Returns { helped, hindered, activeLessons, medianScore } — all 0 if
+ *  the DB is unavailable (best-effort, never throws). */
+export async function getLessonOutcomes(): Promise<{
+  helped: number;
+  hindered: number;
+  activeLessons: number;
+  medianScore: number;
+}> {
+  const l = lessons();
+  if (!l) return { helped: 0, hindered: 0, activeLessons: 0, medianScore: 0 };
+  try {
+    const rows = await l.findMany({
+      where: { active: true },
+      select: { helped: true, hindered: true, score: true },
+    });
+    const helped = rows.reduce((sum, r) => sum + (r.helped ?? 0), 0);
+    const hindered = rows.reduce((sum, r) => sum + (r.hindered ?? 0), 0);
+    const scores = rows.map((r) => r.score ?? 0).sort((a, b) => a - b);
+    const medianScore =
+      scores.length === 0
+        ? 0
+        : scores.length % 2 === 1
+          ? scores[Math.floor(scores.length / 2)]
+          : (scores[scores.length / 2 - 1] + scores[scores.length / 2]) / 2;
+    return {
+      helped,
+      hindered,
+      activeLessons: rows.length,
+      medianScore,
+    };
+  } catch {
+    return { helped: 0, hindered: 0, activeLessons: 0, medianScore: 0 };
+  }
 }
 
 /** Seed lessons — the system starts with the meta-knowledge its own

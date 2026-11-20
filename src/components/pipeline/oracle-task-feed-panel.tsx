@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,52 +32,79 @@ const STATUS_STYLES: Record<string, { label: string; variant: "default" | "secon
 export function OracleTaskFeedPanel() {
   const [tasks, setTasks] = useState<SelfTask[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchTasks = useCallback(async (isInitialLoad: boolean = false) => {
-    if (refreshing) return; // Prevent concurrent refreshes
+    if (isRefreshing) return; // Prevent concurrent refreshes
     
     if (isInitialLoad) {
         setLoading(true);
         setError(null); // Clear previous errors on fresh start
     } else {
-        setRefreshing(true);
+        setIsRefreshing(true);
         setError(null);
     }
 
     try {
       const response = await fetch("/api/self-enhance/tasks?limit=50");
-      if (!response.ok) throw new Error(`HTTP ${response.status}: Failed to fetch tasks from /api/self-enhance/tasks.`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: Failed to fetch tasks from /api/self-enhance/tasks. ${response.statusText}`);
+      }
+      
       const data = await response.json();
-      // The API returns { tasks: [...], queue: {...} } — filter for the
-      // oracle-failed-prophecy kind (the audit-8 closure: failed
-      // prophecies that queued SelfTasks on the same file).
-      const allTasks: SelfTask[] = Array.isArray(data.tasks) ? data.tasks : [];
-      const oracleTasks = allTasks.filter((t) => t.kind === "oracle-failed-prophecy");
+      
+      // Validate and extract tasks with proper type checking
+      if (!data || typeof data !== 'object' || !Array.isArray(data.tasks)) {
+        throw new Error("Invalid API response format: Expected an object with a 'tasks' array");
+      }
+      
+      const allTasks: SelfTask[] = data.tasks;
+      // Validate each task has required fields
+      const validatedTasks = allTasks.filter(t => 
+        t && 
+        typeof t === 'object' && 
+        t.id && 
+        t.kind && 
+        t.filePath && 
+        t.evidence && 
+        t.status
+      );
+      
+      const oracleTasks = validatedTasks.filter((t) => t.kind === "oracle-failed-prophecy");
       setTasks(oracleTasks);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error during task fetch.";
       setError(`Last refresh failed for /api/self-enhance/tasks: ${msg}. Showing cached data.`);
       // Keep existing tasks on error — don't wipe the list on a transient failure
     } finally {
-      setRefreshing(false);
+      setIsRefreshing(false);
       if (isInitialLoad) {
         setLoading(false);
       }
     }
-  }, [refreshing]);
+  }, [isRefreshing]);
 
   useEffect(() => {
     // Initial fetch
     fetchTasks(true);
+    
     // Poll every 30s to reduce latency while still managing API load.
-    const intervalId = setInterval(() => {
+    intervalRef.current = setInterval(() => {
         fetchTasks(false);
     }, 30_000);
     
-    return () => clearInterval(intervalId);
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
   }, [fetchTasks]);
+
+  // Memoize status styles to avoid unnecessary re-renders
+  const statusStyles = useMemo(() => STATUS_STYLES, []);
 
   // Show loading if we are still loading initially, regardless of tasks.length or error state
   if (loading) {
@@ -112,11 +139,11 @@ export function OracleTaskFeedPanel() {
           variant="ghost"
           size="sm"
           onClick={() => fetchTasks(false)}
-          disabled={refreshing}
+          disabled={isRefreshing}
           className="h-10 w-10 p-0 transition-colors duration-150 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-indigo-500"
           aria-label="Refresh oracle task feed"
         >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
         </Button>
       </CardHeader>
       <CardContent>
@@ -127,14 +154,14 @@ export function OracleTaskFeedPanel() {
         )}
         {tasks.length === 0 && !loading ? (
           <p className="text-sm text-gray-500 p-4 bg-gray-50 rounded-lg">
-            No failed prophecies feeding tasks. The oracle's predictions are
+            No failed prophecies feeding tasks. The oracle&apos;s predictions are
             either unjudged, fulfilled, or not yet past their deadline.
           </p>
         ) : (
           <ScrollArea className="max-h-[400px]">
             <ul className="space-y-3 pr-2 sm:space-y-4">
               {tasks.map((task) => {
-                const style = STATUS_STYLES[task.status] ?? STATUS_STYLES.pending;
+                const style = statusStyles[task.status] ?? statusStyles.pending;
                 const StatusIcon = style.icon;
                 return (
                   <li
@@ -154,7 +181,7 @@ export function OracleTaskFeedPanel() {
                     <p className="text-sm text-gray-700 line-clamp-2" title={task.evidence}>
                       {task.evidence}
                     </p>
-                    {(task.attempts > 0 || task.lastError) && (
+                    {(task.attempts > 0 || task.deferred > 0 || task.lastError) && (
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
                         {task.attempts > 0 && <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Attempts: {task.attempts}</span>}
                         {task.deferred > 0 && <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Deferred: {task.deferred}</span>}

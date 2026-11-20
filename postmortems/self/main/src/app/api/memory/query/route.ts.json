@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/memory/query/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/api/memory/query/route.ts(47,11): error TS2451: Cannot redeclare block-scoped variable 'result'.; src/app/api/memory/query/route.ts(57,11): error TS2451: Cannot redeclare block-scoped variable 'result'.; src/app/api/memory/query/route.ts(106,61): error TS2304: Cannot find name 'q'.",
@@ -12,8 +12,8 @@
   "parentHash": "6d2193b7b07c6c831dd68bb054c0ca4897884dd38e8e54ed76e26268f35ec7cc",
   "hash": "c5ce0555a3435222da3fed1f22f6c2214df00c897c7a607502ecaf5f5d297278",
   "lastAttemptAt": "2026-11-19T14:57:01.136Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-20T06:55:03.224Z",
   "createdAt": "2026-11-19T13:59:58.620Z",
-  "updatedAt": "2026-11-19T14:57:01.136Z",
+  "updatedAt": "2026-11-20T06:55:03.224Z",
   "schema": 2
 }

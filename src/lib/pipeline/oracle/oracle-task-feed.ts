@@ -74,7 +74,7 @@ function hashProphecyIdToLine(prophecyId: string): number {
   for (let i = 0; i < prophecyId.length; i++) {
     h ^= prophecyId.charCodeAt(i);
     // FNV prime multiply, keep in 32-bit range
-    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    h = Math.imul(h, 0x01000193) >>> 0;
   }
   // Mask to ensure positive 32-bit integer (0x7fffffff)
   const line = h & 0x7fffffff;

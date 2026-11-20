@@ -1,0 +1,182 @@
+export interface GitHubRateInput {
+  status?: number;
+  remainingHeader: string | null;
+  resetHeader: string | null;
+  retryAfterHeader: string | null;
+  isAuthenticated: boolean;
+  nowMs?: number;
+}
+
+export interface CooldownDecision {
+  waitMs: number;
+  reason?: string;
+  shouldRetry: boolean;
+  fatalError?: string;
+}
+
+const MAX_AUTO_WAIT_MS = 120_000;
+
+/**
+ * Computes pacing and rate-limit recovery cooldowns for GitHub REST API requests.
+ */
+export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision {
+  const now = input.nowMs ?? Date.now();
+  const remaining =
+    input.remainingHeader !== null && input.remainingHeader !== ''
+      ? Number(input.remainingHeader)
+      : null;
+  const resetEpochSec =
+    input.resetHeader !== null && input.resetHeader !== '' ? Number(input.resetHeader) : null;
+  const retryAfterSec =
+    input.retryAfterHeader !== null && input.retryAfterHeader !== ''
+      ? Number(input.retryAfterHeader)
+      : null;
+
+  // Hard rate-limit or secondary abuse response
+  if (input.status === 403 || input.status === 429) {
+    if (retryAfterSec !== null && !Number.isNaN(retryAfterSec) && retryAfterSec > 0) {
+      const waitMs = Math.ceil(retryAfterSec * 1000) + 250;
+      if (waitMs <= MAX_AUTO_WAIT_MS) {
+        return {
+          waitMs,
+          shouldRetry: true,
+          reason: `GitHub Retry-After header requested a ${Math.ceil(waitMs / 1000)}s cooldown.`,
+        };
+      }
+      return {
+        waitMs: 0,
+        shouldRetry: false,
+        fatalError: `GitHub rate limit cooldown (${Math.ceil(waitMs / 1000)}s) exceeds 120s auto-wait limit.`,
+      };
+    }
+
+    if (remaining === 0 && resetEpochSec !== null && !Number.isNaN(resetEpochSec)) {
+      const waitMs = Math.max(1000, resetEpochSec * 1000 - now + 500);
+      if (waitMs <= MAX_AUTO_WAIT_MS) {
+        return {
+          waitMs,
+          shouldRetry: true,
+          reason: `GitHub primary rate limit exhausted — cooling down ${Math.ceil(waitMs / 1000)}s until reset.`,
+        };
+      }
+      const resetTime = new Date(resetEpochSec * 1000).toLocaleTimeString();
+      return {
+        waitMs: 0,
+        shouldRetry: false,
+        fatalError: `GitHub API rate limit exhausted until ${resetTime}. Add a personal access token or retry after reset.`,
+      };
+    }
+
+    // Secondary rate limit without Retry-After header (GitHub uses both 429 and 403 with remaining > 0)
+    if (input.status === 429 || (input.status === 403 && remaining !== 0)) {
+      return {
+        waitMs: input.status === 403 ? 8000 : 5000,
+        shouldRetry: true,
+        reason: `GitHub secondary rate limit (HTTP ${input.status}) — cooling down ${input.status === 403 ? 8 : 5}s before retry.`,
+      };
+    }
+  }
+
+  // Proactive pacing based on remaining quota
+  if (remaining !== null && !Number.isNaN(remaining)) {
+    if (remaining === 0 && resetEpochSec !== null && !Number.isNaN(resetEpochSec)) {
+      const waitMs = Math.max(1000, resetEpochSec * 1000 - now + 500);
+      if (waitMs <= MAX_AUTO_WAIT_MS) {
+        return {
+          waitMs,
+          shouldRetry: false,
+          reason: `GitHub quota reached 0 — cooling down ${Math.ceil(waitMs / 1000)}s until reset.`,
+        };
+      }
+    }
+    if (remaining < 20) {
+      return {
+        waitMs: 1500,
+        shouldRetry: false,
+        reason: `GitHub quota low (${remaining} remaining) — slowing pace to 1.5s/request.`,
+      };
+    }
+    if (remaining < 100) {
+      return { waitMs: 450, shouldRetry: false };
+    }
+  }
+
+  // Baseline polite cooldown
+  return {
+    waitMs: input.isAuthenticated ? 180 : 1100,
+    shouldRetry: false,
+  };
+}
+
+/**
+ * Computes inter-batch and retry cooldowns for LLM API calls (Gemini / NVIDIA NIM).
+ */
+export function computeAiBatchCooldownMs(attempt = 0, retryAfterSec?: number | null): number {
+  if (attempt === 0) {
+    return 1200; // Decent 1.2s cooldown between consecutive LLM batches
+  }
+  if (retryAfterSec && retryAfterSec > 0) {
+    return Math.min(30_000, Math.ceil(retryAfterSec * 1000) + 300);
+  }
+  return Math.min(20_000, 2500 * Math.pow(2, attempt - 1));
+}
+
+export async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return;
+  if (signal?.aborted) throw new Error('Operation cancelled.');
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new Error('Operation cancelled.'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
+ * Wraps fetch with an automatic timeout while respecting a caller-supplied AbortSignal
+ * so stalled network sockets never freeze an extraction run.
+ */
+export async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 30_000
+): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const callerSignal = init.signal ?? undefined;
+
+  if (callerSignal?.aborted) {
+    throw new Error('Operation cancelled.');
+  }
+
+  const onCallerAbort = () => controller.abort();
+  callerSignal?.addEventListener('abort', onCallerAbort, { once: true });
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (timedOut) {
+      throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
+    }
+    if (callerSignal?.aborted) {
+      throw new Error('Operation cancelled.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', onCallerAbort);
+  }
+}

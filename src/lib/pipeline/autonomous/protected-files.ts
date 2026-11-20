@@ -97,6 +97,16 @@ export const PROTECTED_FILES = new Set([
   // module's integrity, so it gets the same protection as the gates
   // and the protected-list itself.
   "src/lib/pipeline/autonomous/arch-context.ts",
+  // GitHistory-Sync corpus bridge — same class as arch-context: it
+  // shapes prompt content (the fleet digest feeds the lesson distiller;
+  // the prior-art block feeds every refactor prompt). A corrupted
+  // version could fabricate prior art ("sibling repos do it this way"),
+  // mislabel fleet stats, or strip the honest CI-pending split from the
+  // digest — poisoning the learning substrate's EXTERNAL evidence
+  // channel. The corpus FILES (memory/commit-history.*.json) are
+  // operator-provided and outside the loop's scan scope already; this
+  // entry protects the READER that turns them into prompt content.
+  "src/lib/pipeline/autonomous/githistory-corpus.ts",
   // The self-model — the loop's measured self-knowledge, INCLUDING the
   // bandit target-selection formula (empirical + exploration + recency +
   // MOMENTUM + COMPLEXITY − exhaustion). This is selection POLICY, same

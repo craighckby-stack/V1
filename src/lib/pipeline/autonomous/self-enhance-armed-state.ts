@@ -77,7 +77,11 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   const infoDir = join(PROJECT_ROOT, ".git/info");
 
   try {
-    mkdirSync(infoDir, { recursive: true });
+    // Ensure directory exists (recursive: true handles parent dirs too)
+    // Check if directory exists first to avoid race condition
+    if (!existsSync(infoDir)) {
+      mkdirSync(infoDir, { recursive: true });
+    }
     const entry: SelfEnhanceArmedState = {
       armed,
       at: new Date().toISOString(),
@@ -108,22 +112,32 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
     const parsed: unknown = JSON.parse(raw);
 
-    if (typeof parsed !== 'object' || parsed === null) {
-        return null;
-    }
-
-    const state = parsed as SelfEnhanceArmedState;
-
     // Validate the parsed object structure strictly against the interface
     if (
-      typeof state.armed === "boolean" &&
-      typeof state.at === "string" &&
-      typeof state.by === "string" &&
-      state.by.trim() !== "" &&
-      !isNaN(Date.parse(state.at))
+      typeof parsed === 'object' && 
+      parsed !== null && 
+      'armed' in parsed && 
+      'at' in parsed && 
+      'by' in parsed &&
+      typeof parsed.armed === "boolean" &&
+      typeof parsed.at === "string" &&
+      typeof parsed.by === "string" &&
+      parsed.by.trim() !== "" &&
+      // Validate ISO date format without parsing (performance optimization)
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/.test(parsed.at)
     ) {
-      return state;
+      return {
+        armed: parsed.armed,
+        at: parsed.at,
+        by: parsed.by
+      };
     }
+    
+    console.error(
+      "readSelfEnhanceArmedState: Invalid armed state format in file",
+      ARMED_STATE_FILE,
+      "Expected format: { armed: boolean, at: ISO date string (YYYY-MM-DDTHH:mm:ss.sssZ), by: non-empty string }"
+    );
     return null;
   } catch (error) {
     console.error(

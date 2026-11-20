@@ -55,7 +55,13 @@ export async function POST(req: Request) {
   let body: { force?: boolean } | null = null;
 
   try {
-    body = await req.json();
+    // Read the request body as text first to avoid memory leaks with invalid JSON
+    const bodyText = await req.text();
+    try {
+      body = JSON.parse(bodyText);
+    } catch (jsonError) {
+      throw new Error(`Invalid JSON in request body: ${(jsonError as Error)?.message || 'Malformed JSON'}`);
+    }
 
     // Validate body is an object
     if (typeof body !== 'object' || body === null) {

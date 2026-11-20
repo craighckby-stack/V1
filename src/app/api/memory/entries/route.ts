@@ -14,19 +14,15 @@ export async function GET() {
   if (!emgRagInstance) {
     return NextResponse.json(
       { error: "Memory service is not properly initialized. Check service startup logs." },
-      { status: 503 } // Changed to 503 Service Unavailable for uninitialized dependency
+      { status: 503 }
     );
   }
 
   try {
-    // Run seeding and retrieval in parallel to reduce latency. ensureSeeded is idempotent.
-    await Promise.all([
-      emgRagInstance.ensureSeeded(),
-      // We don't await getAll here, but we need to ensure seeding completes first if getAll depends on it.
-      // Assuming ensureSeeded completes before getAll is safe, but running them concurrently is faster if they are independent.
-      // Since ensureSeeded must complete before getAll is meaningful, we await it first, then fetch.
-    ]);
+    // First ensure the store is seeded
+    await emgRagInstance.ensureSeeded();
     
+    // Then retrieve all entries
     const entries = emgRagInstance.getAll();
 
     // Ensure we return an array, defaulting to empty array if null or undefined
@@ -41,11 +37,13 @@ export async function GET() {
     let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
     let statusCode = 500;
 
-    // If the error message suggests a specific issue (e.g., database connection failure), 
-    // we might refine the response, but sticking to the original structure while ensuring context.
+    // Provide more specific error messages based on error type
     if (error.message.includes("connection") || error.message.includes("timeout")) {
         errorMessage = "The memory store service is temporarily unavailable due to a connection issue. Please retry later.";
-        statusCode = 503; // Use 503 for transient service unavailability
+        statusCode = 503;
+    } else if (error.message.includes("not found") || error.message.includes("missing")) {
+        errorMessage = "Required memory data is missing. The service may need to be reinitialized.";
+        statusCode = 404;
     }
     
     return NextResponse.json(

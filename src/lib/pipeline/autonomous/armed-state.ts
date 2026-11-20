@@ -78,12 +78,12 @@ export function markArmed(armed: boolean, by: string): void {
  *  a bad read. This is the dual-layer fail-closed contract: the boot
  *  auto-arm only proceeds when the disk EXPLICITLY says armed:true. */
 export function readArmedState(): ArmedState | null {
-  if (!existsSync(ARMED_STATE_FILE)) {
-    // File not found is expected on first run, treated as not armed.
-    return null;
-  }
-
   try {
+    if (!existsSync(ARMED_STATE_FILE)) {
+      // File not found is expected on first run, treated as not armed.
+      return null;
+    }
+
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
 
     if (raw.trim() === "") {
@@ -122,7 +122,7 @@ export function readArmedState(): ArmedState | null {
 
     return state;
   } catch (error) {
-    // Catch other I/O errors (permissions, etc.) that exist even if existsSync passed (e.g., race condition where file is deleted between checks)
+    // Catch all I/O errors (permissions, race conditions, etc.)
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`readArmedState: Failed to read armed state from ${ARMED_STATE_FILE}. Check file permissions or disk integrity. Error: ${errorMessage}`);
     return null;

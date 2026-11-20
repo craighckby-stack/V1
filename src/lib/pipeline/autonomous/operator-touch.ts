@@ -103,9 +103,9 @@ export function readOperatorTouch(): OperatorTouchState | null {
 
     // Validate the parsed object strictly against the required structure
     if (
-        typeof parsed !== "object" || parsed === null ||
-        !('at' in parsed) || typeof (parsed as OperatorTouchState).at !== "string" ||
-        !('by' in parsed) || typeof (parsed as OperatorTouchState).by !== "string"
+      typeof parsed !== "object" || parsed === null ||
+      !('at' in parsed) || typeof (parsed as OperatorTouchState).at !== "string" ||
+      !('by' in parsed) || typeof (parsed as OperatorTouchState).by !== "string"
     ) {
       console.error(`Invalid operator touch file format at ${OPERATOR_TOUCH_FILE}: missing required 'at' or 'by' fields or wrong types`);
       return null;
@@ -150,9 +150,8 @@ export function isDeadMansTripped(
   const state = readOperatorTouch();
   if (!state) return true; // never touched, unreadable, or malformed → tripped
 
-  // readOperatorTouch guarantees state.at is a valid ISO date string if it returns a state.
-  const lastTouch = Date.parse(state.at);
+  // Since readOperatorTouch validated the timestamp, we can use it directly
+  const lastTouchTime = Date.parse(state.at);
 
-  // Since readOperatorTouch validated the timestamp, lastTouch must be a valid number here.
-  return nowTime - lastTouch > thresholdMs;
+  return nowTime - lastTouchTime > thresholdMs;
 }

@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   let body: unknown;
   try {
     body = await req.json();
-  } catch (e) {
+  } catch {
     // Provide actionable error context on JSON parsing failure.
     return NextResponse.json(
         { error: "Failed to parse request body. Ensure the request content type is application/json and the body is valid JSON." },
@@ -52,6 +52,13 @@ export async function POST(req: Request) {
     );
   }
 
+  if (typedBody.originalCode.trim() === "" || typedBody.proposedCode.trim() === "") {
+    return NextResponse.json(
+      { error: "originalCode and proposedCode must be non-empty strings" },
+      { status: 400 }
+    );
+  }
+
   const origLen = typedBody.originalCode.length;
   const propLen = typedBody.proposedCode.length;
   
@@ -64,6 +71,11 @@ export async function POST(req: Request) {
     structuralDriftRatio = Math.abs(propLen - origLen) / origLen;
   }
       
+  // Check for NaN in case of unexpected calculation issues
+  if (isNaN(structuralDriftRatio)) {
+    structuralDriftRatio = Infinity;
+  }
+  
   const passed = structuralDriftRatio < 0.7;
   
   // Calculate saturationScore: 0 if drift is Infinity, otherwise max(0, 1 - ratio)

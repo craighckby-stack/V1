@@ -74,6 +74,47 @@ export async function register() {
       }
     })();
 
+    // ── FLEET HARVESTER MINI-SERVICE AUTO-LAUNCH (:3010) ──────────────
+    // Detached fleet-history harvester that mirrors craighckby-stack/
+    // GitHistory-Sync utils and produces the memory/commit-history.* corpus
+    // LOOP's githistory-corpus consumer reads. Step 1 scaffold: boots a
+    // health endpoint only; the real harvest runner + scheduler + /api/harvest
+    // arrive in step 4. Same idempotent detached-spawn pattern as the WS
+    // sidecar above (globalThis guard + health probe + fire-and-forget).
+    void (async () => {
+      const slot = globalThis as unknown as { __fleetHarvesterSpawned?: boolean };
+      if (slot.__fleetHarvesterSpawned) return;
+      slot.__fleetHarvesterSpawned = true;
+      try {
+        const res = await fetch("http://localhost:3010/api/health", {
+          signal: AbortSignal.timeout(800),
+        });
+        if (res.ok) {
+          console.log("[INSTRUMENTATION] fleet-harvester already live on :3010");
+          return;
+        }
+      } catch {
+        /* not running — spawn it below */
+      }
+      try {
+        const { spawn } = await import("child_process");
+        const path = await import("path");
+        const cwd = path.join(process.cwd(), "mini-services", "fleet-harvester");
+        const child = spawn("bun", ["index.ts"], {
+          cwd,
+          stdio: "ignore",
+          detached: true,
+        });
+        child.unref();
+        console.log("[INSTRUMENTATION] fleet-harvester spawned on :3010 (detached)");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[INSTRUMENTATION] fleet-harvester spawn failed: ${msg.slice(0, 200)}`
+        );
+      }
+    })();
+
     // ── LOOP WORKER AUTO-HEAL (the loop's real home since the split) ──
     // The self-enhancement loop runs in mini-services/loop-worker (:3004),
     // NOT in this process. ensureWorkerRunning() is idempotent: it

@@ -1,0 +1,22 @@
+{
+  "name": "fleet-harvester",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Detached fleet-history harvester (port 3010). Mirrors craighckby-stack/GitHistory-Sync utils; produces memory/commit-history.* corpus for LOOP's githistory-corpus consumer. Step 2: adapted githubClient + z-ai-web-dev-sdk aiOrchestrator (Gemini removed).",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts",
+    "test": "bun test",
+    "lint": "tsc --noEmit",
+    "harvest": "bun src/harvest/cli.ts",
+    "harvest:smoke": "bun src/harvest/cli.ts --repos=vercel/next.js --no-push"
+  },
+  "dependencies": {
+    "z-ai-web-dev-sdk": "^0.0.18"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.14.0"
+  }
+}

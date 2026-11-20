@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   let body: SanitizeRequest | undefined;
   try {
     body = (await req.json()) as SanitizeRequest;
-  } catch (e) {
+  } catch {
     // Catch JSON parsing errors specifically
     return NextResponse.json(
       { error: "Invalid JSON format in request body." },

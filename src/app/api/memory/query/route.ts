@@ -39,10 +39,9 @@ export async function GET(req: Request) {
     
     // Ensure seeding completes before querying to guarantee data availability.
     await emgRagInstance.ensureSeeded();
-    const result = await emgRagInstance.query(q);
+    const queryResult = await emgRagInstance.query(q);
 
-
-    if (!result) {
+    if (!queryResult) {
       return NextResponse.json(
         { error: "RAG query returned no result." },
         { status: 500 }
@@ -50,9 +49,9 @@ export async function GET(req: Request) {
     }
 
     // Add null checks for result properties before destructuring
-    if (!result.topFixes || !result.topFailures || 
-        typeof result.cognitiveFrictionScore === 'undefined' || 
-        typeof result.epistemicRuling === 'undefined') {
+    if (!queryResult.topFixes || !queryResult.topFailures || 
+        typeof queryResult.cognitiveFrictionScore === 'undefined' || 
+        typeof queryResult.epistemicRuling === 'undefined') {
       return NextResponse.json(
         { error: "RAG query returned malformed result data. Missing required properties." },
         { status: 500 }
@@ -73,15 +72,15 @@ export async function GET(req: Request) {
         timestamp: e.timestamp,
       }));
 
-    const safeTopFixes = mapResultArray(result.topFixes);
-    const safeTopFailures = mapResultArray(result.topFailures);
+    const safeTopFixes = mapResultArray(queryResult.topFixes);
+    const safeTopFailures = mapResultArray(queryResult.topFailures);
 
     return NextResponse.json({
       query: q,
       topFixes: safeTopFixes,
       topFailures: safeTopFailures,
-      cognitiveFrictionScore: result.cognitiveFrictionScore,
-      epistemicRuling: result.epistemicRuling,
+      cognitiveFrictionScore: queryResult.cognitiveFrictionScore,
+      epistemicRuling: queryResult.epistemicRuling,
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during memory query execution.";
