@@ -55,14 +55,18 @@ export async function POST(req: Request) {
   let body: { force?: boolean } | null = null;
 
   try {
-    // Read the request body as text first to avoid memory leaks with invalid JSON
     const bodyText = await req.text();
     
-    try {
-      body = JSON.parse(bodyText);
-    } catch (jsonError) {
-      // Re-throw as a specific error type to be caught below for 400 response
-      throw new SyntaxError(`Invalid JSON in request body: ${(jsonError as Error)?.message || 'Malformed JSON'}`);
+    if (bodyText.length === 0) {
+        // Handle empty body gracefully without trying to parse
+        body = {};
+    } else {
+        try {
+          body = JSON.parse(bodyText);
+        } catch (jsonError) {
+          // Re-throw as a specific error type to be caught below for 400 response
+          throw new SyntaxError(`Invalid JSON in request body: ${(jsonError as Error)?.message || 'Malformed JSON'}`);
+        }
     }
 
     // Validate body is an object
