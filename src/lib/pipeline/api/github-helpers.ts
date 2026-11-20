@@ -55,17 +55,18 @@ export function githubHeaders(token: string | null | undefined): Record<string, 
     };
   }
 
-  // token is guaranteed to be a string here because of the guard above.
+  // If token is provided, we assume it was validated by getUsableToken before being passed here.
+  // We still trim defensively, although getUsableToken already did this.
   const trimmedToken = token.trim();
 
-  if (trimmedToken.length < MIN_TOKEN_LENGTH) {
+  // Re-validate length and invalidity if we cannot guarantee the caller used getUsableToken,
+  // but based on the original logic, these checks were performed *after* the null check.
+  // If the token passed getUsableToken, these checks should pass.
+  if (trimmedToken.length < MIN_TOKEN_LENGTH || isInvalidToken(trimmedToken)) {
+    // This path should ideally only be hit if the caller bypassed getUsableToken.
+    // We maintain the original error throwing behavior for consistency if validation fails here.
     const displayToken = trimmedToken.length > 4 ? `${trimmedToken.substring(0, 4)}...` : trimmedToken;
     throw new Error(`Invalid token provided: must be at least ${MIN_TOKEN_LENGTH} characters long. Received: ${trimmedToken.length} characters (value: ${displayToken})`);
-  }
-
-  if (isInvalidToken(trimmedToken)) {
-    // Do not expose the full token in the error message for security
-    throw new Error(`Invalid token provided: token contains invalid prefixes or values.`);
   }
 
   const headers: Record<string, string> = {

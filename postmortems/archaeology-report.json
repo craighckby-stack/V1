@@ -1,150 +1,110 @@
 {
-  "ranAt": "2026-11-08T09:24:44.205Z",
-  "totalCommits": 552,
-  "wrongCommits": 21,
-  "fixPairs": 21,
+  "ranAt": "2026-11-20T09:52:38.958Z",
+  "totalCommits": 1519,
+  "wrongCommits": 58,
+  "fixPairs": 53,
   "lessonsSeeded": 6,
   "fragileFiles": [
     {
-      "file": "src/app/page.tsx",
-      "wrongCycles": 7,
-      "correctCommits": 37,
-      "lastTouched": "2026-11-04"
+      "file": "src/lib/pipeline/autonomous/self-enhance-loop.ts",
+      "wrongCycles": 16,
+      "correctCommits": 63,
+      "lastTouched": "2026-11-20"
     },
     {
-      "file": "src/lib/pipeline/autonomous/self-enhance-loop.ts",
-      "wrongCycles": 5,
-      "correctCommits": 40,
-      "lastTouched": "2026-11-04"
+      "file": "src/app/page.tsx",
+      "wrongCycles": 12,
+      "correctCommits": 56,
+      "lastTouched": "2026-11-20"
     },
     {
       "file": "src/lib/pipeline/autonomous/push-target.ts",
-      "wrongCycles": 5,
-      "correctCommits": 40,
-      "lastTouched": "2026-11-04"
-    },
-    {
-      "file": "src/lib/pipeline/autonomous/chat-task.ts",
-      "wrongCycles": 3,
-      "correctCommits": 28,
-      "lastTouched": "2026-11-04"
-    },
-    {
-      "file": "src/components/pipeline/boot-splash.tsx",
-      "wrongCycles": 3,
-      "correctCommits": 12,
-      "lastTouched": "2026-11-08"
+      "wrongCycles": 9,
+      "correctCommits": 44,
+      "lastTouched": "2026-11-17"
     },
     {
       "file": "prisma/schema.prisma",
-      "wrongCycles": 2,
-      "correctCommits": 14,
-      "lastTouched": "2026-11-02"
+      "wrongCycles": 7,
+      "correctCommits": 17,
+      "lastTouched": "2026-11-20"
+    },
+    {
+      "file": "src/components/pipeline/boot-splash.tsx",
+      "wrongCycles": 7,
+      "correctCommits": 20,
+      "lastTouched": "2026-11-17"
     },
     {
       "file": "src/lib/pipeline/autonomous/loop-runtime.ts",
-      "wrongCycles": 2,
-      "correctCommits": 23,
-      "lastTouched": "2026-11-04"
+      "wrongCycles": 6,
+      "correctCommits": 28,
+      "lastTouched": "2026-11-14"
+    },
+    {
+      "file": "src/lib/pipeline/oracle/oracle-auto.ts",
+      "wrongCycles": 6,
+      "correctCommits": 13,
+      "lastTouched": "2026-11-14"
     },
     {
       "file": "src/lib/pipeline/emg/emg-rag.ts",
-      "wrongCycles": 2,
+      "wrongCycles": 5,
       "correctCommits": 28,
-      "lastTouched": "2026-11-03"
+      "lastTouched": "2026-11-14"
+    },
+    {
+      "file": "src/lib/pipeline/llm/agent-llm.ts",
+      "wrongCycles": 5,
+      "correctCommits": 25,
+      "lastTouched": "2026-11-17"
+    },
+    {
+      "file": "src/lib/pipeline/autonomous/protected-files.ts",
+      "wrongCycles": 5,
+      "correctCommits": 14,
+      "lastTouched": "2026-11-20"
+    },
+    {
+      "file": "src/lib/pipeline/oracle/oracle-scheduler.ts",
+      "wrongCycles": 5,
+      "correctCommits": 41,
+      "lastTouched": "2026-11-19"
+    },
+    {
+      "file": "src/app/api/engines/catalog/route.ts",
+      "wrongCycles": 4,
+      "correctCommits": 26,
+      "lastTouched": "2026-11-20"
+    },
+    {
+      "file": "src/components/pipeline/manual-runner.tsx",
+      "wrongCycles": 4,
+      "correctCommits": 8,
+      "lastTouched": "2026-11-19"
     },
     {
       "file": "src/app/api/self-enhance/push-target/route.ts",
-      "wrongCycles": 2,
+      "wrongCycles": 4,
       "correctCommits": 2,
-      "lastTouched": "2026-10-26"
+      "lastTouched": "2026-11-14"
     },
     {
-      "file": "src/app/api/duress/clear/route.ts",
-      "wrongCycles": 2,
-      "correctCommits": 3,
-      "lastTouched": "2026-11-04"
-    },
-    {
-      "file": "src/app/api/duress/purge/route.ts",
-      "wrongCycles": 2,
-      "correctCommits": 3,
-      "lastTouched": "2026-11-04"
-    },
-    {
-      "file": "src/app/api/duress/status/route.ts",
-      "wrongCycles": 2,
-      "correctCommits": 3,
-      "lastTouched": "2026-11-04"
-    },
-    {
-      "file": "src/app/api/red-team/run/route.ts",
-      "wrongCycles": 2,
-      "correctCommits": 3,
-      "lastTouched": "2026-11-04"
-    },
-    {
-      "file": "src/app/api/red-team/status/route.ts",
-      "wrongCycles": 2,
-      "correctCommits": 3,
-      "lastTouched": "2026-11-04"
-    },
-    {
-      "file": "src/lib/pipeline/red-team/red-team-runner.ts",
-      "wrongCycles": 2,
-      "correctCommits": 5,
-      "lastTouched": "2026-11-04"
+      "file": "src/app/api/self-enhance/chat-task/apply/route.ts",
+      "wrongCycles": 4,
+      "correctCommits": 0,
+      "lastTouched": "2026-11-14"
     }
   ],
   "stableFiles": [
     {
-      "file": "src/lib/pipeline/engines/clean-room-runtime.ts",
-      "correctCommits": 20,
-      "lastTouched": "2026-10-27"
-    },
-    {
-      "file": "src/lib/pipeline/core/ast-diff-gate.ts",
-      "correctCommits": 18,
-      "lastTouched": "2026-10-28"
+      "file": "src/lib/pipeline/core/binaryShield.ts",
+      "correctCommits": 32,
+      "lastTouched": "2026-11-03"
     },
     {
       "file": "src/lib/pipeline/emg/debate.ts",
       "correctCommits": 14,
-      "lastTouched": "2026-10-27"
-    },
-    {
-      "file": "mini-services/loop-ws-service/index.ts",
-      "correctCommits": 5,
-      "lastTouched": "2026-10-28"
-    },
-    {
-      "file": "src/app/api/health/route.ts",
-      "correctCommits": 5,
-      "lastTouched": "2026-10-27"
-    },
-    {
-      "file": "src/app/api/self-enhance/status/route.ts",
-      "correctCommits": 5,
-      "lastTouched": "2026-10-29"
-    },
-    {
-      "file": "scripts/check-llm.ts",
-      "correctCommits": 5,
-      "lastTouched": "2026-10-29"
-    },
-    {
-      "file": "src/app/api/evolution/debate/route.ts",
-      "correctCommits": 4,
-      "lastTouched": "2026-10-27"
-    },
-    {
-      "file": "src/hooks/use-loop-socket.ts",
-      "correctCommits": 4,
-      "lastTouched": "2026-10-27"
-    },
-    {
-      "file": "src/lib/pipeline-store.ts",
-      "correctCommits": 4,
       "lastTouched": "2026-10-27"
     },
     {
@@ -153,215 +113,318 @@
       "lastTouched": "2026-10-27"
     },
     {
-      "file": "src/test.ts",
+      "file": "scripts/dev-daemon.py",
       "correctCommits": 4,
-      "lastTouched": "2026-10-29"
+      "lastTouched": "2026-11-04"
     },
     {
-      "file": "src/app/api/engines/catalog/route.ts",
-      "correctCommits": 3,
-      "lastTouched": "2026-10-27"
+      "file": "proxy/index.ts",
+      "correctCommits": 4,
+      "lastTouched": "2026-11-04"
     },
     {
-      "file": "src/app/api/github/batch-commit/route.ts",
-      "correctCommits": 3,
-      "lastTouched": "2026-10-28"
+      "file": ".push-main.ts",
+      "correctCommits": 4,
+      "lastTouched": "2026-11-08"
     },
     {
-      "file": "src/app/api/github/commit-file/route.ts",
+      "file": "src/app/api/autonomous/trigger/route.ts",
       "correctCommits": 3,
-      "lastTouched": "2026-10-28"
+      "lastTouched": "2026-11-02"
+    },
+    {
+      "file": "src/lib/db.ts",
+      "correctCommits": 3,
+      "lastTouched": "2026-11-02"
+    },
+    {
+      "file": "download/rea-restore.sh",
+      "correctCommits": 3,
+      "lastTouched": "2026-11-10"
+    },
+    {
+      "file": "test-repo/src/arrays.ts",
+      "correctCommits": 3,
+      "lastTouched": "2026-10-25"
+    },
+    {
+      "file": "test-repo/src/cart.ts",
+      "correctCommits": 3,
+      "lastTouched": "2026-10-25"
+    },
+    {
+      "file": "test-repo/src/config.ts",
+      "correctCommits": 3,
+      "lastTouched": "2026-10-25"
+    },
+    {
+      "file": "test-repo/src/logger.ts",
+      "correctCommits": 3,
+      "lastTouched": "2026-10-25"
+    },
+    {
+      "file": "test-repo/src/strings.ts",
+      "correctCommits": 3,
+      "lastTouched": "2026-10-25"
+    },
+    {
+      "file": "build-guide/charts.py",
+      "correctCommits": 3,
+      "lastTouched": "2026-11-04"
     }
   ],
   "themes": [
     {
-      "theme": "loop",
-      "count": 7
+      "theme": "task",
+      "count": 19
     },
     {
-      "theme": "server",
-      "count": 5
+      "theme": "pipeline",
+      "count": 17
+    },
+    {
+      "theme": "applied",
+      "count": 16
+    },
+    {
+      "theme": "loop",
+      "count": 15
     },
     {
       "theme": "operator",
-      "count": 5
+      "count": 14
     },
     {
-      "theme": "start",
-      "count": 4
+      "theme": "empty",
+      "count": 8
     },
     {
-      "theme": "swap",
-      "count": 4
+      "theme": "commit",
+      "count": 8
     },
     {
-      "theme": "modules",
-      "count": 3
-    },
-    {
-      "theme": "duress",
-      "count": 3
-    },
-    {
-      "theme": "globalthis",
-      "count": 3
-    },
-    {
-      "theme": "boot",
-      "count": 3
+      "theme": "token",
+      "count": 8
     },
     {
       "theme": "auto",
-      "count": 3
+      "count": 7
+    },
+    {
+      "theme": "catch",
+      "count": 7
     }
   ],
   "wrongList": [
     {
-      "short": "23f53023",
-      "date": "2026-11-04",
-      "subject": "Operator: auto-run state machine — DISARMED/ARMED-RUNNING/THROTTLED/RECOVERING/PAUSED + crash-wall + dead-man's switch",
-      "reason": "Introduced issue in src/components/pipeline/boot-splash.tsx, fixed by 619f2c22 (\"fix: add link? to PostLine interface so boot-splash typechec\")",
-      "fixedBy": "619f2c22"
+      "short": "14f6974f",
+      "date": "2026-11-20",
+      "subject": "Self-enhancement: src/app/api/engines/catalog/route.ts",
+      "reason": "Introduced issue in mini-services/fleet-harvester/package.json, fixed by 60c57196 (\"feat(fleet-harvester): step 3 runner + UI log freeze fix + b\")",
+      "fixedBy": "60c57196"
     },
     {
-      "short": "576dd4b7",
-      "date": "2026-11-03",
-      "subject": "feat(boot): splash → system, no prank; sync README numbers (operator push)",
-      "reason": "Introduced issue in docs/CONCEPTS-GRAFTED.md, fixed by a30a114b (\"docs(consistency-sweep): fix drift in 3 active docs after au\")",
-      "fixedBy": "a30a114b"
+      "short": "bd8a0da1",
+      "date": "2026-11-20",
+      "subject": "chore(archive): sync failed commit log via GitHistory Sync",
+      "reason": "Self-identified failure in subject (\"chore(archive): sync failed commit log via GitHistory Sync\")",
+      "fixedBy": null
     },
     {
-      "short": "68318776",
-      "date": "2026-11-03",
-      "subject": "feat(boot): splash → system, no prank; sync README numbers",
-      "reason": "Introduced issue in src/components/pipeline/boot-splash.tsx, fixed by 590d9086 (\"fix(audit-3): sanitizer hex-entropy 4.0 bar + dedupe; dead-c\")",
-      "fixedBy": "590d9086"
+      "short": "fac1dec3",
+      "date": "2026-11-19",
+      "subject": "Self-enhancement: src/lib/pipeline/target/target-scan.ts",
+      "reason": "Introduced issue in src/lib/pipeline/target/target-scan.ts, fixed by 504869dd (\"self-task[todo-comment]: src/lib/pipeline/target/target-scan\")",
+      "fixedBy": "504869dd"
     },
     {
-      "short": "bff14da8",
-      "date": "2026-11-03",
-      "subject": "feat(corpus): per-file negative constraints — RAS graft",
-      "reason": "Introduced issue in src/lib/pipeline/autonomous/self-enhance-loop.ts, fixed by 60b90cd9 (\"fix: audit F1 full closure — sandboxed test gate (zero live-\")",
-      "fixedBy": "60b90cd9"
+      "short": "79f6c558",
+      "date": "2026-11-20",
+      "subject": "Delete memory/commit-history.failed.md",
+      "reason": "Self-identified failure in subject (\"Delete memory/commit-history.failed.md\")",
+      "fixedBy": null
     },
     {
-      "short": "743eab35",
-      "date": "2026-11-02",
-      "subject": "ui: the boot prank — BSOD '404 NOT EVER' + Star Wars crawl, scored by a synthesized Imperial March",
-      "reason": "Introduced issue in src/components/pipeline/boot-splash.tsx, fixed by 8cdcf3ba (\"fix: the boot prank now fires on EVERY entry — warm boots st\")",
-      "fixedBy": "8cdcf3ba"
+      "short": "382a3e4f",
+      "date": "2026-11-20",
+      "subject": "Delete memory/commit-history.failed.json",
+      "reason": "Self-identified failure in subject (\"Delete memory/commit-history.failed.json\")",
+      "fixedBy": null
     },
     {
-      "short": "ae98d9e8",
-      "date": "2026-11-02",
-      "subject": "feat(autonomous): auto-arm on boot + continuous mode + never-stop self-healing + push-target token fallback",
-      "reason": "Introduced issue in src/lib/pipeline/autonomous/loop-runtime.ts, fixed by a76bbff0 (\"fix(autonomous): failed-file cooldown — don't get stuck retr\")",
-      "fixedBy": "a76bbff0"
+      "short": "39a6c693",
+      "date": "2026-11-19",
+      "subject": "chore(archive): sync failed commit log via GitHistory Sync",
+      "reason": "Self-identified failure in subject (\"chore(archive): sync failed commit log via GitHistory Sync\")",
+      "fixedBy": null
     },
     {
-      "short": "773dafea",
-      "date": "2026-11-02",
-      "subject": "feat(hot-swap): module-cache invalidator + singleton respawn (the core of 'fully autonomous')",
-      "reason": "Introduced issue in src/lib/pipeline/core/hot-swap.ts, fixed by 4aee28a8 (\"fix(hot-swap): mtime prod + globalThis state — two bugs\")",
-      "fixedBy": "4aee28a8"
+      "short": "400da2fe",
+      "date": "2026-11-19",
+      "subject": "chore(archive): sync failed commit log via GitHistory Sync",
+      "reason": "Self-identified failure in subject (\"chore(archive): sync failed commit log via GitHistory Sync\")",
+      "fixedBy": null
     },
     {
-      "short": "2c1de8cc",
-      "date": "2026-11-02",
-      "subject": "graft(red-team): adversarial evaluation suite + runner (concept: Aether_Forge aetherforge-eval)",
-      "reason": "Introduced issue in src/lib/pipeline/red-team/red-team-runner.ts, fixed by 17c967fe (\"fix(red-team): ERROR probes don't raise safe-mode (only BYPA\")",
-      "fixedBy": "17c967fe"
+      "short": "f22e1185",
+      "date": "2026-11-19",
+      "subject": "Self-enhancement: src/app/display/console-stream.tsx",
+      "reason": "Introduced issue in src/lib/pipeline/target/target-github.ts, fixed by 5ae2b664 (\"self-task[oracle-failed-prophecy]: src/components/pipeline/m\")",
+      "fixedBy": "5ae2b664"
     },
     {
-      "short": "f4a05934",
-      "date": "2026-11-02",
-      "subject": "graft(duress): PKM §3 phased purge protocol + safe-mode (concept: PKM)",
-      "reason": "Introduced issue in src/lib/pipeline/core/duress.ts, fixed by ad812c0f (\"fix(duress): clearSafeMode used undefined setBy binding + ad\")",
-      "fixedBy": "ad812c0f"
+      "short": "7f315ee1",
+      "date": "2026-11-17",
+      "subject": "Self-enhancement: src/lib/pipeline/crypto/token-vault.ts",
+      "reason": "Introduced issue in src/lib/pipeline/crypto/token-vault.ts, fixed by 1bb551c6 (\"self-task[empty-catch]: src/lib/pipeline/crypto/token-vault.\")",
+      "fixedBy": "1bb551c6"
     },
     {
-      "short": "9c599c98",
-      "date": "2026-11-02",
-      "subject": "feat(oracle): commit-archaeology — mine git history into a self-labeled prophecy dataset (concept: Commit-puller repo)",
-      "reason": "Introduced issue in src/lib/pipeline/autonomous/push-target.ts, fixed by e84f596b (\"graft(secret-scan)+fix(push-target): wire pre-push gate + lo\")",
-      "fixedBy": "e84f596b"
+      "short": "c3c5e7e1",
+      "date": "2026-11-16",
+      "subject": "self-task[unused-import]: src/app/api/memory/entries/route.ts:2 — removed unused named import(s): VectorEntry",
+      "reason": "Introduced issue in src/app/api/memory/entries/route.ts, fixed by b8686183 (\"Operator fixes: cross-process tree lock, TOCTOU SHA rechecks\")",
+      "fixedBy": "b8686183"
     },
     {
-      "short": "b653f6e4",
-      "date": "2026-11-02",
-      "subject": "feat(oracle): add the prophecy/evaluation subsystem — the system predicts its own future",
-      "reason": "Introduced issue in src/app/page.tsx, fixed by 0dc53f8b (\"refactor(system): methodical full-codebase review — 10 real \")",
-      "fixedBy": "0dc53f8b"
+      "short": "0e8f7c59",
+      "date": "2026-11-16",
+      "subject": "71d1daa8-6f79-4f08-a4ad-e9ef46a349ac-cron",
+      "reason": "Introduced issue in src/app/api/branches/route.ts, fixed by 57274fb7 (\"Audit round 2: fix 11 bugs found by three-way code review (2\")",
+      "fixedBy": "57274fb7"
     },
     {
-      "short": "e4eed297",
-      "date": "2026-10-27",
-      "subject": "Self-enhancement: src/lib/pipeline/emg/emg-rag.ts",
-      "reason": "Introduced issue in src/lib/pipeline/emg/emg-rag.ts, fixed by 1f1fd238 (\"fix(audit2-b): gate integrity & stop/start races — fail-clos\")",
-      "fixedBy": "1f1fd238"
+      "short": "2bcdbc8c",
+      "date": "2026-11-14",
+      "subject": "test: pin behavior of src/components/pipeline/api-unlock.tsx",
+      "reason": "Introduced issue in src/components/pipeline/api-unlock.test.tsx, fixed by 2ca6a948 (\"fix(display): guard orderLogRuns against invalid entries + l\")",
+      "fixedBy": "2ca6a948"
     },
     {
-      "short": "cfc83e4b",
-      "date": "2026-10-27",
-      "subject": "Self-enhancement: src/lib/pipeline/autonomous/chat-task.ts",
-      "reason": "Introduced issue in src/lib/pipeline/autonomous/chat-task.ts, fixed by c86e9ec9 (\"fix(audit2-a): parser-aware analysis core — stop false trunc\")",
-      "fixedBy": "c86e9ec9"
+      "short": "d488637a",
+      "date": "2026-11-14",
+      "subject": "Self-enhancement: src/app/api/evolution/debate/route.ts",
+      "reason": "Introduced issue in src/components/pipeline/boot-splash.tsx, fixed by 32cd8d50 (\"fix(boot-splash): defer unmount so boot sound isn't cut off \")",
+      "fixedBy": "32cd8d50"
     },
     {
-      "short": "7f793f57",
-      "date": "2026-10-27",
-      "subject": "feat: expand mutation scope to UI display layer (safely)",
-      "reason": "Introduced issue in worklog.md, fixed by 8cb338d1 (\"fix: dev server dying — double-fork daemonization (scripts/d\")",
-      "fixedBy": "8cb338d1"
+      "short": "20f622f4",
+      "date": "2026-11-14",
+      "subject": "Merge-back: loop-474 → main (112 src/ files, typecheck-gated) Reviewed merge of the loop's retained loop-474 branch into the operator-curated main. Brought src/ mutations forward; metadata (README, memory/, postmortems/) kept on main. Source: origin/loop-474",
+      "reason": "Introduced issue in src/lib/pipeline/oracle/oracle-scheduler.ts, fixed by 42c3accc (\"fix(oracle): scheduler tick crashed on every due-prophecy pa\")",
+      "fixedBy": "42c3accc"
     },
     {
-      "short": "f44310fd",
-      "date": "2026-10-27",
-      "subject": "feat(ui): remove all green, rename to LOOP v5.0",
-      "reason": "Introduced issue in src/app/page.tsx, fixed by f995be1e (\"feat(ui): all-white text, fix frozen counter, rich start out\")",
-      "fixedBy": "f995be1e"
+      "short": "ff94b90d",
+      "date": "2026-11-14",
+      "subject": "Self-enhancement: src/components/pipeline/recent-cycles.tsx",
+      "reason": "Introduced issue in examples/websocket/server.ts, fixed by 47d63d0d (\"fix(ws): CORS origin allowlist — accept gateway origin, fail\")",
+      "fixedBy": "47d63d0d"
     },
     {
-      "short": "d7b2c9f6",
-      "date": "2026-10-27",
-      "subject": "feat: wire the task engine into the terminal UI (Direction 1 complete)",
-      "reason": "Introduced issue in src/lib/pipeline/autonomous/push-target.ts, fixed by 464abe13 (\"fix(push-target): add tier-3 PAT persistence in .git/info/ t\")",
-      "fixedBy": "464abe13"
+      "short": "48da10ae",
+      "date": "2026-11-13",
+      "subject": "Self-enhancement: src/lib/pipeline/oracle/oracle-task-feed.ts",
+      "reason": "Introduced issue in postmortems/self/main/src/app/display/console-stream.tsx.json, fixed by e7511a7b (\"self-task[magic-number]: src/lib/pipeline/crypto/token-vault\")",
+      "fixedBy": "e7511a7b"
     },
     {
-      "short": "5ad43a2d",
-      "date": "2026-10-26",
-      "subject": "feat: chat-driven agent — type a goal, system proposes plan, user approves",
-      "reason": "Introduced issue in .next/dev/cache/config.json, fixed by 09432ed8 (\"fix: restore modules lost to stash + fix all pre-existing ty\")",
-      "fixedBy": "09432ed8"
+      "short": "304ac4d5",
+      "date": "2026-11-13",
+      "subject": "Self-enhancement: src/lib/pipeline/crypto/token-vault.ts",
+      "reason": "Introduced issue in src/lib/pipeline/crypto/token-vault.ts, fixed by 394114dd (\"self-task[magic-number]: src/lib/pipeline/crypto/token-vault\")",
+      "fixedBy": "394114dd"
     },
     {
-      "short": "44f5ac7a",
-      "date": "2026-10-26",
-      "subject": "Self-enhancement: src/lib/pipeline/emg/emg-rag.ts (LLM refactor, tsc verified, 80b diff)",
-      "reason": "Introduced issue in src/lib/pipeline/autonomous/self-enhance-loop.ts, fixed by 7a81844f (\"fix: handle LLM 429 rate limits with exponential backoff\")",
-      "fixedBy": "7a81844f"
+      "short": "8dcef4c7",
+      "date": "2026-11-13",
+      "subject": "Self-enhancement: src/lib/pipeline/oracle/oracle-events.ts",
+      "reason": "Introduced issue in postmortems/self/main/src/lib/pipeline/autonomous/crash-budget.ts.json, fixed by e3c7c48e (\"self-task[any-usage]: src/lib/pipeline/autonomous/armed-stat\")",
+      "fixedBy": "e3c7c48e"
     },
     {
-      "short": "4dd9fcb5",
-      "date": "2026-10-26",
-      "subject": "feat(config): explicit auto-create-repo toggle + org support + fine-grained PAT errors",
-      "reason": "Introduced issue in src/app/page.tsx, fixed by ba95794a (\"fix: terminal command output was buried under server logs\")",
-      "fixedBy": "ba95794a"
+      "short": "a85bf250",
+      "date": "2026-11-13",
+      "subject": "Self-enhancement: src/lib/pipeline/oracle/prophecy-store.ts",
+      "reason": "Introduced issue in src/lib/pipeline/autonomous/self-enhance-loop.ts, fixed by 0943e38a (\"Operator: fix visual-polish dead arm, durable banner stats, \")",
+      "fixedBy": "0943e38a"
     },
     {
-      "short": "bf6e73a0",
-      "date": "2026-10-26",
-      "subject": "feat: persistent GitHub push target for self-enhance loop",
-      "reason": "Introduced issue in src/lib/pipeline/autonomous/self-enhance-loop.ts, fixed by e2378128 (\"fix: in-memory typecheck eliminates Turbopack stale errors\")",
-      "fixedBy": "e2378128"
+      "short": "c9c6e64a",
+      "date": "2026-11-12",
+      "subject": "Self-enhancement: src/lib/pipeline/oracle/oracle-auto.ts",
+      "reason": "Introduced issue in src/lib/pipeline/oracle/oracle-auto.ts, fixed by 409480fd (\"self-task[empty-catch]: src/lib/pipeline/oracle/oracle-auto.\")",
+      "fixedBy": "409480fd"
     },
     {
-      "short": "839decb5",
-      "date": "2026-10-25",
-      "subject": "Architecture Helper Pipeline v4.3 — self-enhancing autonomous refactoring system",
-      "reason": "Introduced issue in src/lib/pipeline/autonomous/self-enhance-loop.ts, fixed by 0dd877d7 (\"Audit v4.3: fix tsc safety net, dead trigger command, non-co\")",
-      "fixedBy": "0dd877d7"
+      "short": "5aee4e97",
+      "date": "2026-11-12",
+      "subject": "Self-enhancement: src/lib/pipeline/oracle/oracle-task-feed.ts",
+      "reason": "Introduced issue in src/lib/pipeline/oracle/oracle-task-feed.ts, fixed by d0b51674 (\"self-task[todo-comment]: src/lib/pipeline/oracle/oracle-task\")",
+      "fixedBy": "d0b51674"
+    },
+    {
+      "short": "5cbaab59",
+      "date": "2026-11-12",
+      "subject": "Self-enhancement: src/lib/pipeline/oracle/oracle-auto.ts",
+      "reason": "Introduced issue in src/lib/pipeline/oracle/oracle-auto.ts, fixed by 03625900 (\"self-task[empty-catch]: src/lib/pipeline/oracle/oracle-auto.\")",
+      "fixedBy": "03625900"
+    },
+    {
+      "short": "2d837219",
+      "date": "2026-11-12",
+      "subject": "Self-enhancement: src/app/api/memory/query/route.ts",
+      "reason": "Introduced issue in postmortems/self/main/src/app/api/engines/catalog/route.ts.json, fixed by fa77a0bb (\"fix(audit-8 round 2): 5 more bugs found in the round-1 fixes\")",
+      "fixedBy": "fa77a0bb"
+    },
+    {
+      "short": "20a18091",
+      "date": "2026-11-12",
+      "subject": "Chat task: Create src/components/pipeline/oracle-task-feed-panel.tsx —",
+      "reason": "Introduced issue in src/components/pipeline/oracle-task-feed-panel.tsx, fixed by a97eeebc (\"fix(audit-8): 6 bug fixes across the session's changes\")",
+      "fixedBy": "a97eeebc"
+    },
+    {
+      "short": "95845750",
+      "date": "2026-11-12",
+      "subject": "feat(mutation-guard): reject convergent defensive no-ops at finalAuthority",
+      "reason": "Introduced issue in src/lib/pipeline/core/mutation-guard.test.ts, fixed by 886afe03 (\"fix(mutation-guard): exempt fetch( for client components (us\")",
+      "fixedBy": "886afe03"
+    },
+    {
+      "short": "a06c7ea1",
+      "date": "2026-11-11",
+      "subject": "Self-enhancement: src/lib/pipeline/oracle/oracle-scheduler.ts",
+      "reason": "Introduced issue in src/lib/pipeline/oracle/oracle-scheduler.ts, fixed by 9b27e37a (\"Endpoint cleanup, de-mock tightening, and 16 logic-flow bug \")",
+      "fixedBy": "9b27e37a"
+    },
+    {
+      "short": "9c194c84",
+      "date": "2026-11-11",
+      "subject": "Merge-back: loop-218 → main (6 src/ files, typecheck-gated) Reviewed merge of the loop's retained loop-218 branch into the operator-curated main. Brought src/ mutations forward; metadata (README, memory/, postmortems/) kept on main. Source: origin/loop-218",
+      "reason": "Introduced issue in src/lib/pipeline/autonomous/lessons-markdown.ts, fixed by 994d2b57 (\"operator fix: restore audit fixes reverted by the loop-218 m\")",
+      "fixedBy": "994d2b57"
+    },
+    {
+      "short": "c97f7231",
+      "date": "2026-11-10",
+      "subject": "audit 7: cognitive core — self-model wired, oracle self-prophecy, arch context, de-mock siphon",
+      "reason": "Introduced issue in src/lib/pipeline/autonomous/self-enhance-loop.ts, fixed by aeaef2cc (\"operator fix: close all five external-audit findings (static\")",
+      "fixedBy": "aeaef2cc"
+    },
+    {
+      "short": "168f5114",
+      "date": "2026-11-10",
+      "subject": "Force recompile: trivial comment to bust Turbopack content-hash cache (the 'mode is not defined' error was a stale module — the code on disk was correct but Turbopack didn't recompile it)",
+      "reason": "Introduced issue in postmortems/self/main/src/lib/pipeline/autonomous/operator-touch.test.ts.json, fixed by 43a96df0 (\"self-task[empty-catch]: src/lib/pipeline/core/duress.ts:324 \")",
+      "fixedBy": "43a96df0"
+    },
+    {
+      "short": "42dee708",
+      "date": "2026-11-10",
+      "subject": "Audit 5: break the ZERO_DIFF_SATURATION wall + retention P1-P3",
+      "reason": "Introduced issue in src/lib/pipeline/autonomous/self-enhance-loop.ts, fixed by 7922093e (\"Fix: throttle generateTasks() every 25th cycle in SelfTask d\")",
+      "fixedBy": "7922093e"
     }
   ]
 }

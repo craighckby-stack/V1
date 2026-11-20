@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/autonomous/operator-questions.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] protected path: src/lib/pipeline/autonomous/operator-questions.ts is in the runtime-gate or scaffolding protected set — the loop may not mutate its own scaffolding",
+  "evidence": "Original: 8233 bytes, Refactored: 8694 bytes. Errors: [mutation-guard/finalAuthority] protected path: src/lib/pipeline/autonomous/operator-questions.ts is in the runtime-gate or scaffolding protected set — the loop may not mutate its own scaffolding",
+  "constraints": "The previous refactor of src/lib/pipeline/autonomous/operator-questions.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "d0daaaf76753a4a59a8d7a5d05eeda994d3344202b5876214a8ad286c536405c",
+  "hash": "fafe654f2d0507b4f8e21de40e312372291301d8135cc8180e890405b15d3d39",
+  "lastAttemptAt": "2026-11-20T10:14:32.311Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-20T10:14:32.312Z",
+  "updatedAt": "2026-11-20T10:14:32.312Z",
+  "schema": 2
+}
