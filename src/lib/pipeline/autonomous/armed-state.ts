@@ -78,12 +78,12 @@ export function markArmed(armed: boolean, by: string): void {
  *  a bad read. This is the dual-layer fail-closed contract: the boot
  *  auto-arm only proceeds when the disk EXPLICITLY says armed:true. */
 export function readArmedState(): ArmedState | null {
-  try {
-    if (!existsSync(ARMED_STATE_FILE)) {
-      // File not found is expected on first run, treated as not armed.
-      return null;
-    }
+  if (!existsSync(ARMED_STATE_FILE)) {
+    // File not found is expected on first run, treated as not armed.
+    return null;
+  }
 
+  try {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
 
     if (raw.trim() === "") {
@@ -113,7 +113,7 @@ export function readArmedState(): ArmedState | null {
     if (typeof state.armed !== "boolean" ||
         typeof state.at !== "string" ||
         typeof state.by !== "string" ||
-        state.by.trim() === "" || // Added explicit check for non-empty 'by'
+        state.by.trim() === "" || // Explicit check for non-empty 'by'
         !iso8601Regex.test(state.at)) {
 
       console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure (e.g., invalid ISO timestamp or empty 'by').`);
