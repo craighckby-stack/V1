@@ -129,8 +129,8 @@ export function DebateChamber() {
       <CardContent>
         <div className="space-y-4">
           <AnimatePresence>
-            {verdict.arguments?.length > 0 ? (
-              verdict.arguments.map((arg, idx) => {
+            {(verdict.arguments?.length ?? 0) > 0 ? (
+              verdict.arguments!.map((arg, idx) => {
                 const frictionValue = typeof arg.cognitiveFriction === 'number' && !isNaN(arg.cognitiveFriction) ? arg.cognitiveFriction * 100 : 0;
                 return (
                   <motion.div
@@ -160,9 +160,9 @@ export function DebateChamber() {
                       </span>
                     </div>
                     <p className="text-sm text-slate-200 leading-relaxed">{arg.statement}</p>
-                    {arg.citations?.length > 0 && (
+                    {(arg.citations?.length ?? 0) > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
-                        {arg.citations.map((c) => (
+                        {arg.citations!.map((c) => (
                           <span
                             key={c}
                             className="text-[10px] text-slate-400 font-mono px-2 py-0.5 rounded bg-slate-950/40 border border-slate-800/60 focus-visible:ring-1 focus-visible:ring-cyan-500"
@@ -188,8 +188,8 @@ export function DebateChamber() {
             <div className="flex-1 min-w-0">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Security Findings</div>
               <ul className="text-sm text-slate-300 space-y-1 mt-1 list-disc list-inside">
-                {verdict.securityPoints?.length > 0 ? (
-                  verdict.securityPoints.map((p, i) => (
+                {(verdict.securityPoints?.length ?? 0) > 0 ? (
+                  verdict.securityPoints!.map((p, i) => (
                     <li key={i} className="pl-1">{p}</li>
                   ))
                 ) : (
@@ -203,8 +203,8 @@ export function DebateChamber() {
             <div className="flex-1 min-w-0">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Architecture Findings</div>
               <ul className="text-sm text-slate-300 space-y-1 mt-1 list-disc list-inside">
-                {verdict.architecturePoints?.length > 0 ? (
-                  verdict.architecturePoints.map((p, i) => (
+                {(verdict.architecturePoints?.length ?? 0) > 0 ? (
+                  verdict.architecturePoints!.map((p, i) => (
                     <li key={i} className="pl-1">{p}</li>
                   ))
                 ) : (
