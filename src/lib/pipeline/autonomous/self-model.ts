@@ -49,6 +49,10 @@
 
 import { db } from "@/lib/db";
 import { readFileSync } from "fs";
+import {
+  computeCuriosityState,
+  curiosityBonusForFile,
+} from "./curiosity-drive";
 // NOTE: readArchaeologyReport is imported LAZILY inside bootstrapSelfModel
 // (not at module top-level). This keeps the import chain of getSelfModelSummary
 // (the function the /api/self-model route calls) lightweight — just `db` —
@@ -640,6 +644,22 @@ export async function orderTargetsByBandit(
 ): Promise<{ ordered: string[]; scores: TargetScore[] }> {
   try {
     await bootstrapSelfModel();
+    // ── CURIOSITY DRIVE (step 2 — flag-gated, default OFF) ──────────
+    // Compute the drive state ONCE per bandit pass. The per-file bonus
+    // reads this state. The drive is dormant until the operator sets
+    // SystemFlag "curiosity-drive-enabled"="true"; until then it returns
+    // a neutral state (firing: false) and the bandit scores unchanged.
+    // See curiosity-drive.ts for the rule + the operator-review contract.
+    const curiosityState = await computeCuriosityState().catch(() => ({
+      enabled: false,
+      firing: false,
+      brierScore: null,
+      healthTrend: null,
+      reason: "curiosity drive unavailable",
+    }));
+    if (curiosityState.enabled && curiosityState.firing && log) {
+      log(`🧠 curiosity: ${curiosityState.reason}`, "info");
+    }
     // Normalize candidates to repo-relative paths for model lookup.
     const rel = candidateAbsPaths.map((p) =>
       p.startsWith(projectRoot) ? p.slice(projectRoot.length + 1) : p
@@ -678,11 +698,16 @@ export async function orderTargetsByBandit(
       // on purpose — a complex file that keeps zero-diffing is finished,
       // and complexity must not un-sink it.
       const complexity = complexityBonusFor(candidateAbsPaths[i], complexityCache);
-      const score = empirical + exploration + recency + momentum + complexity - exhaustion;
+      // Curiosity bonus (step 2 — only when the drive is enabled AND
+      // firing). Files the loop is LEAST confident about get a nudge.
+      // Capped below exhaustion so a finished file is never un-sunk.
+      const curiosity = curiosityBonusForFile(empirical, curiosityState);
+      const score = empirical + exploration + recency + momentum + complexity - exhaustion + curiosity;
+      const curiositySuffix = curiosity > 0 ? `, curiosity +${(curiosity * 100).toFixed(0)}%` : "";
       const reason =
         attempts > 0
-          ? `${passes}/${attempts} passed, ${daysSince < 1 ? "touched today" : `${Math.round(daysSince)}d untouched`}, complexity +${(complexity * 100).toFixed(0)}%, exhaustion ${finished.toFixed(2)}, momentum +${(momentum * 100).toFixed(0)}% (streak ${m?.streak ?? 0})`
-          : `no history — exploring (complexity +${(complexity * 100).toFixed(0)}%)`;
+          ? `${passes}/${attempts} passed, ${daysSince < 1 ? "touched today" : `${Math.round(daysSince)}d untouched`}, complexity +${(complexity * 100).toFixed(0)}%, exhaustion ${finished.toFixed(2)}, momentum +${(momentum * 100).toFixed(0)}% (streak ${m?.streak ?? 0})${curiositySuffix}`
+          : `no history — exploring (complexity +${(complexity * 100).toFixed(0)}%)${curiositySuffix}`;
       return { abs: candidateAbsPaths[i], s: { filePath: r, score, reason } };
     });
 

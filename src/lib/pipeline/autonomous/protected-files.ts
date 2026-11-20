@@ -107,6 +107,17 @@ export const PROTECTED_FILES = new Set([
   // operator-provided and outside the loop's scan scope already; this
   // entry protects the READER that turns them into prompt content.
   "src/lib/pipeline/autonomous/githistory-corpus.ts",
+  // Curiosity drive + health metrics — the loop's EXTERNAL objective
+  // signal (codebase health snapshots) AND the behavior change that
+  // reads it (the curiosity bonus in the bandit). Same category as
+  // self-model.ts (selection policy): a mutation here could disable the
+  // operator's flag gate (make curiosity always fire), widen the bonus
+  // cap to un-sink finished files, or fake the health trend so the
+  // drive fires when it shouldn't. The operator enables curiosity via
+  // SystemFlag; the loop must never rewrite its own curiosity rule or
+  // the health measurement that triggers it.
+  "src/lib/pipeline/autonomous/curiosity-drive.ts",
+  "src/lib/pipeline/autonomous/health-metrics.ts",
   // The self-model — the loop's measured self-knowledge, INCLUDING the
   // bandit target-selection formula (empirical + exploration + recency +
   // MOMENTUM + COMPLEXITY − exhaustion). This is selection POLICY, same
