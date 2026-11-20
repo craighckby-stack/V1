@@ -32,17 +32,24 @@ export async function GET() {
     // Opportunistic expiry sweep — cheap (one updateMany) and keeps the
     // pending list from accumulating stale questions forever.
     const cycle = autonomousLoopRuntime.getState().stats.totalRuns;
-    try {
-      await expireOldQuestions(cycle);
-    } catch (expiryErr) {
+
+    // Run expiry sweep and fetch questions concurrently to reduce latency
+    const [expiryResult, pending] = await Promise.allSettled([
+      expireOldQuestions(cycle),
+      getPendingQuestions(),
+    ]);
+
+    if (expiryResult.status === 'rejected') {
       // Log expiry failure but do not fail the GET request, as fetching pending questions is primary.
-      console.error("Failed to run old question expiry sweep:", expiryErr);
+      console.error("Failed to run old question expiry sweep:", expiryResult.reason);
     }
-    const pending = await getPendingQuestions();
+
     return NextResponse.json({ pending });
   } catch (err) {
+    // Provide actionable error context instead of just the raw message
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during question retrieval.";
     return NextResponse.json(
-      { error: (err as Error).message, pending: [] },
+      { error: `Failed to retrieve pending questions: ${errorMessage}`, pending: [] },
       { status: 500 },
     );
   }
@@ -50,12 +57,21 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as {
+    // Input validation: Ensure req is a valid Request object before calling .json()
+    if (!(req instanceof Request)) {
+      return NextResponse.json(
+        { error: "Invalid request object provided to POST handler." },
+        { status: 400 },
+      );
+    }
+    const body = await req.json();
+    const parsedBody = body as {
       answer?: string;
       id?: string;
       note?: string;
     };
-    const answerRaw = (body.answer ?? "").toLowerCase();
+
+    const answerRaw = (parsedBody.answer ?? "").toLowerCase();
     if (answerRaw !== "yes" && answerRaw !== "no") {
       return NextResponse.json(
         { error: "answer must be 'yes' or 'no'" },
@@ -65,7 +81,7 @@ export async function POST(req: Request) {
     const answer = answerRaw as "yes" | "no";
 
     // If id is omitted, resolve to the most-recent pending question.
-    let questionId = body.id;
+    let questionId = parsedBody.id;
     if (!questionId) {
       const pending = await getPendingQuestions();
       if (pending.length === 0) {
@@ -78,7 +94,7 @@ export async function POST(req: Request) {
     }
 
     const cycle = autonomousLoopRuntime.getState().stats.totalRuns;
-    const result = await recordAnswer(questionId, answer, cycle, body.note);
+    const result = await recordAnswer(questionId, answer, cycle, parsedBody.note);
     if (!result) {
       return NextResponse.json(
         { error: `Failed to record answer for question ID ${questionId}: question not found or already answered/expired` },
@@ -87,8 +103,10 @@ export async function POST(req: Request) {
     }
     return NextResponse.json(result);
   } catch (err) {
+    // Provide actionable error context
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred while processing the POST request.";
     return NextResponse.json(
-      { error: `Error processing POST request: ${(err as Error).message}` },
+      { error: `Error processing POST request: ${errorMessage}` },
       { status: 500 },
     );
   }
