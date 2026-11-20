@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readdir, stat } from "fs/promises";
+import { readdir } from "fs/promises";
 import { join } from "path";
 import { getStoredTarget } from "@/lib/pipeline/autonomous/push-target";
 import { vaultStatus } from "@/lib/pipeline/crypto/token-vault";
