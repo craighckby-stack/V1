@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ export function OracleTaskFeedPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchTasks = useCallback(async (isInitialLoad: boolean = false) => {
     if (isRefreshing) return; // Prevent concurrent refreshes
@@ -48,16 +49,30 @@ export function OracleTaskFeedPanel() {
 
     try {
       const response = await fetch("/api/self-enhance/tasks?limit=50");
-      if (!response.ok) throw new Error(`HTTP ${response.status}: Failed to fetch tasks from /api/self-enhance/tasks.`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: Failed to fetch tasks from /api/self-enhance/tasks. ${response.statusText}`);
+      }
+      
       const data = await response.json();
       
       // Validate and extract tasks with proper type checking
-      if (!data || typeof data !== 'object') {
-        throw new Error("Invalid API response format");
+      if (!data || typeof data !== 'object' || !Array.isArray(data.tasks)) {
+        throw new Error("Invalid API response format: Expected an object with a 'tasks' array");
       }
       
-      const allTasks: SelfTask[] = Array.isArray(data.tasks) ? data.tasks : [];
-      const oracleTasks = allTasks.filter((t) => t.kind === "oracle-failed-prophecy");
+      const allTasks: SelfTask[] = data.tasks;
+      // Validate each task has required fields
+      const validatedTasks = allTasks.filter(t => 
+        t && 
+        typeof t === 'object' && 
+        t.id && 
+        t.kind && 
+        t.filePath && 
+        t.evidence && 
+        t.status
+      );
+      
+      const oracleTasks = validatedTasks.filter((t) => t.kind === "oracle-failed-prophecy");
       setTasks(oracleTasks);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error during task fetch.";
@@ -74,12 +89,17 @@ export function OracleTaskFeedPanel() {
   useEffect(() => {
     // Initial fetch
     fetchTasks(true);
+    
     // Poll every 30s to reduce latency while still managing API load.
-    const intervalId = setInterval(() => {
+    intervalRef.current = setInterval(() => {
         fetchTasks(false);
     }, 30_000);
     
-    return () => clearInterval(intervalId);
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
   }, [fetchTasks]);
 
   // Memoize status styles to avoid unnecessary re-renders
