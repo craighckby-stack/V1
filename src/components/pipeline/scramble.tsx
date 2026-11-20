@@ -28,9 +28,12 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
   // writes left are inside the async rAF tick callback, which the rule
   // permits.
   useEffect(() => {
-    // Nothing to animate: not started, invalid duration, or empty text.
+    // Input validation: ensure ms is a positive number
+    if (ms <= 0) return;
+    
+    // Nothing to animate: not started or empty text.
     // The derived render below shows the final text for these cases.
-    if (!start || ms <= 0 || text.length === 0) return;
+    if (!start || text.length === 0) return;
 
     const total = text.length;
     const t0 = performance.now();
