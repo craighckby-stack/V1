@@ -57,20 +57,21 @@ export function OracleTaskFeedPanel() {
       
       // Validate and extract tasks with proper type checking
       if (!data || typeof data !== 'object' || !Array.isArray(data.tasks)) {
-        throw new Error("Invalid API response format: Expected an object with a 'tasks' array");
+        throw new Error("API response validation failed: Expected an object containing a 'tasks' array.");
       }
       
-      const allTasks: SelfTask[] = data.tasks;
-      // Validate each task has required fields
-      const validatedTasks = allTasks.filter(t => 
+      const allTasks: any[] = data.tasks; // Use 'any' temporarily for robust runtime check before filtering
+      
+      // Validate each task has required fields and conforms to SelfTask structure minimally
+      const validatedTasks: SelfTask[] = allTasks.filter(t => 
         t && 
         typeof t === 'object' && 
-        t.id && 
-        t.kind && 
-        t.filePath && 
-        t.evidence && 
-        t.status
-      );
+        'id' in t && typeof t.id === 'string' &&
+        'kind' in t && typeof t.kind === 'string' &&
+        'filePath' in t && typeof t.filePath === 'string' &&
+        'evidence' in t && typeof t.evidence === 'string' &&
+        'status' in t && (t.status === "pending" || t.status === "in_progress" || t.status === "done" || t.status === "failed" || t.status === "skipped")
+      ) as SelfTask[];
       
       const oracleTasks = validatedTasks.filter((t) => t.kind === "oracle-failed-prophecy");
       setTasks(oracleTasks);
@@ -195,7 +196,7 @@ export function OracleTaskFeedPanel() {
                   </li>
                 );
               })}
-            </ul>
+            </ul >
           </ScrollArea>
         )}
       </CardContent>
