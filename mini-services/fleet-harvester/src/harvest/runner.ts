@@ -121,6 +121,45 @@ export interface HarvestResult {
 }
 
 /**
+ * Pure budget-cap decision. Extracted from runHarvest so it's unit-testable
+ * without network. Returns { capped: boolean (1/0), extraction: the possibly-
+ * LLM-disabled settings }.
+ *
+ * Rule: if total commit count > 2x the cap, disable the LLM entirely for
+ * this run (heuristic default stands for all ambiguous commits). Below
+ * that threshold, the LLM runs and the real count is reported via
+ * OrchestrateResult.llmCommitsSent. The 2x factor is conservative: a run
+ * with 1000 commits but only 50 ambiguous ones still uses the LLM (50 < cap).
+ */
+export function decideLlmBudgetCap<T extends ExtractionSettings>(
+  totalCommits: number,
+  maxLlmCommitsPerHarvest: number,
+  extraction: T,
+): { capped: number; extraction: T } {
+  if (totalCommits > maxLlmCommitsPerHarvest * 2) {
+    return {
+      capped: 1,
+      extraction: { ...extraction, useGemini: false, useLlm: false },
+    };
+  }
+  return { capped: 0, extraction };
+}
+
+/**
+ * Stable newest-first sort with a SHA tiebreaker. Extracted so the
+ * determinism (same-timestamp commits get a stable order across runs) is
+ * unit-testable. The old comparator returned -1 on equal dates, which was
+ * unstable across V8 versions.
+ */
+export function sortCommitsNewestFirst<T extends { date: string; sha: string }>(
+  commits: T[],
+): T[] {
+  return [...commits].sort(
+    (a, b) => b.date.localeCompare(a.date) || a.sha.localeCompare(b.sha),
+  );
+}
+
+/**
  * The default LOOP memory dir — the project's memory/ folder two levels
  * up from mini-services/fleet-harvester/. This is where githistory-corpus.ts
  * reads from. The runner mirrors the corpus there atomically.
@@ -342,9 +381,10 @@ export async function runHarvest(
 
     // Sort newest first (matches App.tsx). Stable tiebreaker on SHA
     // so same-timestamp commits have a deterministic order across runs.
-    mergedCommits.sort(
-      (a, b) => b.date.localeCompare(a.date) || a.sha.localeCompare(b.sha),
-    );
+    // Uses the extracted sortCommitsNewestFirst helper (unit-tested).
+    const sortedCommits = sortCommitsNewestFirst(mergedCommits);
+    mergedCommits.length = 0;
+    mergedCommits.push(...sortedCommits);
 
     result.reposScanned = scannedRepos;
     result.branchesScanned = totalBranches;
@@ -371,32 +411,20 @@ export async function runHarvest(
     }
 
     // ── 4. BUDGET CAP: cap commits sent to LLM ──────────────
-    // The classifier's heuristic pass resolves most commits (reverted,
-    // CI failed/passed, regex matches). Only ambiguous commits hit the
-    // LLM. We cap how many go to the LLM per harvest to bound cost.
-    //
-    // HONEST IMPLEMENTATION: we can't know the ambiguous count before
-    // running the heuristic pass (which happens inside
-    // classifyAndOrchestrate). The cleanest approach for v1 is a
-    // whole-run cap: if the total commit count exceeds 2x the cap, we
-    // disable the LLM entirely for this run (heuristic default stands
-    // for all ambiguous commits). Below that threshold, the LLM runs
-    // and the real count is reported via OrchestrateResult.llmCommitsSent.
-    //
-    // llmBudgetCapped is now an HONEST boolean (1 = LLM was disabled
-    // by the cap this run, 0 = LLM ran normally). The old version set it
-    // to `mergedCommits.length` (total commits, not capped count) and
-    // only above 2x cap — so it was always 0 below the threshold and
-    // misleading above it. The operator can now tell at a glance.
-    let llmBudgetCapped = 0;
-    let cappedExtraction = extraction;
-    if (mergedCommits.length > options.maxLlmCommitsPerHarvest * 2) {
+    // Uses the extracted decideLlmBudgetCap helper (unit-tested). See
+    // that function's docstring for the rule + the honest-metric rationale.
+    const capDecision = decideLlmBudgetCap(
+      mergedCommits.length,
+      options.maxLlmCommitsPerHarvest,
+      extraction,
+    );
+    const llmBudgetCapped = capDecision.capped;
+    const cappedExtraction = capDecision.extraction;
+    if (llmBudgetCapped === 1) {
       log(
         `Commit count (${mergedCommits.length}) exceeds 2x LLM budget cap (${options.maxLlmCommitsPerHarvest}); disabling LLM for this run (heuristic default stands).`,
         "warn",
       );
-      cappedExtraction = { ...extraction, useGemini: false, useLlm: false };
-      llmBudgetCapped = 1;
     }
 
     // ── 5. CLASSIFY + ORCHESTRATE ─────────────────────────────

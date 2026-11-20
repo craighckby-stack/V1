@@ -2478,11 +2478,17 @@ export default function Home() {
           calls, which would otherwise look like the banner broke.
 
           Stats line (always visible when running): shows the cumulative
-          counters so you can watch the system's progress at a glance —
-          enhanced / rejected (gate rejections, pre-push) / pushed / cycles. The
-          "rejected" label is deliberate: these are proposals the gate chain
-          stopped BEFORE a push ever happened — never mutations that landed
-          and were rolled back. */}
+          ACTIVITY counters so you can watch the system's throughput at a
+          glance — enhanced / rejected (gate rejections, pre-push) / pushed /
+          cycles. The "rejected" label is deliberate: these are proposals the
+          gate chain stopped BEFORE a push ever happened — never mutations
+          that landed and were rolled back. These are ACTIVITY (how much the
+          loop did), NOT OUTCOME (whether what it did helped). The OUTCOME
+          signal is the `lessons helped/hindered` suffix: lessons track
+          helped/hindered per row, and the aggregate tells you whether the
+          loop's accumulated knowledge is actually useful (helped > hindered)
+          or actively misleading (hindered > helped). If hindered ever
+          exceeds helped, the loop is learning the wrong things. */}
       {(() => {
         const isRunning = status?.running ?? false;
         if (!isRunning) return null;
@@ -2490,12 +2496,19 @@ export default function Home() {
         const isEnhancing = !!status?.currentFile;
         const spinner = "⠋⠙⠹⠸⠼⠴⠦⠧"[spinnerFrame] ?? "·";
         const stats = status?.stats;
+        const lessonOutcomes = (status as { lessonOutcomes?: { helped: number; hindered: number; activeLessons: number } } | null)?.lessonOutcomes;
         const statsLine = stats
           ? [
               `enhanced:${stats.totalEnhanced ?? 0}`,
               `rejected:${stats.totalReverted ?? 0}`,
               `pushed:${stats.totalPushed ?? 0}`,
               `cycles:${stats.cyclesCompleted ?? 0}`,
+              // OUTCOME suffix — the only honest "did it help?" signal.
+              // Omitted when lessonOutcomes is missing (worker down + DB
+              // read failed) so the line never shows a misleading :0/:0.
+              ...(lessonOutcomes
+                ? [`lessons helped:${lessonOutcomes.helped} hindered:${lessonOutcomes.hindered}`]
+                : []),
             ].join(" · ")
           : "";
         // Filename: show basename for readability, full path on hover.

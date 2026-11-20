@@ -582,6 +582,50 @@ export async function maybeDistill(cyclesCompleted: number): Promise<number> {
   return distillLessons();
 }
 
+/** Aggregate lesson OUTCOME metrics (helped/hindered totals across all
+ *  active lessons). This is the system's only honest "did the
+ *  enhancements actually help?" signal — the dashboard's enhanced/
+ *  rejected/pushed/cycles counters are ACTIVITY (how much the loop did),
+ *  not OUTCOME (whether what it did worked). Lessons track helped/
+ *  hindered per row because the distiller down-weights lessons that
+ *  hinder more than they help; this aggregates that signal so the
+ *  operator can see it at a glance.
+ *
+ *  Returns { helped, hindered, activeLessons, medianScore } — all 0 if
+ *  the DB is unavailable (best-effort, never throws). */
+export async function getLessonOutcomes(): Promise<{
+  helped: number;
+  hindered: number;
+  activeLessons: number;
+  medianScore: number;
+}> {
+  const l = lessons();
+  if (!l) return { helped: 0, hindered: 0, activeLessons: 0, medianScore: 0 };
+  try {
+    const rows = await l.findMany({
+      where: { active: true },
+      select: { helped: true, hindered: true, score: true },
+    });
+    const helped = rows.reduce((sum, r) => sum + (r.helped ?? 0), 0);
+    const hindered = rows.reduce((sum, r) => sum + (r.hindered ?? 0), 0);
+    const scores = rows.map((r) => r.score ?? 0).sort((a, b) => a - b);
+    const medianScore =
+      scores.length === 0
+        ? 0
+        : scores.length % 2 === 1
+          ? scores[Math.floor(scores.length / 2)]
+          : (scores[scores.length / 2 - 1] + scores[scores.length / 2]) / 2;
+    return {
+      helped,
+      hindered,
+      activeLessons: rows.length,
+      medianScore,
+    };
+  } catch {
+    return { helped: 0, hindered: 0, activeLessons: 0, medianScore: 0 };
+  }
+}
+
 /** Seed lessons — the system starts with the meta-knowledge its own
  *  git history already proved. Called once at boot (idempotent —
  *  skips if any seed row exists). The seed is a PROCEDURE (D2): an

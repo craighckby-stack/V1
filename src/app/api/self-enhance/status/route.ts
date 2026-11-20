@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { workerFetch, healWorkerInBackground } from "@/lib/pipeline/autonomous/loop-worker-client";
 import { llmGateInfo } from "@/lib/pipeline/llm/agent-llm";
+import { getLessonOutcomes } from "@/lib/pipeline/autonomous/lesson-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -24,12 +25,22 @@ export async function GET() {
   // read-only proxy — importing self-enhance-loop here would construct a
   // second singleton whose boot auto-start honors the armed tier.
   const r = await workerFetch("/status", { timeoutMs: 4000 });
+  // Lesson OUTCOME metrics — queried here (not in the worker) so the
+  // worker stays a thin proxy and the DB read is local. Best-effort: if
+  // the DB is unavailable, lessonOutcomes falls to all-zeros and the
+  // dashboard shows "lessons helped:0 hindered:0" honestly.
+  const lessonOutcomes = await getLessonOutcomes().catch(() => ({
+    helped: 0,
+    hindered: 0,
+    activeLessons: 0,
+    medianScore: 0,
+  }));
   if (r?.ok && r.data) {
     // Cripple-check F8: surface worker reachability explicitly. Without
     // this flag, "loop stopped" and "worker process dead/respawning"
     // were indistinguishable to the UI — both rendered the same idle
     // panel while the actual cause was invisible.
-    return NextResponse.json({ ...r.data, workerReachable: true });
+    return NextResponse.json({ ...r.data, workerReachable: true, lessonOutcomes });
   }
 
   // Worker down — self-heal in the background (never block the poll; the
@@ -55,5 +66,8 @@ export async function GET() {
     // the worker's /status payload so the UI's `status?.masterUnlocked`
     // reads cleanly on every poll.
     masterUnlocked: false,
+    // Lesson outcomes are independent of the worker (queried above from
+    // the DB), so they're honest even when the worker is down.
+    lessonOutcomes,
   });
 }
