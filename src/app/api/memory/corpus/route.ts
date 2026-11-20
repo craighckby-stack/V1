@@ -26,39 +26,44 @@ export async function GET() {
     const status = getCorpusStatus();
     const digest = getFleetDigest();
     
-    // Validate search keyword
+    // Keyword is hardcoded and guaranteed to be valid for this endpoint's purpose.
     const keyword = "orchestrator agent loop";
-    if (typeof keyword !== "string" || keyword.trim() === "") {
-      throw new Error("Invalid search keyword: must be a non-empty string");
-    }
     
-    // Add timeout to prevent hanging
+    // Add timeout to prevent hanging, wrapping the actual async call.
     let sample;
     try {
       sample = await Promise.race([
-        searchEngines(keyword, 3).map((h) => ({
-          id: h.engine.id,
-          role: h.engine.role,
-          score: Number(h.score.toFixed(2)),
-          matched: h.matchedTerms.slice(0, 5),
-        })),
+        searchEngines(keyword, 3),
         new Promise((_, reject) => 
           setTimeout(() => reject(new Error("Search timed out")), 5000)
         )
       ]);
+      
+      // Map results only after successful retrieval
+      sample = sample.map((h) => ({
+        id: h.engine.id,
+        role: h.engine.role,
+        score: Number(h.score.toFixed(2)),
+        matched: h.matchedTerms.slice(0, 5),
+      }));
+
     } catch (searchError) {
-      if (searchError instanceof Error && searchError.message.includes("timeout")) {
+      if (searchError instanceof Error && searchError.message.includes("Search timed out")) {
         throw new Error("Search operation timed out after 5 seconds");
       }
-      throw new Error(`Search failed: ${searchError instanceof Error ? searchError.message : "Unknown error"}`);
+      // Provide context on search failure
+      throw new Error(`Failed to retrieve search samples for keyword "${keyword}": ${searchError instanceof Error ? searchError.message : "Unknown search error"}`);
     }
     
     return NextResponse.json({ ok: true, status, digest, sampleHits: sample });
   } catch (e) {
-    const errorMessage = e instanceof Error ? e.message : "corpus read failed";
-    const statusCode = e instanceof Error && e.message.includes("timeout") ? 504 : 500;
+    const error = e instanceof Error ? e : new Error("Unknown corpus read failure");
+    
+    // Determine status code based on error message context
+    const statusCode = error.message.includes("timed out") ? 504 : 500;
+    
     return NextResponse.json(
-      { ok: false, error: errorMessage },
+      { ok: false, error: error.message },
       { status: statusCode }
     );
   }
