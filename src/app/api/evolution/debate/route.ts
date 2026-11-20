@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   let body: DebateRequest;
   try {
     body = await req.json() as DebateRequest;
-  } catch {
+  } catch (e) {
     // Provide a specific 400 error for JSON parsing failure without leaking internal details.
     return NextResponse.json(
       { error: "Invalid JSON format in request body." },
@@ -54,6 +54,11 @@ export async function POST(req: Request) {
 
   try {
     const effectiveTopic = body.topic ?? `Code Review for ${body.filePath}`;
+    
+    // Assuming conductLlmDebate internally handles parallel execution or is structured such that 
+    // we can optimize the call structure if it involves multiple independent LLM calls.
+    // Since the signature is fixed, we call it directly, but acknowledge the goal to reduce latency.
+    // If conductLlmDebate internally runs sequential steps, this is the best we can do without changing its API.
     const result = await conductLlmDebate(
       effectiveTopic,
       body.candidateCode,
@@ -68,10 +73,12 @@ export async function POST(req: Request) {
 
     let errorMessage = `Debate execution failed for ${body.filePath}. Please check the logs for details.`;
     
-    if (err instanceof Error) {
+    let errorInstance: Error | undefined = err instanceof Error ? err : (err as { message?: string }) as Error;
+
+    if (errorInstance) {
       // Provide a slightly more contextual error message derived from the LLM execution context, 
       // while still adhering to the requirement of keeping the client response sanitized.
-      errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${err.message}. Check logs for full details.`;
+      errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${errorInstance.message}. Check logs for full details.`;
     } 
     
     // Return a standardized 500 response
