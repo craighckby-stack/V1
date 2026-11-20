@@ -51,7 +51,7 @@ export function MemoryBank() {
         isFetchingRef.current = false;
       }
     })();
-  }, []);
+  }, [setEntries]);
 
   return (
     <Card className="bg-slate-950/60 border border-slate-800/60 backdrop-blur transition-shadow duration-200 hover:shadow-2xl">

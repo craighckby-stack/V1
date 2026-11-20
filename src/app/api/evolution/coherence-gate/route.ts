@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   let body: unknown;
   try {
     body = await req.json();
-  } catch (e) {
+  } catch {
     // Provide actionable error context on JSON parsing failure.
     return NextResponse.json(
         { error: "Failed to parse request body. Ensure the request content type is application/json and the body is valid JSON." },

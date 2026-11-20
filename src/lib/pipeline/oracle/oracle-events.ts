@@ -204,7 +204,7 @@ export function readOracleEvents(afterSeq?: number): {
     // i_start = floor(afterSeq - currentSeq + bufferLength) + 1
     
     // Calculate the required starting index based on sequence number.
-    let requiredMinIndex = afterSeq - currentSeq + bufferLength + 1;
+    const requiredMinIndex = afterSeq - currentSeq + bufferLength + 1;
     
     // Clamp the start index to be within [0, bufferLength]
     let startIndex = Math.max(0, requiredMinIndex);

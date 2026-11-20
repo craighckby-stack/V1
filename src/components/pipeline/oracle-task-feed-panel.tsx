@@ -32,7 +32,6 @@ const STATUS_STYLES: Record<string, { label: string; variant: "default" | "secon
 export function OracleTaskFeedPanel() {
   const [tasks, setTasks] = useState<SelfTask[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -134,7 +133,7 @@ export function OracleTaskFeedPanel() {
         )}
         {tasks.length === 0 && !loading ? (
           <p className="text-sm text-gray-500 p-4 bg-gray-50 rounded-lg">
-            No failed prophecies feeding tasks. The oracle's predictions are
+            No failed prophecies feeding tasks. The oracle&apos;s predictions are
             either unjudged, fulfilled, or not yet past their deadline.
           </p>
         ) : (
