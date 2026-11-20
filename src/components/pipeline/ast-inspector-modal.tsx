@@ -33,14 +33,12 @@ export function AstInspectorModal() {
   // Ensure report, ast, and sanitizer are defined before using them in rendering logic
   if (!ast || !sanitizer) return null;
 
-  // Ensure violationIcon mapping is complete by providing a default fallback
-  const violationIcon: Record<string, typeof AlertTriangle> = Object.fromEntries(
-    [
-      ["high", XCircle],
-      ["medium", AlertTriangle],
-      ["low", AlertTriangle],
-    ]
-  );
+  // Define violationIcon mapping explicitly for known severities, defaulting to AlertTriangle
+  const violationIcon: Record<string, React.ElementType> = {
+    "high": XCircle,
+    "medium": AlertTriangle,
+    "low": AlertTriangle,
+  };
 
   // Ensure original and evolved are treated as strings for safe rendering/length checks
   const originalStr = typeof original === 'string' ? original : String(original);
