@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,15 +34,16 @@ export function OracleTaskFeedPanel() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const fetchTasks = useCallback(async (isInitialLoad: boolean = false) => {
-    if (refreshing) return; // Prevent concurrent refreshes
+    if (isRefreshing) return; // Prevent concurrent refreshes
     
     if (isInitialLoad) {
         setLoading(true);
         setError(null); // Clear previous errors on fresh start
     } else {
-        setRefreshing(true);
+        setIsRefreshing(true);
         setError(null);
     }
 
@@ -50,9 +51,12 @@ export function OracleTaskFeedPanel() {
       const response = await fetch("/api/self-enhance/tasks?limit=50");
       if (!response.ok) throw new Error(`HTTP ${response.status}: Failed to fetch tasks from /api/self-enhance/tasks.`);
       const data = await response.json();
-      // The API returns { tasks: [...], queue: {...} } — filter for the
-      // oracle-failed-prophecy kind (the audit-8 closure: failed
-      // prophecies that queued SelfTasks on the same file).
+      
+      // Validate and extract tasks with proper type checking
+      if (!data || typeof data !== 'object') {
+        throw new Error("Invalid API response format");
+      }
+      
       const allTasks: SelfTask[] = Array.isArray(data.tasks) ? data.tasks : [];
       const oracleTasks = allTasks.filter((t) => t.kind === "oracle-failed-prophecy");
       setTasks(oracleTasks);
@@ -61,12 +65,12 @@ export function OracleTaskFeedPanel() {
       setError(`Last refresh failed for /api/self-enhance/tasks: ${msg}. Showing cached data.`);
       // Keep existing tasks on error — don't wipe the list on a transient failure
     } finally {
-      setRefreshing(false);
+      setIsRefreshing(false);
       if (isInitialLoad) {
         setLoading(false);
       }
     }
-  }, [refreshing]);
+  }, [isRefreshing]);
 
   useEffect(() => {
     // Initial fetch
@@ -78,6 +82,9 @@ export function OracleTaskFeedPanel() {
     
     return () => clearInterval(intervalId);
   }, [fetchTasks]);
+
+  // Memoize status styles to avoid unnecessary re-renders
+  const statusStyles = useMemo(() => STATUS_STYLES, []);
 
   // Show loading if we are still loading initially, regardless of tasks.length or error state
   if (loading) {
@@ -112,11 +119,11 @@ export function OracleTaskFeedPanel() {
           variant="ghost"
           size="sm"
           onClick={() => fetchTasks(false)}
-          disabled={refreshing}
+          disabled={isRefreshing}
           className="h-10 w-10 p-0 transition-colors duration-150 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-indigo-500"
           aria-label="Refresh oracle task feed"
         >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
         </Button>
       </CardHeader>
       <CardContent>
@@ -134,7 +141,7 @@ export function OracleTaskFeedPanel() {
           <ScrollArea className="max-h-[400px]">
             <ul className="space-y-3 pr-2 sm:space-y-4">
               {tasks.map((task) => {
-                const style = STATUS_STYLES[task.status] ?? STATUS_STYLES.pending;
+                const style = statusStyles[task.status] ?? statusStyles.pending;
                 const StatusIcon = style.icon;
                 return (
                   <li
@@ -154,7 +161,7 @@ export function OracleTaskFeedPanel() {
                     <p className="text-sm text-gray-700 line-clamp-2" title={task.evidence}>
                       {task.evidence}
                     </p>
-                    {(task.attempts > 0 || task.lastError) && (
+                    {(task.attempts > 0 || task.deferred > 0 || task.lastError) && (
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
                         {task.attempts > 0 && <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Attempts: {task.attempts}</span>}
                         {task.deferred > 0 && <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Deferred: {task.deferred}</span>}

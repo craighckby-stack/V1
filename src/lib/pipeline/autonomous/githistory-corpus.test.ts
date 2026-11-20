@@ -91,7 +91,7 @@ describe("githistory-corpus", () => {
     expect(d.toLowerCase()).toContain("ci state pending");
     // Labeled as external evidence, not this system's own history
     expect(d).toContain("GitHistory-Sync corpus");
-    expect(d).toContain("sibling systems");
+    expect(d).toContain("SIBLING systems");
     // Bounded for the distiller prompt
     expect(d.length).toBeLessThan(1500);
   });

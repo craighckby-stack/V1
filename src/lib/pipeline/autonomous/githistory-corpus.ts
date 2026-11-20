@@ -114,9 +114,14 @@ const STOP_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 function tokenize(text: string): string[] {
+  // Hyphens are SEPARATORS here (unlike emg-rag): the corpus roles are
+  // hyphenated compounds ("agent-loop", "rag-retrieval", "memory-state")
+  // and queries arrive as space-separated words ("agent loop", "rag
+  // retrieval") — keeping hyphens glued would make the two forms never
+  // match. Splitting both sides on the same class unifies them.
   return text
     .toLowerCase()
-    .split(/[^a-z0-9_+-]+/)
+    .split(/[^a-z0-9_+]+/)
     .filter((t) => t.length > 2 && !STOP_WORDS.has(t));
 }
 
