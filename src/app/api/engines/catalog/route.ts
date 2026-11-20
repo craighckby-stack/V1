@@ -41,30 +41,36 @@ export async function GET() {
     }
 
     // Check for required structure: 'patterns' must exist and be an array.
-    if (!('patterns' in source) || !Array.isArray(source.patterns)) {
+    if (!('patterns' in source) || !Array.isArray((source as any).patterns)) {
       invalidSources.push({ index: i, reason: "Source is missing 'patterns' array or 'patterns' is not an array." });
       return; // Skip invalid entry
     }
     
+    const patterns = (source as SiphonSource).patterns;
+
     // Check if patterns array is empty
-    if (source.patterns.length === 0) {
+    if (patterns.length === 0) {
       invalidSources.push({ index: i, reason: "Source patterns array is empty." });
       return; // Skip invalid entry
     }
     
     // Validate each pattern in the array
-    for (const pattern of source.patterns) {
+    let patternsValid = true;
+    for (let j = 0; j < patterns.length; j++) {
+      const pattern = patterns[j];
       if (typeof pattern !== 'string') {
-        invalidSources.push({ index: i, reason: `Pattern at index ${source.patterns.indexOf(pattern)} is not a string.` });
-        return; // Skip invalid entry
+        invalidSources.push({ index: i, reason: `Pattern at index ${j} is not a string.` });
+        patternsValid = false;
+        break; // Break inner loop, mark source invalid
       }
+    }
+
+    if (!patternsValid) {
+        return; // Skip invalid entry
     }
     
     // Safely cast after structural validation
     const typedSource = source as SiphonSource;
-
-    // Since we validated Array.isArray((source as any).patterns), we can safely access length.
-    const patterns: readonly string[] = typedSource.patterns;
 
     validSources.push({
       source: typedSource,
