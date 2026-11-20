@@ -12,7 +12,7 @@ const PROVENANCE_META: Record<string, { icon: typeof ShieldCheck; color: string;
   clean: { icon: ShieldCheck, color: "text-emerald-300", bg: "bg-emerald-500/15 border-emerald-500/40" },
   failure: { icon: ShieldX, color: "text-rose-300", bg: "bg-rose-500/15 border-rose-500/40" },
   synthesis: { icon: BrainCircuit, color: "text-cyan-300", bg: "bg-cyan-500/15 border-cyan-500/40" },
-  contradicted: { icon: ShieldX, color: "text-amber-300", bg: "bg-amber-500/15 border-amber-500/40" },
+  contradicted: { icon: ShieldX, color: "text-amber-300", bg: "bg-amber-500/15 border-rose-500/40" },
 };
 
 export function MemoryBank() {
