@@ -24,7 +24,7 @@ export function MemoryBank() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Determine if we are currently fetching or if the fetch has never been initiated.
-  const isLoading = !hasFetchedRef.current && isFetchingRef.current;
+  const isLoading = isFetchingRef.current && !hasFetchedRef.current;
 
   useEffect(() => {
     setIsMounted(true);
@@ -45,17 +45,18 @@ export function MemoryBank() {
       
       isFetchingRef.current = true;
       abortControllerRef.current = new AbortController();
+      const abortController = abortControllerRef.current;
+      
+      const timeoutId = setTimeout(() => {
+        if (abortController) {
+          abortController.abort();
+          abortControllerRef.current = null;
+        }
+      }, 10000); // 10 second timeout
       
       try {
-        const timeoutId = setTimeout(() => {
-          if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-            abortControllerRef.current = null;
-          }
-        }, 10000); // 10 second timeout
-        
         const res = await fetch("/api/memory/entries", {
-          signal: abortControllerRef.current.signal
+          signal: abortController.signal
         });
         
         clearTimeout(timeoutId);
@@ -78,7 +79,7 @@ export function MemoryBank() {
       } catch (error) {
         // Only log if not an abort error
         if (error instanceof Error && error.name !== 'AbortError') {
-          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage = error.message;
           console.error("Error loading memory entries from API:", { error: errorMessage, context: "MemoryBank fetch" });
         }
       } finally {
@@ -87,12 +88,13 @@ export function MemoryBank() {
           hasFetchedRef.current = true;
           isFetchingRef.current = false;
         }
+        clearTimeout(timeoutId); // Ensure timeout is cleared even if fetch succeeds/fails before timeout
         abortControllerRef.current = null;
       }
     };
 
     fetchMemoryEntries();
-  }, [setEntries, isMounted]);
+  }, [setEntries]);
 
   // Filter out invalid entries before rendering to prevent crashes
   const validEntries = entries.filter(entry => {
@@ -113,7 +115,7 @@ export function MemoryBank() {
             <BookOpen className="h-5 w-5 text-emerald-300" aria-hidden="true" />
           </span>
           Memory Bank 
-          <span className="text-xs text-slate-400 font-normal ml-2 hidden sm:inline">(RAG)</span> 
+          <span className="text-xs text-slate-400 font-normal ml-2 hidden sm:inline">(RAG)</span >
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
