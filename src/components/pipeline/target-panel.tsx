@@ -73,17 +73,19 @@ export function TargetPanel({ open, onClose }: Props) {
     const signal = abortControllerRef.current.signal;
     
     setLoading(true);
-    try {
-      // Add timeout to prevent hanging requests
-      const timeoutId = setTimeout(() => {
+    
+    // Set up timeout and request concurrently for better latency
+    const timeoutId = setTimeout(() => {
         if (signal.aborted) return;
         abortControllerRef.current?.abort();
         console.error("Pipeline history request timed out");
         setRuns([]);
         setLoading(false);
-      }, 10000); // 10 second timeout
-      
+    }, 10000); // 10 second timeout
+
+    try {
       const res = await fetch("/api/pipeline/history", { signal });
+      
       clearTimeout(timeoutId);
       
       if (signal.aborted) return;
@@ -115,6 +117,7 @@ export function TargetPanel({ open, onClose }: Props) {
       console.error("Network or parsing error fetching pipeline history:", error instanceof Error ? error.message : "Unknown error");
       setRuns([]); // Ensure runs is empty on network/parsing failure
     } finally {
+      // Only set loading to false if the request wasn't aborted by the timeout handler
       if (!signal.aborted) {
         setLoading(false);
       }
@@ -123,7 +126,7 @@ export function TargetPanel({ open, onClose }: Props) {
 
   useEffect(() => {
     if (open) {
-      // Only load when opening, not on subsequent re-renders while open
+      // Only load when opening
       loadHistory();
     }
     
