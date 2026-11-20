@@ -57,10 +57,12 @@ export async function POST(req: Request) {
   try {
     // Read the request body as text first to avoid memory leaks with invalid JSON
     const bodyText = await req.text();
+    
     try {
       body = JSON.parse(bodyText);
     } catch (jsonError) {
-      throw new Error(`Invalid JSON in request body: ${(jsonError as Error)?.message || 'Malformed JSON'}`);
+      // Re-throw as a specific error type to be caught below for 400 response
+      throw new SyntaxError(`Invalid JSON in request body: ${(jsonError as Error)?.message || 'Malformed JSON'}`);
     }
 
     // Validate body is an object
@@ -76,7 +78,7 @@ export async function POST(req: Request) {
       force = body.force;
     }
   } catch (e) {
-    // Handle JSON parsing errors specifically
+    // Handle JSON parsing errors specifically (SyntaxError)
     if (e instanceof SyntaxError) {
       return NextResponse.json(
         { error: `Invalid JSON in request body: ${e.message}` },
@@ -84,7 +86,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Handle other validation/runtime errors
+    // Handle other validation/runtime errors (Error instances)
     if (e instanceof Error) {
       return NextResponse.json(
         { error: `Invalid request body: ${e.message}` },
