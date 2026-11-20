@@ -33,42 +33,35 @@ export async function GET() {
   const validSources: CatalogEntry[] = [];
   const invalidSources: { index: number; reason: string }[] = [];
 
-  for (let i = 0; i < SIPHON_SOURCES.length; i++) {
-    const source = SIPHON_SOURCES[i];
-
+  SIPHON_SOURCES.forEach((source, i) => {
     // Check for null/undefined source element first
     if (!source) {
       invalidSources.push({ index: i, reason: "Source element is null or undefined." });
-      continue;
+      return;
     }
 
     // Check for required structure: 'patterns' must exist and be an array.
-    if (!('patterns' in source) || !Array.isArray((source as any).patterns)) {
+    if (!('patterns' in source) || !Array.isArray(source.patterns)) {
       invalidSources.push({ index: i, reason: "Source is missing 'patterns' array or 'patterns' is not an array." });
-      continue;
+      return;
     }
     
-    const patterns = (source as SiphonSource).patterns;
+    const patterns = source.patterns;
 
     // Check if patterns array is empty
     if (patterns.length === 0) {
       invalidSources.push({ index: i, reason: "Source patterns array is empty." });
-      continue;
+      return;
     }
     
     // Validate each pattern in the array
-    let patternsValid = true;
-    for (let j = 0; j < patterns.length; j++) {
-      const pattern = patterns[j];
-      if (typeof pattern !== 'string') {
-        invalidSources.push({ index: i, reason: `Pattern at index ${j} is not a string.` });
-        patternsValid = false;
-        break; // Break inner loop, mark source invalid
-      }
-    }
+    const patternsValid = patterns.every((pattern, j) => typeof pattern === 'string');
 
     if (!patternsValid) {
-        continue; // Skip invalid entry
+        // Find the first invalid pattern index for a more precise error message
+        const firstInvalidPatternIndex = patterns.findIndex((pattern, j) => typeof pattern !== 'string');
+        invalidSources.push({ index: i, reason: `Pattern at index ${firstInvalidPatternIndex} is not a string.` });
+        return;
     }
     
     // Safely cast after structural validation
@@ -83,7 +76,7 @@ export async function GET() {
       // is performed here, so we don't claim "active".
       status: "configured",
     });
-  }
+  });
 
   if (invalidSources.length > 0) {
     return NextResponse.json(
