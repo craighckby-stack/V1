@@ -110,7 +110,8 @@ class LoopEventBus {
         // This case is now exhaustive due to the LoopEvent union type, preventing TS2339 errors.
         // If execution reaches here, it implies a structural issue in the LoopEvent definition itself,
         // which is a critical bug, not just bad input.
-        throw new Error(`LoopEventBus.emit() called with an unhandled or unknown event kind.`);
+        const kindValue = (evt as any).kind;
+        throw new Error(`LoopEventBus.emit() called with an unhandled or unknown event kind: ${kindValue}`);
     }
 
     // EventEmitter.emit returns boolean | null. We return true if it didn't return null, false otherwise.
@@ -121,9 +122,13 @@ class LoopEventBus {
     if (typeof listener !== "function") {
       throw new Error("LoopEventBus.on() called with non-function listener");
     }
-    this.emitter.on("event", listener);
+    
+    // Store the wrapped listener to ensure we remove the exact instance
+    const wrappedListener = (evt: LoopEvent) => listener(evt);
+    this.emitter.on("event", wrappedListener);
+    
     return () => {
-      this.emitter.off("event", listener);
+      this.emitter.off("event", wrappedListener);
     };
   }
 }
