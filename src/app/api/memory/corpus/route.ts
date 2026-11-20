@@ -25,17 +25,33 @@ export async function GET() {
   try {
     const status = getCorpusStatus();
     const digest = getFleetDigest();
-    const sample = searchEngines("orchestrator agent loop", 3).map((h) => ({
-      id: h.engine.id,
-      role: h.engine.role,
-      score: Number(h.score.toFixed(2)),
-      matched: h.matchedTerms.slice(0, 5),
-    }));
+    
+    // Validate search keyword
+    const keyword = "orchestrator agent loop";
+    if (typeof keyword !== "string" || keyword.trim() === "") {
+      throw new Error("Invalid search keyword: must be a non-empty string");
+    }
+    
+    // Add timeout to prevent hanging
+    const sample = await Promise.race([
+      searchEngines(keyword, 3).map((h) => ({
+        id: h.engine.id,
+        role: h.engine.role,
+        score: Number(h.score.toFixed(2)),
+        matched: h.matchedTerms.slice(0, 5),
+      })),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Search timed out")), 5000)
+      )
+    ]);
+    
     return NextResponse.json({ ok: true, status, digest, sampleHits: sample });
   } catch (e) {
+    const errorMessage = e instanceof Error ? e.message : "corpus read failed";
+    const statusCode = e instanceof Error && e.message.includes("timeout") ? 504 : 500;
     return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "corpus read failed" },
-      { status: 500 }
+      { ok: false, error: errorMessage },
+      { status: statusCode }
     );
   }
 }

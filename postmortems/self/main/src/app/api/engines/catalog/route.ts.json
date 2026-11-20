@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/engines/catalog/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Syntax error: ',' expected.",
@@ -12,8 +12,8 @@
   "parentHash": "145b3afc2c1aed79b0584b1f7531f3d7ddde00ba6b0c19294fca2cb1348232ce",
   "hash": "39505a7e758af60e75a7170dca835147846e19691309ce7c565497593db5f9ec",
   "lastAttemptAt": "2026-11-19T14:59:36.105Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-20T07:11:59.129Z",
   "createdAt": "2026-11-19T13:59:58.617Z",
-  "updatedAt": "2026-11-19T14:59:36.105Z",
+  "updatedAt": "2026-11-20T07:11:59.129Z",
   "schema": 2
 }
