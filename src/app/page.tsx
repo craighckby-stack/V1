@@ -1316,6 +1316,7 @@ export default function Home() {
           "  oracle judge    — Evaluate all due prophecies now",
           "  oracle list     — List recent prophecies + verdicts",
           "  oracle status   — Track record: counts, calibration, Brier score",
+          "  memory      — GitHistory-Sync corpus: fleet evidence + engine prior-art",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
           "",
@@ -1946,6 +1947,49 @@ export default function Home() {
         }
       }
 
+      case "memory": {
+        try {
+          const res = await fetch("/api/memory/corpus");
+          const data = await res.json();
+          if (!data.ok) return [`Corpus read failed: ${data.error ?? "unknown"}`];
+          const s = data.status as {
+            loaded: boolean; engines: number; failed: number;
+            successful: number; repos: number; generatedAt: string | null;
+          };
+          if (!s.loaded) {
+            return [
+              "GitHistory-Sync corpus: NOT LOADED",
+              "  (memory/commit-history.*.json absent or unreadable — the",
+              "   distiller and prior-art RAG run without fleet evidence)",
+              "",
+            ];
+          }
+          const lines = [
+            "GitHistory-Sync corpus (external fleet evidence):",
+            `  Engines:       ${s.engines} harvested source files (prior-art RAG)`,
+            `  Commits:       ${s.successful} successful / ${s.failed} classified-failed`,
+            `  Fleet:         ${s.repos} sibling repos`,
+            `  Generated:     ${s.generatedAt ? s.generatedAt.slice(0, 10) : "?"}`,
+            "",
+            "  Fleet digest (injected into the lesson distiller):",
+          ];
+          for (const line of String(data.digest ?? "").split("\n")) {
+            lines.push("  " + line);
+          }
+          const hits = (data.sampleHits ?? []) as Array<{ id: string; role: string; score: number; matched: string[] }>;
+          if (hits.length > 0) {
+            lines.push("", "  Prior-art search sample ('orchestrator agent loop'):");
+            for (const h of hits) {
+              lines.push(`    [${h.score}] ${h.role} — ${h.id} (matched: ${h.matched.join(", ")})`);
+            }
+          }
+          lines.push("");
+          return lines;
+        } catch (e) {
+          return [`Memory error: ${(e as Error).message}`];
+        }
+      }
+
       case "clear":
       case "cls":
         clearConsole();
@@ -2434,11 +2478,23 @@ export default function Home() {
           calls, which would otherwise look like the banner broke.
 
           Stats line (always visible when running): shows the cumulative
-          counters so you can watch the system's progress at a glance —
-          enhanced / rejected (gate rejections, pre-push) / pushed / cycles. The
-          "rejected" label is deliberate: these are proposals the gate chain
-          stopped BEFORE a push ever happened — never mutations that landed
-          and were rolled back. */}
+          ACTIVITY counters so you can watch the system's throughput at a
+          glance — enhanced / rejected (gate rejections, pre-push) / pushed /
+          cycles. The "rejected" label is deliberate: these are proposals the
+          gate chain stopped BEFORE a push ever happened — never mutations
+          that landed and were rolled back. These are ACTIVITY (how much the
+          loop did), NOT OUTCOME (whether what it did helped). Three OUTCOME
+          signals follow:
+          1. `lessons helped/hindered` — the loop's own learning (did its
+             accumulated knowledge help or hinder future cycles?). If
+             hindered exceeds helped, the loop is learning the wrong things.
+          2. `tests N Δ±X` — the codebase's test count + delta since the
+             last health snapshot (every 10 cycles). The EXTERNAL objective:
+             did the codebase actually grow its safety net?
+          3. `tsc N Δ±X` / `lint N Δ±X` — type errors + lint errors +
+             delta. The EXTERNAL health signal: 0 = clean. A rising tsc
+             count means the loop is shipping type-broken code through the
+             gate; a falling one means it's cleaning up. */}
       {(() => {
         const isRunning = status?.running ?? false;
         if (!isRunning) return null;
@@ -2446,12 +2502,39 @@ export default function Home() {
         const isEnhancing = !!status?.currentFile;
         const spinner = "⠋⠙⠹⠸⠼⠴⠦⠧"[spinnerFrame] ?? "·";
         const stats = status?.stats;
+        const lessonOutcomes = (status as { lessonOutcomes?: { helped: number; hindered: number; activeLessons: number } } | null)?.lessonOutcomes;
+        const healthTrend = (status as { healthTrend?: { current: { testCount: number; testFail: number; tscErrors: number; lintErrors: number; protectedFileCount: number; cycleNumber: number }; delta: { testCount: number; testFail: number; tscErrors: number; lintErrors: number } } } | null)?.healthTrend;
+        // Health trend suffix — the EXTERNAL objective signal. Shows the
+        // latest test count + tsc/lint error counts with the delta from
+        // the previous snapshot (Δ since last capture). "tests 522 Δ+0"
+        // means 522 tests, no change since last snapshot. "tsc 0" with no
+        // delta means the codebase is type-clean and has been. Omitted
+        // when healthTrend is null (no snapshots yet — the first capture
+        // happens at cycle 10, so this is null for the first ~100s of
+        // loop uptime, which is honest).
+        const healthLine = healthTrend
+          ? [
+              `tests ${healthTrend.current.testCount}${healthTrend.delta.testCount !== 0 ? ` Δ${healthTrend.delta.testCount >= 0 ? "+" : ""}${healthTrend.delta.testCount}` : ""}`,
+              `tsc ${healthTrend.current.tscErrors}${healthTrend.delta.tscErrors !== 0 ? ` Δ${healthTrend.delta.tscErrors >= 0 ? "+" : ""}${healthTrend.delta.tscErrors}` : ""}`,
+              `lint ${healthTrend.current.lintErrors}${healthTrend.delta.lintErrors !== 0 ? ` Δ${healthTrend.delta.lintErrors >= 0 ? "+" : ""}${healthTrend.delta.lintErrors}` : ""}`,
+            ].join(" · ")
+          : null;
         const statsLine = stats
           ? [
               `enhanced:${stats.totalEnhanced ?? 0}`,
               `rejected:${stats.totalReverted ?? 0}`,
               `pushed:${stats.totalPushed ?? 0}`,
               `cycles:${stats.cyclesCompleted ?? 0}`,
+              // OUTCOME suffix — the only honest "did it help?" signal.
+              // Omitted when lessonOutcomes is missing (worker down + DB
+              // read failed) so the line never shows a misleading :0/:0.
+              ...(lessonOutcomes
+                ? [`lessons helped:${lessonOutcomes.helped} hindered:${lessonOutcomes.hindered}`]
+                : []),
+              // HEALTH suffix — the EXTERNAL objective (test/tsc/lint
+              // trend). The deepest honesty: did the codebase actually
+              // get healthier, regardless of how busy the loop was?
+              ...(healthLine ? [healthLine] : []),
             ].join(" · ")
           : "";
         // Filename: show basename for readability, full path on hover.

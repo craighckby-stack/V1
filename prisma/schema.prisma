@@ -683,3 +683,55 @@ model LoopGoal {
 
   @@index([status])
 }
+
+/// ── CODEBASE HEALTH SNAPSHOTS ────────────────────────────────────
+/// The loop's EXTERNAL objective signal. Every other metric the loop
+/// tracks (enhanced/pushed/cycles, lesson helped/hindered, self-model
+/// Brier) is INTERNAL — it measures the loop's own activity or its
+/// self-prediction accuracy. None of it says whether the codebase
+/// actually got healthier.
+///
+/// This table records periodic snapshots of cheap, objective, external
+/// signals: test count, test failures, tsc errors, lint errors. The
+/// delta between snapshots tells the loop (and the operator) whether
+/// its mutations are moving the codebase in a healthy direction —
+/// the first real OUTCOME metric for a system whose only objective
+/// signal was activity counts.
+///
+/// Capture cadence: every N cycles (N configurable, default 10) — NOT
+/// every cycle. Running the full test suite + tsc on every cycle would
+/// dominate cycle latency (tests ~1.6s, tsc ~2s; a cycle is ~10s). The
+/// snapshot is sampled, not continuous. The trend across snapshots is
+/// still meaningful: 10 cycles ≈ 100s of loop work between readings.
+///
+/// Future (curiosity drive, step 2): the file-selection logic can read
+/// the trend and prefer files/situations that the self-model is LEAST
+/// confident about when the health trend is flat or worsening —
+/// "get bored when too confident, seek surprise." That wiring is a
+/// separate, reviewable step; this table is the foundation it reads.
+model CodebaseHealth {
+  id          String   @id @default(cuid())
+  /// The cycle number when this snapshot was captured. Lets the
+  /// operator see "health at cycle 1142" and correlate with the
+  /// loop's own cycle log.
+  cycleNumber  Int
+  /// Timestamp of the snapshot (redundant with the cycle but cheap
+  /// and lets the trend be plotted without joining to AutonomousCycle).
+  capturedAt   DateTime @default(now())
+  /// Total test count (pass + fail) from `bun test`.
+  testCount    Int
+  /// Failing test count. 0 = green. The primary health signal.
+  testFail     Int
+  /// tsc --noEmit error count. 0 = type-clean.
+  tscErrors    Int
+  /// eslint error count (the main project's lint). 0 = lint-clean.
+  lintErrors   Int
+  /// Number of protected files at snapshot time (proxy for "how
+  /// much of itself the system has locked" — a flat or shrinking
+  /// number alongside growing test counts is a healthy signal; a
+  /// growing number alongside flat tests is the system over-protecting).
+  protectedFileCount Int
+
+  @@index([cycleNumber])
+  @@index([capturedAt])
+}
