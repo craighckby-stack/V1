@@ -54,60 +54,51 @@ export const runtime = "nodejs";
  * returned as null/0, never faked — the POST line stamps ?? for it.
  */
 
-/** Count *.json scar files under postmortems/ (iterative DFS, async). */
+/** Count *.json scar files under postmortems/ (recursive DFS, async). */
 async function diskScarCount(): Promise<number> {
   if (typeof PROJECT_ROOT !== 'string' || !PROJECT_ROOT) {
     return 0; // Honesty rule: return 0 if path is invalid, do not throw.
   }
   const root = join(PROJECT_ROOT, "postmortems");
 
-  try {
-    const entries = await readdir(root, { withFileTypes: true });
-    const stack: string[] = [];
-    let scarCount = 0;
-
-    // Initialize stack with immediate entries
-    for (const entry of entries) {
-      const fullPath = join(root, entry.name);
-      stack.push(fullPath);
-    }
-
-    while (stack.length > 0) {
-      const fullPath = stack.pop()!;
-
-      try {
-        const statResult = await stat(fullPath);
-        if (statResult.isDirectory()) {
-          const subEntries = await readdir(fullPath, { withFileTypes: true });
-          // Push subdirectories/files onto the stack
-          for (const subEntry of subEntries) {
-            const subFullPath = join(fullPath, subEntry.name);
-            stack.push(subFullPath);
+  async function countFilesInDirectory(dirPath: string): Promise<number> {
+    try {
+      const entries = await readdir(dirPath, { withFileTypes: true });
+      let count = 0;
+      
+      for (const entry of entries) {
+        const fullPath = join(dirPath, entry.name);
+        
+        try {
+          const statResult = await stat(fullPath);
+          if (statResult.isDirectory()) {
+            count += await countFilesInDirectory(fullPath);
+          } else if (fullPath.endsWith(".json")) {
+            count++;
           }
-        } else if (fullPath.endsWith(".json")) {
-          scarCount++;
-        }
-      } catch (e) {
-        // Log specific errors for individual file/dir access failures but continue traversal
-        if (e instanceof Error) {
-          console.warn(`Could not stat or access path ${fullPath}: ${e.message}`);
-        } else {
-          console.warn(`Unknown error accessing path ${fullPath}:`, e);
+        } catch (e) {
+          // Log specific errors for individual file/dir access failures but continue traversal
+          if (e instanceof Error) {
+            console.warn(`Could not stat or access path ${fullPath}: ${e.message}`);
+          } else {
+            console.warn(`Unknown error accessing path ${fullPath}:`, e);
+          }
         }
       }
+      
+      return count;
+    } catch (e) {
+      // Catch errors during directory read (e.g., directory doesn't exist or permissions denied)
+      if (e instanceof Error) {
+        console.error(`Fatal error reading directory ${dirPath}: ${e.message}`);
+      } else {
+        console.error(`Unknown fatal error reading directory ${dirPath}:`, e);
+      }
+      return 0;
     }
-
-    return scarCount;
-
-  } catch (e) {
-    // Catch errors during initial directory read (e.g., directory doesn't exist or permissions denied)
-    if (e instanceof Error) {
-      console.error(`Fatal error during scar file traversal starting at ${root}: ${e.message}`);
-    } else {
-      console.error(`Unknown fatal error during scar file traversal starting at ${root}:`, e);
-    }
-    return 0; // Return 0 on fatal traversal error (Honesty rule)
   }
+
+  return countFilesInDirectory(root);
 }
 
 /** GET /user with the vault-opened PAT. The auto-connect moment. */
