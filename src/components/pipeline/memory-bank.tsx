@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BrainCircuit, ShieldX, ShieldCheck, BookOpen } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,18 +20,46 @@ export function MemoryBank() {
   const setEntries = usePipelineStore((s) => s.setMemoryEntries);
   const hasFetchedRef = useRef(false);
   const isFetchingRef = useRef(false);
+  const [isMounted, setIsMounted] = useState(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Determine if we are currently fetching or if the fetch has never been initiated.
   const isLoading = !hasFetchedRef.current && isFetchingRef.current;
 
   useEffect(() => {
-    (async () => {
+    setIsMounted(true);
+    
+    return () => {
+      setIsMounted(false);
+      // Abort any ongoing fetch when component unmounts
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const fetchMemoryEntries = async () => {
+      if (hasFetchedRef.current) return;
+      
       isFetchingRef.current = true;
+      abortControllerRef.current = new AbortController();
+      
       try {
-        const res = await fetch("/api/memory/entries");
+        const timeoutId = setTimeout(() => {
+          abortControllerRef.current?.abort();
+        }, 10000); // 10 second timeout
+        
+        const res = await fetch("/api/memory/entries", {
+          signal: abortControllerRef.current.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
         if (!res.ok) {
           throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
+        
         const data = await res.json();
         
         // Validate API response structure
@@ -39,19 +67,28 @@ export function MemoryBank() {
           throw new Error("Invalid API response structure: expected 'entries' array in response body.");
         }
         
-        // State update
-        setEntries(data.entries);
+        // Only update state if component is still mounted
+        if (isMounted) {
+          setEntries(data.entries);
+        }
       } catch (error) {
-        // Log the error with context, ensuring we handle non-Error objects gracefully
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error("Error loading memory entries from API:", { error: errorMessage, context: "MemoryBank fetch" });
+        // Only log if not an abort error
+        if (error instanceof Error && error.name !== 'AbortError') {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error("Error loading memory entries from API:", { error: errorMessage, context: "MemoryBank fetch" });
+        }
       } finally {
-        // Mark as fetched regardless of success or failure to stop perpetual loading state
-        hasFetchedRef.current = true;
-        isFetchingRef.current = false;
+        // Only update refs if component is still mounted
+        if (isMounted) {
+          hasFetchedRef.current = true;
+          isFetchingRef.current = false;
+        }
+        abortControllerRef.current = null;
       }
-    })();
-  }, [setEntries]);
+    };
+
+    fetchMemoryEntries();
+  }, [setEntries, isMounted]);
 
   return (
     <Card className="bg-slate-950/60 border border-slate-800/60 backdrop-blur transition-shadow duration-200 hover:shadow-2xl">
@@ -81,7 +118,7 @@ export function MemoryBank() {
             <div className="space-y-4 p-4 sm:p-6">
               {entries.map((entry) => {
                 // Validate entry structure minimally before accessing properties
-                if (!entry || typeof entry !== 'object' || !('id' in entry)) {
+                if (!entry || typeof entry !== 'object' || !('id' in entry) || !('provenance' in entry)) {
                   console.warn("Invalid memory entry missing required fields or is not an object:", entry);
                   return null;
                 }
