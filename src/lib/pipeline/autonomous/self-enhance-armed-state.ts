@@ -77,11 +77,8 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   const infoDir = join(PROJECT_ROOT, ".git/info");
 
   try {
-    // Ensure directory exists (recursive: true handles parent dirs too)
-    // Check if directory exists first to avoid race condition
-    if (!existsSync(infoDir)) {
-      mkdirSync(infoDir, { recursive: true });
-    }
+    // Ensure directory exists. recursive: true handles parent dirs too, avoiding pre-check race condition.
+    mkdirSync(infoDir, { recursive: true });
     const entry: SelfEnhanceArmedState = {
       armed,
       at: new Date().toISOString(),
@@ -90,7 +87,7 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
     atomicWriteFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2));
   } catch (error) {
     console.error(
-      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE} at ${new Date().toISOString()}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}. Error details:`,
+      `markSelfEnhanceArmed: Failed to persist armed state (armed=${armed}) to ${ARMED_STATE_FILE}. Check file system permissions or PROJECT_ROOT validity. Operation failed for 'by': ${by}. Directory path attempted: ${infoDir}. Error details:`,
       error instanceof Error ? error.message : String(error)
     );
   }
@@ -140,6 +137,7 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
     );
     return null;
   } catch (error) {
+    // Catches both readFileSync errors (I/O) and JSON.parse errors (malformed content)
     console.error(
       "readSelfEnhanceArmedState: Failed to read or parse armed state file at",
       ARMED_STATE_FILE,
