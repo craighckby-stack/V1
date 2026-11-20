@@ -55,6 +55,7 @@ import { getMetaInt, getMetaFloat } from "./meta-params";
 import { getCorpusDigest } from "./mutation-corpus";
 import { getNamedPatterns } from "./dreamer";
 import { exportLessonsMarkdown } from "./lessons-markdown";
+import { getFleetDigest } from "./githistory-corpus";
 import { scrubSectionMarkers } from "../core/prompt-scrub";
 
 /** Seeds (see module doc — the live values live in MetaParam, D8). */
@@ -354,6 +355,12 @@ async function buildHistoryDigest(): Promise<string> {
     if (named) {
       sections.push(`Recurring transforms (named by the idle-time dreamer — an interpretation of the corpus, not a fact):\n${named}`);
     }
+    // GitHistory-Sync fleet digest — external evidence from the
+    // operator's sibling deployments (memory/commit-history.*.json).
+    // Fenced with the digest below (treat-as-data + marker scrub),
+    // fail-soft: an absent corpus is an empty string, not an error.
+    const fleet = getFleetDigest();
+    if (fleet) sections.push(fleet);
     return sections.join("\n");
   } catch {
     return "(postmortem history unavailable)";

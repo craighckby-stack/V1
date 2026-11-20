@@ -22,6 +22,8 @@ import { conductLlmDebate } from "../llm/debate-llm";
 import { renderGoalsBullets, renderGoalsTopicLine, maybeReviewGoals } from "./goal-engine";
 import { postmortemStore } from "../postmortem/postmortem-store";
 import { queryRelevantPostmortems, formatAncestralPromptBlock } from "../postmortem/ancestral-rag";
+import { searchEngines, formatPriorArtBlock } from "./githistory-corpus";
+import { searchEngines, formatPriorArtBlock } from "./githistory-corpus";
 import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, findLowestFreeBranchSlot, formatLoopBranch, validateCommitMessage, amendUuidHeadCommit, pruneOldLoopBranches } from "./push-target";
 import { db } from "@/lib/db";
 import { generateTasks, claimNextTask } from "./self-task-generator";
@@ -1601,6 +1603,56 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
         ancestralBlock = formatAncestralPromptBlock(ancestral);
       } catch {
         /* best-effort — ancestral RAG is an enhancement, not a gate */
+      }
+
+      // 2c. PRIOR-ART RAG (GitHistory-Sync corpus) — same keyword, a
+      // different corpus: the operator's sibling deployments (17 repos,
+      // 117 harvested engines) instead of this loop's own postmortems.
+      // When the file being enhanced has a counterpart in the fleet —
+      // an orchestrator, an agent loop, a RAG retriever — the prompt
+      // names it: role, path, signature names. Metadata only (never
+      // foreign source bodies), bounded to 3 hits, explicitly framed
+      // as patterns-not-code. NOT injected into visual-polish mode
+      // (the engine corpus is backend logic; styling prompts have no
+      // use for it — same exclusion as arch context). Fail-soft like
+      // the ancestral block: an absent corpus returns no hits and the
+      // prompt proceeds unchanged.
+      let priorArtBlock = "";
+      try {
+        const engineHits = searchEngines(ancestralKeyword, 3);
+        priorArtBlock = formatPriorArtBlock(engineHits);
+        if (priorArtBlock) {
+          this.log(
+            `Injecting ${engineHits.length} prior-art engine(s) for ${relPath} (GitHistory-Sync corpus)`,
+            "info"
+          );
+        }
+      } catch {
+        /* best-effort — prior art is an amplifier, not a gate */
+      }
+
+      // 2c. PRIOR-ART RAG (GitHistory-Sync corpus) — same keyword, a
+      // different corpus: the operator's sibling deployments (17 repos,
+      // 117 harvested engines) instead of this loop's own postmortems.
+      // When the file being enhanced has a counterpart in the fleet —
+      // an orchestrator, an agent loop, a RAG retriever — the prompt
+      // names it: role, path, signature names. Metadata only (never
+      // foreign source bodies), bounded to 3 hits, explicitly framed
+      // as patterns-not-code. Fail-soft like the ancestral block: an
+      // absent corpus (memory/commit-history.*.json missing) returns
+      // no hits, and the prompt proceeds unchanged.
+      let priorArtBlock = "";
+      try {
+        const engineHits = searchEngines(ancestralKeyword, 3);
+        priorArtBlock = formatPriorArtBlock(engineHits);
+        if (priorArtBlock) {
+          this.log(
+            `Injecting ${engineHits.length} prior-art engine(s) for ${relPath} (GitHistory-Sync corpus)`,
+            "info"
+          );
+        }
+      } catch {
+        /* best-effort — prior art is an amplifier, not a gate */
       }
 
       // 3. LLM improvement — ask for REAL improvements, not cosmetic refactoring
