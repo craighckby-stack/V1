@@ -735,3 +735,49 @@ model CodebaseHealth {
   @@index([cycleNumber])
   @@index([capturedAt])
 }
+
+/// ── OPERATOR QUESTIONS (the loop asking the operator) ───────────
+/// The "let it ask the operator questions" piece — the loop gaining a
+/// voice. The loop can pose a yes/no question that surfaces in the
+/// terminal UI as a special line; the operator types `answer yes` or
+/// `answer no` (or `answer <id> yes|no` if multiple are pending) to
+/// respond. The answer is recorded + the loop can read it.
+///
+/// This is NOT sentience. It's the loop turning from a silent tool into
+/// something with a voice — it can express uncertainty, ask for
+/// direction, or flag something it noticed. The operator stays in
+/// control: questions are advisory, never blocking; the loop can't
+/// force a response; old unanswered questions auto-expire.
+///
+/// HONESTY: the loop can pose AT MOST a bounded number of questions per
+/// unit time (rate-limited in the question-poser, not here) so it can't
+/// spam the operator. Questions are best-effort — if the operator never
+/// answers, the loop continues its normal cycle work; a question is not
+/// a gate.
+model OperatorQuestion {
+  id        String   @id @default(cuid())
+  /// The cycle number when the question was posed. Lets the operator
+  /// correlate with the cycle log.
+  cycleNumber Int
+  /// The question text — a single sentence, ≤240 chars. Phrased as a
+  /// yes/no question ("Should I prioritize the oracle over the defense
+  /// panel next cycle?").
+  text      String
+  /// Why the loop is asking (≤400 chars). Optional context the operator
+  /// sees before deciding.
+  rationale String?
+  /// pending | answered_yes | answered_no | expired
+  /// pending = waiting for operator input.
+  /// answered_yes/no = operator responded (the loop reads this).
+  /// expired = auto-expired after EXPIRY_CYCLES unanswered.
+  status    String   @default("pending")
+  /// The cycle number when the answer was recorded (null while pending).
+  answeredCycle Int?
+  /// Free-text operator note appended to the answer (optional).
+  answerNote String?
+  createdAt DateTime @default(now())
+  answeredAt DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+}

@@ -118,6 +118,15 @@ export const PROTECTED_FILES = new Set([
   // the health measurement that triggers it.
   "src/lib/pipeline/autonomous/curiosity-drive.ts",
   "src/lib/pipeline/autonomous/health-metrics.ts",
+  // Operator questions — the loop's "voice" (step 4 of "what the system
+  // should be for"). poseQuestion / recordAnswer / getAnswer + the rate
+  // limit. Same category as armed-state: the loop can pose a question
+  // but CANNOT answer its own question (the answer path is operator-only,
+  // via the `answer` console command in the protected control surface).
+  // A mutation here could disable the rate limit (spam the operator),
+  // fake a yes/no answer (the loop self-answering), or pose misleading
+  // questions. Protect it.
+  "src/lib/pipeline/autonomous/operator-questions.ts",
   // The self-model — the loop's measured self-knowledge, INCLUDING the
   // bandit target-selection formula (empirical + exploration + recency +
   // MOMENTUM + COMPLEXITY − exhaustion). This is selection POLICY, same

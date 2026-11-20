@@ -335,6 +335,8 @@ export async function executeCommand(
           "  config      — Open the Git config panel (or click [CONFIG] in header)",
           "  logs        — Show recent logs",
           "  files       — List files being enhanced",
+          "  answer      — List the loop's pending yes/no questions and answer them",
+          "                (answer yes | answer no | answer <id> yes|no)",
           "  tasks [status] — Self-generated task queue (system-defined input)",
           "  rescan      — Re-analyze own source, queue new tasks",
           "  skip        — Veto the next pending task (user override)",
@@ -969,6 +971,90 @@ export async function executeCommand(
           "Failures become postmortems; tests only tighten.",
           "You are the feedback: 'task <goal>' / 'skip' / 'stop'.",
         ];
+
+      case "answer": {
+        // The loop's "voice" reply path (step 4). The loop poses yes/no
+        // questions via /api/operator-questions (DB-backed); the operator
+        // answers here. Forms:
+        //   answer            — list pending questions
+        //   answer yes        — answer the MOST RECENT pending question "yes"
+        //   answer no         — answer the MOST RECENT pending question "no"
+        //   answer <id> yes   — answer a specific question by id
+        //   answer <id> no    — answer a specific question by id
+        //   answer list       — same as bare `answer` (list pending)
+        // The answer is operator-only input — the loop can pose but never
+        // self-answer (the recordAnswer path is this command, which lives
+        // in the protected control surface, not the loop's scan scope).
+        try {
+          const arg1 = (parts[1] ?? "").toLowerCase();
+          // Bare `answer` or `answer list` → list pending.
+          if (!arg1 || arg1 === "list") {
+            const res = await fetch("/api/operator-questions");
+            if (!res.ok) return [`Error: operator-questions endpoint returned ${res.status}`];
+            const data = (await res.json()) as {
+              pending: Array<{ id: string; cycleNumber: number; text: string; rationale: string | null; createdAt: string }>;
+            };
+            if (data.pending.length === 0) {
+              return ["No pending questions from the loop."];
+            }
+            const lines = [
+              `PENDING QUESTIONS FROM THE LOOP (${data.pending.length}):`,
+              "",
+            ];
+            for (const q of data.pending) {
+              lines.push(`  [${q.id.slice(-6)}] (cycle ${q.cycleNumber}) ${q.text}`);
+              if (q.rationale) lines.push(`         why: ${q.rationale}`);
+              lines.push(`         → answer ${q.id.slice(-6)} yes  OR  answer ${q.id.slice(-6)} no`);
+              lines.push("");
+            }
+            return lines;
+          }
+          // Parse the answer form: `answer yes|no` OR `answer <id> yes|no`.
+          let questionId: string | undefined;
+          let answer: "yes" | "no" | undefined;
+          if (arg1 === "yes" || arg1 === "no") {
+            answer = arg1;
+            // Most-recent pending question (fetched below).
+          } else {
+            // arg1 is a short id; parts[2] is yes|no.
+            const shortId = arg1;
+            answer = (parts[2] ?? "").toLowerCase() === "no" ? "no" : "yes";
+            // Resolve short id → full id via the pending list.
+            const res = await fetch("/api/operator-questions");
+            if (!res.ok) return [`Error: could not fetch pending questions (${res.status})`];
+            const data = (await res.json()) as {
+              pending: Array<{ id: string }>;
+            };
+            const match = data.pending.find((q) => q.id.endsWith(shortId));
+            if (!match) {
+              return [`No pending question matching id '${shortId}'. Type 'answer' to list pending.`];
+            }
+            questionId = match.id;
+          }
+          if (!answer) return ["Usage: answer yes|no  OR  answer <id> yes|no  OR  answer (to list)"];
+          // POST the answer. If we don't have an id yet (the `answer yes|no`
+          // form), the API resolves to the most-recent pending.
+          const body: Record<string, string> = { answer };
+          if (questionId) body.id = questionId;
+          const res = await fetch("/api/operator-questions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            return [`Error recording answer: ${(err as { error?: string }).error ?? res.status}`];
+          }
+          const result = (await res.json()) as { text: string; status: string };
+          return [
+            `Answer recorded: ${result.status.replace("answered_", "").toUpperCase()}`,
+            `  Question: ${result.text}`,
+            "The loop will read this on its next relevant cycle.",
+          ];
+        } catch (err) {
+          return [`Error: ${err instanceof Error ? err.message : String(err)}`];
+        }
+      }
 
       default:
         return [`Unknown command: ${command}. Type 'help' for available commands.`];
