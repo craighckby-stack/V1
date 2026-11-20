@@ -1316,6 +1316,7 @@ export default function Home() {
           "  oracle judge    — Evaluate all due prophecies now",
           "  oracle list     — List recent prophecies + verdicts",
           "  oracle status   — Track record: counts, calibration, Brier score",
+          "  memory      — GitHistory-Sync corpus: fleet evidence + engine prior-art",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
           "",
@@ -1943,6 +1944,49 @@ export default function Home() {
           ];
         } catch (e) {
           return [`Oracle error: ${(e as Error).message}`];
+        }
+      }
+
+      case "memory": {
+        try {
+          const res = await fetch("/api/memory/corpus");
+          const data = await res.json();
+          if (!data.ok) return [`Corpus read failed: ${data.error ?? "unknown"}`];
+          const s = data.status as {
+            loaded: boolean; engines: number; failed: number;
+            successful: number; repos: number; generatedAt: string | null;
+          };
+          if (!s.loaded) {
+            return [
+              "GitHistory-Sync corpus: NOT LOADED",
+              "  (memory/commit-history.*.json absent or unreadable — the",
+              "   distiller and prior-art RAG run without fleet evidence)",
+              "",
+            ];
+          }
+          const lines = [
+            "GitHistory-Sync corpus (external fleet evidence):",
+            `  Engines:       ${s.engines} harvested source files (prior-art RAG)`,
+            `  Commits:       ${s.successful} successful / ${s.failed} classified-failed`,
+            `  Fleet:         ${s.repos} sibling repos`,
+            `  Generated:     ${s.generatedAt ? s.generatedAt.slice(0, 10) : "?"}`,
+            "",
+            "  Fleet digest (injected into the lesson distiller):",
+          ];
+          for (const line of String(data.digest ?? "").split("\n")) {
+            lines.push("  " + line);
+          }
+          const hits = (data.sampleHits ?? []) as Array<{ id: string; role: string; score: number; matched: string[] }>;
+          if (hits.length > 0) {
+            lines.push("", "  Prior-art search sample ('orchestrator agent loop'):");
+            for (const h of hits) {
+              lines.push(`    [${h.score}] ${h.role} — ${h.id} (matched: ${h.matched.join(", ")})`);
+            }
+          }
+          lines.push("");
+          return lines;
+        } catch (e) {
+          return [`Memory error: ${(e as Error).message}`];
         }
       }
 
