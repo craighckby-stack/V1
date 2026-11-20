@@ -120,9 +120,6 @@ export async function setTargetConfig(
       } else {
         branchValue = b;
       }
-    } else {
-      // If branch was provided but empty/whitespace, treat as null (repo default)
-      branchValue = null;
     }
   }
   
@@ -181,7 +178,7 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
       },
     });
   } catch (error) {
-    console.error(`Failed to record target run audit trail ${LAST_RUN_KEY} for status ${rec.status}:`, error);
+    console.error(`Failed to record target run audit trail ${LAST_RUN_KEY} for status ${rec.status}:`, error, 'Record:', rec);
     // the audit trail must never crash a run that already completed
   }
 }
@@ -190,7 +187,12 @@ export async function getTargetLastRun(): Promise<TargetRunRecord | null> {
   try {
     const row = await db.systemFlag.findUnique({ where: { key: LAST_RUN_KEY } });
     if (!row || !row.value) return null;
-    return JSON.parse(row.value) as TargetRunRecord;
+    const parsed = JSON.parse(row.value) as TargetRunRecord;
+    if (!parsed || !parsed.repo || !parsed.at || !parsed.status) {
+      console.error(`Last run record found but invalid structure: repo=${parsed?.repo}, at=${parsed?.at}, status=${parsed?.status}`);
+      return null;
+    }
+    return parsed;
   } catch (error) {
     if (error instanceof SyntaxError) {
       console.error(`Failed to parse last run record JSON for key ${LAST_RUN_KEY}:`, error);
