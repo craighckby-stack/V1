@@ -173,6 +173,16 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
  * Single Z.AI LLM call for a batch of ambiguous commits. Replaces the
  * original callGeminiBatch + callNvidiaBatch. The SDK is created once and
  * reused (the skill's "reuse SDK instance" best practice).
+ *
+ * SIGNAL HONESTY (bug fix): the z-ai-web-dev-sdk v0.0.18 does NOT thread
+ * the `signal` option into its underlying `fetch` call — it spreads the
+ * body (including signal) into the request JSON, then calls fetch with
+ * no signal. So a stalled Z.AI request would hang the harvest forever
+ * and an abort signal would be silently ignored. The fix is to RACE
+ * the SDK call against a timeout (and the outer abort signal): whichever
+ * resolves first wins; on timeout/abort we reject with a clear message.
+ * The SDK's own console.error noise on rejection is unavoidable, but
+ * the runner sees the real error via the rejected promise.
  */
 let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null;
 
@@ -183,58 +193,115 @@ async function getZai(): Promise<NonNullable<typeof zaiInstance>> {
   return zaiInstance;
 }
 
+/** Race a promise against a timeout + abort signal. Resolves with the
+ *  promise's value if it wins; rejects with a clear message on timeout
+ *  or abort. This is how we enforce LLM_BATCH_TIMEOUT_MS + honor the
+ *  runner's abort signal even though the SDK ignores `signal`. */
+function raceWithTimeout<T>(
+  p: Promise<T>,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("Operation cancelled."));
+      return;
+    }
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("Operation cancelled."));
+    };
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`LLM batch timed out after ${timeoutMs}ms.`));
+    }, timeoutMs);
+    p.then(
+      (v) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener("abort", onAbort);
+        resolve(v);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
+  });
+}
+
 async function callZaiBatch(
   commits: ClassifyCommitInput[],
   signal?: AbortSignal,
-): Promise<{ verdicts: LlmVerdict[]; modelUsed: string }> {
+): Promise<{ verdicts: LlmVerdict[]; modelUsed: string; parseError?: string }> {
   const zai = await getZai();
   const userPrompt = JSON.stringify({ commits }, null, 2);
 
-  const completion = await withRetry(async () => {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), LLM_BATCH_TIMEOUT_MS);
-    if (signal) {
-      signal.addEventListener("abort", () => ctrl.abort(), { once: true });
-    }
-    try {
-      return await zai.chat.completions.create({
+  const completion = await withRetry(() =>
+    raceWithTimeout(
+      zai.chat.completions.create({
         messages: [
-          { role: "assistant", content: buildSystemInstruction() },
+          // role: "system" (not "assistant") — the original Gemini version
+          // used a system-instruction channel; stuffing the same text into an
+          // assistant pre-message degraded instruction adherence. The SDK
+          // accepts role: "system" and passes it through to the chat API.
+          { role: "system", content: buildSystemInstruction() },
           { role: "user", content: `Classify these git commits:\n${userPrompt}` },
         ],
         thinking: { type: "disabled" },
-        signal: ctrl.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-  });
+      }),
+      LLM_BATCH_TIMEOUT_MS,
+      signal,
+    ),
+  );
 
   const rawText = (completion?.choices?.[0]?.message?.content ?? "").trim();
-  // The SDK may expose completion.model; fall back to "zai-web-dev"
+  // The SDK may expose completion.model; fall back to a named constant.
+  const FALLBACK_MODEL_ID = "zai-web-dev";
   const modelUsed =
-    (completion as { model?: string })?.model || "zai-web-dev";
+    (completion as { model?: string })?.model || FALLBACK_MODEL_ID;
   const parsed = extractJsonArray(rawText);
   const verdicts = sanitizeVerdicts(parsed, modelUsed);
-  return { verdicts, modelUsed };
+  // Surface JSON parse failures distinctly from "0 verdicts". If the LLM
+  // returned non-empty text but we parsed 0 verdicts, that's a parse
+  // failure (or the LLM returned garbage) — the caller can log it as a
+  // soft error instead of silently logging "0 commits".
+  const parseError =
+    rawText.length > 0 && verdicts.length === 0 && commits.length > 0
+      ? `LLM returned ${rawText.length}b of non-JSON content (first 80: ${rawText.slice(0, 80).replace(/\s+/g, " ")})`
+      : undefined;
+  return { verdicts, modelUsed, parseError };
 }
 
 /**
  * Connection test — replaces testGeminiConnection + testNvidiaConnection.
- * A one-shot Z.AI ping that confirms the cortex is configured.
+ * A one-shot Z.AI ping that confirms the cortex is configured. Honors
+ * the same timeout race as callZaiBatch so a stalled cortex doesn't
+ * hang the /api/llm-test endpoint.
  */
 export async function testLlmConnection(): Promise<{
   model: string;
   status: string;
 }> {
   const zai = await getZai();
-  const completion = await zai.chat.completions.create({
-    messages: [
-      { role: "assistant", content: "Confirm readiness concisely in JSON." },
-      { role: "user", content: 'Respond with {"status":"ok"} in JSON.' },
-    ],
-    thinking: { type: "disabled" },
-  });
+  const completion = await raceWithTimeout(
+    zai.chat.completions.create({
+      messages: [
+        { role: "system", content: "Confirm readiness concisely in JSON." },
+        { role: "user", content: 'Respond with {"status":"ok"} in JSON.' },
+      ],
+      thinking: { type: "disabled" },
+    }),
+    15_000,
+  );
   const modelUsed =
     (completion as { model?: string })?.model || "zai-web-dev";
   return { model: modelUsed, status: "Z.AI cortex reachable" };
@@ -260,14 +327,27 @@ export function shouldUseLlm(settings: ExtractionSettings): {
  *
  * Pipeline: detectRevertedShas → per-commit classifyHeuristic → ambiguous
  * queue → batch ZAI classify → reconcileDualVerdicts (single-verdict path).
+ *
+ * Returns the classified commits PLUS honest LLM metrics (llmCommitsSent =
+ * count of verdicts the LLM actually returned, llmBatchesRun = batches
+ * that ran, llmParseFailures = batches where the LLM returned non-JSON
+ * or 0 verdicts). The runner wires these into HarvestResult so the
+ * operator sees real numbers, not the dead `0` the old version reported.
  */
+export interface OrchestrateResult {
+  classified: ClassifiedCommit[];
+  llmCommitsSent: number;
+  llmBatchesRun: number;
+  llmParseFailures: number;
+}
+
 export async function classifyAndOrchestrate(
   rawCommits: RawCommit[],
   settings: ExtractionSettings,
   onLog: (msg: string, level?: LogLevel) => void,
   signal?: AbortSignal,
   onStage?: (label: string, detail?: string, resetItemTimer?: boolean) => void,
-): Promise<ClassifiedCommit[]> {
+): Promise<OrchestrateResult> {
   const revertedShas = detectRevertedShas(rawCommits);
   const failCompiled = compileRegexSafe(settings.failRx, DEFAULT_FAIL_PATTERN);
   if (failCompiled.error) {
@@ -311,6 +391,8 @@ export async function classifyAndOrchestrate(
 
   const llmMap = new Map<string, LlmVerdict>();
   let modelUsed = "zai-web-dev";
+  let llmBatchesRun = 0;
+  let llmParseFailures = 0;
 
   if (eligible.length > 0 && runLlm) {
     if (strategy === "consensus" || strategy === "specialist") {
@@ -341,15 +423,23 @@ export async function classifyAndOrchestrate(
       }));
 
       try {
-        const { verdicts, modelUsed: used } = await callZaiBatch(payload, signal);
+        const { verdicts, modelUsed: used, parseError } = await callZaiBatch(payload, signal);
         modelUsed = used;
+        llmBatchesRun += 1;
         for (const v of verdicts) llmMap.set(v.sha, v);
+        if (parseError) {
+          llmParseFailures += 1;
+          onLog(`Z.AI (${modelUsed}) batch ${batchNum}/${totalBatches} parse failure: ${parseError}`, "warn");
+        }
         onLog(
           `Z.AI (${modelUsed}) reviewed ${verdicts.length} commits (batch ${batchNum}/${totalBatches} in ${formatDurationMs(Date.now() - batchStartedAt)}).`,
           "success",
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        // Re-throw on abort so the caller stops immediately instead of
+        // logging a per-batch error and continuing to the next batch.
+        if (signal?.aborted || /cancelled/i.test(msg)) throw err;
         onLog(`Z.AI review error: ${msg}`, "error");
       }
 
@@ -388,5 +478,10 @@ export async function classifyAndOrchestrate(
     classified.push(reconciled);
   }
 
-  return classified;
+  return {
+    classified,
+    llmCommitsSent: llmMap.size,
+    llmBatchesRun,
+    llmParseFailures,
+  };
 }
