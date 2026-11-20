@@ -114,6 +114,10 @@ function scriptKindFor(relPath: string): ts.ScriptKind {
  * for script-kind detection and evidence lines).
  */
 export function scanTargetContent(relPath: string, text: string): TargetFinding[] {
+  if (!text || typeof text !== "string") {
+    return [];
+  }
+  
   const lines = text.split("\n");
   const sf = ts.createSourceFile(relPath, text, ts.ScriptTarget.Latest, true, scriptKindFor(relPath));
   const findings: TargetFinding[] = [];
@@ -178,7 +182,8 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
 
       for (const b of bindings) {
         // Ensure proper regex escaping for binding names
-        const re = new RegExp(`\\b${b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
+        const escapedBinding = b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const re = new RegExp(`\\b${escapedBinding}\\b`, "g");
         if ((restOfFile.match(re) ?? []).length === 0) {
           push("unused-import", node.getStart());
           break;
