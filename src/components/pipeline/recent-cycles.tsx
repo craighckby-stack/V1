@@ -76,7 +76,7 @@ export function RecentCycles() {
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between flex-col sm:flex-row gap-3">
           <CardTitle className="text-slate-100 flex items-center gap-2 text-lg font-semibold">
-            <History className="h-5 w-5 text-violet-300" aria-hidden="true" />
+            <History className="h-5 w-5 text-violet-300" aria-label="Recent autonomous cycles history" />
             Recent Autonomous Cycles
           </CardTitle>
           <Button
@@ -84,7 +84,7 @@ export function RecentCycles() {
             size="sm"
             onClick={refresh}
             disabled={loading}
-            className="h-10 px-4 text-sm bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-300 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-violet-500"
+            className="h-11 px-4 text-sm bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-300 transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-violet-500 hover:scale-105 active:scale-95"
             aria-label={loading ? "Refreshing cycles..." : "Refresh recent cycles"}
           >
             <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
@@ -107,7 +107,7 @@ export function RecentCycles() {
                 return (
                   <div
                     key={c.id}
-                    className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3 hover:bg-slate-900/70 transition-all duration-150 focus-visible:ring-2 focus-visible:ring-violet-500"
+                    className="rounded-lg border border-slate-800/60 bg-slate-900/40 p-3 hover:bg-slate-900/70 transition-all duration-150 focus-visible:ring-2 focus-visible:ring-violet-500 hover:scale-[1.02] active:scale-[0.98]"
                   >
                     <div className="flex items-center gap-3 mb-1">
                       <span className="text-sm font-mono text-amber-300 shrink-0">#{c.cycleNumber}</span>
