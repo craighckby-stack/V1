@@ -78,7 +78,10 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
 
   try {
     // Ensure directory exists (recursive: true handles parent dirs too)
-    mkdirSync(infoDir, { recursive: true });
+    // Check if directory exists first to avoid race condition
+    if (!existsSync(infoDir)) {
+      mkdirSync(infoDir, { recursive: true });
+    }
     const entry: SelfEnhanceArmedState = {
       armed,
       at: new Date().toISOString(),
@@ -120,7 +123,8 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
       typeof parsed.at === "string" &&
       typeof parsed.by === "string" &&
       parsed.by.trim() !== "" &&
-      !isNaN(Date.parse(parsed.at))
+      // Validate ISO date format without parsing (performance optimization)
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/.test(parsed.at)
     ) {
       return {
         armed: parsed.armed,
