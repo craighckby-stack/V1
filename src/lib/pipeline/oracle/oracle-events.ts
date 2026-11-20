@@ -106,11 +106,18 @@ export function emitOracleEvent(
     type,
     source,
   };
+  
+  // Add the event to the buffer
   s.buffer.push(event);
+  
+  // Evict old events if needed
   if (s.buffer.length > MAX_EVENTS) {
-    // Performance: splice(0, N) is O(N), but since N is small (MAX_EVENTS), this is acceptable for a bounded buffer.
-    s.buffer.splice(0, s.buffer.length - MAX_EVENTS);
+    // Calculate how many to remove
+    const removeCount = s.buffer.length - MAX_EVENTS;
+    // Remove from the beginning of the array
+    s.buffer.splice(0, removeCount);
   }
+  
   s.seq += 1;
 
   // ── WORKER BRIDGE (loop worker split) ────────────────────────────────
@@ -189,14 +196,13 @@ export function readOracleEvents(afterSeq?: number): {
 } {
   const s = state();
   const currentSeq = s.seq;
+  const bufferLength = s.buffer.length;
 
   if (typeof afterSeq === "number" && Number.isInteger(afterSeq) && afterSeq >= 0) {
     if (afterSeq >= currentSeq) {
       // No new events since the last check. Do not update lastReadAt here.
       return { events: [], seq: currentSeq };
     }
-
-    const bufferLength = s.buffer.length;
 
     // Calculate the required starting index based on sequence number.
     // The sequence of the event at index `i` is `currentSeq - bufferLength + i`.
@@ -205,26 +211,20 @@ export function readOracleEvents(afterSeq?: number): {
     // i_start = floor(afterSeq - currentSeq + bufferLength) + 1
     
     // Calculate the required starting index.
-    const requiredMinIndex = Math.floor(afterSeq - currentSeq + bufferLength) + 1;
+    const requiredMinIndex = afterSeq - currentSeq + bufferLength;
+    let startIndex = Math.ceil(requiredMinIndex);
     
     // Clamp the start index to be within [0, bufferLength]
-    let startIndex = Math.max(0, requiredMinIndex);
-    startIndex = Math.min(bufferLength, startIndex);
-
-    // Verify the calculated startIndex actually points to an event > afterSeq
-    // The sequence of the event at index `startIndex` is `currentSeq - bufferLength + startIndex`.
-    const firstEventSeq = currentSeq - bufferLength + startIndex;
-    
-    if (firstEventSeq <= afterSeq) {
-        // The calculated startIndex is too early or points to an event <= afterSeq, no new events found.
-        return { events: [], seq: currentSeq };
-    }
+    startIndex = Math.max(0, Math.min(bufferLength, startIndex));
 
     // Get the events from startIndex to the end
     const events = s.buffer.slice(startIndex);
 
     // Update lastReadAt ONLY when events are successfully read
-    s.lastReadAt = Date.now();
+    if (events.length > 0) {
+      s.lastReadAt = Date.now();
+    }
+    
     return {
       events,
       seq: currentSeq,
