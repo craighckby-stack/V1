@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   let body: unknown;
   try {
     body = await req.json();
-  } catch {
+  } catch (e) {
     // Provide actionable error context on JSON parsing failure.
     return NextResponse.json(
         { error: "Failed to parse request body. Ensure the request content type is application/json and the body is valid JSON." },
@@ -71,7 +71,8 @@ export async function POST(req: Request) {
     structuralDriftRatio = Math.abs(propLen - origLen) / origLen;
   }
       
-  // Check for NaN in case of unexpected calculation issues
+  // Since origLen > 0 implies structuralDriftRatio is finite or NaN (which Math.abs/division shouldn't produce here),
+  // we only need to handle the Infinity case explicitly for saturationScore calculation.
   if (isNaN(structuralDriftRatio)) {
     structuralDriftRatio = Infinity;
   }
