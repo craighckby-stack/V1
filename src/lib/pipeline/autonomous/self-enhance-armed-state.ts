@@ -38,7 +38,7 @@
  * Pure leaf: fs + path + PROJECT_ROOT only, no pipeline imports — safe to
  * load from anywhere (self-enhance-loop constructor, API routes).
  */
-import { mkdirSync, readFileSync, existsSync } from "fs";
+import { mkdirSync, readFileSync } from "fs";
 import { atomicWriteFileSync } from "../core/atomic-file";
 import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
@@ -103,7 +103,6 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
     // Fail closed: if we can't locate the file, assume not armed.
     return null;
   }
-  if (!existsSync(ARMED_STATE_FILE)) return null;
   
   try {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
@@ -119,10 +118,9 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
       typeof parsed.armed === "boolean" &&
       typeof parsed.at === "string" &&
       typeof parsed.by === "string" &&
-      parsed.by.trim() !== "" &&
-      // Validate ISO date format without parsing (performance optimization)
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/.test(parsed.at)
+      parsed.by.trim() !== ""
     ) {
+      // Rely on JSON.parse success and structural checks; complex date regex is removed for simplicity/robustness.
       return {
         armed: parsed.armed,
         at: parsed.at,
@@ -133,11 +131,11 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
     console.error(
       "readSelfEnhanceArmedState: Invalid armed state format in file",
       ARMED_STATE_FILE,
-      "Expected format: { armed: boolean, at: ISO date string (YYYY-MM-DDTHH:mm:ss.sssZ), by: non-empty string }"
+      "Expected format: { armed: boolean, at: ISO date string, by: non-empty string }"
     );
     return null;
   } catch (error) {
-    // Catches both readFileSync errors (I/O) and JSON.parse errors (malformed content)
+    // Catches both readFileSync errors (I/O, including file not found) and JSON.parse errors (malformed content)
     console.error(
       "readSelfEnhanceArmedState: Failed to read or parse armed state file at",
       ARMED_STATE_FILE,
