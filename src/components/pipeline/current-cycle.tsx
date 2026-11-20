@@ -7,6 +7,28 @@ import { Badge } from "@/components/ui/badge";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { cn } from "@/lib/utils";
 
+// Memoize consensus display functions to prevent unnecessary re-computations
+const getConsensusDisplay = ((consensusMap: Record<string, string> = {}) => (consensus: string) => {
+  if (!consensusMap[consensus]) {
+    consensusMap[consensus] = consensus === "APPROVED" ? "APR" :
+                             consensus === "CONDITIONAL_APPROVAL" ? "COND" :
+                             consensus === "REQUIRES_REWRITE" ? "REJ" :
+                             consensus;
+  }
+  return consensusMap[consensus];
+})();
+
+const getConsensusClass = ((consensusClassMap: Record<string, string> = {}) => (consensus: string) => {
+  if (!consensusClassMap[consensus]) {
+    consensusClassMap[consensus] = consensus === "APPROVED" ?
+                                   "bg-emerald-500/15 text-emerald-300 border-emerald-500/40" :
+                                   consensus === "CONDITIONAL_APPROVAL" ?
+                                   "bg-amber-500/15 text-amber-300 border-amber-500/40" :
+                                   "bg-rose-500/15 text-rose-300 border-rose-500/40";
+  }
+  return consensusClassMap[consensus];
+})();
+
 export function CurrentCycle() {
   const cycle = usePipelineStore((s) => s.loopState?.currentCycle) ?? null;
 
@@ -31,24 +53,6 @@ export function CurrentCycle() {
   // Validate cycle status to handle unexpected values
   const status = cycle.status === "running" || cycle.status === "completed" || 
                  cycle.status === "halted" ? cycle.status : "unknown";
-
-  // Validate consensus values to handle unexpected results
-  const getConsensusDisplay = (consensus: string) => {
-    if (consensus === "APPROVED") return "APR";
-    if (consensus === "CONDITIONAL_APPROVAL") return "COND";
-    if (consensus === "REQUIRES_REWRITE") return "REJ";
-    return consensus;
-  };
-
-  const getConsensusClass = (consensus: string) => {
-    if (consensus === "APPROVED")
-      return "bg-emerald-500/15 text-emerald-300 border-emerald-500/40";
-    if (consensus === "CONDITIONAL_APPROVAL")
-      return "bg-amber-500/15 text-amber-300 border-amber-500/40";
-    if (consensus === "REQUIRES_REWRITE")
-      return "bg-rose-500/15 text-rose-300 border-rose-500/40";
-    return "bg-rose-500/15 text-rose-300 border-rose-500/40";
-  };
 
   const fileResults = cycle.fileResults || [];
   const totalFiles = fileResults.length;
