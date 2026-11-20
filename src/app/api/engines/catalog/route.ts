@@ -52,6 +52,14 @@ export async function GET() {
       return; // Skip invalid entry
     }
     
+    // Validate each pattern in the array
+    for (const pattern of source.patterns) {
+      if (typeof pattern !== 'string') {
+        invalidSources.push({ index: i, reason: `Pattern at index ${source.patterns.indexOf(pattern)} is not a string.` });
+        return; // Skip invalid entry
+      }
+    }
+    
     // Safely cast after structural validation
     const typedSource = source as SiphonSource;
 

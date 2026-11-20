@@ -1,0 +1,392 @@
+/**
+ * aiOrchestrator.ts — ADAPTED for the headless fleet-harvester mini-service.
+ *
+ * The original GitHistory-Sync aiOrchestrator was a BROWSER-SIDE HTTP client
+ * that called /api/gemini/classify and /api/nvidia/classify on an Express
+ * server (server.ts), which in turn called the @google/genai + NVIDIA NIM
+ * SDKs. This headless adaptation collapses both layers into a single direct
+ * LLM call using z-ai-web-dev-sdk — the project's sanctioned provider —
+ * which removes the Gemini dependency entirely (no @google/genai, no
+ * GEMINI_API_KEY, no separate Express server) and reuses the same Z.AI cortex
+ * the main LOOP project already configures.
+ *
+ * WHAT IS PRESERVED FROM THE ORIGINAL
+ *  - The heuristic-first pipeline: detectRevertedShas → classifyHeuristic →
+ *    ambiguous queue → AI batch classify → reconcileDualVerdicts.
+ *  - The verdict shape (LlmVerdict) and the schema field it populates
+ *    (geminiVerdict in ClassifiedCommit) — these are part of the
+ *    githistory-sync/v3 schema contract LOOP's githistory-corpus consumer
+ *    expects. The field NAME is a schema label; the verdict's `model` field
+ *    carries the honest provider identity ("zai-...").
+ *  - The system-instruction text, sanitizeVerdicts, and extractJsonArray
+ *    logic (lifted verbatim from server.ts's buildSystemInstruction +
+ *    sanitizeVerdicts + extractJsonArray).
+ *  - Batch sizing (15), inter-batch cooldown via computeAiBatchCooldownMs,
+ *    and the private-repo gating (settings.nvPrivate controls whether
+ *    private-repo commit messages are sent to the LLM).
+ *
+ * WHAT IS SIMPLIFIED (single-LLM mode)
+ *  - One LLM provider (Z.AI) instead of Gemini + NVIDIA. The dual-LLM
+ *    consensus / specialist / tie-breaker paths in reconcileDualVerdicts
+ *    are unreachable with a single provider; the classifier's single-verdict
+ *    branch (if (geminiVerdict) { ... }) handles the ZAI verdict directly.
+ *    That branch is already covered by core.test.ts:260 ("supports
+ *    gemini-3.1-flash-lite backup verdicts cleanly").
+ *  - No tie-breaker escalation (a single verdict cannot disagree with
+ *    itself).
+ *  - ExtractionSettings.useGemini / useLlm both mean "use Z.AI"; aiStrategy
+ *    is read for logging but all strategies collapse to single-verdict mode.
+ *
+ * INTEGRITY: this module calls an external LLM with commit messages (fleet
+ * data). The classifier's fence-scrubbing + the heuristic-first design mean
+ * the LLM only sees ambiguous commits that survived revert/CI/regex checks.
+ */
+
+import type {
+  AiStrategy,
+  ClassifiedCommit,
+  ExtractionSettings,
+  HeuristicResult,
+  LlmVerdict,
+  LogLevel,
+  RawCommit,
+} from "../types/git";
+import {
+  classifyHeuristic,
+  compileRegexSafe,
+  DEFAULT_FAIL_PATTERN,
+  DEFAULT_OK_PATTERN,
+  detectRevertedShas,
+  reconcileDualVerdicts,
+} from "./classifier";
+import { computeAiBatchCooldownMs, sleepWithAbort } from "./rateLimiter";
+import { formatDurationMs } from "./formatter";
+import ZAI from "z-ai-web-dev-sdk";
+
+const LLM_BATCH_TIMEOUT_MS = 60_000;
+
+interface ClassifyCommitInput {
+  sha: string;
+  repo: string;
+  message: string;
+  ciState?: string;
+  authorName: string;
+}
+
+/**
+ * The system instruction lifted from server.ts's buildSystemInstruction.
+ * The original supported roles: primary | specialist_success |
+ * specialist_risk | tie_breaker. Single-LLM mode only needs 'primary'.
+ */
+function buildSystemInstruction(): string {
+  return (
+    "You are an automated git commit history classifier. Determine whether " +
+    "each commit represents a healthy/successful change (\"successful\") " +
+    "or a broken/reverted/WIP/failing change (\"failed\"). Return concise " +
+    "reasons and short engineering footprint labels. " +
+    "Return valid JSON matching " +
+    "{\"verdicts\":[{\"sha\":\"...\",\"classification\":\"successful|failed\"," +
+    "\"confidence\":\"high|medium|low\",\"footprint\":\"...\",\"reason\":\"...\"}]}."
+  );
+}
+
+/**
+ * Lifted verbatim from server.ts's extractJsonArray. The Z.AI SDK returns
+ * plain text (no responseSchema enforcement like Gemini), so we parse
+ * defensively: strip code fences, tolerate {"verdicts":[...]} or bare arrays.
+ */
+function extractJsonArray(rawText: string): unknown[] {
+  const cleaned = rawText
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+  try {
+    const parsed = JSON.parse(cleaned) as unknown;
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === "object" && "verdicts" in parsed) {
+      const v = (parsed as { verdicts?: unknown }).verdicts;
+      if (Array.isArray(v)) return v;
+    }
+  } catch {
+    /* fall through to empty */
+  }
+  return [];
+}
+
+/**
+ * Lifted from server.ts's sanitizeVerdicts. Coerces the LLM's free-form JSON
+ * into the strict LlmVerdict shape the classifier expects, with bounded
+ * string lengths to keep the corpus sane.
+ */
+function sanitizeVerdicts(items: unknown, modelName: string): LlmVerdict[] {
+  if (!Array.isArray(items)) return [];
+  return items
+    .filter((x): x is Record<string, unknown> => Boolean(x && typeof x === "object"))
+    .map((item) => {
+      const clsRaw = String(item.classification || "").toLowerCase();
+      const confRaw = String(item.confidence || "").toLowerCase();
+      const classification: "successful" | "failed" =
+        clsRaw === "failed" ? "failed" : "successful";
+      const confidence: "high" | "medium" | "low" =
+        confRaw === "high" || confRaw === "medium" || confRaw === "low"
+          ? confRaw
+          : "medium";
+      return {
+        sha: String(item.sha || ""),
+        classification,
+        confidence,
+        footprint: String(item.footprint || "chore").slice(0, 48),
+        reason: String(item.reason || "Classified by model review.").slice(0, 280),
+        model: modelName,
+      };
+    })
+    .filter((v) => Boolean(v.sha));
+}
+
+/**
+ * Simple exponential-backoff retry (mirrors server.ts's withRetry). Retries
+ * on transient errors (429/5xx/network); gives up fast on hard auth errors.
+ */
+async function withRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
+  let attempt = 0;
+  let lastError: unknown;
+  while (attempt <= retries) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const retryable = /429|500|502|503|504|temporarily|timeout|econnreset|fetch failed/i.test(
+        msg,
+      );
+      if (!retryable || attempt === retries) break;
+      const cooldownMs = Math.min(15000, 1500 * Math.pow(2, attempt));
+      await new Promise((resolve) => setTimeout(resolve, cooldownMs));
+    }
+    attempt += 1;
+  }
+  throw lastError;
+}
+
+/**
+ * Single Z.AI LLM call for a batch of ambiguous commits. Replaces the
+ * original callGeminiBatch + callNvidiaBatch. The SDK is created once and
+ * reused (the skill's "reuse SDK instance" best practice).
+ */
+let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null;
+
+async function getZai(): Promise<NonNullable<typeof zaiInstance>> {
+  if (!zaiInstance) {
+    zaiInstance = await ZAI.create();
+  }
+  return zaiInstance;
+}
+
+async function callZaiBatch(
+  commits: ClassifyCommitInput[],
+  signal?: AbortSignal,
+): Promise<{ verdicts: LlmVerdict[]; modelUsed: string }> {
+  const zai = await getZai();
+  const userPrompt = JSON.stringify({ commits }, null, 2);
+
+  const completion = await withRetry(async () => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), LLM_BATCH_TIMEOUT_MS);
+    if (signal) {
+      signal.addEventListener("abort", () => ctrl.abort(), { once: true });
+    }
+    try {
+      return await zai.chat.completions.create({
+        messages: [
+          { role: "assistant", content: buildSystemInstruction() },
+          { role: "user", content: `Classify these git commits:\n${userPrompt}` },
+        ],
+        thinking: { type: "disabled" },
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  const rawText = (completion?.choices?.[0]?.message?.content ?? "").trim();
+  // The SDK may expose completion.model; fall back to "zai-web-dev"
+  const modelUsed =
+    (completion as { model?: string })?.model || "zai-web-dev";
+  const parsed = extractJsonArray(rawText);
+  const verdicts = sanitizeVerdicts(parsed, modelUsed);
+  return { verdicts, modelUsed };
+}
+
+/**
+ * Connection test — replaces testGeminiConnection + testNvidiaConnection.
+ * A one-shot Z.AI ping that confirms the cortex is configured.
+ */
+export async function testLlmConnection(): Promise<{
+  model: string;
+  status: string;
+}> {
+  const zai = await getZai();
+  const completion = await zai.chat.completions.create({
+    messages: [
+      { role: "assistant", content: "Confirm readiness concisely in JSON." },
+      { role: "user", content: 'Respond with {"status":"ok"} in JSON.' },
+    ],
+    thinking: { type: "disabled" },
+  });
+  const modelUsed =
+    (completion as { model?: string })?.model || "zai-web-dev";
+  return { model: modelUsed, status: "Z.AI cortex reachable" };
+}
+
+/**
+ * Whether to run the LLM at all. In single-LLM mode, either useGemini or
+ * useLlm enables it (both are repurposed to mean "use Z.AI").
+ */
+export function shouldUseLlm(settings: ExtractionSettings): {
+  runLlm: boolean;
+  strategy: AiStrategy;
+} {
+  return {
+    runLlm: settings.useGemini || settings.useLlm,
+    strategy: settings.aiStrategy,
+  };
+}
+
+/**
+ * The main orchestration entry. Mirrors the original classifyAndOrchestrate
+ * signature so the harvest runner (step 3) calls it the same way App.tsx did.
+ *
+ * Pipeline: detectRevertedShas → per-commit classifyHeuristic → ambiguous
+ * queue → batch ZAI classify → reconcileDualVerdicts (single-verdict path).
+ */
+export async function classifyAndOrchestrate(
+  rawCommits: RawCommit[],
+  settings: ExtractionSettings,
+  onLog: (msg: string, level?: LogLevel) => void,
+  signal?: AbortSignal,
+  onStage?: (label: string, detail?: string, resetItemTimer?: boolean) => void,
+): Promise<ClassifiedCommit[]> {
+  const revertedShas = detectRevertedShas(rawCommits);
+  const failCompiled = compileRegexSafe(settings.failRx, DEFAULT_FAIL_PATTERN);
+  if (failCompiled.error) {
+    onLog(`Invalid failure regex (${failCompiled.error}); using default pattern.`, "warn");
+  }
+  const okCompiled = compileRegexSafe(settings.okRx, DEFAULT_OK_PATTERN);
+  if (okCompiled.error) {
+    onLog(`Invalid success regex (${okCompiled.error}); using default pattern.`, "warn");
+  }
+
+  onStage?.("Heuristic analysis", `Evaluating ${rawCommits.length} commits`, true);
+
+  const heuristics = new Map<string, HeuristicResult>();
+  const ambiguousQueue: RawCommit[] = [];
+
+  for (const commit of rawCommits) {
+    const h = classifyHeuristic(commit, {
+      revertedShas,
+      failRx: failCompiled.regex,
+      okRx: okCompiled.regex,
+    });
+    heuristics.set(commit.sha, h);
+    if (h.needsAi) {
+      ambiguousQueue.push(commit);
+    }
+  }
+
+  onLog(
+    `Heuristic pass complete: ${rawCommits.length - ambiguousQueue.length} high-confidence, ${ambiguousQueue.length} ambiguous queued for AI.`,
+    "info",
+  );
+
+  const { runLlm, strategy } = shouldUseLlm(settings);
+  // Preserve the original private-repo gating: only send private-repo
+  // commit messages to the LLM if settings.nvPrivate is true.
+  const eligible = ambiguousQueue.filter((c) => settings.nvPrivate || !c.isPrivate);
+
+  if (!settings.nvPrivate && ambiguousQueue.some((c) => c.isPrivate)) {
+    onLog('Skipping private repository commits in AI review ("Send private repo msgs" is off).', "info");
+  }
+
+  const llmMap = new Map<string, LlmVerdict>();
+  let modelUsed = "zai-web-dev";
+
+  if (eligible.length > 0 && runLlm) {
+    if (strategy === "consensus" || strategy === "specialist") {
+      onLog(
+        `Strategy '${strategy}' requested but single-LLM mode (Z.AI) — consensus/specialist collapse to single-verdict classification.`,
+        "info",
+      );
+    }
+
+    const batchSize = 15;
+    const totalBatches = Math.ceil(eligible.length / batchSize);
+    for (let i = 0; i < eligible.length; i += batchSize) {
+      if (signal?.aborted) throw new Error("Operation cancelled.");
+      const batchNum = Math.floor(i / batchSize) + 1;
+      const slice = eligible.slice(i, i + batchSize);
+      const batchStartedAt = Date.now();
+      onStage?.(
+        `AI batch ${batchNum} / ${totalBatches}`,
+        `Classifying ${slice.length} ambiguous commits via Z.AI`,
+        true,
+      );
+      const payload: ClassifyCommitInput[] = slice.map((c) => ({
+        sha: c.sha,
+        repo: c.repo,
+        message: c.message.slice(0, 600),
+        ciState: c.ciState,
+        authorName: c.authorName,
+      }));
+
+      try {
+        const { verdicts, modelUsed: used } = await callZaiBatch(payload, signal);
+        modelUsed = used;
+        for (const v of verdicts) llmMap.set(v.sha, v);
+        onLog(
+          `Z.AI (${modelUsed}) reviewed ${verdicts.length} commits (batch ${batchNum}/${totalBatches} in ${formatDurationMs(Date.now() - batchStartedAt)}).`,
+          "success",
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        onLog(`Z.AI review error: ${msg}`, "error");
+      }
+
+      if (i + batchSize < eligible.length) {
+        const cooldownMs = computeAiBatchCooldownMs(0);
+        onStage?.(
+          "AI rate-limit cooldown",
+          `Waiting ${(cooldownMs / 1000).toFixed(1)}s before batch ${batchNum + 1}`,
+          true,
+        );
+        onLog(`Cooling down ${(cooldownMs / 1000).toFixed(1)}s between AI batches to respect API rate limits...`, "info");
+        await sleepWithAbort(cooldownMs, signal);
+      }
+    }
+  } else if (eligible.length === 0) {
+    onLog("No ambiguous commits required AI review — heuristic pass resolved all.", "info");
+  } else if (!runLlm) {
+    onLog("LLM disabled — ambiguous commits fall back to heuristic default (successful/low).", "info");
+  }
+
+  // Reconcile each commit. With a single LLM, geminiVerdict = the ZAI verdict
+  // (schema field label; the verdict's model field carries the true provider)
+  // and nvidiaVerdict = undefined. The classifier's single-verdict branch
+  // (tested at core.test.ts:260) handles this directly.
+  const classified: ClassifiedCommit[] = [];
+  for (const commit of rawCommits) {
+    const heuristic = heuristics.get(commit.sha)!;
+    const llmVerdict = llmMap.get(commit.sha);
+    const { classified: reconciled } = reconcileDualVerdicts(
+      commit,
+      heuristic,
+      llmVerdict, // → geminiVerdict slot (schema label)
+      undefined, // → nvidiaVerdict slot (unused in single-LLM mode)
+      strategy,
+    );
+    classified.push(reconciled);
+  }
+
+  return classified;
+}

@@ -1,34 +1,47 @@
 /**
  * fleet-harvester - detached fleet-history harvester service.
  *
- * STEP 1 SCAFFOLD ONLY.
- * This entry boots a minimal health endpoint on port 3010 so the service is
- * startable (`bun run dev` -> `bun --hot index.ts`) and auto-restarts on
- * file changes. The real HTTP surface (/api/harvest, /api/status), the
- * scheduler, and the headless harvest runner are added in step 4.
+ * STEP 2: adapted githubClient.ts (btoa->Buffer) + new aiOrchestrator.ts
+ * using z-ai-web-dev-sdk (Gemini removed). This entry boots the health
+ * endpoint on port 3010 and a /api/llm-test smoke route that pings the
+ * Z.AI cortex the harvester will use for ambiguous-commit classification.
  *
- * The verbatim GitHistory-Sync utils live under src/lib/ and the schema
- * contract under src/types/. They have no runtime deps and are exercised
- * by `bun test` (src/lib/core.test.ts). Nothing here reads .env yet.
+ * The real HTTP surface (/api/harvest, /api/status), the scheduler, and
+ * the headless harvest runner are added in step 4.
  */
 
 import { createServer } from "node:http";
 
 const PORT = 3010;
 
-const server = createServer((req, res) => {
+const server = createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://localhost:${PORT}`);
   if (url.pathname === "/api/health") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(
       JSON.stringify({
         ok: true,
-        phase: "step-1-scaffold",
+        phase: "step-2-llm-adapted",
         service: "fleet-harvester",
         port: PORT,
+        llmProvider: "z-ai-web-dev-sdk",
+        geminiRemoved: true,
         ts: Date.now(),
       }),
     );
+    return;
+  }
+  if (url.pathname === "/api/llm-test") {
+    try {
+      const { testLlmConnection } = await import("./src/lib/aiOrchestrator");
+      const result = await testLlmConnection();
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, ...result }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.writeHead(502, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: msg.slice(0, 280) }));
+    }
     return;
   }
   res.writeHead(404, { "content-type": "text/plain" });
@@ -36,7 +49,7 @@ const server = createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[fleet-harvester] step-1 scaffold listening on :${PORT}`);
+  console.log(`[fleet-harvester] step-2 listening on :${PORT} (LLM: z-ai-web-dev-sdk)`);
 });
 
 process.on("SIGTERM", () => server.close(() => process.exit(0)));
