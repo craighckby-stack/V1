@@ -32,7 +32,12 @@ export async function GET() {
     // Opportunistic expiry sweep — cheap (one updateMany) and keeps the
     // pending list from accumulating stale questions forever.
     const cycle = autonomousLoopRuntime.getState().stats.totalRuns;
-    await expireOldQuestions(cycle).catch(() => {});
+    try {
+      await expireOldQuestions(cycle);
+    } catch (expiryErr) {
+      // Log expiry failure but do not fail the GET request, as fetching pending questions is primary.
+      console.error("Failed to run old question expiry sweep:", expiryErr);
+    }
     const pending = await getPendingQuestions();
     return NextResponse.json({ pending });
   } catch (err) {
@@ -76,14 +81,14 @@ export async function POST(req: Request) {
     const result = await recordAnswer(questionId, answer, cycle, body.note);
     if (!result) {
       return NextResponse.json(
-        { error: "question not found or already answered/expired" },
+        { error: `Failed to record answer for question ID ${questionId}: question not found or already answered/expired` },
         { status: 404 },
       );
     }
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(
-      { error: (err as Error).message },
+      { error: `Error processing POST request: ${(err as Error).message}` },
       { status: 500 },
     );
   }
