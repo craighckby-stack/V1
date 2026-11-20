@@ -198,13 +198,13 @@ export function readOracleEvents(afterSeq?: number): {
 
     const bufferLength = s.buffer.length;
 
-    // The sequence of the event at index `i` is `currentSeq - bufferLength + i`.
     // We need the smallest index `i` such that: currentSeq - bufferLength + i > afterSeq
     // i > afterSeq - currentSeq + bufferLength
     // i_start = floor(afterSeq - currentSeq + bufferLength) + 1
     
     // Calculate the required starting index based on sequence number.
-    const requiredMinIndex = afterSeq - currentSeq + bufferLength + 1;
+    // Use Math.floor for correct integer index calculation.
+    const requiredMinIndex = Math.floor(afterSeq - currentSeq + bufferLength) + 1;
     
     // Clamp the start index to be within [0, bufferLength]
     let startIndex = Math.max(0, requiredMinIndex);
@@ -217,6 +217,7 @@ export function readOracleEvents(afterSeq?: number): {
     }
 
     // Verify the calculated startIndex actually points to an event > afterSeq
+    // The sequence of the event at index `startIndex` is `currentSeq - bufferLength + startIndex`.
     const firstEventSeq = currentSeq - bufferLength + startIndex;
     if (firstEventSeq <= afterSeq) {
         // The calculated startIndex is too early, no new events found.
@@ -252,4 +253,6 @@ export function clearOracleEvents(): void {
   const s = state();
   s.buffer = [];
   // seq keeps counting — never resets — so old dedup keys stay dead.
+  // Resetting bridgeTokenWarnedOnce here would be safer for test isolation,
+  // but adhering strictly to minimal behavioral change, we leave it as is.
 }
