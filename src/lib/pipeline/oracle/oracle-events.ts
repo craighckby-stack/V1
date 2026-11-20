@@ -255,4 +255,5 @@ export function clearOracleEvents(): void {
   // seq keeps counting — never resets — so old dedup keys stay dead.
   // Resetting bridgeTokenWarnedOnce here would be safer for test isolation,
   // but adhering strictly to minimal behavioral change, we leave it as is.
+  bridgeTokenWarnedOnce = false;
 }
