@@ -66,17 +66,21 @@ async function diskScarCount(): Promise<number> {
       const entries = await readdir(dirPath, { withFileTypes: true });
       let count = 0;
       
-      for (const entry of entries) {
+      // Use Promise.all to process directory entries concurrently for performance
+      const entryPromises = entries.map(async (entry) => {
         const fullPath = join(dirPath, entry.name);
         
         if (entry.isDirectory()) {
-          count += await countFilesInDirectory(fullPath);
+          return countFilesInDirectory(fullPath);
         } else if (entry.isFile() && fullPath.endsWith(".json")) {
-          count++;
+          return 1;
         }
-      }
-      
-      return count;
+        return 0;
+      });
+
+      const results = await Promise.all(entryPromises);
+      return results.reduce((sum, current) => sum + current, 0);
+
     } catch (e) {
       // Catch errors during directory read (e.g., directory doesn't exist or permissions denied)
       if (e instanceof Error) {
@@ -122,9 +126,8 @@ async function checkGitHubAuth(
         return { ok: false, error: "No login found or invalid response structure in /user response body" };
       }
       return { ok: true, login: user.login as string };
-    } catch {
-      // Optional catch binding: the parse error is not used; the 4xx
-      // response body was not valid JSON (empty or malformed).
+    } catch (e) {
+      // Failed to parse JSON response from GitHub API (response body might be empty or malformed).
       return { ok: false, error: "Failed to parse JSON response from GitHub API (response body might be empty or malformed)" };
     }
   } catch (e) {
@@ -132,7 +135,7 @@ async function checkGitHubAuth(
       if (e.name === "AbortError") {
         return { ok: false, error: "Request timed out after 3.5s" };
       }
-      return { ok: false, error: `Network or parsing error: ${e.message}` };
+      return { ok: false, error: `Network or request error during GitHub auth check: ${e.message}` };
     }
     return { ok: false, error: "Unknown error during GitHub auth check" };
   } finally {

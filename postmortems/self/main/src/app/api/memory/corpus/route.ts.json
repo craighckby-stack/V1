@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/app/api/memory/corpus/route.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: src/app/api/memory/corpus/route.ts(38,7): error TS2322: Type 'unknown' is not assignable to type 'any[]'.",
+  "evidence": "Original: 2652 bytes, Refactored: 2857 bytes. Errors: src/app/api/memory/corpus/route.ts(38,7): error TS2322: Type 'unknown' is not assignable to type 'any[]'.",
+  "constraints": "The previous refactor of src/app/api/memory/corpus/route.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "4fa609e4a3f0bb5f75a05a27ea15465990a670ad0fcca232d602bc3efa355628",
+  "hash": "f46bf02f12ea9277e94ad1d52589bf3b603dcaab574e8d42746c12a7893dc700",
+  "lastAttemptAt": "2026-11-20T10:56:52.777Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-20T10:56:52.778Z",
+  "updatedAt": "2026-11-20T10:56:52.778Z",
+  "schema": 2
+}
