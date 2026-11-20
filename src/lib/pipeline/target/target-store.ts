@@ -206,7 +206,11 @@ export async function getTargetLastRun(): Promise<TargetRunRecord | null> {
  */
 export async function resolveTargetToken(clientToken?: string): Promise<string | null> {
   if (clientToken) return clientToken;
-  const stored = await getStoredTarget().catch(() => null);
-  if (stored?.token) return stored.token;
+  try {
+    const stored = await getStoredTarget();
+    if (stored?.token) return stored.token;
+  } catch (error) {
+    console.error("Failed to get stored target token:", error);
+  }
   return null;
 }
