@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/autonomous/crash-budget.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "Test gate failed: test failed (sandboxed): src/lib/pipeline/autonomous/crash-budget.test.ts — \nsrc/lib/pipeline/autonomous/crash-budget.test.ts:\n(pass) crash-budget > readCrashBudget returns null when the file is absent [0.18ms]\n(pass) crash-budget > readCrashBudget returns null for malformed ",
@@ -12,8 +12,8 @@
   "parentHash": "1231ae59de5b13f6192a43e26f0c66a91553a9059f8d3ca42455f6ed3dcbf9df",
   "hash": "693f4f79ac7a7a2774ea1ff1b8cdee03d3a8088d5034499ad6dc80677cfa55fc",
   "lastAttemptAt": "2026-11-19T14:56:28.487Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-20T07:55:11.744Z",
   "createdAt": "2026-11-19T13:59:58.663Z",
-  "updatedAt": "2026-11-19T14:56:28.487Z",
+  "updatedAt": "2026-11-20T07:55:11.744Z",
   "schema": 2
 }
