@@ -34,6 +34,7 @@ export function MemoryBank() {
       // Abort any ongoing fetch when component unmounts
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
+        abortControllerRef.current = null;
       }
     };
   }, []);
@@ -47,7 +48,10 @@ export function MemoryBank() {
       
       try {
         const timeoutId = setTimeout(() => {
-          abortControllerRef.current?.abort();
+          if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+          }
         }, 10000); // 10 second timeout
         
         const res = await fetch("/api/memory/entries", {
@@ -90,6 +94,14 @@ export function MemoryBank() {
     fetchMemoryEntries();
   }, [setEntries, isMounted]);
 
+  // Filter out invalid entries before rendering to prevent crashes
+  const validEntries = entries.filter(entry => {
+    return entry && 
+           typeof entry === 'object' && 
+           'id' in entry && 
+           'provenance' in entry;
+  });
+
   return (
     <Card className="bg-slate-950/60 border border-slate-800/60 backdrop-blur transition-shadow duration-200 hover:shadow-2xl">
       <CardHeader className="pb-4 pt-6 sm:pb-6">
@@ -109,20 +121,14 @@ export function MemoryBank() {
           <div className="py-16 text-center px-6">
             <p className="text-base text-slate-500 italic">Fetching memory entries... Check the network console for API errors if this persists.</p>
           </div>
-        ) : entries.length === 0 ? (
+        ) : validEntries.length === 0 ? (
           <div className="py-16 text-center px-6">
             <p className="text-base text-slate-500 italic">No memory entries found. The pipeline has not yet stored any knowledge, or the API returned an empty set.</p>
           </div>
         ) : (
           <ScrollArea className="h-[300px] pr-4">
             <div className="space-y-4 p-4 sm:p-6">
-              {entries.map((entry) => {
-                // Validate entry structure minimally before accessing properties
-                if (!entry || typeof entry !== 'object' || !('id' in entry) || !('provenance' in entry)) {
-                  console.warn("Invalid memory entry missing required fields or is not an object:", entry);
-                  return null;
-                }
-
+              {validEntries.map((entry) => {
                 const meta = PROVENANCE_META[entry.provenance] ?? PROVENANCE_META.clean;
                 const Icon = meta.icon;
                 return (
