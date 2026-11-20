@@ -38,6 +38,15 @@ export async function POST(req: Request) {
     if (!body?.repo || typeof body.repo !== "string") {
       return NextResponse.json({ ok: false, error: "repo is required (owner/name)" }, { status: 400 });
     }
+    
+    // Validate repo format (should be in owner/name format)
+    if (!body.repo.includes("/")) {
+      return NextResponse.json({ 
+        ok: false, 
+        error: "repo must be in 'owner/name' format" 
+      }, { status: 400 });
+    }
+    
     repoName = body.repo;
 
     // Validate branch parameter if provided
@@ -77,13 +86,8 @@ export async function POST(req: Request) {
     }
 
     // Now that reachability is confirmed, save the configuration
-    const config = await setTargetConfig(body.repo, body.branch ?? null);
+    const config = await setTargetConfig(body.repo, body.branch ?? defaultBranch);
 
-    if (!config.branch) {
-      // Persist the resolved default so `target status` shows the truth.
-      const saved = await setTargetConfig(config.repo, defaultBranch);
-      return NextResponse.json({ ok: true, config: saved, defaultBranch });
-    }
     return NextResponse.json({ ok: true, config, defaultBranch });
 
   } catch (err) {
