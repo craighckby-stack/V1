@@ -136,7 +136,7 @@ export function readSelfEnhanceArmedState(): SelfEnhanceArmedState | null {
     console.error(
       "readSelfEnhanceArmedState: Invalid armed state format in file",
       ARMED_STATE_FILE,
-      "Expected format: { armed: boolean, at: ISO date string, by: non-empty string }"
+      "Expected format: { armed: boolean, at: ISO date string (YYYY-MM-DDTHH:mm:ss.sssZ), by: non-empty string }"
     );
     return null;
   } catch (error) {
