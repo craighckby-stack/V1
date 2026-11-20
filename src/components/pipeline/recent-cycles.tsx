@@ -31,7 +31,7 @@ export function RecentCycles() {
       const data = await res.json();
       
       // Improved validation: ensure data conforms strictly to the expected structure.
-      if (typeof data !== 'object' || data === null || !Array.isArray((data as { cycles?: AutonomousCycleSummary[] }).cycles)) {
+      if (typeof data !== 'object' || data === null || !('cycles' in data) || !Array.isArray((data as { cycles?: AutonomousCycleSummary[] }).cycles)) {
         throw new Error("Invalid API response structure: expected object containing a 'cycles' array of AutonomousCycleSummary.");
       }
       
