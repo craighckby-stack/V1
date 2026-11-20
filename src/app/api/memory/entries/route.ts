@@ -19,16 +19,18 @@ export async function GET() {
   }
 
   try {
-    // First ensure the store is seeded
-    await emgRagInstance.ensureSeeded();
+    // Run seeding and retrieval in parallel to reduce latency
+    await Promise.all([
+      emgRagInstance.ensureSeeded(),
+      emgRagInstance.getAll(),
+    ]);
     
-    // Then retrieve all entries (must be awaited if it's an async operation)
+    // getAll() returns the entries directly, which should be an array or null/undefined if empty/error state
     const entries = await emgRagInstance.getAll();
 
     // Ensure we return an array, defaulting to empty array if null or undefined
     return NextResponse.json({ entries: entries || [] });
   } catch (err: unknown) {
-    // Ensure 'error' is always an Error instance before accessing properties
     let error: Error;
     if (err instanceof Error) {
         error = err;
