@@ -60,25 +60,19 @@ export function DebateChamber() {
     );
   }
 
-  const consensusPct = Math.round(
-    (verdict.consensusCoefficient ?? 0) * 100
-  );
-  const frictionPct = Math.round(
-    (verdict.cognitiveFriction ?? 0) * 100
-  );
+  const consensusPct = Math.round((verdict.consensusCoefficient ?? 0) * 100);
+  const frictionPct = Math.round((verdict.cognitiveFriction ?? 0) * 100);
 
   const consensusStatus = verdict.consensus as string | undefined;
   
-  // Determine badge classes safely
-  let badgeClasses = "bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/20";
-  if (consensusStatus === "APPROVED") {
-    badgeClasses = "bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/20";
-  } else if (consensusStatus === "CONDITIONAL_APPROVAL") {
-    badgeClasses = "bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/20";
-  } else if (consensusStatus) {
-    // Handle other defined statuses gracefully, defaulting to the initial rose/oppose style if not explicitly mapped
-    badgeClasses = "bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/20";
-  }
+  const statusMap: Record<string, string> = {
+    "APPROVED": "bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/20",
+    "CONDITIONAL_APPROVAL": "bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/20",
+    // Default/Oppose style
+    "DEFAULT": "bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/20",
+  };
+
+  const badgeClasses = statusMap[consensusStatus || "DEFAULT"] || statusMap["DEFAULT"];
 
   return (
     <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur transition-shadow hover:shadow-lg">
@@ -131,7 +125,9 @@ export function DebateChamber() {
           <AnimatePresence>
             {(verdict.arguments?.length ?? 0) > 0 ? (
               verdict.arguments!.map((arg, idx) => {
-                const frictionValue = typeof arg.cognitiveFriction === 'number' && !isNaN(arg.cognitiveFriction) ? arg.cognitiveFriction * 100 : 0;
+                const frictionValue = (typeof arg.cognitiveFriction === 'number' && !isNaN(arg.cognitiveFriction)) 
+                  ? arg.cognitiveFriction * 100 
+                  : 0;
                 return (
                   <motion.div
                     key={`${arg.speaker}-${idx}`}
