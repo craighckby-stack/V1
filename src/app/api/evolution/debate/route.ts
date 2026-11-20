@@ -71,15 +71,15 @@ export async function POST(req: Request) {
 
     let errorMessage = `Debate execution failed for ${body.filePath}. Please check the logs for details.`;
     
-    let errorInstance: Error | undefined = err instanceof Error ? err : undefined;
-
-    if (errorInstance) {
-      // Provide a slightly more contextual error message derived from the LLM execution context, 
-      // while still adhering to the requirement of keeping the client response sanitized.
-      errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${errorInstance.message}. Check logs for full details.`;
+    // Handle different error types to provide more contextual messages
+    if (err instanceof Error) {
+      errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${err.message}. Check logs for full details.`;
     } else if (typeof err === 'object' && err !== null && 'message' in err) {
-        // Handle cases where err is an object but not an instance of Error (e.g., { message: "..." })
-        errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${(err as { message: string }).message}. Check logs for full details.`;
+      // Handle cases where err is an object but not an instance of Error (e.g., { message: "..." })
+      errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${(err as { message: string }).message}. Check logs for full details.`;
+    } else if (typeof err === 'string') {
+      // Handle plain string errors
+      errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${err}. Check logs for full details.`;
     }
     
     // Return a standardized 500 response
