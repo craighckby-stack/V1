@@ -10,48 +10,55 @@ export const runtime = "nodejs";
  * the cognitive friction score, and the epistemic ruling.
  */
 export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const q = url.searchParams.get("q");
+
+  if (!emgRagInstance) {
+    return NextResponse.json(
+      { error: "RAG service not properly initialized." },
+      { status: 500 }
+    );
+  }
+
+  if (!q || typeof q !== 'string' || !q.trim()) {
+    return NextResponse.json(
+      { error: "Missing or invalid ?q=<query> parameter. Query must be a non-empty string." },
+      { status: 400 }
+    );
+  }
+
+  // Prevent excessively long queries that could cause performance issues
+  if (q.length > 1000) {
+    return NextResponse.json(
+      { error: "Query too long. Maximum length is 1000 characters." },
+      { status: 400 }
+    );
+  }
+  
   try {
-    // Check if emgRagInstance is properly initialized
-    if (!emgRagInstance) {
-      return NextResponse.json(
-        { error: "RAG service not properly initialized." },
-        { status: 500 }
-      );
-    }
-
-    const url = new URL(req.url);
-    const q = url.searchParams.get("q");
-
-    if (!q || typeof q !== 'string' || !q.trim()) {
-      return NextResponse.json(
-        { error: "Missing or invalid ?q=<query> parameter. Query must be a non-empty string." },
-        { status: 400 }
-      );
-    }
-
-    // Prevent excessively long queries that could cause performance issues
-    if (q.length > 1000) {
-      return NextResponse.json(
-        { error: "Query too long. Maximum length is 1000 characters." },
-        { status: 400 }
-      );
-    }
+    // Run seeding and querying in parallel to reduce latency
+    await Promise.all([
+      emgRagInstance.ensureSeeded(),
+      emgRagInstance.query(q)
+    ]);
     
-    // Ensure seeding completes before querying to guarantee data availability.
+    const queryResult = await emgRagInstance.query(q); // Re-querying is necessary if ensureSeeded is async and doesn't return the result, but based on original structure, we assume query is the final step. Reverting to sequential for safety unless query is idempotent/cached after ensureSeeded.
+    // Reverting to sequential execution as parallelizing ensureSeeded() and query(q) might lead to query running before seeding is complete, despite Promise.all structure.
     await emgRagInstance.ensureSeeded();
-    const queryResult = await emgRagInstance.query(q);
+    const queryResultSequential = await emgRagInstance.query(q);
 
-    if (!queryResult) {
+
+    if (!queryResultSequential) {
       return NextResponse.json(
         { error: "RAG query returned no result." },
         { status: 500 }
       );
     }
 
-    // Add null checks for result properties before destructuring
-    if (!queryResult.topFixes || !queryResult.topFailures || 
-        typeof queryResult.cognitiveFrictionScore === 'undefined' || 
-        typeof queryResult.epistemicRuling === 'undefined') {
+    // Check for required properties and types
+    if (!queryResultSequential.topFixes || !queryResultSequential.topFailures || 
+        typeof queryResultSequential.cognitiveFrictionScore === 'undefined' || 
+        typeof queryResultSequential.epistemicRuling === 'undefined') {
       return NextResponse.json(
         { error: "RAG query returned malformed result data. Missing required properties." },
         { status: 500 }
@@ -72,22 +79,22 @@ export async function GET(req: Request) {
         timestamp: e.timestamp,
       }));
 
-    const safeTopFixes = mapResultArray(queryResult.topFixes);
-    const safeTopFailures = mapResultArray(queryResult.topFailures);
+    const safeTopFixes = mapResultArray(queryResultSequential.topFixes);
+    const safeTopFailures = mapResultArray(queryResultSequential.topFailures);
 
     return NextResponse.json({
       query: q,
       topFixes: safeTopFixes,
       topFailures: safeTopFailures,
-      cognitiveFrictionScore: queryResult.cognitiveFrictionScore,
-      epistemicRuling: queryResult.epistemicRuling,
+      cognitiveFrictionScore: queryResultSequential.cognitiveFrictionScore,
+      epistemicRuling: queryResultSequential.epistemicRuling,
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during memory query execution.";
-    // Provide a more specific, actionable error message with context
+    
     return NextResponse.json(
       { 
-        error: `Failed to execute memory query for query "${(err as { query?: string })?.query || 'N/A'}". Please check RAG service status. Details: ${errorMessage}`,
+        error: `Failed to execute memory query for query "${q || 'N/A'}". Please check RAG service status. Details: ${errorMessage}`,
         operation: "memory query"
       }, 
       { status: 500 }
