@@ -76,6 +76,7 @@ export function TargetPanel({ open, onClose }: Props) {
       if (data && Array.isArray(data.runs)) {
         setRuns(data.runs);
       } else {
+        console.error("Unexpected response structure from pipeline history API");
         setRuns([]); // Handle case where response is OK but structure is unexpected
       }
     } catch (error) {
