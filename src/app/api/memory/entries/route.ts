@@ -22,14 +22,19 @@ export async function GET() {
     // First ensure the store is seeded
     await emgRagInstance.ensureSeeded();
     
-    // Then retrieve all entries
-    const entries = emgRagInstance.getAll();
+    // Then retrieve all entries (must be awaited if it's an async operation)
+    const entries = await emgRagInstance.getAll();
 
     // Ensure we return an array, defaulting to empty array if null or undefined
     return NextResponse.json({ entries: entries || [] });
   } catch (err: unknown) {
     // Ensure 'error' is always an Error instance before accessing properties
-    const error = err instanceof Error ? err : new Error("An unknown error occurred during memory retrieval from RAG store.");
+    let error: Error;
+    if (err instanceof Error) {
+        error = err;
+    } else {
+        error = new Error("An unknown error occurred during memory retrieval from RAG store.");
+    }
     
     // Log the actual error for debugging purposes before sending a generic response
     console.error("Error retrieving memory entries from RAG store:", error.message, error.stack ? error.stack : "No stack trace available");
