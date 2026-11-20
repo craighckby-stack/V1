@@ -281,3 +281,32 @@ export async function getHealthTrend(): Promise<HealthTrend | null> {
     },
   };
 }
+
+/**
+ * A digest block for the lesson distiller. Returns null when the trend is
+ * healthy or absent — the distiller only sees this signal when the
+ * codebase actually got WORSE, so a distilled lesson carries real weight
+ * ("the loop's recent work made the codebase worse — distill what to
+ * avoid"). This is the outcome-driven distillation hook: the EXTERNAL
+ * objective (health) feeds the INTERNAL learning (lessons).
+ *
+ * Worsening = ANY of: tests fell, tsc errors rose, lint errors rose,
+ * test failures rose. A flat trend (all deltas zero) does NOT fire —
+ * flat means "the loop's work isn't moving the needle, but isn't
+ * breaking things either," which is a curiosity-drive signal, not a
+ * distillation signal.
+ */
+export async function getHealthTrendDigest(): Promise<string | null> {
+  const trend = await getHealthTrend();
+  if (!trend || !trend.previous) return null; // need 2+ snapshots
+  const d = trend.delta;
+  const worsening =
+    d.testCount < 0 || d.testFail > 0 || d.tscErrors > 0 || d.lintErrors > 0;
+  if (!worsening) return null;
+  const parts: string[] = [];
+  if (d.testCount < 0) parts.push(`tests fell by ${Math.abs(d.testCount)}`);
+  if (d.testFail > 0) parts.push(`test failures rose by ${d.testFail}`);
+  if (d.tscErrors > 0) parts.push(`tsc errors rose by ${d.tscErrors}`);
+  if (d.lintErrors > 0) parts.push(`lint errors rose by ${d.lintErrors}`);
+  return `Codebase health worsened since last snapshot (cycle ${trend.previous.cycleNumber} → ${trend.current.cycleNumber}): ${parts.join("; ")}. The loop's recent mutations made the codebase WORSE — distill a general lesson about what pattern of change to AVOID.`;
+}

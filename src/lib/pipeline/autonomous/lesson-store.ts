@@ -56,6 +56,7 @@ import { getCorpusDigest } from "./mutation-corpus";
 import { getNamedPatterns } from "./dreamer";
 import { exportLessonsMarkdown } from "./lessons-markdown";
 import { getFleetDigest } from "./githistory-corpus";
+import { getHealthTrendDigest } from "./health-metrics";
 import { scrubSectionMarkers } from "../core/prompt-scrub";
 
 /** Seeds (see module doc — the live values live in MetaParam, D8). */
@@ -361,6 +362,14 @@ async function buildHistoryDigest(): Promise<string> {
     // fail-soft: an absent corpus is an empty string, not an error.
     const fleet = getFleetDigest();
     if (fleet) sections.push(fleet);
+    // Outcome-driven distillation: when the codebase health trend
+    // WORSENED, append a block telling the distiller "your recent work
+    // made the codebase worse — distill what to avoid." This connects
+    // the EXTERNAL objective (health) to the INTERNAL learning
+    // (lessons). Absent/healthy → no block (the distiller doesn't see
+    // a false "things got worse" signal).
+    const healthDigest = await getHealthTrendDigest();
+    if (healthDigest) sections.push(healthDigest);
     return sections.join("\n");
   } catch {
     return "(postmortem history unavailable)";
