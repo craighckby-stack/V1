@@ -95,7 +95,7 @@ function isMagicNumber(node: ts.NumericLiteral): boolean {
 }
 
 /** Line number (1-based) for a position in a parsed source file. */
-function lineOf(sf: ts.SourceFile, pos: number): number {
+function lineOf(sf: ts.SourceFile | undefined, pos: number): number {
   if (!sf) return 1; // Default to line 1 if source file is undefined
   return sf.getLineAndCharacterOfPosition(pos).line + 1;
 }
@@ -123,8 +123,17 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
   const findings: TargetFinding[] = [];
   const seen = new Set<string>();
 
+  // Pre-calculate line numbers for all nodes during traversal for performance
+  const nodeLineMap = new Map<ts.Node, number>();
+  const calculateLine = (node: ts.Node) => {
+    const line = lineOf(sf, node.getStart());
+    nodeLineMap.set(node, line);
+    ts.forEachChild(node, calculateLine);
+  };
+  calculateLine(sf);
+
   const push = (kind: TargetTaskKind, pos: number) => {
-    const line = lineOf(sf, pos);
+    const line = nodeLineMap.get(sf) ?? lineOf(sf, pos); // Fallback to original logic if map fails, though it shouldn't
     const key = `${kind}:${line}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -263,10 +272,9 @@ export function pickTargetFinding(
   findingsByFile: Array<{ file: string; findings: TargetFinding[] }>
 ): { file: string; finding: TargetFinding } | null {
   let best: { file: string; finding: TargetFinding } | null = null;
+  const counts = new Map<string, number>();
 
   for (const entry of findingsByFile) {
-    const counts = new Map<string, number>();
-    
     for (const f of entry.findings) {
       const n = counts.get(f.kind) ?? 0;
       if (n >= MAX_FINDINGS_PER_KIND) continue;
