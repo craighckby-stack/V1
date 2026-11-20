@@ -100,7 +100,7 @@ function filePathFromSelfProphecy(prophecy: Prophecy): string | null {
   } catch (e) {
     // Log the parsing error with context instead of silently ignoring it
     const errorMsg = e instanceof Error ? e.message : String(e);
-    console.error(`Failed to parse historySnapshot for prophecy ID ${prophecy.id} (Domain: ${prophecy.domain}). Context: ${errorMsg}`);
+    console.error(`[OracleTaskFeed] Failed to parse historySnapshot for prophecy ID ${prophecy.id} (Domain: ${prophecy.domain}). Error: ${errorMsg}`);
   }
   return null;
 }
@@ -130,12 +130,12 @@ function buildEvidence(prophecy: Prophecy): string {
 export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined | null): Promise<boolean> {
   if (!prophecy) {
     // Input validation: Prophecy must exist to proceed.
-    console.error("queueTaskForFailedProphecy called with null or undefined prophecy.");
+    console.error("[OracleTaskFeed] queueTaskForFailedProphecy called with null or undefined prophecy.");
     return false;
   }
 
   if (typeof prophecy.id !== 'string' || !prophecy.id) {
-    console.error(`Prophecy ID is missing or invalid for prophecy: ${JSON.stringify(prophecy)}`);
+    console.error(`[OracleTaskFeed] Prophecy ID is missing or invalid for prophecy: ${JSON.stringify(prophecy)}`);
     return false;
   }
 
@@ -147,17 +147,17 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
     line = hashProphecyIdToLine(prophecy.id);
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
-    console.error(`Failed to hash prophecy ID ${prophecy.id} for task creation: ${errorMessage}`);
+    console.error(`[OracleTaskFeed] Failed to hash prophecy ID ${prophecy.id} for task creation: ${errorMessage}`);
     return false;
   }
 
   const taskKind = TASK_KINDS[ORACLE_FAILED_PROPHECY_KIND];
   if (!taskKind) {
-    console.error(`Task kind ${ORACLE_FAILED_PROPHECY_KIND} is not registered in TASK_KINDS. Cannot queue task.`);
+    console.error(`[OracleTaskFeed] Task kind ${ORACLE_FAILED_PROPHECY_KIND} is not registered in TASK_KINDS. Cannot queue task.`);
     return false;
   }
   
-  // Use default priority 7 if taskKind exists but priority is missing
+  // Use priority from taskKind if available, otherwise default to 7 as per original logic intent
   const priority = taskKind.priority ?? 7;
 
   const evidence = buildEvidence(prophecy);
@@ -189,7 +189,7 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
     // table. Losing the task feed is a lost opportunity, not a fault.
     // Log the error context for debugging, but return false as required by fail-soft contract.
     const dbError = error instanceof Error ? error : new Error("Unknown database error during task queuing.");
-    console.error(`Database error while queuing oracle-failed-prophecy task for file ${filePath} (ID: ${prophecy.id}, Line: ${line}). Task Kind: ${ORACLE_FAILED_PROPHECY_KIND}. Error details: ${dbError.message}`);
+    console.error(`[OracleTaskFeed] Database error while queuing oracle-failed-prophecy task for file ${filePath} (ID: ${prophecy.id}, Line: ${line}). Task Kind: ${ORACLE_FAILED_PROPHECY_KIND}. Error details: ${dbError.message}`);
     return false;
   }
 }
