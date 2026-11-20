@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/boot/scan/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/api/boot/scan/route.ts(185,5): error TS2554: Expected 1 arguments, but got 0.",
@@ -12,8 +12,8 @@
   "parentHash": "3ef219f05979827e954695c56b8196f8911fc11ba0a7610c40d17d41edb18d52",
   "hash": "a423f9f19b91a4f5468fec18c756c479fbd2631051c499a2dba79a512e9057c7",
   "lastAttemptAt": "2026-11-20T06:43:34.019Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-20T07:36:17.424Z",
   "createdAt": "2026-11-20T06:42:12.012Z",
-  "updatedAt": "2026-11-20T06:43:34.019Z",
+  "updatedAt": "2026-11-20T07:36:17.424Z",
   "schema": 2
 }
