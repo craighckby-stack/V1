@@ -195,6 +195,7 @@ function bootOracleScheduler(): void {
   const oldTimer1 = g.__oracleSchedulerTimer;
   const oldTimer2 = s.timer;
   
+  // Clear old timers atomically
   if (oldTimer1) {
     clearInterval(oldTimer1);
     g.__oracleSchedulerTimer = null;
@@ -214,7 +215,7 @@ function bootOracleScheduler(): void {
       // A background bookkeeper must never crash the process.
       const error = err instanceof Error ? err : new Error(`Unhandled error in scheduler tick: ${String(err)}`);
       emitOracleEvent(
-        `Oracle scheduler tick error: ${error.message}`,
+        `Oracle scheduler tick error: ${error.message}\n${error.stack}`,
         "error",
         "scheduler",
       );
