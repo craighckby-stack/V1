@@ -33,17 +33,19 @@ export async function GET() {
   const validSources: CatalogEntry[] = [];
   const invalidSources: { index: number; reason: string }[] = [];
 
-  SIPHON_SOURCES.forEach((source, i) => {
+  for (let i = 0; i < SIPHON_SOURCES.length; i++) {
+    const source = SIPHON_SOURCES[i];
+
     // Check for null/undefined source element first
     if (!source) {
       invalidSources.push({ index: i, reason: "Source element is null or undefined." });
-      return;
+      continue;
     }
 
     // Check for required structure: 'patterns' must exist and be an array.
     if (!('patterns' in source) || !Array.isArray((source as any).patterns)) {
       invalidSources.push({ index: i, reason: "Source is missing 'patterns' array or 'patterns' is not an array." });
-      return; // Skip invalid entry
+      continue;
     }
     
     const patterns = (source as SiphonSource).patterns;
@@ -51,7 +53,7 @@ export async function GET() {
     // Check if patterns array is empty
     if (patterns.length === 0) {
       invalidSources.push({ index: i, reason: "Source patterns array is empty." });
-      return; // Skip invalid entry
+      continue;
     }
     
     // Validate each pattern in the array
@@ -66,7 +68,7 @@ export async function GET() {
     }
 
     if (!patternsValid) {
-        return; // Skip invalid entry
+        continue; // Skip invalid entry
     }
     
     // Safely cast after structural validation
@@ -81,7 +83,7 @@ export async function GET() {
       // is performed here, so we don't claim "active".
       status: "configured",
     });
-  });
+  }
 
   if (invalidSources.length > 0) {
     return NextResponse.json(
