@@ -33,17 +33,25 @@ export async function GET() {
     }
     
     // Add timeout to prevent hanging
-    const sample = await Promise.race([
-      searchEngines(keyword, 3).map((h) => ({
-        id: h.engine.id,
-        role: h.engine.role,
-        score: Number(h.score.toFixed(2)),
-        matched: h.matchedTerms.slice(0, 5),
-      })),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Search timed out")), 5000)
-      )
-    ]);
+    let sample;
+    try {
+      sample = await Promise.race([
+        searchEngines(keyword, 3).map((h) => ({
+          id: h.engine.id,
+          role: h.engine.role,
+          score: Number(h.score.toFixed(2)),
+          matched: h.matchedTerms.slice(0, 5),
+        })),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Search timed out")), 5000)
+        )
+      ]);
+    } catch (searchError) {
+      if (searchError instanceof Error && searchError.message.includes("timeout")) {
+        throw new Error("Search operation timed out after 5 seconds");
+      }
+      throw new Error(`Search failed: ${searchError instanceof Error ? searchError.message : "Unknown error"}`);
+    }
     
     return NextResponse.json({ ok: true, status, digest, sampleHits: sample });
   } catch (e) {
