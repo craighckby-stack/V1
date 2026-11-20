@@ -46,6 +46,7 @@ import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
 const ARMED_STATE_FILE = join(PROJECT_ROOT, ".git/info/loop-armed-state.json");
+const VALID_BY_VALUES = ["operator-start", "operator-stop", "config-patch"];
 
 export interface ArmedState {
   /** The operator's intent. true = armed (auto-run when quota allows). */
@@ -113,10 +114,10 @@ export function readArmedState(): ArmedState | null {
     if (typeof state.armed !== "boolean" ||
         typeof state.at !== "string" ||
         typeof state.by !== "string" ||
-        state.by.trim() === "" || // Explicit check for non-empty 'by'
+        !VALID_BY_VALUES.includes(state.by) || // Enforce documented valid sources for 'by'
         !iso8601Regex.test(state.at)) {
 
-      console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields or invalid data structure (e.g., invalid ISO timestamp or empty 'by').`);
+      console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is malformed - missing required fields, invalid structure, or invalid 'by' value (${state.by}).`);
       return null;
     }
 
