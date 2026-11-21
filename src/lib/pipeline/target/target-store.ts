@@ -165,8 +165,28 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
   if (!rec || typeof rec !== 'object') {
     throw new Error("Target run record must be a valid object");
   }
-  if (!rec.at || !rec.repo || !rec.status) {
-    throw new Error("Target run record must include 'at', 'repo', and 'status' fields");
+  
+  // Validate 'at' field
+  if (!rec.at) {
+    throw new Error("Target run record must include 'at' field (ISO date string)");
+  }
+  const date = new Date(rec.at);
+  if (isNaN(date.getTime())) {
+    throw new Error(`Invalid date format in 'at' field: ${rec.at} — must be ISO date string`);
+  }
+  
+  // Validate 'repo' field
+  if (!rec.repo) {
+    throw new Error("Target run record must include 'repo' field");
+  }
+  
+  // Validate 'status' field
+  if (!rec.status) {
+    throw new Error("Target run record must include 'status' field");
+  }
+  const validStatuses: TargetRunStatus[] = ["pushed", "rejected", "no-work", "dry-run", "failed"];
+  if (!validStatuses.includes(rec.status)) {
+    throw new Error(`Invalid status '${rec.status}' — must be one of: ${validStatuses.join(', ')}`);
   }
   
   try {
@@ -214,7 +234,12 @@ export async function getTargetLastRun(): Promise<TargetRunRecord | null> {
  */
 export async function resolveTargetToken(clientToken?: string): Promise<string | null> {
   if (clientToken) return clientToken;
-  const stored = await getStoredTarget();
-  if (stored?.token) return stored.token;
-  return null;
+  try {
+    const stored = await getStoredTarget();
+    if (stored?.token) return stored.token;
+    return null;
+  } catch (error) {
+    console.error("Failed to get stored target token:", error);
+    return null;
+  }
 }
