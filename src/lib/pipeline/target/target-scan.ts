@@ -133,7 +133,7 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
   calculateLine(sf);
 
   const push = (kind: TargetTaskKind, pos: number) => {
-    const line = nodeLineMap.get(sf) ? nodeLineMap.get(sf)! : lineOf(sf, pos);
+    const line = nodeLineMap.has(sf) ? nodeLineMap.get(sf)! : lineOf(sf, pos);
     const key = `${kind}:${line}`;
     if (seen.has(key)) return;
     seen.add(key);
