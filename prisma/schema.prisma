@@ -28,7 +28,7 @@ model PipelineRun {
   evolvedCode    String
   sanitizerClean Boolean
   violations     String   // JSON array
-  triggeredBy    String   // manual | autonomous | watch | continuous
+  triggeredBy    String   // manual | auto | autonomous | watch | continuous | scheduled
   createdAt      DateTime @default(now())
 
   // audit H9 — retention prune + history list order by createdAt desc;

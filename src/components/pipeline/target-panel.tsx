@@ -153,7 +153,10 @@ export function TargetPanel({ open, onClose }: Props) {
         timeoutRef.current = null;
       }
     };
-  }, [open]); // Removed loadHistory from dependency array to prevent unnecessary reloads
+  }, [open, loadHistory]); // loadHistory is stable (useCallback []), so this
+  // runs only when `open` flips — no unnecessary reloads. Kept in the deps
+  // array per eslint/react-hooks/exhaustive-deps to avoid a stale-closure
+  // if loadHistory's deps ever change.
 
   if (!open) return null;
 

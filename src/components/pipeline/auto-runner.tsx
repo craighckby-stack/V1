@@ -27,7 +27,6 @@ import {
   History,
   CheckCircle2,
   XCircle,
-  Circle,
   MinusCircle,
   Eye,
 } from "lucide-react";
@@ -83,6 +82,10 @@ interface PickResponse {
 
 interface FinishResponse {
   pushed: boolean;
+  /** true = push was intentionally NOT attempted (operator disabled, no
+   *  token, or status !== COMPLETED). false = a push was actually
+   *  attempted (ensured + PUT) regardless of success. */
+  pushSkipped?: boolean;
   commitSha?: string;
   evolutionBranch?: string;
   pushError?: string;
@@ -95,8 +98,9 @@ function PhaseIcon({ status, icon: Icon }: { status: PhaseStatus; icon: typeof C
   if (status === "done") return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />;
   if (status === "failed") return <XCircle className="h-3.5 w-3.5 text-rose-400" />;
   if (status === "skipped") return <MinusCircle className="h-3.5 w-3.5 text-slate-500" />;
-  void Icon;
-  return <Circle className="h-3.5 w-3.5 text-slate-600" />;
+  // Pending: show the phase's own icon (Crosshair/Cpu/GitBranch/History)
+  // so each row has visual identity before it starts running.
+  return <Icon className="h-3.5 w-3.5 text-slate-600" />;
 }
 
 export function AutoPipelineRunner() {
@@ -121,6 +125,11 @@ export function AutoPipelineRunner() {
   const [error, setError] = useState<string | null>(null);
   const [gauntletSeconds, setGauntletSeconds] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // AbortController for the in-flight auto run — aborts on unmount so a
+  // closed panel cancels the fetches rather than orphaning them. The
+  // server-side LLM has its own raceWithTimeout; the client only needs
+  // to release the UI when the operator walks away.
+  const abortRef = useRef<AbortController | null>(null);
 
   // Elapsed-seconds counter for the long gauntlet phase — an honest
   // "not frozen" signal (LLM reasoning + tribunal can take minutes).
@@ -137,6 +146,16 @@ export function AutoPipelineRunner() {
     };
   }, [phaseStates.gauntlet]);
 
+  // Cancel any in-flight auto run if the component unmounts (the panel
+  // closed mid-run). Without this the fetches keep going, the global
+  // pipelineRunning flag stays true until they resolve, and the operator
+  // has zero visibility into the orphaned run on reopen.
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
   function setPhase(id: PhaseId, status: PhaseStatus) {
     setPhaseStates((prev) => ({ ...prev, [id]: status }));
   }
@@ -150,7 +169,21 @@ export function AutoPipelineRunner() {
       });
       return;
     }
+    // Abort any previous in-flight run (defensive — the button is
+    // disabled while busy, but a stale controller from a wedged prior
+    // run should not leak into this one).
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const signal = controller.signal;
+
     setBusy(true);
+    // Set the GLOBAL pipelineRunning flag for the WHOLE auto run (pick +
+    // gauntlet + push + feedback), not just the gauntlet — otherwise the
+    // manual runner's button (gated only by pipelineRunning) is clickable
+    // during the pick/push windows and races a concurrent manual run on
+    // the shared pipelineReport store.
+    setPipelineRunning(true);
     setError(null);
     setPickResult(null);
     setReport(null);
@@ -168,6 +201,7 @@ export function AutoPipelineRunner() {
           branch: form.branch || undefined,
           token: form.token || undefined,
         }),
+        signal,
       });
       const pickData = (await pickRes.json()) as PickResponse | { ok: false; error: string };
       if (!pickRes.ok || !("ok" in pickData) || pickData.ok !== true) {
@@ -178,7 +212,6 @@ export function AutoPipelineRunner() {
 
       // ── Phase 2: the 6-stage gauntlet ────────────────────────────
       setPhase("gauntlet", "running");
-      setPipelineRunning(true);
       const runRes = await fetch("/api/pipeline/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -193,6 +226,7 @@ export function AutoPipelineRunner() {
           githubToken: form.token || undefined,
           triggeredBy: "auto",
         }),
+        signal,
       });
       const runData = (await runRes.json()) as PipelineReport & { error?: string };
       if (!runRes.ok) throw new Error(runData?.error || `Gauntlet failed (HTTP ${runRes.status})`);
@@ -213,11 +247,16 @@ export function AutoPipelineRunner() {
           autoPush: form.autoPush,
           report: runData,
         }),
+        signal,
       });
       const finishData = (await finishRes.json()) as FinishResponse & { error?: string };
       if (!finishRes.ok) throw new Error(finishData?.error || `Finish failed (HTTP ${finishRes.status})`);
       setFinishResult(finishData);
-      setPhase("push", finishData.pushed ? "done" : runData.status === "COMPLETED" ? "failed" : "skipped");
+      // push phase: done (green ✓) on success; skipped (gray –) when the
+      // route didn't even attempt a push (operator disabled / no token /
+      // status !== COMPLETED); failed (red ✗) only when a push was
+      // actually attempted and broke.
+      setPhase("push", finishData.pushed ? "done" : finishData.pushSkipped ? "skipped" : "failed");
       setPhase("feedback", "done");
 
       toast({
@@ -227,27 +266,46 @@ export function AutoPipelineRunner() {
           : `no push — ${runData.status} · AST ${runData.astDiffResult?.astScore ?? "—"} · ${runData.reviewVerdict?.consensus ?? "—"}`,
       });
     } catch (e) {
+      if (signal.aborted) {
+        // Operator closed the panel or started a new run — not an error
+        // to toast, just stop quietly. Don't touch phase states (the
+        // component may be unmounted).
+        return;
+      }
       const msg = (e as Error).message;
       setError(msg);
-      // Mark the first still-running phase as failed, leave the rest pending.
+      // Mark ALL still-running phases as failed (not just the first —
+      // push+feedback are set running together, so a finish-phase error
+      // must fail both, leaving neither spinning forever).
       setPhaseStates((prev) => {
         const next = { ...prev };
         for (const p of PHASES) {
-          if (next[p.id] === "running") {
-            next[p.id] = "failed";
-            break;
-          }
+          if (next[p.id] === "running") next[p.id] = "failed";
         }
         return next;
       });
       toast({ title: "Auto run failed", description: msg, variant: "destructive" });
     } finally {
+      // Belt-and-braces: sweep any leftover "running" phases to "skipped"
+      // (e.g. the abort early-return above leaves push/feedback on
+      // "running"; this clears them so no spinner survives the run).
+      setPhaseStates((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const p of PHASES) {
+          if (next[p.id] === "running") {
+            next[p.id] = "skipped";
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
       setPipelineRunning(false);
       setBusy(false);
+      if (abortRef.current === controller) abortRef.current = null;
     }
   }
 
-  const runData = report;
   const pickedFindings = pickResult?.pick.findings ?? [];
 
   return (
@@ -388,10 +446,10 @@ export function AutoPipelineRunner() {
                         )}
                       </div>
                     )}
-                    {p.id === "gauntlet" && runData && (
+                    {p.id === "gauntlet" && report && (
                       <div className="text-slate-400 font-mono break-all mt-0.5">
-                        {runData.status} · AST {runData.astDiffResult?.astScore ?? "—"} ·{" "}
-                        {runData.reviewVerdict?.consensus ?? "—"} · proof {runData.proofCommitHash}
+                        {report.status} · AST {report.astDiffResult?.astScore ?? "—"} ·{" "}
+                        {report.reviewVerdict?.consensus ?? "—"} · proof {report.proofCommitHash}
                       </div>
                     )}
                     {p.id === "push" && finishResult && (

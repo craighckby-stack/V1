@@ -75,14 +75,32 @@ export async function POST(req: Request) {
     const branch = body.branch.trim();
 
     const report = body.report;
-    if (
-      !report ||
-      typeof report.status !== "string" ||
-      !report.config?.filePath ||
-      typeof report.evolvedCode !== "string"
-    ) {
+    // Definitive null guard first — TypeScript narrows `report` to
+    // non-undefined for the entire function after this. The per-field
+    // checks below use optional chaining (which TS can't use as a
+    // guard), so without this line every `report.X` later would be
+    // flagged as possibly-undefined.
+    if (!report) {
       return NextResponse.json(
-        { error: "report (status, config.filePath, evolvedCode) is required" },
+        { error: "report is required" },
+        { status: 400 }
+      );
+    }
+    // Validate every field the route later dereferences — a malformed
+    // report should get a 400 naming the missing field, not a generic 500
+    // from a null deref deep in the feedback path.
+    const missing: string[] = [];
+    if (typeof report.status !== "string") missing.push("report.status");
+    if (!report.config?.filePath) missing.push("report.config.filePath");
+    if (typeof report.evolvedCode !== "string") missing.push("report.evolvedCode");
+    if (typeof report.originalCode !== "string") missing.push("report.originalCode");
+    if (!report.astDiffResult || typeof report.astDiffResult.passed !== "boolean") missing.push("report.astDiffResult.passed");
+    if (!report.reviewVerdict || typeof report.reviewVerdict.consensus !== "string") missing.push("report.reviewVerdict.consensus");
+    if (typeof report.proofCommitHash !== "string") missing.push("report.proofCommitHash");
+    if (typeof report.config?.userPrompt !== "string") missing.push("report.config.userPrompt");
+    if (missing.length > 0) {
+      return NextResponse.json(
+        { error: `report missing required fields: ${missing.join(", ")}` },
         { status: 400 }
       );
     }
@@ -103,16 +121,24 @@ export async function POST(req: Request) {
     const feedback: string[] = [];
 
     // ── Push phase ────────────────────────────────────────────────
+    // pushSkipped distinguishes "intentionally not pushed" (operator
+    // disabled, no token, or no survivor) from "push attempted and broke"
+    // — the client renders the former as a gray dash, the latter as red.
     let pushed = false;
+    let pushSkipped = false;
+    let pushAttempted = false;
     let commitSha: string | undefined;
     let pushError: string | undefined;
 
     if (report.status === "COMPLETED") {
       if (!autoPush) {
+        pushSkipped = true;
         pushError = "no push — auto-push disabled by operator";
       } else if (!token) {
+        pushSkipped = true;
         pushError = "no push — no GitHub token (reads can be anonymous, pushes cannot)";
       } else {
+        pushAttempted = true;
         const ensured = await ensureTargetBranch(repo, evolutionBranch, branch, token);
         if (!ensured.ok) {
           pushError = `branch ensure failed: ${ensured.error}`;
@@ -139,19 +165,39 @@ export async function POST(req: Request) {
         }
       }
     } else {
+      pushSkipped = true;
       pushError = `no push — the gauntlet returned ${report.status}`;
     }
 
     // ── Feedback phase (labeled, target-repo-keyed) ───────────────
     let postmortem: "recorded" | "resolved" | "skipped" | "none" = "none";
-    const astFailed = report.astDiffResult && report.astDiffResult.passed === false;
-    const reviewRejected =
-      report.reviewVerdict?.consensus === "REJECTED" ||
-      report.reviewVerdict?.consensus === "REQUIRES_REWRITE";
+    const astFailed = report.astDiffResult.passed === false;
+    // H1: match the pipeline's graduate definition — only "REJECTED"
+    // is a rejection. "REQUIRES_REWRITE" + passed AST = COMPLETED (a
+    // graduate the pipeline pushed); recording a scar for a graduate
+    // would poison the next run's LLM with a wrong "you failed" prompt.
+    const reviewRejected = report.reviewVerdict.consensus === "REJECTED";
     const zeroDiff = report.originalCode === report.evolvedCode;
+    // M4: the pipeline ALREADY records a specific mutation-guard postmortem
+    // (unified-pipeline.ts:527) with imperative "do NOT introduce eval(…"
+    // constraints. If we recordFailure again here, the upsert OVERWRITES
+    // that specific scar with a generic "Review tribunal rejected" —
+    // the next run's LLM sees the wrong diagnosis. Detect the
+    // mutation-guard signature and skip our own record.
+    const mutationGuardRejected =
+      report.reviewVerdict.leadSummary?.startsWith("Mutation guard rejected") === true ||
+      (report as { stages?: Record<string, { details?: { guardRejected?: boolean } }> })
+        .stages?.stage4_review?.details?.guardRejected === true;
 
     try {
-      if (astFailed || reviewRejected) {
+      if (mutationGuardRejected) {
+        // The pipeline already recorded a specific mutation-guard scar —
+        // don't overwrite it with a generic review-rejected one.
+        postmortem = "skipped";
+        feedback.push(
+          `mutation guard rejected — the pipeline already recorded a specific scar; not overwritten`
+        );
+      } else if (astFailed || reviewRejected) {
         const pm = generatePostmortemFromReport({
           filePath,
           astDiffResult: report.astDiffResult,
@@ -225,8 +271,13 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       pushed,
+      // pushSkipped: true = no push attempted (operator/no-token/no-survivor).
+      // false = a push was actually attempted (ensure or PUT) — check `pushed`
+      // for the outcome. Used by the client to distinguish gray-dash (skip)
+      // from red-X (attempted failure).
+      pushSkipped: pushSkipped || !pushAttempted,
       ...(commitSha ? { commitSha } : {}),
-      ...(pushed ? { evolutionBranch } : {}),
+      ...(pushed || pushAttempted ? { evolutionBranch } : {}),
       ...(pushError ? { pushError } : {}),
       feedback,
       postmortem,

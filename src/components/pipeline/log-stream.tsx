@@ -41,12 +41,12 @@ const MAX_LOG_ENTRIES = 100; // Prevent unbounded memory growth
 
 const LogEntryComponent = memo(({ entry }: { entry: LogEntry }) => {
   // Safely access type with guard
-  const typeKey = entry.type in TYPE_ICON ? entry.type : 'info';
+  const typeKey = entry.type && entry.type in TYPE_ICON ? entry.type : 'info';
   const Icon = TYPE_ICON[typeKey as keyof typeof TYPE_ICON] || Info;
   const color = TYPE_COLOR[typeKey as keyof typeof TYPE_COLOR] || "text-slate-400";
   
   // Safely access source with guard
-  const sourceKey = entry.source in SOURCE_COLOR ? entry.source : 'pipeline';
+  const sourceKey = entry.source && entry.source in SOURCE_COLOR ? entry.source : 'pipeline';
   const sourceColor = SOURCE_COLOR[sourceKey as keyof typeof SOURCE_COLOR] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
   
   // Validate timestamp and provide fallback
@@ -136,7 +136,10 @@ export function LogStream() {
               </div>
             ) : (
               processedLogs.map((entry) => (
-                <LogEntryComponent key={entry.id || `log-${entry.timestamp}-${entry.source}`} entry={entry} />
+                <LogEntryComponent 
+                  key={entry.id || `log-${entry.timestamp}-${entry.source}`} 
+                  entry={entry} 
+                />
               ))
             )}
           </AnimatePresence>
