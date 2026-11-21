@@ -8,12 +8,12 @@
   "symptom": "Refactored code failed in-memory typecheck: src/app/page.tsx(2187,71): error TS2339: Property 'gitCommits' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.; src/app/page.tsx(2187,97): error TS2339: Property 'loopMutations' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.; src/app/page.tsx(2187,122): error TS2339: Property 'postmortems' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.",
   "evidence": "Original: 10972 bytes, Refactored: 10916 bytes. Errors: src/app/page.tsx(2187,71): error TS2339: Property 'gitCommits' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.\nsrc/app/page.tsx(2187,97): error TS2339: Property 'loopMutations' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.\nsrc/app/page.tsx(2187,122): error TS2339: Property 'postmortems' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.\nsrc/app/page.tsx(2187,148): error TS2339: Property 'pipelineRuns' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.\nsrc/app/page.tsx(2187,174): error TS2339: Property 'activeLessons' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.",
   "constraints": "The previous refactor of src/app/api/boot/scan/route.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
-  "attempts": 10,
+  "attempts": 11,
   "parentHash": "f284321fb175806506d3910259c3277a643a2644b887ef974961f5639b472cab",
-  "hash": "226dd41a639f5dbe38032e3fa3e87c32cc5fe068d2db515a7943898838b9a2d6",
-  "lastAttemptAt": "2026-11-21T20:39:20.042Z",
+  "hash": "300472e151aa8e936dd550877df1faa7fc041497a51ea615bdff6f9ed5582099",
+  "lastAttemptAt": "2026-11-21T21:31:11.909Z",
   "resolvedAt": null,
   "createdAt": "2026-11-21T19:05:54.395Z",
-  "updatedAt": "2026-11-21T20:39:20.042Z",
+  "updatedAt": "2026-11-21T21:31:11.909Z",
   "schema": 2
 }
