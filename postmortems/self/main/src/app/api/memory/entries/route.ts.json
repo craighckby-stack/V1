@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/memory/entries/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "d728ac1c09ad09fd33b675bcc566e2804600ac7c30c8bba9eee5b7d79fa72fe2",
   "hash": "a6f6328247bfc6d5aaa67f9e374fec8b4df5428b90270f2f1ae5d97c0dee0ad3",
   "lastAttemptAt": "2026-11-21T01:13:22.658Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-21T01:46:40.324Z",
   "createdAt": "2026-11-21T00:31:21.341Z",
-  "updatedAt": "2026-11-21T01:13:22.658Z",
+  "updatedAt": "2026-11-21T01:46:40.324Z",
   "schema": 2
 }

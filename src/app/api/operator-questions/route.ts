@@ -33,8 +33,12 @@ export async function GET() {
     // pending list from accumulating stale questions forever.
     const cycle = autonomousLoopRuntime.getState().stats.totalRuns;
 
-    // Run expiry sweep and fetch questions concurrently to reduce latency
-    const [expiryResult, pending] = await Promise.allSettled([
+    // Run expiry sweep and fetch questions concurrently to reduce latency.
+    // Promise.allSettled returns {status, value/reason} objects — extract
+    // the resolved array so the response is { pending: [...] }, not the
+    // settled-result wrapper (which would break the `answer` command's
+    // `data.pending.length` / `for (const q of data.pending)` access).
+    const [expiryResult, pendingSettled] = await Promise.allSettled([
       expireOldQuestions(cycle),
       getPendingQuestions(),
     ]);
@@ -44,6 +48,7 @@ export async function GET() {
       console.error("Failed to run old question expiry sweep:", expiryResult.reason);
     }
 
+    const pending = pendingSettled.status === "fulfilled" ? pendingSettled.value : [];
     return NextResponse.json({ pending });
   } catch (err) {
     // Provide actionable error context instead of just the raw message

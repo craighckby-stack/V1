@@ -1319,6 +1319,8 @@ export default function Home() {
           "  oracle list     — List recent prophecies + verdicts",
           "  oracle status   — Track record: counts, calibration, Brier score",
           "  memory      — Fleet-harvester corpus: harvested engine prior-art + evidence",
+          "  provenance <file> — Per-file timeline: who (loop/you/gauntlet) changed what, when",
+          "                (joins git + mutations + postmortems + gauntlet runs + lessons)",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
           "",
@@ -2088,6 +2090,92 @@ export default function Home() {
           "Failures become postmortems; tests only tighten.",
           "You are the feedback: 'task <goal>' / 'skip' / 'stop'.",
         ];
+
+      case "provenance": {
+        // The per-file provenance timeline — the direct answer to "what
+        // part of the system fixed this, and when?" Joins git log +
+        // mutation corpus + postmortems + pipeline runs + lessons into
+        // ONE chronological timeline per file. Usage:
+        //   provenance <file>        — full timeline (newest-first)
+        //   provenance               — usage hint
+        // The actor column tells you WHO made each change:
+        //   operator = the human (you), loop = the autonomous self-enhance
+        //   loop, manual/auto = the gauntlet runners, system = red-team/duress.
+        const fileArg = parts.slice(1).join(" ").trim();
+        if (!fileArg) {
+          return [
+            "provenance — the per-file timeline of who changed what, and when.",
+            "Usage: provenance <file>",
+            "  Joins git log + mutation corpus + postmortems + pipeline runs + lessons",
+            "  into one chronological timeline for that file.",
+            "  Example: provenance src/lib/retro-boot-audio.ts",
+            "",
+          ];
+        }
+        try {
+          const res = await fetch(`/api/provenance?file=${encodeURIComponent(fileArg)}`);
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            return [`provenance lookup failed (${res.status}): ${(err as { error?: string }).error ?? "unknown"}`];
+          }
+          const data = (await res.json()) as {
+            file: string;
+            summary: { total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number> };
+            timeline: Array<{
+              at: string; kind: string; actor: string; title: string;
+              details: Record<string, unknown>;
+            }>;
+          };
+          if (data.timeline.length === 0) {
+            return [
+              `provenance: ${data.file}`,
+              "  no records found (not tracked in git, no mutations, no postmortems, no gauntlet runs).",
+              "  Check the path — use the repo-relative form (e.g. src/lib/retro-boot-audio.ts).",
+              "",
+            ];
+          }
+          const s = data.summary;
+          const lines = [
+            `provenance: ${data.file}`,
+            `  ${s.total} event(s) total · ${s.shown} shown · git:${s.gitCommits} mutations:${s.loopMutations} scars:${s.postmortems} gauntlet:${s.pipelineRuns} lessons:${s.activeLessons}`,
+            `  actors: ${Object.entries(s.byActor).map(([k, v]) => `${k}:${v}`).join("  ")}`,
+            "",
+            "TIMELINE (newest first):",
+            "",
+          ];
+          for (const e of data.timeline) {
+            const ts = e.at.replace("T", " ").replace(/\.\d+Z$/, "Z");
+            const actorTag =
+              e.actor === "loop" ? "[LOOP]"
+              : e.actor === "operator" ? "[YOU] "
+              : e.actor === "manual" ? "[MANL]"
+              : e.actor === "auto" ? "[AUTO]"
+              : e.actor === "system" ? "[SYS] "
+              : `[${e.actor.toUpperCase().padEnd(4)}]`;
+            const kindTag = e.kind.padEnd(12);
+            lines.push(`  ${ts}  ${actorTag} ${kindTag} ${e.title}`);
+            // One detail line for the most informative fields per kind.
+            if (e.kind === "git-commit") {
+              const m = (e.details.message as string)?.split("\n")[0] ?? "";
+              if (m.length > 90) lines.push(`         msg: ${m.slice(0, 120)}`);
+            } else if (e.kind === "mutation") {
+              const t = e.details.transform as string | null;
+              if (t) lines.push(`         transform: ${t}`);
+              const li = e.details.lessonsInjected as string[] | undefined;
+              if (li && li.length > 0) lines.push(`         lessons injected: ${li.length}`);
+            } else if (e.kind === "postmortem") {
+              lines.push(`         symptom: ${(e.details.symptom as string)?.slice(0, 120)}`);
+              lines.push(`         source: ${e.details.source} · status: ${e.details.status} · verification: ${e.details.verification}`);
+            } else if (e.kind === "pipeline-run") {
+              lines.push(`         ${e.details.repo}/${e.details.branch} · proof: ${(e.details.proof as string)?.slice(0, 10)}`);
+            }
+            lines.push("");
+          }
+          return lines;
+        } catch (err) {
+          return [`provenance error: ${err instanceof Error ? err.message : String(err)}`];
+        }
+      }
 
       default:
         return [`Unknown command: ${command}. Type 'help' for available commands.`];

@@ -57,7 +57,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ensureAudio, postBeep, powerOnThunk, stopAllAudio } from "@/lib/retro-boot-audio";
+import { ensureAudio, postBeep, powerOnThunk, stopAllAudio, floppySeek, imperialMarch } from "@/lib/retro-boot-audio";
 
 type Phase = "flash" | "post" | "title" | "invite" | "exit";
 
@@ -620,41 +620,59 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
       /* private mode — ceremony just replays next load */
     }
     // Create the AudioContext inside this user gesture — that is what
-    // legitimizes the soundtrack under autoplay policy.
+    // legitimizes the soundtrack under autoplay policy. Volume is pinned
+    // at 1.0 by the owner's decree; there is no mute — the loud prank is
+    // the point ("funny even on mute", as the operator put it).
     ensureAudio();
     // Splash → system. The CRT collapse runs (bsp-crt--exit animation),
-    // then the terminal loads. No prank, no crawl, no audio gag — the
-    // machine asks, you press ENTER, you're in. A short happy POST beep
-    // marks the handoff (the one piece of the old rite worth keeping —
-    // it's the audio equivalent of the POST stamping OK).
+    // scored by the restored boot soundtrack: the CRT degauss thump +
+    // floppy-seek clatter fire together, the Imperial March opens, and
+    // a happy POST beep marks the handoff. This is the "glitches was the
+    // theme" sound the operator asked to bring back (audit-3 had purged
+    // the prank cues as "dead code"; restored by the operator's decree).
+    // Mercy escape: click or any key during the soundcheck skips to the
+    // terminal immediately (skipSoundcheck below).
     setPhase("exit");
     // AUDIO HANDOFF (fix for the "system fixed the sound" observation):
     //   The splash's unmount cleanup (useEffect(() => () => stopAllAudio(), []))
     //   calls s.stop() with NO `when` argument on every tracked oscillator —
     //   which per the WebAudio spec stops them IMMEDIATELY (time 0). If
-    //   onEnterRef.current() runs in the same JS tick as powerOnThunk() /
-    //   postBeep(), React unmounts the splash in that same tick and the
-    //   cleanup cuts off the very tones we just scheduled (start at
-    //   currentTime + 0.02; cleanup fires in the same microtask). The user
-    //   heard nothing — or a 20ms click — and the "boot sound" was
-    //   intermittently silent. (You could sometimes hear it because the
-    //   audio thread rendered a block before the stop arrived; the result
-    //   was inconsistent across reloads.)
+    //   onEnterRef.current() runs in the same JS tick as the audio calls,
+    //   React unmounts the splash in that same tick and the cleanup cuts
+    //   off the very tones we just scheduled. The user heard nothing — or
+    //   a 20ms click — and the "boot sound" was intermittently silent.
     //
     //   Fix: schedule the audio, then defer the unmount by enough time for
-    //   the longest tone to actually render. powerOnThunk's tail runs to
-    //   ~0.92s; postBeep to ~0.34s. Reduced-motion users get a shorter
-    //   handoff (no CRT animation to wait for). The unmount fires AFTER
-    //   the audio is in flight, so stopAllAudio() (when it finally runs
-    //   on real unmount) only reaps already-finished nodes — exactly the
-    //   mercy-escape role it was always meant for.
+    //   the soundcheck to actually render. The Imperial March's first
+    //   phrase runs ~6s; powerOnThunk's tail runs to ~0.92s; the floppy
+    //   clatter runs 1.6s; postBeep to ~0.34s. SOUNDCHECK_MS lets the
+    //   march play its iconic opening before the terminal loads and
+    //   stopAllAudio (on real unmount) reaps the rest. Reduced-motion
+    //   users get a near-instant handoff (no prank, no wait).
+    const SOUNDCHECK_MS = reducedRef.current ? 200 : 6000;
     later(() => {
+      // Act I: the CRT degauss thump + the floppy-seek clatter fire
+      // together — the machine stirs with a clatter as it reads its
+      // drives. The "glitch" sound the operator missed.
       powerOnThunk();
-      postBeep();
+      floppySeek(1600);
+      // Act II: the Imperial March opens immediately over the clatter
+      // — the machine's self-portrait sound. ~6s of the iconic opening
+      // plays before the terminal loads; the full 17s melody is cut by
+      // stopAllAudio on unmount (mercy escape).
+      imperialMarch();
     }, reducedRef.current ? 120 : 720);
+    // Act III: the happy POST beep marks the handoff, then the terminal
+    // loads. onEnterRef fires AFTER the soundcheck so the audio is in
+    // flight when the splash unmounts — stopAllAudio only reaps the
+    // already-finished nodes (the thump, the clatter) and cuts the
+    // still-sounding march, exactly the mercy-escape role it was meant for.
+    later(() => {
+      postBeep();
+    }, (reducedRef.current ? 120 : 720) + SOUNDCHECK_MS - 200);
     later(() => {
       onEnterRef.current();
-    }, reducedRef.current ? 240 : 1400);
+    }, (reducedRef.current ? 120 : 720) + SOUNDCHECK_MS);
   }, [clearTimers, later]);
 
   const skip = useCallback(() => {
@@ -668,6 +686,25 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     clearTimers();
     setPhase("invite");
   }, [clearTimers, commitEnter]);
+
+  // SOUNDCHECK MERCY ESCAPE — the restored boot soundtrack (thump +
+  // floppy clatter + Imperial March + beep) plays for ~6s after ENTER
+  // before the terminal loads. The operator loved the loud prank
+  // ("funny even on mute") but also needs an escape hatch. Any key OR
+  // click during the exit/soundcheck phase stops the audio immediately
+  // and loads the terminal — the same mercy-escape role the original
+  // prank's ESC served. Guarded by enteredRef + a separate flag so a
+  // double-fire (key + click in the same gesture) only enters once.
+  const soundcheckDoneRef = useRef(false);
+  const skipSoundcheck = useCallback(() => {
+    if (!enteredRef.current) return;
+    if (soundcheckDoneRef.current) return;
+    if (phaseRef.current !== "exit") return;
+    soundcheckDoneRef.current = true;
+    clearTimers();
+    stopAllAudio();
+    onEnterRef.current();
+  }, [clearTimers]);
 
   // Boot machine — runs once on mount. Decides cold vs warm from the
   // session flag, fetches vitals in parallel with the CRT warm-up, and
@@ -795,7 +832,11 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     const h = (e: KeyboardEvent) => {
       const p = phaseRef.current;
       if (p === "exit") {
+        // During the post-ENTER soundcheck (~6s of the boot soundtrack),
+        // any key is the mercy escape — stop the audio and load the
+        // terminal immediately.
         e.preventDefault();
+        skipSoundcheck();
         return;
       }
       e.preventDefault();
@@ -807,7 +848,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [skip, commitEnter]);
+  }, [skip, commitEnter, skipSoundcheck]);
 
   // Focus the invitation button when it appears (keyboard entry point).
   useEffect(() => {
@@ -892,7 +933,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
       aria-modal="true"
       aria-label="LOOP boot sequence — press Enter to enter the Loop (any other key skips the boot animation)"
       className={`bsp-root${phase === "exit" ? " bsp-root--exiting" : ""}`}
-      onClick={skip}
+      onClick={phase === "exit" ? skipSoundcheck : skip}
     >
       <h2 className="sr-only">
         LOOP — a machine that rewrites its own code. Boot diagnostics: {postLines.length} checks.
@@ -990,7 +1031,11 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
         )}
       </div>
 
-      {phase !== "exit" && (
+      {phase === "exit" ? (
+        <div className="bsp-hint bsp-dim" aria-hidden>
+          ANY KEY / CLICK SKIPS THE SOUNDCHECK
+        </div>
+      ) : (
         <div className="bsp-hint bsp-dim" aria-hidden>
           {phase === "invite"
             ? "ENTER ⏎"
@@ -1014,13 +1059,16 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
           overflow: hidden; cursor: pointer; user-select: none;
           -webkit-tap-highlight-color: transparent;
         }
-        /* Once the user has committed to enter (phase === "exit"), the splash
-           is already leaving — stop it from intercepting clicks meant for the
-           terminal underneath during the ~1.4s CRT-collapse animation. Without
-           this, a second click on a UI control (e.g. the saturation panel's
-           [unlock] button) lands on the still-visible exiting splash and is
-           swallowed — the user perceives the underlying button as dead. */
-        .bsp-root--exiting { pointer-events: none !important; }
+        /* During the post-ENTER soundcheck (phase === "exit"), the splash
+           stays mounted for ~6s while the boot soundtrack plays. pointer-
+           events stays AUTO so clicks are captured and route to
+           skipSoundcheck (the mercy escape). The splash unmounts the
+           moment onEnterRef fires, so there's no window where the splash
+           is visible AND the terminal is interactive — the old "clicks
+           swallowed by the exiting splash" concern doesn't apply here
+           because the terminal isn't the active surface during the
+           soundcheck. */
+        .bsp-root--exiting { pointer-events: auto; }
         /* Fluid height fit: font-size is capped by viewport height (the
            full ceremony measures ~53em top-to-bottom), and every inner
            size below is expressed in em so the whole CRT scales as one
