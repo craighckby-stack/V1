@@ -30,10 +30,14 @@ export async function GET() {
     );
   }
 
+  if (SIPHON_SOURCES.length === 0) {
+    return NextResponse.json({ sources: [] });
+  }
+
   const validSources: CatalogEntry[] = [];
   const invalidSources: { index: number; reason: string }[] = [];
 
-  // Validate all sources first before processing
+  // Process and validate in a single pass for better performance
   for (let i = 0; i < SIPHON_SOURCES.length; i++) {
     const source = SIPHON_SOURCES[i];
     
@@ -54,34 +58,23 @@ export async function GET() {
       continue;
     }
     
-    // Check all patterns at once for better performance
+    // Check all patterns for validity
     for (let j = 0; j < patterns.length; j++) {
       if (typeof patterns[j] !== 'string') {
         invalidSources.push({ index: i, reason: `Pattern at index ${j} is not a string.` });
         break; // No need to check more patterns for this source
       }
     }
-  }
-
-  // Process only valid sources
-  for (let i = 0; i < SIPHON_SOURCES.length; i++) {
-    const source = SIPHON_SOURCES[i];
     
-    // Skip if already marked as invalid
-    if (invalidSources.some(inv => inv.index === i)) {
-      continue;
+    // If we made it here, the source is valid
+    if (!invalidSources.some(inv => inv.index === i)) {
+      validSources.push({
+        source: source as SiphonSource,
+        count: patterns.length,
+        complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
+        status: "configured",
+      });
     }
-    
-    // At this point, we know source is valid
-    const typedSource = source as SiphonSource;
-    const patterns = typedSource.patterns;
-
-    validSources.push({
-      source: typedSource,
-      count: patterns.length,
-      complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
-      status: "configured",
-    });
   }
 
   if (invalidSources.length > 0) {
