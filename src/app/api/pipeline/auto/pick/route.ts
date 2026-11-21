@@ -86,8 +86,9 @@ export async function POST(req: Request) {
         {
           ok: false,
           error:
-            `no analyzable candidates in ${repo}@${branch} — need ts/tsx/js/jsx, non-test, ` +
-            `non-protected, 400B–100KB (checked ${treeRes.tree.files.length} tree entries)`,
+            `no analyzable candidates in ${repo}@${branch} — the gauntlet only refactors TypeScript/JavaScript (need .ts/.tsx/.js/.jsx, non-test, non-protected, 400B–100KB; checked ${treeRes.tree.files.length} tree entries). ` +
+            `If this is a non-TS/JS repo (Python, Go, Rust, etc.), use 'autofork scan' instead — auto-fork distills LESSONS from any source language. ` +
+            `The gauntlet's gates (AST diff, in-memory typecheck) are TS-specific and can't refactor other languages.`,
         },
         { status: 422 }
       );

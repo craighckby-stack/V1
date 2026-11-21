@@ -77,7 +77,7 @@ import {
   listTargetTree,
   fetchTargetFile,
 } from "../target/target-github";
-import { rankCandidateFiles } from "../core/auto-picker";
+import { rankCandidateFilesBroad } from "../core/auto-picker";
 import { resolveTargetToken } from "../target/target-store";
 import { distillCandidateLessons, seedCandidateLesson } from "./dropbox-ingester";
 
@@ -165,7 +165,17 @@ function writeManifest(manifest: Manifest): void {
  *  `clientToken` (optional) overrides the sealed PAT — the operator can
  *  paste a fresh token via the `autofork scan` command if the sealed one
  *  is rate-limited. */
-export async function ingestAutoFork(clientToken?: string): Promise<AutoForkResult> {
+export async function ingestAutoFork(
+  clientTokenOrRepo?: string,
+  repoOverride?: string,
+): Promise<AutoForkResult> {
+  // Two calling conventions:
+  //   ingestAutoFork(token)                 — scan the next enabled seed
+  //   ingestAutoFork(token, "deepseek-ai/deepseek-harness") — scan a specific repo
+  // The curiosity drive calls the first; the operator's `autofork scan <repo>`
+  // calls the second.
+  const clientToken = clientTokenOrRepo;
+  const targetRepo = repoOverride;
   const result: AutoForkResult = {
     scanned: 0,
     reposScanned: 0,
@@ -175,8 +185,8 @@ export async function ingestAutoFork(clientToken?: string): Promise<AutoForkResu
     errors: [],
   };
 
-  const seeds = readSeeds();
-  if (seeds.length === 0) {
+  const allSeeds = readSeeds();
+  if (allSeeds.length === 0) {
     result.skipped.push("no enabled seeds (edit autofork-seeds.json to add reference repos)");
     return result;
   }
@@ -189,13 +199,19 @@ export async function ingestAutoFork(clientToken?: string): Promise<AutoForkResu
   }
 
   const manifest = readManifest();
-  result.scanned = seeds.length;
+  result.scanned = allSeeds.length;
 
-  // One repo per scan (budget cap — the curiosity drive fires this once
-  // per cycle, so one repo per cycle keeps the LLM quota bounded).
-  // The operator-triggered `autofork scan` also does one repo per call
-  // (re-run to ingest the next repo).
-  const seed = seeds[0];
+  // Pick the seed: explicit repo override → first enabled seed.
+  // If a repo override is given, find it in the seed list (enabled or not —
+  // the operator explicitly asked for it). If not found, still try it as an
+  // ad-hoc repo (the operator can learn from any repo, not just seeded ones).
+  let seed: SeedEntry | { repo: string; branch?: string; reason: string; enabled: boolean };
+  if (targetRepo) {
+    const found = allSeeds.find((s) => s.repo === targetRepo);
+    seed = found ?? { repo: targetRepo, branch: undefined, reason: "ad-hoc (not in seed list)", enabled: true };
+  } else {
+    seed = allSeeds[0];
+  }
   if (!seed) return result;
   result.reposScanned = 1;
 
@@ -205,15 +221,27 @@ export async function ingestAutoFork(clientToken?: string): Promise<AutoForkResu
     branch = (await getRepoDefaultBranch(seed.repo, token)) ?? "main";
   }
 
-  // Fetch the tree.
-  const treeRes = await listTargetTree(seed.repo, branch, token);
+  // Fetch the tree. Auto-fork uses a LARGER cap (2000) + skipMetaDirs
+  // (skips .agents/, .github/, docs/, etc. before the cap) — big repos
+  // with large meta/docs directories (e.g. deepseek-ai/deepseek-harness
+  // has 2000+ .agents/notes/ markdown files) need both to see the
+  // actual source files. The gauntlet's default 400-cap + no-skip is
+  // for refactoring (TS/JS-only, smaller scope); auto-fork's 2000 +
+  // skip is for learning (any language, broader scope).
+  const treeRes = await listTargetTree(seed.repo, branch, token, 2000, true);
   if (!treeRes.ok) {
     result.errors.push(`${seed.repo}: tree fetch failed — ${treeRes.error}`);
     return result;
   }
 
-  // Rank + pick the highest-signal files (reuse the gauntlet's auto-picker).
-  const ranked = rankCandidateFiles(treeRes.tree.files);
+  // Rank + pick the highest-signal files (broad picker — accepts ANY
+  // source language: .ts/.tsx/.js/.jsx/.py/.go/.rs/.java/etc. — because
+  // auto-fork distills LESSONS from external repos, not refactors them.
+  // The gauntlet's TS/JS-only picker is for refactoring; auto-fork's
+  // broad picker is for learning. This is why a Python repo like
+  // deepseek-ai/deepseek-harness works with auto-fork but not the
+  // gauntlet's auto-pick).
+  const ranked = rankCandidateFilesBroad(treeRes.tree.files);
   // Filter out already-ingested files (manifest dedupe by blobSha).
   const newRanked = ranked.filter(
     (r) => !manifest[`${seed.repo}/${r.path}`] ||

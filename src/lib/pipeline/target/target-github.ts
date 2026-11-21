@@ -69,12 +69,33 @@ export async function getRepoDefaultBranch(
 /** Cap on tree entries we consider (huge monorepos → honest truncation). */
 const MAX_TREE_FILES = 400;
 
-/** GET /git/trees/{ref}?recursive=1 → candidate blob list. */
+/** Directories to skip entirely when `skipMetaDirs` is true — these are
+ *  meta/docs/config directories that can have thousands of files (e.g.
+ *  deepseek-ai/deepseek-harness has 2000+ .agents/notes/ markdown files)
+ *  and would fill the tree cap before any actual source file appears. */
+const META_DIRS_TO_SKIP = new Set([
+  ".agents", ".github", ".vscode", ".idea", ".husky", ".git",
+  "docs", "doc", "documentation", "wiki",
+  "node_modules", "dist", "build", "target", "vendor",
+]);
+
+/** GET /git/trees/{ref}?recursive=1 → candidate blob list.
+ *  `maxTreeFiles` (optional) overrides the 400-file cap — auto-fork
+ *  uses 2000 (it has the sealed PAT + needs to see past large docs/
+ *  meta directories to find actual source files in big repos).
+ *  `skipMetaDirs` (optional) skips meta/docs directories (.agents/,
+ *  .github/, docs/, etc.) BEFORE counting toward the cap — so the cap
+ *  is spent on actual source files, not 2000 markdown docs. Auto-fork
+ *  passes true (it wants source); the gauntlet passes false (it wants
+ *  the full tree for its own picker). */
 export async function listTargetTree(
   repo: string,
   ref: string,
-  token: string | null
+  token: string | null,
+  maxTreeFiles?: number,
+  skipMetaDirs?: boolean,
 ): Promise<{ ok: true; tree: TargetTreeInfo } | { ok: false; error: string }> {
+  const cap = maxTreeFiles ?? MAX_TREE_FILES;
   try {
     const res = await fetch(
       `${GH_API}/repos/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
@@ -91,15 +112,22 @@ export async function listTargetTree(
     const files: TargetTreeFile[] = [];
     for (const entry of data.tree ?? []) {
       if (entry.type !== "blob" || !entry.path || !entry.sha) continue;
+      // Skip meta/docs directories before the cap — so 2000+ .agents/
+      // notes/ markdown files don't fill the tree before any source
+      // file appears. The cap is spent on actual source files.
+      if (skipMetaDirs) {
+        const segments = entry.path.split("/");
+        if (segments.some((s) => META_DIRS_TO_SKIP.has(s))) continue;
+      }
       files.push({ path: entry.path, size: entry.size ?? 0, sha: entry.sha });
-      if (files.length >= MAX_TREE_FILES) break;
+      if (files.length >= cap) break;
     }
     return {
       ok: true,
       tree: {
         files,
         defaultBranch: "",
-        truncated: Boolean(data.truncated) || (data.tree?.length ?? 0) >= MAX_TREE_FILES,
+        truncated: Boolean(data.truncated) || (data.tree?.length ?? 0) >= cap,
       },
     };
   } catch (err) {

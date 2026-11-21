@@ -22,5 +22,11 @@
     "branch": "main",
     "reason": "The language LOOP is written in — type system patterns, compiler API usage. Apache 2.0 license.",
     "enabled": false
+  },
+  {
+    "repo": "deepseek-ai/deepseek-harness",
+    "branch": "master",
+    "reason": "DeepSeek's eval harness — Python patterns for model evaluation, harness design, test isolation. The operator's intended target for learning from major AI orgs. MIT license.",
+    "enabled": true
   }
 ]

@@ -1366,7 +1366,8 @@ export default function Home() {
           "  dropbox     — Status of external-system learning (dropbox/<system>/ folder)",
           "  dropbox scan — Ingest now (budget-capped, distills candidate lessons)",
           "  autofork    — Status of curated reference-repo learning (autofork-seeds.json)",
-          "  autofork scan — Fetch + ingest one seed repo now (budget-capped)",
+          "  autofork scan — Fetch + ingest the next seed repo now (budget-capped)",
+          "  autofork scan <owner/repo> — Ingest a specific repo (any language: Python, Go, Rust, etc.)",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
           "",
@@ -2350,12 +2351,21 @@ export default function Home() {
         // the same candidate → verified → promoted lifecycle as the
         // dropbox. The distill + seed logic is shared with the dropbox;
         // only the source (GitHub repos vs local folder) differs.
-        //   autofork          — status (seed list, per-repo progress)
-        //   autofork scan     — ingest one repo now (budget-capped, 3 files)
+        //   autofork                    — status (seed list, per-repo progress)
+        //   autofork scan               — ingest the next enabled seed (budget-capped, 3 files)
+        //   autofork scan <owner/repo>  — ingest a specific repo (can be any public repo, not just seeds)
+        //                                  works on ANY language (Python, Go, Rust, etc.) — auto-fork
+        //                                  distills lessons, the broad picker accepts any source language.
         const sub = (parts[1] ?? "").toLowerCase();
+        const repoArg = parts[2]?.trim();
         try {
           if (sub === "scan") {
-            const res = await fetch("/api/autofork", { method: "POST" });
+            const body = repoArg ? { repo: repoArg } : {};
+            const res = await fetch("/api/autofork", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
             const data = (await res.json()) as {
               scanned: number; reposScanned: number; filesIngested: number;
               lessonsDistilled: number; skipped: string[]; errors: string[];
