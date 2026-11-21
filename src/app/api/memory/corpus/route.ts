@@ -23,8 +23,11 @@ export const runtime = "nodejs";
  */
 export async function GET() {
   try {
-    const status = getCorpusStatus();
-    const digest = getFleetDigest();
+    // Run status and digest retrieval in parallel with search operation
+    const [status, digest] = await Promise.all([
+      getCorpusStatus(),
+      getFleetDigest()
+    ]);
     
     // Keyword is hardcoded and guaranteed to be valid for this endpoint's purpose.
     const keyword = "orchestrator agent loop";
@@ -40,7 +43,7 @@ export async function GET() {
       ]);
       
       // Map results only after successful retrieval
-      sample = sample.map((h) => ({
+      sample = sample.map((h: { engine: { id: string; role: string }; score: number; matchedTerms: string[] }) => ({
         id: h.engine.id,
         role: h.engine.role,
         score: Number(h.score.toFixed(2)),
@@ -60,7 +63,8 @@ export async function GET() {
     const error = e instanceof Error ? e : new Error("Unknown corpus read failure");
     
     // Determine status code based on error message context
-    const statusCode = error.message.includes("timed out") ? 504 : 500;
+    const statusCode = error.message.includes("timed out") ? 504 : 
+                      error.message.includes("Search operation timed out") ? 504 : 500;
     
     return NextResponse.json(
       { ok: false, error: error.message },

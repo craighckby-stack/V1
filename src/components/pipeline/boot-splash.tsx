@@ -43,13 +43,13 @@
  *
  * HEIGHT-FIT SCALING (2026-11-18, the "ENTER button clipped on short
  * viewports" fix): the full cold-boot ceremony — logo + tagline + rule
- * + 17 POST lines + invite — is ~53em tall at the 13px design size
+ * + 17 POST lines + invite (2 dim lines) — is ~55em tall at the 13px design size
  * (~690px). The splash root is overflow:hidden, so on any viewport
  * shorter than that (a 1280×577 laptop window, phone landscape) the
  * fixed 13px type pushed the ENTER button below the fold and cut the
  * logo at the top — the machine asked, but half the button was
  * invisible. The CRT font-size now scales with viewport height
- * (clamp(8px, 100vh/54, 13px)) and every size inside is em-based, so
+ * (clamp(8px, 100vh/56, 13px)) and every size inside is em-based, so
  * the entire ceremony scales as one block and the button always lands
  * in frame. Under 430px of height even that can't fit — the root then
  * switches to flex-start + overflow-y:auto so the button stays
@@ -972,6 +972,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
             <div className="bsp-rule">{"─".repeat(64)}</div>
             <div>YOU ARE THE OBSERVER.</div>
             <div className="bsp-dim">IT JOURNALS. IT PREDICTS. IT DEFENDS. IT DOES NOT SLEEP.</div>
+            <div className="bsp-dim">IT HARVESTS. IT GAUNTLETS. IT GETS CURIOUS. IT ASKS.</div>
             <div className="bsp-invite-actions">
               <button
                 ref={btnRef}
@@ -1028,7 +1029,7 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
            clipping the ENTER button out of frame. */
         .bsp-crt {
           width: 100%; max-width: 980px; padding: 1.85em 2.15em;
-          font-size: clamp(8px, calc(100vh / 54), 13px);
+          font-size: clamp(8px, calc(100vh / 56), 13px);
           transform-origin: 50% 50%;
         }
         .bsp-crt--flash { animation: bsp-on 700ms cubic-bezier(.2,.7,.3,1) both; }
@@ -1122,10 +1123,10 @@ export function BootSplash({ onEnter }: { onEnter: () => void }) {
            the height budget (phone LANDSCAPE used to clip the ceremony
            top AND bottom — width fit alone was never enough). */
         @media (max-width: 640px) {
-          .bsp-crt { padding: 1.25em 1em; font-size: min(8px, calc(100vh / 54)); }
+          .bsp-crt { padding: 1.25em 1em; font-size: min(8px, calc(100vh / 56)); }
         }
         @media (max-width: 360px) {
-          .bsp-crt { padding: 1.14em 0.86em; font-size: min(7px, calc(100vh / 54)); }
+          .bsp-crt { padding: 1.14em 0.86em; font-size: min(7px, calc(100vh / 56)); }
         }
         /* Tight frame: the bottom-corner ENTER hint sits where the
            (now near-full-height) invite button renders — drop it, the
