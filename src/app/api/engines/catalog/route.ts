@@ -33,50 +33,56 @@ export async function GET() {
   const validSources: CatalogEntry[] = [];
   const invalidSources: { index: number; reason: string }[] = [];
 
-  SIPHON_SOURCES.forEach((source, i) => {
-    // Check for null/undefined source element first
+  // Validate all sources first before processing
+  for (let i = 0; i < SIPHON_SOURCES.length; i++) {
+    const source = SIPHON_SOURCES[i];
+    
     if (!source) {
       invalidSources.push({ index: i, reason: "Source element is null or undefined." });
-      return;
+      continue;
     }
 
-    // Check for required structure: 'patterns' must exist and be an array.
     if (!('patterns' in source) || !Array.isArray(source.patterns)) {
       invalidSources.push({ index: i, reason: "Source is missing 'patterns' array or 'patterns' is not an array." });
-      return;
+      continue;
     }
     
     const patterns = source.patterns;
-
-    // Check if patterns array is empty
+    
     if (patterns.length === 0) {
       invalidSources.push({ index: i, reason: "Source patterns array is empty." });
-      return;
+      continue;
     }
     
-    // Validate each pattern in the array
-    const patternsValid = patterns.every((pattern, j) => typeof pattern === 'string');
+    // Check all patterns at once for better performance
+    for (let j = 0; j < patterns.length; j++) {
+      if (typeof patterns[j] !== 'string') {
+        invalidSources.push({ index: i, reason: `Pattern at index ${j} is not a string.` });
+        break; // No need to check more patterns for this source
+      }
+    }
+  }
 
-    if (!patternsValid) {
-        // Find the first invalid pattern index for a more precise error message
-        const firstInvalidPatternIndex = patterns.findIndex((pattern, j) => typeof pattern !== 'string');
-        invalidSources.push({ index: i, reason: `Pattern at index ${firstInvalidPatternIndex} is not a string.` });
-        return;
+  // Process only valid sources
+  for (let i = 0; i < SIPHON_SOURCES.length; i++) {
+    const source = SIPHON_SOURCES[i];
+    
+    // Skip if already marked as invalid
+    if (invalidSources.some(inv => inv.index === i)) {
+      continue;
     }
     
-    // Safely cast after structural validation
+    // At this point, we know source is valid
     const typedSource = source as SiphonSource;
+    const patterns = typedSource.patterns;
 
     validSources.push({
       source: typedSource,
       count: patterns.length,
       complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
-      // Honest label: these are CONFIGURED siphon sources (declarative
-      // config), not verified-live remote repositories. No liveness probe
-      // is performed here, so we don't claim "active".
       status: "configured",
     });
-  });
+  }
 
   if (invalidSources.length > 0) {
     return NextResponse.json(
