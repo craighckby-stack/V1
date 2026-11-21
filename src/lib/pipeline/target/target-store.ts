@@ -180,6 +180,11 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
     throw new Error("Target run record must include 'repo' field");
   }
   
+  // Validate 'repo' format
+  if (!validTargetRepoFormat(rec.repo)) {
+    throw new Error(`Invalid repo format in record: ${rec.repo} — expected owner/name`);
+  }
+  
   // Validate 'status' field
   if (!rec.status) {
     throw new Error("Target run record must include 'status' field");
