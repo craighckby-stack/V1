@@ -112,10 +112,8 @@ export function emitOracleEvent(
   
   // Evict old events if needed
   if (s.buffer.length > MAX_EVENTS) {
-    // Calculate how many to remove
-    const removeCount = s.buffer.length - MAX_EVENTS;
-    // Remove from the beginning of the array
-    s.buffer.splice(0, removeCount);
+    // Remove the oldest events to maintain the buffer size
+    s.buffer.splice(0, s.buffer.length - MAX_EVENTS);
   }
   
   s.seq += 1;
