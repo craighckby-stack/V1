@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/EMG-",
+  "branch": "main",
+  "filePath": "src/components/ConfigPanel.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "AST_STRUCTURAL_DRIFT",
+  "symptom": "[auto-gauntlet] Structural drift exceeded safe threshold",
+  "evidence": "AST score: 75/100\nSymbol map: orig=2 proposed=2 retained=2\nViolation [high] AST_STRUCTURAL_DRIFT: Structural drift exceeds safe threshold (83%)",
+  "constraints": "Keep the structural drift under 65%. The last attempt drifted 83%.\nMake minimal, surgical changes — do not restructure the file.",
+  "attempts": 2,
+  "parentHash": "d0bec9b28d05bfa752800772718bd84182c5cb1f428123cf95734f957a1cb727",
+  "hash": "80987876643b39f6dedefa93909b185fa2ae311667ae9436a210fbaa55a93092",
+  "lastAttemptAt": "2026-11-21T19:22:33.593Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-21T19:21:50.043Z",
+  "updatedAt": "2026-11-21T19:22:33.593Z",
+  "schema": 2
+}
