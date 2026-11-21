@@ -208,19 +208,27 @@ function systemTagFor(absPath: string): string {
 
 /** Distill candidate lessons from extracted text via one LLM call.
  *  Returns an array of { content, kind } — the LLM's proposed rules.
- *  Best-effort: returns [] on any LLM failure or unparseable output. */
-async function distillCandidateLessons(
+ *  Best-effort: returns [] on any LLM failure or unparseable output.
+ *
+ *  Exported so auto-fork (the curated reference-repo ingester) can
+ *  reuse the same distill path with a different source label. The
+ *  `sourceLabel` appears in the prompt ("a file from the X system"
+ *  vs "a file from the X reference repo") so the LLM knows the
+ *  source context, but the distill logic is identical. */
+export async function distillCandidateLessons(
   text: string,
   systemTag: string,
   filePath: string,
+  sourceLabel = "an external system",
 ): Promise<Array<{ content: string; kind: string }>> {
-  const systemPrompt = `You are distilling CANDIDATE lessons from an external system's source file. The operator dropped a file from the "${systemTag}" system into the dropbox folder. Extract 1-3 general imperative rules that could transfer to OTHER codebases — patterns, conventions, or design principles visible in this code.
+  const systemPrompt = `You are distilling CANDIDATE lessons from ${sourceLabel}'s source file. Extract 1-3 general imperative rules that could transfer to OTHER codebases — patterns, conventions, or design principles visible in this code.
 
 Rules for the lessons:
 - Phrase each as a one-sentence imperative ("Never...", "Always...", "Prefer...").
 - Make it GENERAL (applies across files, not specific to this one).
 - Make it ACTIONABLE (a developer could follow it).
 - Only extract lessons that are genuinely transferable — skip anything too specific to this file.
+- Extract PATTERNS and PRINCIPLES, never code snippets — the goal is transferable rules, not copying.
 
 Source file: ${filePath}
 System tag: ${systemTag}
@@ -247,20 +255,25 @@ If the file has no transferable lessons, return { "lessons": [] }.`;
 }
 
 /** Seed a candidate lesson into the Lesson table. Tagged
- *  `source: "dropbox"`, `system: <tag>`, `kind: "judgment"` (scorable,
+ *  `source: <source>`, `system: <tag>`, `kind: "judgment"` (scorable,
  *  never PROCEDURE — the bandit scores it, the operator promotes).
- *  Best-effort: returns null on any DB failure. */
-async function seedDropboxLesson(
+ *  Best-effort: returns null on any DB failure.
+ *
+ *  Exported so auto-fork reuses the same seed path. The `source` is
+ *  "dropbox" or "autofork" — the discriminator the bandit + the
+ *  autonomous distiller use to keep external lessons out of the
+ *  self-loop's aggregated sourceCount. */
+export async function seedCandidateLesson(
   content: string,
   systemTag: string,
-  _sourceFile: string,
+  source: "dropbox" | "autofork",
 ): Promise<string | null> {
   try {
     const row = await db.lesson.create({
       data: {
         content: content.slice(0, 500),
-        sourceType: "dropbox",
-        source: "dropbox",
+        sourceType: source,
+        source,
         system: systemTag,
         kind: "judgment",
         sourceCount: 1,
@@ -346,7 +359,7 @@ export async function ingestDropbox(): Promise<IngestResult> {
     const lessons = await distillCandidateLessons(extracted.text, systemTag, rel);
     let seeded = 0;
     for (const lesson of lessons) {
-      const id = await seedDropboxLesson(lesson.content, systemTag, rel);
+      const id = await seedCandidateLesson(lesson.content, systemTag, "dropbox");
       if (id) seeded++;
     }
     result.lessonsDistilled += seeded;

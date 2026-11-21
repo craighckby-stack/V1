@@ -1,0 +1,26 @@
+[
+  {
+    "repo": "facebook/react",
+    "branch": "main",
+    "reason": "The canonical UI component reference — patterns for hooks, effect cleanup, reconciliation. MIT license.",
+    "enabled": true
+  },
+  {
+    "repo": "vercel/next.js",
+    "branch": "canary",
+    "reason": "The framework LOOP runs on — App Router patterns, server components, route conventions. MIT license.",
+    "enabled": true
+  },
+  {
+    "repo": "prisma/prisma",
+    "branch": "main",
+    "reason": "The ORM LOOP uses — schema design, client patterns, migration safety. Apache 2.0 license.",
+    "enabled": true
+  },
+  {
+    "repo": "microsoft/TypeScript",
+    "branch": "main",
+    "reason": "The language LOOP is written in — type system patterns, compiler API usage. Apache 2.0 license.",
+    "enabled": false
+  }
+]

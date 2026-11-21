@@ -1365,6 +1365,8 @@ export default function Home() {
           "                (lessons vs not, provenance vs not, postmortem vs not — honest confidence)",
           "  dropbox     — Status of external-system learning (dropbox/<system>/ folder)",
           "  dropbox scan — Ingest now (budget-capped, distills candidate lessons)",
+          "  autofork    — Status of curated reference-repo learning (autofork-seeds.json)",
+          "  autofork scan — Fetch + ingest one seed repo now (budget-capped)",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
           "",
@@ -2339,6 +2341,85 @@ export default function Home() {
           return lines;
         } catch (err) {
           return [`dropbox error: ${err instanceof Error ? err.message : String(err)}`];
+        }
+      }
+
+      case "autofork": {
+        // The auto-fork direction: the loop autonomously fetches curated
+        // reference repos (autofork-seeds.json) and ingests them through
+        // the same candidate → verified → promoted lifecycle as the
+        // dropbox. The distill + seed logic is shared with the dropbox;
+        // only the source (GitHub repos vs local folder) differs.
+        //   autofork          — status (seed list, per-repo progress)
+        //   autofork scan     — ingest one repo now (budget-capped, 3 files)
+        const sub = (parts[1] ?? "").toLowerCase();
+        try {
+          if (sub === "scan") {
+            const res = await fetch("/api/autofork", { method: "POST" });
+            const data = (await res.json()) as {
+              scanned: number; reposScanned: number; filesIngested: number;
+              lessonsDistilled: number; skipped: string[]; errors: string[];
+              error?: string;
+            };
+            if (!res.ok) {
+              return [`autofork scan failed: ${data.error ?? res.status}`];
+            }
+            const lines = [
+              `AUTOFORK SCAN — ${data.reposScanned} repo(s) scanned, ${data.filesIngested} file(s) ingested`,
+              `Candidate lessons distilled: ${data.lessonsDistilled}`,
+            ];
+            if (data.skipped.length > 0) {
+              lines.push(`Skipped (${data.skipped.length}):`);
+              for (const s of data.skipped.slice(0, 8)) lines.push(`  · ${s}`);
+            }
+            if (data.errors.length > 0) {
+              lines.push(`Errors (${data.errors.length}):`);
+              for (const e of data.errors.slice(0, 8)) lines.push(`  · ${e}`);
+            }
+            lines.push("");
+            lines.push("The candidate lessons are now in the Lesson table (source: autofork).");
+            lines.push("The bandit scores them — helpful ones rise into the prompt, harmful ones sink.");
+            lines.push("One repo per scan — re-run 'autofork scan' to ingest the next seed repo.");
+            return lines;
+          }
+          // Default: status.
+          const res = await fetch("/api/autofork");
+          const data = (await res.json()) as {
+            configured: boolean; seedsCount: number; enabledSeeds: number;
+            seeds: Array<{ repo: string; enabled: boolean; reason: string }>;
+            ingestedFiles: number; candidateLessons: number;
+            bySystem: Array<{ system: string; lessons: number }>;
+            error?: string;
+          };
+          if (!res.ok) {
+            return [`autofork status failed: ${data.error ?? res.status}`];
+          }
+          const lines = [
+            "AUTOFORK — the loop learns from curated reference repos",
+            "",
+            `Seeds: ${data.seedsCount} total, ${data.enabledSeeds} enabled (edit autofork-seeds.json)`,
+            `Files ingested: ${data.ingestedFiles} · Candidate lessons (active): ${data.candidateLessons}`,
+          ];
+          if (data.seeds.length > 0) {
+            lines.push("");
+            lines.push("SEED LIST:");
+            for (const s of data.seeds) {
+              const tag = s.enabled ? "✓" : "✗";
+              lines.push(`  ${tag} ${s.repo} — ${s.reason}`);
+            }
+          }
+          if (data.bySystem.length > 0) {
+            lines.push("");
+            lines.push("BY SYSTEM (ingested lessons):");
+            for (const s of data.bySystem) {
+              lines.push(`  · ${s.system}: ${s.lessons} lesson(s)`);
+            }
+          }
+          lines.push("");
+          lines.push("Type 'autofork scan' to ingest one repo now (budget-capped at 3 files).");
+          return lines;
+        } catch (err) {
+          return [`autofork error: ${err instanceof Error ? err.message : String(err)}`];
         }
       }
 

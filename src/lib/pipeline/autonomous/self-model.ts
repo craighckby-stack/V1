@@ -711,22 +711,34 @@ export async function orderTargetsByBandit(
       // episode can pose again.
       curiosityWasFiring = false;
     }
-    // ── DROPBOX INGEST (the #8 "learns from external systems" axis) ──
+    // ── DROPBOX + AUTO-FORK INGEST (the "learns from external systems" axis) ─
     // When the curiosity drive fires (the loop is bored of its own
     // files and the codebase health is flat), the loop ALSO explores
-    // external systems the operator dropped into dropbox/<system>/.
-    // The ingester is budget-capped (MAX 3 files/scan) + dedup'd by
-    // content hash, so a 500-file dropbox doesn't burn the LLM quota.
-    // Best-effort: never throws into the bandit. The candidate lessons
-    // seed as source:"dropbox" and ride the bandit — helpful ones rise
-    // into the prompt, harmful ones sink. This wires the dropbox to the
-    // curiosity drive (one ingest per firing cycle, budget-capped).
+    // external systems: the dropbox (operator-dropped files) AND the
+    // auto-fork seed list (curated reference repos the loop fetches
+    // autonomously). Both are budget-capped + dedup'd, so neither burns
+    // the LLM quota. Best-effort: never throws into the bandit. The
+    // candidate lessons seed as source:"dropbox"/"autofork" and ride
+    // the bandit — helpful ones rise into the prompt, harmful ones sink.
     if (curiosityState.enabled && curiosityState.firing) {
       try {
         const { ingestDropbox } = await import("./dropbox-ingester");
         void ingestDropbox().then((r) => {
           if (r.ingested > 0 && log) {
             log(`📦 dropbox: ingested ${r.ingested} file(s), ${r.lessonsDistilled} candidate lesson(s) (curiosity-driven)`, "info");
+          }
+        }).catch(() => { /* best-effort */ });
+      } catch {
+        /* dynamic import failed — module unavailable, skip silently */
+      }
+      // Auto-fork: one repo per firing cycle (the dropbox above does
+      // local files; auto-fork does remote repos). Both run on the same
+      // firing cycle — the loop explores both axes when it's bored.
+      try {
+        const { ingestAutoFork } = await import("./autofork-ingester");
+        void ingestAutoFork().then((r) => {
+          if (r.filesIngested > 0 && log) {
+            log(`🍴 autofork: ingested ${r.filesIngested} file(s) from ${r.reposScanned} repo(s), ${r.lessonsDistilled} candidate lesson(s) (curiosity-driven)`, "info");
           }
         }).catch(() => { /* best-effort */ });
       } catch {
