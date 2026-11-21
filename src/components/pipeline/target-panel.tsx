@@ -146,12 +146,14 @@ export function TargetPanel({ open, onClose }: Props) {
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
+        abortControllerRef.current = null;
       }
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
     };
-  }, [open, loadHistory]);
+  }, [open]); // Removed loadHistory from dependency array to prevent unnecessary reloads
 
   if (!open) return null;
 
