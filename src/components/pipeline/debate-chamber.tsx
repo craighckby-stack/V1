@@ -15,9 +15,9 @@ const SPEAKER_COLOR: Record<string, string> = {
 };
 
 const STANCE_COLOR: Record<string, string> = {
-  OPPOSE: "bg-rose-500/15 text-rose-300 border-rose-500/40",
-  ENDORSE: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
-  SYNTHESIS: "bg-cyan-500/15 text-cyan-300 border-cyan-500/40",
+  OPPOSE: "bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/20",
+  ENDORSE: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/20",
+  SYNTHESIS: "bg-cyan-500/15 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/20",
 };
 
 export function DebateChamber() {
@@ -25,7 +25,7 @@ export function DebateChamber() {
 
   if (!report) {
     return (
-      <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur transition-shadow hover:shadow-lg">
+      <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur transition-shadow hover:shadow-lg focus-visible:ring-2 focus-visible:ring-cyan-500/50 rounded-xl">
         <CardHeader className="pb-3">
           <CardTitle className="text-slate-100 flex items-center gap-2 text-lg">
             <Scale className="h-5 w-5 text-emerald-400" aria-hidden="true" />
@@ -33,7 +33,7 @@ export function DebateChamber() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-slate-500 italic py-8 text-center">
+          <p className="text-sm text-slate-400 italic py-8 text-center">
             Run the pipeline to convene the dual-perspective review (Security vs Architecture).
           </p>
         </CardContent>
@@ -44,7 +44,7 @@ export function DebateChamber() {
   const verdict = report.reviewVerdict;
   if (!verdict) {
     return (
-      <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur transition-shadow hover:shadow-lg">
+      <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur transition-shadow hover:shadow-lg focus-visible:ring-2 focus-visible:ring-cyan-500/50 rounded-xl">
         <CardHeader className="pb-3">
           <CardTitle className="text-slate-100 flex items-center gap-2 text-lg">
             <Scale className="h-5 w-5 text-emerald-400" aria-hidden="true" />
@@ -52,7 +52,7 @@ export function DebateChamber() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-slate-500 italic py-8 text-center">
+          <p className="text-sm text-slate-400 italic py-8 text-center">
             Review verdict not available yet.
           </p>
         </CardContent>
@@ -75,7 +75,7 @@ export function DebateChamber() {
   const badgeClasses = statusMap[consensusStatus || "DEFAULT"] || statusMap["DEFAULT"];
 
   return (
-    <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur transition-shadow hover:shadow-lg">
+    <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur transition-shadow hover:shadow-lg focus-visible:ring-2 focus-visible:ring-cyan-500/50 rounded-xl">
       <CardHeader className="pb-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <CardTitle className="text-slate-100 flex items-center gap-2 text-lg">
@@ -136,7 +136,7 @@ export function DebateChamber() {
                     exit={{ opacity: 0, y: 12 }}
                     transition={{ delay: idx * 0.08, duration: 0.3 }}
                     className={cn(
-                      "rounded-xl border p-4 bg-gradient-to-br transition-shadow duration-200 hover:shadow-md",
+                      "rounded-xl border p-4 bg-gradient-to-br transition-shadow duration-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-cyan-500/50",
                       SPEAKER_COLOR[arg.speaker] ?? SPEAKER_COLOR.lead,
                       "border-slate-700/60"
                     )}
@@ -163,6 +163,8 @@ export function DebateChamber() {
                             key={c}
                             className="text-[10px] text-slate-400 font-mono px-2 py-0.5 rounded bg-slate-950/40 border border-slate-800/60 focus-visible:ring-1 focus-visible:ring-cyan-500"
                             role="listitem"
+                            tabIndex={0}
+                            aria-label={`Citation: ${c}`}
                           >
                             {c}
                           </span>
@@ -173,7 +175,7 @@ export function DebateChamber() {
                 );
               })
             ) : (
-              <p className="text-sm text-slate-500 italic p-4">No arguments recorded for this review.</p>
+              <p className="text-sm text-slate-400 italic p-4">No arguments recorded for this review.</p>
             )}
           </AnimatePresence>
         </div>
@@ -189,7 +191,7 @@ export function DebateChamber() {
                     <li key={i} className="pl-1">{p}</li>
                   ))
                 ) : (
-                  <li className="pl-1 text-slate-500">No security findings reported.</li>
+                  <li className="pl-1 text-slate-400">No security findings reported.</li>
                 )}
               </ul>
             </div>
@@ -204,7 +206,7 @@ export function DebateChamber() {
                     <li key={i} className="pl-1">{p}</li>
                   ))
                 ) : (
-                  <li className="pl-1 text-slate-500">No architecture findings reported.</li>
+                  <li className="pl-1 text-slate-400">No architecture findings reported.</li>
                 )}
               </ul>
             </div>
