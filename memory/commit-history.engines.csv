@@ -1,0 +1,3573 @@
+id,repo,branch,file_path,language,role,line_count,byte_size,redacted,classes,functions,imports,related_commit_shas,raw_url,full_code
+infiniflow/ragflow@main:internal/harness/core/agent_loop_agent.go,infiniflow/ragflow,main,internal/harness/core/agent_loop_agent.go,Go,agent-loop,246,5771,false,,setupBridgeStore;watchPreempt;watchStop;runAgentAndHandleEvents;applyFrameworkCapturedError,context;errors;fmt;runtime/debug;time;ragflow/internal/harness/core/schema,,https://raw.githubusercontent.com/infiniflow/ragflow/main/internal/harness/core/agent_loop_agent.go,"package core
+
+import (
+	""context""
+	""errors""
+	""fmt""
+	""runtime/debug""
+	""time""
+
+	""ragflow/internal/harness/core/schema""
+)
+
+// ---- AgentLoop agent execution and event handling ----
+
+func (l *AgentLoop[T]) setupBridgeStore(spec *turnRunSpec[T], runOpts []RunOption) ([]RunOption, *bridgeStore, error) {
+	store := l.config.Store
+	if store == nil && spec.isResume {
+		return nil, nil, fmt.Errorf(""failed to resume agent: checkpoint store is nil"")
+	}
+	if store == nil {
+		return runOpts, nil, nil
+	}
+	runOpts = append(runOpts, WithCheckPointID(bridgeCheckpointID))
+	if spec.isResume {
+		if len(spec.resumeBytes) == 0 {
+			return nil, nil, fmt.Errorf(""resume checkpoint is empty"")
+		}
+		return runOpts, newResumeBridgeStore(bridgeCheckpointID, spec.resumeBytes), nil
+	}
+	return runOpts, newBridgeStore(), nil
+}
+
+// watchPreempt runs for the lifetime of a single active turn.
+func (l *AgentLoop[T]) watchPreempt(done <-chan struct{}, agentCancelFunc AgentCancelFunc, preemptDone chan struct{}) {
+	preemptDoneClosed := false
+	for {
+		select {
+		case <-done:
+			return
+		case <-l.preemptCtrl.notify:
+			req, ok := l.preemptCtrl.receivePreempt()
+			if !ok {
+				continue
+			}
+			_, contributed := agentCancelFunc(req.cancelOptions(time.Now())...)
+			if contributed && !preemptDoneClosed {
+				close(preemptDone)
+				preemptDoneClosed = true
+			}
+			req.ack()
+		}
+	}
+}
+
+// watchStop runs for the lifetime of a single active turn.
+func (l *AgentLoop[T]) watchStop(done <-chan struct{}, agentCancelFunc AgentCancelFunc, stoppedDone chan struct{}) {
+	stoppedClosed := false
+
+	submit := func(req *stopCancelRequest) {
+		_, contributed := agentCancelFunc(req.cancelOptions(time.Now())...)
+		if contributed && !stoppedClosed {
+			close(stoppedDone)
+			stoppedClosed = true
+		}
+	}
+
+	for {
+		if req, ok := l.stopCtrl.receiveCancel(); ok {
+			submit(req)
+		}
+
+		select {
+		case <-done:
+			return
+		case <-l.stopCtrl.notify:
+		}
+	}
+}
+
+func (l *AgentLoop[T]) runAgentAndHandleEvents(
+	ctx context.Context,
+	agent Agent,
+	spec *turnRunSpec[T],
+) error {
+	l.interruptContexts = nil
+	l.capturedCancelErr = nil
+	l.checkPointRunnerBytes = nil
+
+	var iter *AsyncIterator[*AgentEvent]
+
+	runOpts, ms, err := l.setupBridgeStore(spec, spec.runOpts)
+	if err != nil {
+		l.preemptCtrl.abortPlanningTurn().ack()
+		return err
+	}
+	store := l.config.Store
+	cancelOpt, agentCancelFunc := WithCancel()
+	runOpts = append(runOpts, cancelOpt)
+
+	enableStreaming := false
+	if spec.input != nil {
+		enableStreaming = spec.input.EnableStreaming
+	}
+	runner := NewRunner(ctx, RunnerConfig[*schema.Message]{
+		EnableStreaming: enableStreaming,
+		Agent:           agent,
+		CheckPointStore: ms,
+	})
+
+	preemptDone := make(chan struct{})
+	stoppedDone := make(chan struct{})
+
+	tc := &TurnContext[T]{
+		Loop:      l,
+		Consumed:  spec.consumed,
+		Preempted: preemptDone,
+		Stopped:   stoppedDone,
+		StopCause: l.stopCtrl.cause,
+	}
+	l.preemptCtrl.beginActiveTurn(ctx, tc)
+	l.stopCtrl.beginActiveTurn()
+	defer func() {
+		l.stopCtrl.endActiveTurn()
+		l.preemptCtrl.endActiveTurn().ack()
+	}()
+
+	if spec.isResume {
+		var err error
+		if spec.resumeParams != nil {
+			iter, err = runner.ResumeWithParams(ctx, bridgeCheckpointID, spec.resumeParams, runOpts...)
+		} else {
+			iter, err = runner.Resume(ctx, bridgeCheckpointID, runOpts...)
+		}
+		if err != nil {
+			return fmt.Errorf(""failed to resume agent: %w"", err)
+		}
+	} else {
+		iter = runner.Run(ctx, spec.input.Messages, runOpts...)
+	}
+
+	// Wrap iterator to capture framework-level signals (CancelError, InterruptContexts)
+	srcIter := iter
+	proxyIter, proxyGen := NewAsyncIteratorPair[*AgentEvent]()
+	srcIterDone := make(chan struct{})
+	go func() {
+		defer func() {
+			proxyGen.Close()
+			close(srcIterDone)
+		}()
+		for {
+			event, ok := srcIter.Next()
+			if !ok {
+				break
+			}
+			if event != nil {
+				if event.Err != nil {
+					var cancelErr *CancelError
+					if errors.As(event.Err, &cancelErr) {
+						l.capturedCancelErr = cancelErr
+					}
+				}
+				if event.Action != nil && event.Action.Interrupted != nil {
+					l.interruptContexts = event.Action.Interrupted.InterruptContexts
+				}
+			}
+			proxyGen.Send(event)
+		}
+	}()
+	iter = proxyIter
+
+	handleEvents := func() error {
+		return l.onAgentEvents(ctx, tc, iter)
+	}
+
+	done := make(chan struct{})
+	var handleErr error
+
+	go func() {
+		defer func() {
+			panicErr := recover()
+			if panicErr != nil {
+				handleErr = fmt.Errorf(""panic in OnAgentEvents: %v\n%s"", panicErr, debug.Stack())
+			}
+			close(done)
+		}()
+		handleErr = handleEvents()
+	}()
+	go l.watchPreempt(done, agentCancelFunc, preemptDone)
+	go l.watchStop(done, agentCancelFunc, stoppedDone)
+
+	finalizeCheckpoint := func() error {
+		if store != nil && ms != nil {
+			data, ok, err := ms.Get(ctx, bridgeCheckpointID)
+			if err != nil {
+				return fmt.Errorf(""failed to read runner checkpoint: %w"", err)
+			}
+			if ok {
+				l.checkPointRunnerBytes = append([]byte{}, data...)
+			}
+		}
+		return nil
+	}
+
+	select {
+	case <-done:
+		select {
+		case <-preemptDone:
+			return nil
+		default:
+		}
+		if err := finalizeCheckpoint(); err != nil {
+			if handleErr != nil {
+				handleErr = fmt.Errorf(""%w; checkpoint error: %w"", handleErr, err)
+			} else {
+				handleErr = err
+			}
+		}
+		return l.applyFrameworkCapturedError(handleErr)
+	case <-preemptDone:
+		srcIter.Close()
+		<-srcIterDone
+		<-done
+		return nil
+	case <-stoppedDone:
+		<-done
+		if err := finalizeCheckpoint(); err != nil {
+			if handleErr != nil {
+				handleErr = fmt.Errorf(""%w; checkpoint error: %w"", handleErr, err)
+			} else {
+				handleErr = err
+			}
+		}
+		return l.applyFrameworkCapturedError(handleErr)
+	}
+}
+
+func (l *AgentLoop[T]) applyFrameworkCapturedError(handleErr error) error {
+	if handleErr != nil {
+		return handleErr
+	}
+	if l.capturedCancelErr != nil {
+		return l.capturedCancelErr
+	}
+	return nil
+}
+"
+infiniflow/ragflow@main:internal/agent/sandbox/ucloud_agent_sandbox.go,infiniflow/ragflow,main,internal/agent/sandbox/ucloud_agent_sandbox.go,Go,agent-loop,399,14924,false,ucloudAgentSandboxInstance;UCloudAgentSandboxProvider,newUCloudAgentSandboxProviderFromEnv;ucloudAgentSandboxConfigFromEnv;newUCloudAgentSandboxProviderFromConfig;ProviderType;Initialize;SupportedLanguages;CreateInstance;ExecuteCode;DestroyInstance;HealthCheck;collectArtifacts;isInitialized,context;encoding/base64;errors;fmt;mime;path;ragflow/internal/common;sort;strings;sync;time;github.com/google/uuid;github.com/ucloud/ucloud-sandbox-sdk-go,356a928c04b8b8d430b3ef3c6ccf11edef1cf63f;8f780799c88b85b0ff1ead69652891d248d6e381;61caf055f9dd70615d33c13815654a7ef04820a3;824f9bfdcba5699deb5d0c4649ec54760779e35d;2686c494e2e67e964821ed8bd85eeccc0df436f3;404a5cc33b06e78bde651cf7417306a4b960ed0e;d4fbc013b999c4b3685d152f59292ddf1cc7f7bd;17487239712ad962cf60a08e4f6ea1771cfd85e4;09e91a8e61670ed9bf97e8e01431a125292ba731;5de021ebb4e91f2aa83411d8464efec2096fe052;085241b039c753b35c93e297581a7a42524b2c2e;9d37234953137f9ca03af9e50559b1ac8c1e72ec;6e309f9d0a64f9fa44e3421e5d96baed836f2dfd;a353c7bdd72c3841fd4b34e673da01fab8291182;a806f7b707729317dafb499b63e912e76b751887;6f785e06a4f6b438d468327a9afbec5e83250c5c;30bd25716bb7dd7bd6503fe2d8fc82274137207f;932496a8ec70c6e8c90b7d061c348fcd4e4074b3;7dac269429917ddf8ee3bf44734aaadc0f2ad473;fddfce303cfdefb6a3ee21297c673f4c3d38c4a9;f63f00732608dbe37ab89a62de5de41152dc3a63;1777620ea5fe3bed7653243dc538861f476b76ad;17ea5c1dee1122419fe90b06d0944af3c61d4eb2;c0c2a1068013b5eb6e74632d79137acffaf2fc53;45f52e85d720b539ac17c1153056a766b2923373,https://raw.githubusercontent.com/infiniflow/ragflow/main/internal/agent/sandbox/ucloud_agent_sandbox.go,"//
+//  Copyright 2026 The InfiniFlow Authors. All Rights Reserved.
+//
+//  Licensed under the Apache License, Version 2.0 (the ""License"");
+//  you may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an ""AS IS"" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+//
+
+package sandbox
+
+import (
+	""context""
+	""encoding/base64""
+	""errors""
+	""fmt""
+	""mime""
+	""path""
+	""ragflow/internal/common""
+	""sort""
+	""strings""
+	""sync""
+	""time""
+
+	""github.com/google/uuid""
+	ucloudsdk ""github.com/ucloud/ucloud-sandbox-sdk-go""
+)
+
+const (
+	ucloudAgentSandboxDefaultRegion          = ""cn-wlcb""
+	ucloudAgentSandboxDomainSuffix           = ""sandbox.ucloudai.com""
+	ucloudAgentSandboxDefaultTemplate        = ""base""
+	ucloudAgentSandboxHome                   = ""/home/user""
+	ucloudAgentSandboxMaxArtifactDepth       = 16
+	ucloudAgentSandboxDefaultTimeout         = 30
+	ucloudAgentSandboxDefaultLifetime        = 300
+	ucloudAgentSandboxDefaultMaxOutputBytes  = 1024 * 1024
+	ucloudAgentSandboxDefaultMaxArtifacts    = 20
+	ucloudAgentSandboxDefaultMaxArtifactSize = 10 * 1024 * 1024
+)
+
+type ucloudAgentSandboxInstance struct {
+	sandbox       *ucloudsdk.Sandbox
+	remoteWorkDir string
+}
+
+// UCloudAgentSandboxProvider executes code in disposable UCloud Agent Sandboxes.
+type UCloudAgentSandboxProvider struct {
+	client              *ucloudsdk.Client
+	apiKey              string
+	region              string
+	domain              string
+	apiURL              string
+	template            string
+	allowInternetAccess bool
+	insecureHTTP        bool
+	timeoutSec          int
+	sandboxTimeoutSec   int
+	maxOutputBytes      int
+	maxArtifacts        int
+	maxArtifactBytes    int
+
+	mu          sync.RWMutex
+	initialized bool
+	instances   map[string]*ucloudAgentSandboxInstance
+}
+
+func newUCloudAgentSandboxProviderFromEnv() *UCloudAgentSandboxProvider {
+	return newUCloudAgentSandboxProviderFromConfig(ucloudAgentSandboxConfigFromEnv())
+}
+
+func ucloudAgentSandboxConfigFromEnv() map[string]any {
+	return map[string]any{
+		""api_key"":               common.GetEnv(common.EnvUCloudSandboxAPIKey),
+		""region"":                common.GetEnv(common.EnvUCloudSandboxRegion),
+		""domain"":                common.GetEnv(common.EnvUCloudSandboxDomain),
+		""api_url"":               common.GetEnv(common.EnvUCloudSandboxAPIURL),
+		""template"":              common.GetEnv(common.EnvUCloudSandboxTemplate),
+		""allow_internet_access"": common.GetEnv(common.EnvUCloudSandboxAllowInternetAccess),
+		""insecure_http"":         common.GetEnv(common.EnvUCloudSandboxInsecureHTTP),
+		""timeout"":               common.GetEnv(common.EnvUCloudSandboxExecutionTimeout),
+		""sandbox_timeout"":       common.GetEnv(common.EnvUCloudSandboxTimeout),
+		""max_output_bytes"":      common.GetEnv(common.EnvUCloudSandboxMaxOutputBytes),
+		""max_artifacts"":         common.GetEnv(common.EnvUCloudSandboxMaxArtifacts),
+		""max_artifact_bytes"":    common.GetEnv(common.EnvUCloudSandboxMaxArtifactBytes),
+	}
+}
+
+func newUCloudAgentSandboxProviderFromConfig(cfg map[string]any) *UCloudAgentSandboxProvider {
+	region := strings.TrimSpace(configString(cfg, ""region""))
+	if region == """" {
+		region = ucloudAgentSandboxDefaultRegion
+	}
+	template := strings.TrimSpace(configString(cfg, ""template""))
+	if template == """" {
+		template = ucloudAgentSandboxDefaultTemplate
+	}
+	return &UCloudAgentSandboxProvider{
+		apiKey:              strings.TrimSpace(configString(cfg, ""api_key"")),
+		region:              region,
+		domain:              strings.TrimSpace(configString(cfg, ""domain"")),
+		apiURL:              strings.TrimSpace(configString(cfg, ""api_url"")),
+		template:            template,
+		allowInternetAccess: strings.EqualFold(configString(cfg, ""allow_internet_access""), ""true""),
+		insecureHTTP:        strings.EqualFold(configString(cfg, ""insecure_http""), ""true""),
+		timeoutSec:          configInt(cfg, ""timeout"", ucloudAgentSandboxDefaultTimeout),
+		sandboxTimeoutSec:   configInt(cfg, ""sandbox_timeout"", ucloudAgentSandboxDefaultLifetime),
+		maxOutputBytes:      configInt(cfg, ""max_output_bytes"", ucloudAgentSandboxDefaultMaxOutputBytes),
+		maxArtifacts:        configInt(cfg, ""max_artifacts"", ucloudAgentSandboxDefaultMaxArtifacts),
+		maxArtifactBytes:    configInt(cfg, ""max_artifact_bytes"", ucloudAgentSandboxDefaultMaxArtifactSize),
+		instances:           make(map[string]*ucloudAgentSandboxInstance),
+	}
+}
+
+// ProviderType returns ProviderUCloudAgentSandbox.
+func (p *UCloudAgentSandboxProvider) ProviderType() ProviderType {
+	return ProviderUCloudAgentSandbox
+}
+
+// Initialize creates the UCloud SDK client. Connectivity is verified by the
+// admin connection test, which creates and executes in a temporary sandbox.
+func (p *UCloudAgentSandboxProvider) Initialize(context.Context) error {
+	if p.apiKey == """" {
+		return errors.New(""ucloud agent sandbox: API key is required"")
+	}
+	if p.timeoutSec <= 0 || p.sandboxTimeoutSec <= 0 || p.maxOutputBytes <= 0 || p.maxArtifactBytes <= 0 || p.maxArtifacts < 0 {
+		return errors.New(""ucloud agent sandbox: timeout and size limits must be positive, and max_artifacts must be non-negative"")
+	}
+	domain := p.domain
+	if domain == """" {
+		domain = p.region + ""."" + ucloudAgentSandboxDomainSuffix
+	}
+	options := []ucloudsdk.ClientOption{
+		ucloudsdk.WithRequestTimeout(time.Duration(p.timeoutSec) * time.Second),
+		ucloudsdk.WithInsecureHTTP(p.insecureHTTP),
+		// The SDK currently defaults to skipping TLS verification. RAGFlow
+		// always opts into certificate verification.
+		ucloudsdk.WithInsecureSkipTLS(false),
+	}
+	if p.apiURL != """" {
+		options = append(options, ucloudsdk.WithAPIURL(p.apiURL))
+	}
+	p.client = ucloudsdk.NewClient(domain, p.apiKey, options...)
+	p.mu.Lock()
+	p.initialized = true
+	p.mu.Unlock()
+	return nil
+}
+
+// SupportedLanguages returns the runtimes included in UCloud's base template.
+func (p *UCloudAgentSandboxProvider) SupportedLanguages() []string {
+	return []string{""python"", ""javascript""}
+}
+
+// CreateInstance provisions a fresh UCloud Agent Sandbox.
+func (p *UCloudAgentSandboxProvider) CreateInstance(ctx context.Context, template string) (*SandboxInstance, error) {
+	if !p.isInitialized() {
+		return nil, errors.New(""ucloud agent sandbox: provider not initialized"")
+	}
+	language := normalizeLanguage(template)
+	if language == """" {
+		return nil, fmt.Errorf(""ucloud agent sandbox: unsupported language %q"", template)
+	}
+	sbx, err := p.client.CreateSandbox(ctx,
+		ucloudsdk.WithTemplate(p.template),
+		ucloudsdk.WithTimeout(p.sandboxTimeoutSec),
+		ucloudsdk.WithMetadata(map[string]string{""source"": ""ragflow""}),
+		ucloudsdk.WithManageBy(""ragflow""),
+		ucloudsdk.WithSecure(true),
+		ucloudsdk.WithAllowInternetAccess(p.allowInternetAccess),
+	)
+	if err != nil {
+		return nil, fmt.Errorf(""ucloud agent sandbox: create sandbox: %w"", err)
+	}
+	remoteWorkDir := path.Join(ucloudAgentSandboxHome, ""ragflow-codeexec-""+uuid.NewString())
+	if _, err := sbx.Commands.Run(ctx, ""mkdir -p ""+shq(path.Join(remoteWorkDir, ""artifacts"")), ucloudsdk.WithCommandTimeout(minTimeout(p.timeoutSec, 10))); err != nil {
+		_, _ = sbx.Kill(ctx)
+		return nil, fmt.Errorf(""ucloud agent sandbox: create workspace: %w"", err)
+	}
+	p.mu.Lock()
+	p.instances[sbx.ID] = &ucloudAgentSandboxInstance{sandbox: sbx, remoteWorkDir: remoteWorkDir}
+	p.mu.Unlock()
+	return &SandboxInstance{
+		InstanceID: sbx.ID,
+		Provider:   ProviderUCloudAgentSandbox,
+		Status:     ""running"",
+		Metadata: map[string]any{
+			""language"":        language,
+			""remote_work_dir"": remoteWorkDir,
+			""sandbox_id"":      sbx.ID,
+			""template"":        p.template,
+		},
+	}, nil
+}
+
+// ExecuteCode writes the shared RAGFlow wrapper into the sandbox and runs it.
+func (p *UCloudAgentSandboxProvider) ExecuteCode(
+	ctx context.Context,
+	inst *SandboxInstance,
+	code, language string,
+	timeoutSec int,
+	args map[string]any,
+) (*ExecutionResult, error) {
+	if !p.isInitialized() {
+		return nil, errors.New(""ucloud agent sandbox: provider not initialized"")
+	}
+	if inst == nil || inst.InstanceID == """" {
+		return nil, errors.New(""ucloud agent sandbox: instance id required"")
+	}
+	p.mu.RLock()
+	instance := p.instances[inst.InstanceID]
+	p.mu.RUnlock()
+	if instance == nil {
+		return nil, fmt.Errorf(""ucloud agent sandbox: unknown instance %q"", inst.InstanceID)
+	}
+	normalizedLanguage := normalizeLanguage(language)
+	if normalizedLanguage == """" {
+		return nil, fmt.Errorf(""ucloud agent sandbox: unsupported language %q"", language)
+	}
+	executionTimeout, err := validateTimeout(timeoutSec)
+	if err != nil {
+		return nil, err
+	}
+	if executionTimeout == 0 || executionTimeout > p.timeoutSec {
+		executionTimeout = p.timeoutSec
+	}
+	argsJSON, err := argsToJSON(args)
+	if err != nil {
+		return nil, err
+	}
+
+	var scriptName, scriptContent, executable string
+	if normalizedLanguage == ""python"" {
+		scriptName = ""main.py""
+		scriptContent = BuildPythonWrapper(code, argsJSON)
+		executable = ""python3""
+	} else {
+		scriptName = ""main.js""
+		scriptContent = BuildJavaScriptWrapper(code, argsJSON)
+		executable = ""node""
+	}
+	scriptPath := path.Join(instance.remoteWorkDir, scriptName)
+	if _, err := instance.sandbox.Files.Write(ctx, scriptPath, scriptContent); err != nil {
+		return nil, fmt.Errorf(""ucloud agent sandbox: write script: %w"", err)
+	}
+	if err := instance.sandbox.SetTimeout(ctx, max(p.sandboxTimeoutSec, executionTimeout+30)); err != nil {
+		return nil, fmt.Errorf(""ucloud agent sandbox: extend sandbox timeout: %w"", err)
+	}
+
+	started := time.Now()
+	commandResult, runErr := instance.sandbox.Commands.Run(
+		ctx,
+		executable+"" ""+shq(scriptPath),
+		ucloudsdk.WithCwd(instance.remoteWorkDir),
+		ucloudsdk.WithCommandTimeout(executionTimeout),
+	)
+	executionTime := time.Since(started).Seconds()
+	if runErr != nil {
+		var exitErr *ucloudsdk.CommandExitError
+		if errors.As(runErr, &exitErr) {
+			commandResult = &ucloudsdk.CommandResult{Stdout: exitErr.Stdout, Stderr: exitErr.Stderr, ExitCode: exitErr.ExitCode, Error: exitErr.Message}
+		} else {
+			var timeoutErr *ucloudsdk.TimeoutError
+			if errors.As(runErr, &timeoutErr) || errors.Is(runErr, context.DeadlineExceeded) {
+				return nil, fmt.Errorf(""ucloud agent sandbox: execution timed out after %d seconds: %w"", executionTimeout, runErr)
+			}
+			return nil, fmt.Errorf(""ucloud agent sandbox: execute code: %w"", runErr)
+		}
+	}
+	if commandResult == nil {
+		return nil, errors.New(""ucloud agent sandbox: command returned no result"")
+	}
+	if len(commandResult.Stdout)+len(commandResult.Stderr) > p.maxOutputBytes {
+		return nil, fmt.Errorf(""ucloud agent sandbox: execution output exceeded %d bytes"", p.maxOutputBytes)
+	}
+	stdout, structured := ExtractStructuredResult(commandResult.Stdout)
+	artifacts := make([]map[string]any, 0)
+	if err := p.collectArtifacts(ctx, instance.sandbox, path.Join(instance.remoteWorkDir, ""artifacts""), """", &artifacts, 0); err != nil {
+		return nil, err
+	}
+	return &ExecutionResult{
+		Stdout:        stdout,
+		Stderr:        commandResult.Stderr,
+		ExitCode:      commandResult.ExitCode,
+		ExecutionTime: executionTime,
+		Metadata: map[string]any{
+			""instance_id"":       inst.InstanceID,
+			""sandbox_id"":        instance.sandbox.ID,
+			""language"":          normalizedLanguage,
+			""script_path"":       scriptPath,
+			""remote_work_dir"":   instance.remoteWorkDir,
+			""status"":            map[bool]string{true: ""ok"", false: ""error""}[commandResult.ExitCode == 0],
+			""timeout"":           executionTimeout,
+			""artifacts"":         artifacts,
+			""structured_result"": structured,
+		},
+	}, nil
+}
+
+// DestroyInstance terminates the sandbox. A missing instance is already clean.
+func (p *UCloudAgentSandboxProvider) DestroyInstance(ctx context.Context, inst *SandboxInstance) error {
+	if !p.isInitialized() {
+		return errors.New(""ucloud agent sandbox: provider not initialized"")
+	}
+	if inst == nil || inst.InstanceID == """" {
+		return errors.New(""ucloud agent sandbox: instance id required"")
+	}
+	p.mu.Lock()
+	instance := p.instances[inst.InstanceID]
+	delete(p.instances, inst.InstanceID)
+	p.mu.Unlock()
+	if instance == nil {
+		return nil
+	}
+	if _, err := instance.sandbox.Kill(ctx); err != nil {
+		return fmt.Errorf(""ucloud agent sandbox: kill sandbox: %w"", err)
+	}
+	return nil
+}
+
+// HealthCheck reports whether the provider has a configured client.
+func (p *UCloudAgentSandboxProvider) HealthCheck(context.Context) error {
+	if !p.isInitialized() || p.client == nil {
+		return errors.New(""ucloud agent sandbox: provider not initialized"")
+	}
+	return nil
+}
+
+func (p *UCloudAgentSandboxProvider) collectArtifacts(
+	ctx context.Context,
+	sbx *ucloudsdk.Sandbox,
+	currentDir, relativeDir string,
+	artifacts *[]map[string]any,
+	depth int,
+) error {
+	if depth > ucloudAgentSandboxMaxArtifactDepth {
+		return fmt.Errorf(""ucloud agent sandbox: artifact directory nesting exceeds %d levels: %s"", ucloudAgentSandboxMaxArtifactDepth, relativeDir)
+	}
+	entries, err := sbx.Files.List(ctx, currentDir, ucloudsdk.WithDepth(1))
+	if err != nil {
+		if errors.Is(err, ucloudsdk.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf(""ucloud agent sandbox: list artifacts: %w"", err)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	for _, entry := range entries {
+		name := path.Base(entry.Path)
+		relativePath := path.Join(relativeDir, name)
+		if entry.SymlinkTarget != nil {
+			return fmt.Errorf(""ucloud agent sandbox: artifact symlinks are not allowed: %s"", relativePath)
+		}
+		if entry.Type == ucloudsdk.EntryTypeDir {
+			if err := p.collectArtifacts(ctx, sbx, entry.Path, relativePath, artifacts, depth+1); err != nil {
+				return err
+			}
+			continue
+		}
+		if len(*artifacts) >= p.maxArtifacts {
+			return fmt.Errorf(""ucloud agent sandbox: execution produced more than %d artifacts"", p.maxArtifacts)
+		}
+		if entry.Size > int64(p.maxArtifactBytes) {
+			return fmt.Errorf(""ucloud agent sandbox: artifact exceeds %d bytes: %s"", p.maxArtifactBytes, relativePath)
+		}
+		extension := strings.ToLower(path.Ext(name))
+		if _, allowed := allowedArtifactExts[extension]; !allowed {
+			return fmt.Errorf(""ucloud agent sandbox: unsupported artifact type: %s"", relativePath)
+		}
+		content, err := sbx.Files.ReadBytes(ctx, entry.Path)
+		if err != nil {
+			return fmt.Errorf(""ucloud agent sandbox: read artifact %s: %w"", relativePath, err)
+		}
+		mimeType := mime.TypeByExtension(extension)
+		if mimeType == """" {
+			mimeType = ""application/octet-stream""
+		}
+		*artifacts = append(*artifacts, map[string]any{
+			""name"":        relativePath,
+			""content_b64"": base64.StdEncoding.EncodeToString(content),
+			""mime_type"":   mimeType,
+			""size"":        entry.Size,
+		})
+	}
+	return nil
+}
+
+func (p *UCloudAgentSandboxProvider) isInitialized() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.initialized
+}
+"
+infiniflow/ragflow@main:internal/harness/core/workflow_graph.go,infiniflow/ragflow,main,internal/harness/core/workflow_graph.go,Go,agent-loop,437,14060,false,WorkflowGraphState;WorkflowGraph,init;AppendMessage;SnapshotMessages;MessagesLen;NewSequentialGraph;NewParallelGraph;NewLoopGraph;toWorkflowGraphState;mapToWorkflowGraphState;Invoke;Stream;Resume;Compile,context;fmt;sync;ragflow/internal/harness/core/schema;ragflow/internal/harness/graph/checkpoint;ragflow/internal/harness/graph/constants;ragflow/internal/harness/graph/graph;ragflow/internal/harness/graph/types,,https://raw.githubusercontent.com/infiniflow/ragflow/main/internal/harness/core/workflow_graph.go,"// Package agentcore provides graph-based workflow agents (Sequential, Parallel,
+// Loop) using the project's own StateGraph/Pregel engine.
+//
+// Unlike the legacy workflow.go implementation, these graph-based workflows:
+//   - Auto-checkpoint at each sub-agent boundary (via graph.WithCheckpointer)
+//   - Support interrupt/resume at any sub-agent (via graph.WithInterrupts)
+//   - Emit streaming events through the Pregel StreamManager
+//   - Use the Pregel engine's recursion limit and cancellation support
+//
+// Usage:
+//
+//	gwf, err := NewSequentialGraph(ctx, &SequentialConfig{...}, checkpointer)
+//	state, err := gwf.Invoke(ctx, input)
+package core
+
+import (
+	""context""
+	""fmt""
+	""sync""
+
+	""ragflow/internal/harness/core/schema""
+	""ragflow/internal/harness/graph/checkpoint""
+	""ragflow/internal/harness/graph/constants""
+	""ragflow/internal/harness/graph/graph""
+	""ragflow/internal/harness/graph/types""
+)
+
+func init() {
+	schema.RegisterType(""_harness_wf_graph_state"", func() any { return &WorkflowGraphState{} })
+}
+
+// WorkflowGraphState is the shared state for graph-based workflow agents.
+// It carries messages between sub-agents and tracks the current position.
+type WorkflowGraphState struct {
+	Messages      []*schema.Message
+	SubAgentNames []string // names of sub-agents in order
+	CurrentStep   int      // current sub-agent index
+	LoopIter      int      // for loop mode
+	MaxLoopIter   int      // for loop mode
+	Done          bool
+
+	mu sync.Mutex // protects Messages from concurrent access in inline execution
+}
+
+// AppendMessage safely appends a message to the Messages slice.
+func (s *WorkflowGraphState) AppendMessage(msg *schema.Message) {
+	s.mu.Lock()
+	s.Messages = append(s.Messages, msg)
+	s.mu.Unlock()
+}
+
+// SnapshotMessages safely returns a copy of the Messages slice.
+func (s *WorkflowGraphState) SnapshotMessages() []*schema.Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]*schema.Message(nil), s.Messages...)
+}
+
+// MessagesLen safely returns the length of Messages.
+func (s *WorkflowGraphState) MessagesLen() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.Messages)
+}
+
+// WorkflowGraph wraps a CompiledGraph that runs sub-agents as graph nodes.
+type WorkflowGraph struct {
+	compiled types.CompiledGraph
+}
+
+// ---- Sequential ----
+
+// NewSequentialGraph builds a StateGraph where sub-agents run sequentially.
+//
+//	start → sub_0 → sub_1 → ... → sub_n → end
+//
+// Each sub-agent boundary is a checkpoint point. Interrupt can be enabled
+// before any sub-agent via WithInterrupts.
+func NewSequentialGraph(ctx context.Context, cfg *SequentialConfig, cptr checkpoint.BaseCheckpointer, interrupts ...string) (*WorkflowGraph, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf(""SequentialConfig is nil"")
+	}
+	if len(cfg.SubAgents) == 0 {
+		return nil, fmt.Errorf(""SequentialConfig requires at least one sub-agent"")
+	}
+	sg := graph.NewStateGraph(&WorkflowGraphState{})
+
+	names := make([]string, len(cfg.SubAgents))
+	for i, a := range cfg.SubAgents {
+		names[i] = a.Name(ctx)
+	}
+
+	// Create one node per sub-agent.
+	for i, agent := range cfg.SubAgents {
+		idx := i
+		ag := agent // capture
+		nodeName := fmt.Sprintf(""sub_%d"", i)
+		sg.AddNode(nodeName, func(ctx context.Context, state interface{}) (interface{}, error) {
+			s := state.(*WorkflowGraphState)
+			// Copy Messages slice so the sub-agent's goroutine doesn't share
+			// the underlying array with the graph's concurrent goroutines.
+			msgCopy := append([]*schema.Message(nil), s.Messages...)
+			iter := ag.Run(ctx, &AgentInput{Messages: msgCopy})
+			s.Messages = nil // Return only new messages to the append channel.
+			for {
+				ev, ok := iter.Next()
+				if !ok {
+					break
+				}
+				if ev.Err != nil {
+					return nil, fmt.Errorf(""sub-agent %s: %w"", names[idx], ev.Err)
+				}
+				if ev.Output != nil && ev.Output.MessageOutput != nil &&
+					!ev.Output.MessageOutput.IsStreaming &&
+					ev.Output.MessageOutput.Message != nil {
+					s.AppendMessage(ev.Output.MessageOutput.Message)
+				}
+			}
+			s.CurrentStep = idx + 1
+			return s, nil
+		})
+	}
+
+	// Chain nodes sequentially.
+	sg.AddEdge(constants.Start, ""sub_0"")
+	for i := 1; i < len(cfg.SubAgents); i++ {
+		sg.AddEdge(fmt.Sprintf(""sub_%d"", i-1), fmt.Sprintf(""sub_%d"", i))
+	}
+	sg.AddEdge(fmt.Sprintf(""sub_%d"", len(cfg.SubAgents)-1), constants.End)
+
+	compileOpts := []interface{}{
+		graph.WithRecursionLimit(len(cfg.SubAgents)*10 + 5),
+	}
+	if cptr != nil {
+		compileOpts = append(compileOpts, graph.WithCheckpointer(cptr))
+	}
+	for _, name := range interrupts {
+		compileOpts = append(compileOpts, graph.WithInterrupts(name))
+	}
+
+	compiled, err := sg.Compile(compileOpts...)
+	if err != nil {
+		return nil, fmt.Errorf(""compile sequential graph: %w"", err)
+	}
+
+	return &WorkflowGraph{compiled: compiled}, nil
+}
+
+// ---- Parallel ----
+
+// NewParallelGraph builds a StateGraph where sub-agents run in parallel via
+// a split node that fans out to all sub-agents.
+//
+//	start → __wf_split__ ─┬→ sub_0 ─┬→ end
+//	                      ├→ sub_1 ─┤
+//	                      └→ sub_n ─┘
+func NewParallelGraph(ctx context.Context, cfg *ParallelConfig, cptr checkpoint.BaseCheckpointer, interrupts ...string) (*WorkflowGraph, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf(""ParallelConfig is nil"")
+	}
+	if len(cfg.SubAgents) == 0 {
+		return nil, fmt.Errorf(""ParallelConfig requires at least one sub-agent"")
+	}
+	sg := graph.NewStateGraph(&WorkflowGraphState{})
+
+	names := make([]string, len(cfg.SubAgents))
+	for i, a := range cfg.SubAgents {
+		names[i] = a.Name(ctx)
+	}
+
+	// Add a split node that fans out to all sub-agents via multiple outgoing edges.
+	sg.AddNode(""__wf_split__"", func(ctx context.Context, state interface{}) (interface{}, error) {
+		return state, nil
+	})
+	sg.AddEdge(constants.Start, ""__wf_split__"")
+
+	// Each sub-agent is a node that appends its output.
+	for i, agent := range cfg.SubAgents {
+		idx := i
+		ag := agent
+		nodeName := fmt.Sprintf(""sub_%d"", i)
+		sg.AddNode(nodeName, func(ctx context.Context, state interface{}) (interface{}, error) {
+			s := state.(*WorkflowGraphState)
+			msgCopy := s.SnapshotMessages()
+			iter := ag.Run(ctx, &AgentInput{Messages: msgCopy})
+			s.Messages = nil // Return only new messages to the append channel.
+			for {
+				ev, ok := iter.Next()
+				if !ok {
+					break
+				}
+				if ev.Err != nil {
+					return nil, fmt.Errorf(""sub-agent %s: %w"", names[idx], ev.Err)
+				}
+				if ev.Output != nil && ev.Output.MessageOutput != nil &&
+					!ev.Output.MessageOutput.IsStreaming &&
+					ev.Output.MessageOutput.Message != nil {
+					s.AppendMessage(ev.Output.MessageOutput.Message)
+				}
+			}
+			return map[string]interface{}{
+				""Messages"": s.SnapshotMessages(),
+			}, nil
+		})
+		sg.AddEdge(""__wf_split__"", nodeName)
+		sg.AddEdge(nodeName, constants.End)
+	}
+
+	compileOpts := []interface{}{
+		graph.WithRecursionLimit(len(cfg.SubAgents)*10 + 5),
+	}
+	if cptr != nil {
+		compileOpts = append(compileOpts, graph.WithCheckpointer(cptr))
+	}
+	for _, name := range interrupts {
+		compileOpts = append(compileOpts, graph.WithInterrupts(name))
+	}
+
+	compiled, err := sg.Compile(compileOpts...)
+	if err != nil {
+		return nil, fmt.Errorf(""compile parallel graph: %w"", err)
+	}
+
+	return &WorkflowGraph{compiled: compiled}, nil
+}
+
+// ---- Loop ----
+
+// NewLoopGraph builds a StateGraph that runs sub-agents in a loop with bounded
+// iterations.
+//
+//	start → sub_0 → sub_1 → ... → sub_n → [iter < max?] → back to sub_0
+//	                                        ↘ end
+func NewLoopGraph(ctx context.Context, cfg *LoopConfig, cptr checkpoint.BaseCheckpointer, interrupts ...string) (*WorkflowGraph, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf(""LoopConfig is nil"")
+	}
+	if len(cfg.SubAgents) == 0 {
+		return nil, fmt.Errorf(""LoopConfig requires at least one sub-agent"")
+	}
+	sg := graph.NewStateGraph(&WorkflowGraphState{})
+
+	maxIter := cfg.MaxIterations
+	if maxIter <= 0 {
+		maxIter = 10
+	}
+
+	names := make([]string, len(cfg.SubAgents))
+	for i, a := range cfg.SubAgents {
+		names[i] = a.Name(ctx)
+	}
+
+	// One node per sub-agent.
+	for i, agent := range cfg.SubAgents {
+		idx := i
+		ag := agent
+		nodeName := fmt.Sprintf(""sub_%d"", i)
+		sg.AddNode(nodeName, func(ctx context.Context, state interface{}) (interface{}, error) {
+			s := state.(*WorkflowGraphState)
+			// Copy Messages slice so the sub-agent's goroutine doesn't share
+			// the underlying array with the graph's concurrent goroutines.
+			msgCopy := append([]*schema.Message(nil), s.Messages...)
+			iter := ag.Run(ctx, &AgentInput{Messages: msgCopy})
+			s.Messages = nil // Return only new messages to the append channel.
+			for {
+				ev, ok := iter.Next()
+				if !ok {
+					break
+				}
+				if ev.Err != nil {
+					return nil, fmt.Errorf(""sub-agent %s: %w"", names[idx], ev.Err)
+				}
+				if ev.Output != nil && ev.Output.MessageOutput != nil &&
+					!ev.Output.MessageOutput.IsStreaming &&
+					ev.Output.MessageOutput.Message != nil {
+					s.AppendMessage(ev.Output.MessageOutput.Message)
+				}
+			}
+			s.CurrentStep = idx + 1
+			// Increment LoopIter in the last node so it persists to channels.
+			// (The conditional edge only reads LoopIter for routing.)
+			if idx == len(cfg.SubAgents)-1 {
+				s.LoopIter++
+			}
+			return s, nil
+		})
+	}
+
+	// Chain: start → sub_0 → sub_1 → ... → sub_n
+	sg.AddEdge(constants.Start, ""sub_0"")
+	for i := 1; i < len(cfg.SubAgents); i++ {
+		sg.AddEdge(fmt.Sprintf(""sub_%d"", i-1), fmt.Sprintf(""sub_%d"", i))
+	}
+
+	// Conditional edge from last sub-agent: loop back or end.
+	lastNode := fmt.Sprintf(""sub_%d"", len(cfg.SubAgents)-1)
+	sg.AddConditionalEdges(lastNode,
+		func(ctx context.Context, state interface{}) (interface{}, error) {
+			s := state.(*WorkflowGraphState)
+			if s.LoopIter >= maxIter {
+				s.Done = true
+				return constants.End, nil
+			}
+			return ""sub_0"", nil
+		},
+		map[string]string{
+			constants.End: constants.End,
+			""sub_0"":       ""sub_0"",
+		},
+	)
+	// Mark lastNode as a finish point so graph validation passes. The
+	// conditional edge to End is the actual runtime termination path.
+	sg.SetFinishPoint(lastNode)
+
+	// Use a generous recursion limit. The sub-agent execution within each
+	// loop iteration can consume multiple steps internally; the parent graph
+	// recursion limit must account for this.
+	recLimit := maxIter*len(cfg.SubAgents)*50 + 50
+	compileOpts := []interface{}{
+		graph.WithRecursionLimit(recLimit),
+	}
+	if cptr != nil {
+		compileOpts = append(compileOpts, graph.WithCheckpointer(cptr))
+	}
+	for _, name := range interrupts {
+		compileOpts = append(compileOpts, graph.WithInterrupts(name))
+	}
+
+	compiled, err := sg.Compile(compileOpts...)
+	if err != nil {
+		return nil, fmt.Errorf(""compile loop graph: %w"", err)
+	}
+
+	return &WorkflowGraph{compiled: compiled}, nil
+}
+
+// ---- Invocation ----
+
+// toWorkflowGraphState converts the engine's result (map or typed struct)
+// back to *WorkflowGraphState. The Pregel engine serializes state through
+// channels which may flatten structs into map[string]interface{}.
+func toWorkflowGraphState(result interface{}) (*WorkflowGraphState, error) {
+	switch v := result.(type) {
+	case *WorkflowGraphState:
+		return v, nil
+	case map[string]interface{}:
+		return mapToWorkflowGraphState(v)
+	default:
+		return nil, fmt.Errorf(""unexpected result type %T from workflow graph"", result)
+	}
+}
+
+// mapToWorkflowGraphState converts a map result to WorkflowGraphState.
+// The Pregel engine uses Go struct field names as channel keys (PascalCase).
+func mapToWorkflowGraphState(m map[string]interface{}) (*WorkflowGraphState, error) {
+	s := &WorkflowGraphState{}
+	if msgs, ok := m[""Messages""]; ok {
+		if msgList, ok := msgs.([]*schema.Message); ok {
+			s.Messages = msgList
+		} else if rawList, ok := msgs.([]interface{}); ok {
+			for _, raw := range rawList {
+				if msg, ok := raw.(*schema.Message); ok {
+					s.Messages = append(s.Messages, msg)
+				}
+			}
+		}
+	}
+	if step, ok := m[""CurrentStep""].(int); ok {
+		s.CurrentStep = step
+	} else if step, ok := m[""CurrentStep""].(float64); ok {
+		s.CurrentStep = int(step)
+	}
+	if iter, ok := m[""LoopIter""].(int); ok {
+		s.LoopIter = iter
+	} else if iter, ok := m[""LoopIter""].(float64); ok {
+		s.LoopIter = int(iter)
+	}
+	if maxIter, ok := m[""MaxLoopIter""].(int); ok {
+		s.MaxLoopIter = maxIter
+	} else if maxIter, ok := m[""MaxLoopIter""].(float64); ok {
+		s.MaxLoopIter = int(maxIter)
+	}
+	if done, ok := m[""Done""].(bool); ok {
+		s.Done = done
+	}
+	return s, nil
+}
+
+// Invoke runs the workflow graph synchronously and returns the final state.
+func (wg *WorkflowGraph) Invoke(ctx context.Context, input *AgentInput) (*WorkflowGraphState, error) {
+	if wg == nil || wg.compiled == nil {
+		return nil, fmt.Errorf(""workflow graph is not compiled"")
+	}
+	if input == nil {
+		input = &AgentInput{}
+	}
+	state := &WorkflowGraphState{
+		Messages:    input.Messages,
+		CurrentStep: 0,
+	}
+	result, err := wg.compiled.Invoke(ctx, state)
+	if err != nil {
+		return nil, err
+	}
+	return toWorkflowGraphState(result)
+}
+
+// Stream runs the workflow graph with streaming events via Pregel.
+func (wg *WorkflowGraph) Stream(ctx context.Context, input *AgentInput, mode types.StreamMode) (<-chan interface{}, <-chan error) {
+	if input == nil {
+		input = &AgentInput{}
+	}
+	state := &WorkflowGraphState{
+		Messages:    input.Messages,
+		CurrentStep: 0,
+	}
+	return wg.compiled.Stream(ctx, state, mode)
+}
+
+// Resume resumes a previously interrupted workflow.
+// Resume resumes a previously interrupted workflow graph from its checkpoint.
+// Note: this is a thin wrapper that invokes the compiled graph with an empty state.
+// For proper checkpoint resume, ensure the compiled graph was configured with a
+// checkpointer and the config has the correct ThreadID for checkpoint lookup.
+func (wg *WorkflowGraph) Resume(ctx context.Context) (*WorkflowGraphState, error) {
+	result, err := wg.compiled.Invoke(ctx, &WorkflowGraphState{})
+	if err != nil {
+		return nil, err
+	}
+	return toWorkflowGraphState(result)
+}
+
+// Compile returns the underlying CompiledGraph.
+func (wg *WorkflowGraph) Compile() types.CompiledGraph { return wg.compiled }
+
+// ---- helpers ----
+"
+infiniflow/ragflow@main:internal/harness/core/agent_loop_config.go,infiniflow/ragflow,main,internal/harness/core/agent_loop_config.go,Go,agent-loop,320,7281,false,preemptTurnSnapshot;cancelRequestState;stopConfig;InterruptError;stopDecision;stopCancelRequest;preemptRequest,String;parseCancelOptions;newCancelRequestState;merge;cancelOptions;toCancelMode;Error;newStopCancelRequest;newPreemptRequest;ack,context;fmt;time,24a97eda171d55e95e78f022548098f6b3c81991;af1f630b69312ea79c4a649fb42ef7bd6e31a18b;00b3b996bc0d53e4dbd02911ef60aa2ad7282309;34e1632b630f807398de1c8cf169360fecbc3bfc;a59a2df231b71e379fd4695cc68d5310665f7cca;4c47c486c31ea65ba47df77406776e9f3712c904;53c6d87f5fcb12f0faf5efbef8fd1405f5608c52;44a31fdcfaf649b8e2b9c1bbfbef517b4431c3b9;df95cdb6bf635129657e87b659f9cdbb64c0d043;01acd503e8ac8dbd59fbdb8064bf9f7f34557c3a;3c6d2255af06164f0818d0959af10de0afd8b8fa;8ba216b1c198d90dc82b298354b750d2d0e9dbda;83f99c5140ecd2057ff0140b303397014bd6ce3f;8b8ccbf4780c08622158a06195eb49d074c3e79a;6aeb92deff2b46303559cd4c84a7b8db35ee3fb4;33806977d1e57c1e7bb0f817d0c795ba54adeb46;d4f39825559c29d2d3dbf328adcedb12b21bfc98;4b520c2476b54015db0755ece50d8808697ba99b;9b325bc10c423b1610a1e24596c028d0ffceb792;e7047b7a27d1d75f0357dc88590900f53e26bf37;3e313daf6ffdcb08e8501f31429a85bf0b4becfd;b5e8a0a2c3ad7c24370d301856bdb933aa5c9288;e34fd2b5ca94e43f5750fcef927a14f2888908bf;6a2ef7ec6b6c9c640e409d5ec9cfd7ac183a0731;31296803d4dae4302ec4a0da45fb973c0f11635c,https://raw.githubusercontent.com/infiniflow/ragflow/main/internal/harness/core/agent_loop_config.go,"package core
+
+import (
+	""context""
+	""fmt""
+	""time""
+)
+
+// stopPhase tracks the stop commitment lifecycle.
+type stopPhase uint8
+
+const (
+	stopOpen stopPhase = iota
+	stopIdleWaiting
+	stopCommitted
+)
+
+// preemptTurnPhase tracks the preempt turn lifecycle.
+type preemptTurnPhase uint8
+
+const (
+	preemptTurnIdle preemptTurnPhase = iota
+	preemptTurnPlanning
+	preemptTurnActive
+)
+
+func (p preemptTurnPhase) String() string {
+	switch p {
+	case preemptTurnIdle:
+		return ""idle""
+	case preemptTurnPlanning:
+		return ""planning""
+	case preemptTurnActive:
+		return ""active""
+	default:
+		return ""unknown""
+	}
+}
+
+// preemptTurnSnapshot captures the turn state at Push time.
+type preemptTurnSnapshot struct {
+	hasTargetTurn bool
+	turnID        uint64
+	ctx           context.Context
+	tc            any
+}
+
+// cancelRequestState holds cancel configuration with optional deadline.
+type cancelRequestState struct {
+	cfg             cancelConfig
+	timeoutDeadline *time.Time
+}
+
+func parseCancelOptions(opts ...CancelOption) cancelConfig {
+	cfg := cancelConfig{Mode: CancelImmediate}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return cfg
+}
+
+func newCancelRequestState(opts []CancelOption, now time.Time) cancelRequestState {
+	cfg := parseCancelOptions(opts...)
+	var deadline *time.Time
+	if cfg.Timeout != nil && *cfg.Timeout > 0 && cfg.Mode != CancelImmediate {
+		d := now.Add(*cfg.Timeout)
+		deadline = &d
+	}
+	cfg.Timeout = nil
+
+	return cancelRequestState{
+		cfg:             cfg,
+		timeoutDeadline: deadline,
+	}
+}
+
+func (s *cancelRequestState) merge(opts []CancelOption, now time.Time) {
+	if opts == nil {
+		return
+	}
+
+	next := newCancelRequestState(opts, now)
+	if s.cfg.Mode == CancelImmediate || next.cfg.Mode == CancelImmediate {
+		s.cfg.Mode = CancelImmediate
+		s.timeoutDeadline = nil
+	} else {
+		s.cfg.Mode |= next.cfg.Mode
+		if next.timeoutDeadline != nil {
+			if s.timeoutDeadline == nil || next.timeoutDeadline.Before(*s.timeoutDeadline) {
+				deadline := *next.timeoutDeadline
+				s.timeoutDeadline = &deadline
+			}
+		}
+	}
+	if next.cfg.Recursive {
+		s.cfg.Recursive = true
+	}
+}
+
+func (s cancelRequestState) cancelOptions(now time.Time) []CancelOption {
+	cfg := s.cfg
+	if cfg.Mode != CancelImmediate && s.timeoutDeadline != nil {
+		remaining := s.timeoutDeadline.Sub(now)
+		if remaining <= 0 {
+			cfg.Mode = CancelImmediate
+			cfg.Timeout = nil
+		} else {
+			cfg.Timeout = &remaining
+		}
+	}
+
+	opts := []CancelOption{WithCancelMode(cfg.Mode)}
+	if cfg.Recursive {
+		opts = append(opts, WithRecursiveCancel())
+	}
+	if cfg.Timeout != nil {
+		opts = append(opts, WithCancelTimeout(*cfg.Timeout))
+	}
+	return opts
+}
+
+// AgentLoopConfig is the configuration for creating a AgentLoop.
+type AgentLoopConfig[T any] struct {
+	GenInput func(ctx context.Context, loop *AgentLoop[T], items []T) (*GenInputResult[T], error)
+
+	GenResume func(ctx context.Context, loop *AgentLoop[T], interruptedItems, unhandledItems, newItems []T) (*GenResumeResult[T], error)
+
+	PrepareAgent func(ctx context.Context, loop *AgentLoop[T], consumed []T) (Agent, error)
+
+	OnAgentEvents func(ctx context.Context, tc *TurnContext[T], events *AsyncIterator[*AgentEvent]) error
+
+	Store CheckPointStore
+
+	CheckpointID string
+}
+
+// GenInputResult contains the result of GenInput processing.
+type GenInputResult[T any] struct {
+	RunCtx    context.Context
+	Input     *AgentInput
+	RunOpts   []RunOption
+	Consumed  []T
+	Remaining []T
+}
+
+// GenResumeResult contains the result of GenResume processing.
+type GenResumeResult[T any] struct {
+	RunCtx       context.Context
+	RunOpts      []RunOption
+	ResumeParams *ResumeParams
+	Consumed     []T
+	Remaining    []T
+}
+
+type turnRunSpec[T any] struct {
+	runCtx       context.Context
+	input        *AgentInput
+	runOpts      []RunOption
+	resumeParams *ResumeParams
+	isResume     bool
+	consumed     []T
+	resumeBytes  []byte
+}
+
+type turnPlan[T any] struct {
+	turnCtx   context.Context
+	remaining []T
+	spec      *turnRunSpec[T]
+}
+
+// AgentLoopState is returned when AgentLoop exits.
+type AgentLoopState[T any] struct {
+	ExitReason          error
+	UnhandledItems      []T
+	InterruptedItems    []T
+	StopCause           string
+	CheckpointAttempted bool
+	CheckpointErr       error
+	TakeLateItems       func() []T
+}
+
+// TurnContext provides per-turn context to the OnAgentEvents callback.
+type TurnContext[T any] struct {
+	Loop      *AgentLoop[T]
+	Consumed  []T
+	Preempted <-chan struct{}
+	Stopped   <-chan struct{}
+	StopCause func() string
+}
+
+type agentLoopCheckpoint[T any] struct {
+	RunnerCheckpoint []byte
+	HasRunnerState   bool
+	UnhandledItems   []T
+	CanceledItems    []T
+}
+
+type agentLoopPendingResume[T any] struct {
+	interrupted []T
+	unhandled   []T
+	newItems    []T
+	resumeBytes []byte
+}
+
+// SafePoint describes at which boundary the agent may be cancelled.
+type SafePoint int
+
+const (
+	AfterChatModel SafePoint = 1 << iota
+	AfterToolCalls
+	AnySafePoint = AfterChatModel | AfterToolCalls
+)
+
+func (sp SafePoint) toCancelMode() CancelMode {
+	var mode CancelMode
+	if sp&AfterToolCalls != 0 {
+		mode |= CancelAfterToolCalls
+	}
+	if sp&AfterChatModel != 0 {
+		mode |= CancelAfterChatModel
+	}
+	return mode
+}
+
+type stopConfig struct {
+	agentCancelOpts []CancelOption
+	skipCheckpoint  bool
+	stopCause       string
+	idleFor         time.Duration
+	timeout         *time.Duration
+}
+
+type pushConfig[T any] struct {
+	preempt         bool
+	preemptDelay    time.Duration
+	agentCancelOpts []CancelOption
+	pushStrategy    func(context.Context, *TurnContext[T]) []PushOption[T]
+}
+
+// StopOption is an option for Stop().
+type StopOption func(*stopConfig)
+
+// PushOption is an option for Push().
+type PushOption[T any] func(*pushConfig[T])
+
+// InterruptError signals a business interrupt during a turn.
+type InterruptError struct {
+	InterruptContexts []*InterruptCtx
+}
+
+func (e *InterruptError) Error() string {
+	return fmt.Sprintf(""agent interrupted: %d context(s)"", len(e.InterruptContexts))
+}
+
+// stopDecision communicates the result of a stop request.
+type stopDecision struct {
+	commit   bool
+	wakeIdle bool
+}
+
+type stopCancelRequest struct {
+	cancel cancelRequestState
+}
+
+func newStopCancelRequest(opts []CancelOption, now time.Time) *stopCancelRequest {
+	return &stopCancelRequest{cancel: newCancelRequestState(opts, now)}
+}
+
+func (r *stopCancelRequest) merge(opts []CancelOption, now time.Time) {
+	if r == nil {
+		return
+	}
+	r.cancel.merge(opts, now)
+}
+
+func (r *stopCancelRequest) cancelOptions(now time.Time) []CancelOption {
+	if r == nil {
+		return nil
+	}
+	return r.cancel.cancelOptions(now)
+}
+
+// preemptRequest holds pending preempt state.
+type preemptRequest struct {
+	cancel   cancelRequestState
+	ackChans []chan struct{}
+}
+
+func newPreemptRequest(ack chan struct{}, opts []CancelOption, now time.Time) *preemptRequest {
+	req := &preemptRequest{cancel: newCancelRequestState(opts, now)}
+	if ack != nil {
+		req.ackChans = append(req.ackChans, ack)
+	}
+	return req
+}
+
+func (r *preemptRequest) ack() {
+	if r == nil {
+		return
+	}
+	for _, ack := range r.ackChans {
+		close(ack)
+	}
+	r.ackChans = nil
+}
+
+func (r *preemptRequest) merge(ack chan struct{}, opts []CancelOption, now time.Time) {
+	if ack != nil {
+		r.ackChans = append(r.ackChans, ack)
+	}
+	r.cancel.merge(opts, now)
+}
+
+func (r *preemptRequest) cancelOptions(now time.Time) []CancelOption {
+	if r == nil {
+		return nil
+	}
+	return r.cancel.cancelOptions(now)
+}
+"
+infiniflow/ragflow@main:internal/harness/core/agent_loop.go,infiniflow/ragflow,main,internal/harness/core/agent_loop.go,Go,agent-loop,217,5650,false,,start;Run;Stop;commitStop;finishStopCommit;Wait;shouldSaveCheckpoint;cleanup,context;errors;sync;sync/atomic;time,d0d0d255f071870c80cf565b3eb7ef5f00fd4398;05c239a8cf7932850adc1a120dd54a757b4ef665;2c2283707ee46259bfc3bd3cbdb13ee93dd4f1e0;92e93c40deeb9f77e72321a582155802ef61808b;356a928c04b8b8d430b3ef3c6ccf11edef1cf63f;5527c26dda3e56ae05b55110f1c8ce76ef0cff9b;c1711a2be1d427b8eaabb2d9aee2550f1c094f43;21032357b931188f4de5fe649cb0646c998fa239;25f167d3fb35cb8fa31b359cae5c54ea5af56fae;225660927c4640f8fc4d6fc7cf3eb4778cabdbb7;62a4eae87be3a5e7fb86483ff9c2d896697208be;185538bd06c40886a62e8e893ac4e4555b6aa51c;e134655d05b47256409e5fcf13fead9a50699288;3eb36c449b533a3acb970b5a43cf42f14055e5b1;b62eb01d5c0a225231f28981d73574ead230c629;aad53ef308c5fa02a4394b66cac4d2e856ceae19;781397b3ba4c0286457ca7f7dc0d183e2b10ffc2;658095dd7498fd0e083f0689473d407ff1ac0d3a;82a8000c46be394ac672303d4e0a71d5c9fae8e8;d4f0ecd836e751e3baeed4fc03e171db27a0be11;8079fe51c5f58fb02aacb55772d93408ad7aacbb;2f7f2e0a3375bd6f54242fc70ced918d466af7d9;747280aec8ce996197408704e925d1ad8bd1a25d;98b48a085786fb9e14be8753b5a9a9ea02230ccf;2d9acf7762b226cc55fdf2c42f3c43053d2d58d5,https://raw.githubusercontent.com/infiniflow/ragflow/main/internal/harness/core/agent_loop.go,"package core
+
+import (
+	""context""
+	""errors""
+	""sync""
+	""sync/atomic""
+	""time""
+)
+
+// ---- AgentLoop core: struct, lifecycle, cleanup ----
+//
+// Configuration types (AgentLoopConfig, preemptController, stopController, etc.)
+// are defined in turn_loop_config.go, turn_loop_preempt.go, and turn_loop_stop.go.
+// Execution logic is split into:
+//   - turn_loop_run.go     (planTurn, run, defaultTurnLoopOnAgentEvents)
+//   - turn_loop_agent.go   (runAgentAndHandleEvents, watchPreempt, watchStop, setupBridgeStore)
+//   - turn_loop_push.go    (Push, pushWithStrategy, pushWithConfig, appendLate)
+//   - turn_loop_checkpoint.go (checkpoint serialization, tryLoadCheckpoint)
+
+// AgentLoop executes agent turns in a push-based loop.
+// See AgentLoopConfig for configuration details and AgentLoopState for results.
+type AgentLoop[T any] struct {
+	config AgentLoopConfig[T]
+
+	buffer *turnBuffer[T]
+
+	stopped int32
+	started int32
+
+	done chan struct{}
+
+	result *AgentLoopState[T]
+
+	runOnce sync.Once
+
+	stopCtrl *stopController
+
+	preemptCtrl *preemptController
+
+	runErr error
+
+	interruptedItems []T
+
+	checkPointRunnerBytes []byte
+	interruptContexts     []*InterruptCtx
+	capturedCancelErr     *CancelError
+
+	pendingResume *agentLoopPendingResume[T]
+
+	loadCheckpointID string
+
+	onAgentEvents func(ctx context.Context, tc *TurnContext[T], events *AsyncIterator[*AgentEvent]) error
+
+	lateMu     sync.Mutex
+	lateItems  []T
+	lateSealed bool
+}
+
+// NewAgentLoop creates a new AgentLoop without starting it.
+func NewAgentLoop[T any](cfg AgentLoopConfig[T]) *AgentLoop[T] {
+	if cfg.GenInput == nil {
+		panic(""agentcore: NewAgentLoop: GenInput is required"")
+	}
+	if cfg.PrepareAgent == nil {
+		panic(""agentcore: NewAgentLoop: PrepareAgent is required"")
+	}
+
+	l := &AgentLoop[T]{
+		config:      cfg,
+		buffer:      newTurnBuffer[T](),
+		done:        make(chan struct{}),
+		stopCtrl:    newStopController(),
+		preemptCtrl: newPreemptController(),
+	}
+	if cfg.OnAgentEvents != nil {
+		l.onAgentEvents = cfg.OnAgentEvents
+	} else {
+		l.onAgentEvents = defaultTurnLoopOnAgentEvents[T]
+	}
+	return l
+}
+
+func (l *AgentLoop[T]) start(ctx context.Context) {
+	l.runOnce.Do(func() {
+		atomic.StoreInt32(&l.started, 1)
+		go l.run(ctx)
+	})
+}
+
+// Run starts the loop's processing goroutine. It is non-blocking.
+func (l *AgentLoop[T]) Run(ctx context.Context) {
+	l.start(ctx)
+}
+
+// Stop signals the loop to stop and returns immediately (non-blocking).
+func (l *AgentLoop[T]) Stop(opts ...StopOption) {
+	cfg := &stopConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	if cfg.idleFor > 0 {
+		cfg.agentCancelOpts = nil
+	}
+
+	decision := l.stopCtrl.requestStop(cfg)
+	if decision.wakeIdle {
+		l.buffer.Wakeup()
+	}
+	if decision.commit {
+		l.finishStopCommit()
+	}
+
+	// If a stop timeout is configured, force-stop after the timeout
+	if cfg.timeout != nil && *cfg.timeout > 0 {
+		go func() {
+			select {
+			case <-time.After(*cfg.timeout):
+				l.commitStop()
+			case <-l.done:
+			}
+		}()
+	}
+}
+
+func (l *AgentLoop[T]) commitStop() {
+	if !l.stopCtrl.commit() {
+		return
+	}
+	l.finishStopCommit()
+}
+
+func (l *AgentLoop[T]) finishStopCommit() {
+	atomic.StoreInt32(&l.stopped, 1)
+	l.buffer.Close()
+}
+
+// Wait blocks until the loop exits and returns the result.
+func (l *AgentLoop[T]) Wait() *AgentLoopState[T] {
+	<-l.done
+	return l.result
+}
+
+// shouldSaveCheckpoint determines whether a turn-loop checkpoint should be saved.
+// Checkpoints are saved when:
+//  1. A stop was committed AND exit was caused by stop (runErr==nil, CancelError, or capturedCancelErr).
+//  2. A business interrupt occurred (InterruptError or interruptContexts).
+//  3. Checkpoint is not skipped (skipCheckpoint not set), not idle, and store is available.
+//
+// On normal completion (runErr==nil, no stop committed), no checkpoint is saved.
+func (l *AgentLoop[T]) shouldSaveCheckpoint() bool {
+	if l.config.Store == nil || l.config.CheckpointID == """" {
+		return false
+	}
+	if l.stopCtrl.skipCheckpointEnabled() {
+		return false
+	}
+	isIdle := len(l.checkPointRunnerBytes) == 0 && len(l.interruptedItems) == 0
+	if isIdle {
+		return false
+	}
+	exitCausedByStop := l.runErr == nil || errors.As(l.runErr, new(*CancelError)) || l.capturedCancelErr != nil
+	businessInterrupt := errors.As(l.runErr, new(*InterruptError)) || l.interruptContexts != nil
+	return (l.stopCtrl.isCommitted() && exitCausedByStop) || businessInterrupt
+}
+
+func (l *AgentLoop[T]) cleanup(ctx context.Context) {
+	atomic.StoreInt32(&l.stopped, 1)
+
+	unhandled := l.buffer.TakeAll()
+	checkpointID := l.config.CheckpointID
+	shouldSaveCheckpoint := l.shouldSaveCheckpoint()
+
+	var checkpointed bool
+	var checkpointErr error
+
+	if shouldSaveCheckpoint {
+		cp := &agentLoopCheckpoint[T]{
+			RunnerCheckpoint: l.checkPointRunnerBytes,
+			HasRunnerState:   len(l.checkPointRunnerBytes) > 0,
+			UnhandledItems:   unhandled,
+			CanceledItems:    l.interruptedItems,
+		}
+		checkpointed = true
+		checkpointErr = l.saveTurnLoopCheckpoint(ctx, checkpointID, cp)
+	} else if l.loadCheckpointID != """" {
+		_ = l.deleteTurnLoopCheckpoint(ctx, l.loadCheckpointID)
+	}
+
+	var takeLateOnce sync.Once
+	var takeLateResult []T
+
+	l.result = &AgentLoopState[T]{
+		ExitReason:          l.runErr,
+		UnhandledItems:      unhandled,
+		InterruptedItems:    l.interruptedItems,
+		StopCause:           l.stopCtrl.cause(),
+		CheckpointAttempted: checkpointed,
+		CheckpointErr:       checkpointErr,
+		TakeLateItems: func() []T {
+			takeLateOnce.Do(func() {
+				l.lateMu.Lock()
+				takeLateResult = append([]T{}, l.lateItems...)
+				l.lateSealed = true
+				l.lateMu.Unlock()
+			})
+			return takeLateResult
+		},
+	}
+
+	l.stopCtrl.closeForLoopExit()
+	l.preemptCtrl.closeForLoopExit()
+	l.buffer.Close()
+	close(l.done)
+}
+"
+infiniflow/ragflow@main:internal/harness/core/agent_loop_run.go,infiniflow/ragflow,main,internal/harness/core/agent_loop_run.go,Go,agent-loop,261,5565,false,,planTurn;run,context;errors;sync/atomic;time,,https://raw.githubusercontent.com/infiniflow/ragflow/main/internal/harness/core/agent_loop_run.go,"package core
+
+import (
+	""context""
+	""errors""
+	""sync/atomic""
+	""time""
+)
+
+// ---- AgentLoop main run loop and turn planning ----
+
+func (l *AgentLoop[T]) planTurn(
+	ctx context.Context,
+	isResume bool,
+	items []T,
+	pr *agentLoopPendingResume[T],
+) (*turnPlan[T], error) {
+	if !isResume {
+		result, err := l.config.GenInput(ctx, l, items)
+		if err != nil {
+			return nil, err
+		}
+		if result == nil {
+			return nil, errors.New(""GenInputResult is nil"")
+		}
+		if result.Input == nil {
+			return nil, errors.New(""agent input is nil"")
+		}
+		turnCtx := ctx
+		if result.RunCtx != nil {
+			turnCtx = result.RunCtx
+		}
+		return &turnPlan[T]{
+			turnCtx:   turnCtx,
+			remaining: result.Remaining,
+			spec: &turnRunSpec[T]{
+				runCtx:   result.RunCtx,
+				input:    result.Input,
+				runOpts:  result.RunOpts,
+				consumed: result.Consumed,
+			},
+		}, nil
+	}
+	if pr == nil {
+		return nil, errors.New(""resume payload is nil"")
+	}
+	if l.config.GenResume == nil {
+		return nil, errors.New(""GenResume is required for resume"")
+	}
+	resumeResult, err := l.config.GenResume(ctx, l, pr.interrupted, pr.unhandled, pr.newItems)
+	if err != nil {
+		return nil, err
+	}
+	if resumeResult == nil {
+		return nil, errors.New(""GenResumeResult is nil"")
+	}
+	turnCtx := ctx
+	if resumeResult.RunCtx != nil {
+		turnCtx = resumeResult.RunCtx
+	}
+	return &turnPlan[T]{
+		turnCtx:   turnCtx,
+		remaining: resumeResult.Remaining,
+		spec: &turnRunSpec[T]{
+			runCtx:       resumeResult.RunCtx,
+			runOpts:      resumeResult.RunOpts,
+			resumeParams: resumeResult.ResumeParams,
+			isResume:     true,
+			consumed:     resumeResult.Consumed,
+			resumeBytes:  pr.resumeBytes,
+		},
+	}, nil
+}
+
+func defaultTurnLoopOnAgentEvents[T any](_ context.Context, _ *TurnContext[T], events *AsyncIterator[*AgentEvent]) error {
+	for {
+		event, ok := events.Next()
+		if !ok {
+			break
+		}
+		if event.Err != nil {
+			return event.Err
+		}
+	}
+	return nil
+}
+
+func (l *AgentLoop[T]) run(ctx context.Context) {
+	defer l.cleanup(ctx)
+
+	if err := l.tryLoadCheckpoint(ctx); err != nil {
+		l.runErr = err
+		return
+	}
+
+	// Monitor context cancellation: close the buffer so that a blocking
+	// Receive() unblocks.
+	go func() {
+		select {
+		case <-ctx.Done():
+			l.buffer.Close()
+		case <-l.done:
+		}
+	}()
+
+	for {
+		if l.stopCtrl.isCommitted() {
+			return
+		}
+
+		isResume := false
+		var pr *agentLoopPendingResume[T]
+		var items []T
+		var pushBack []T
+
+		if l.pendingResume != nil {
+			isResume = true
+			pr = l.pendingResume
+			l.pendingResume = nil
+
+			l.preemptCtrl.waitForPushes()
+			pr.newItems = append(pr.newItems, l.buffer.TakeAll()...)
+
+			pushBack = make([]T, 0, len(pr.interrupted)+len(pr.unhandled)+len(pr.newItems))
+			pushBack = append(pushBack, pr.interrupted...)
+			pushBack = append(pushBack, pr.unhandled...)
+			pushBack = append(pushBack, pr.newItems...)
+		} else {
+			var first T
+			var ok bool
+
+			if idleFor := l.stopCtrl.idleDuration(); idleFor > 0 {
+				l.buffer.ClearWakeup()
+				idleTimer := time.NewTimer(idleFor)
+				cancelIdle := make(chan struct{})
+				go func() {
+					select {
+					case <-idleTimer.C:
+						l.commitStop()
+					case <-cancelIdle:
+					}
+				}()
+
+				first, ok = l.buffer.Receive()
+
+				// Drain the timer channel to avoid race with commitStop
+				if !idleTimer.Stop() {
+					select {
+					case <-idleTimer.C:
+					default:
+					}
+				}
+				close(cancelIdle)
+
+				if !ok && !l.buffer.IsClosed() {
+					if err := ctx.Err(); err != nil {
+						l.runErr = err
+						return
+					}
+					continue
+				}
+
+				// If commitStop fired via idle timer, exit
+				if atomic.LoadInt32(&l.stopped) != 0 {
+					return
+				}
+			} else {
+				first, ok = l.buffer.Receive()
+				if !ok && l.stopCtrl.idleDuration() > 0 {
+					continue
+				}
+			}
+
+			if !ok {
+				if err := ctx.Err(); err != nil {
+					l.runErr = err
+				}
+				return
+			}
+
+			if err := ctx.Err(); err != nil {
+				l.buffer.PushFront([]T{first})
+				l.runErr = err
+				return
+			}
+
+			if l.stopCtrl.isCommitted() {
+				l.buffer.PushFront([]T{first})
+				return
+			}
+
+			l.preemptCtrl.waitForPushes()
+			rest := l.buffer.TakeAll()
+			items = append([]T{first}, rest...)
+			pushBack = items
+		}
+
+		l.preemptCtrl.beginPlanningTurn()
+		abortPlanning := func() {
+			l.preemptCtrl.abortPlanningTurn().ack()
+		}
+
+		plan, err := l.planTurn(ctx, isResume, items, pr)
+		if err != nil {
+			abortPlanning()
+			if len(pushBack) > 0 {
+				l.buffer.PushFront(pushBack)
+			}
+			l.runErr = err
+			return
+		}
+
+		if l.stopCtrl.isCommitted() {
+			abortPlanning()
+			if len(pushBack) > 0 {
+				l.buffer.PushFront(pushBack)
+			}
+			return
+		}
+
+		agent, err := l.config.PrepareAgent(plan.turnCtx, l, plan.spec.consumed)
+		if err != nil {
+			abortPlanning()
+			if len(pushBack) > 0 {
+				l.buffer.PushFront(pushBack)
+			}
+			l.runErr = err
+			return
+		}
+
+		if l.stopCtrl.isCommitted() {
+			abortPlanning()
+			if len(pushBack) > 0 {
+				l.buffer.PushFront(pushBack)
+			}
+			return
+		}
+
+		l.buffer.PushFront(plan.remaining)
+
+		runErr := l.runAgentAndHandleEvents(plan.turnCtx, agent, plan.spec)
+
+		if runErr != nil {
+			if l.capturedCancelErr != nil || l.interruptContexts != nil {
+				// Assignment (not append) is intentional: only the interrupting
+				// turn's consumed items matter — the loop exits immediately after.
+				l.interruptedItems = append([]T{}, plan.spec.consumed...)
+			}
+			l.runErr = runErr
+			return
+		}
+
+		// Business interrupt: agent produced an Interrupted action
+		if l.interruptContexts != nil {
+			l.interruptedItems = append([]T{}, plan.spec.consumed...)
+			l.runErr = &InterruptError{InterruptContexts: l.interruptContexts}
+			return
+		}
+	}
+}
+"
+infiniflow/ragflow@main:internal/harness/core/agent_loop_stop.go,infiniflow/ragflow,main,internal/harness/core/agent_loop_stop.go,Go,agent-loop,261,5545,false,stopController,newStopController;requestStop;commit;commitLocked;isCommitted;idleDuration;skipCheckpointEnabled;cause;beginActiveTurn;endActiveTurn;receiveCancel;closeForLoopExit;notifyWatcherLocked;WithGraceful;WithImmediate;WithGracefulTimeout;WithStopTimeout;WithSkipCheckpoint;WithStopCause;UntilIdleFor;WithImmediateStop;WithGracefulStop,context;sync;time,eabd5a2a2704fe0a6b74e3150d54cd2b731e9598;33806977d1e57c1e7bb0f817d0c795ba54adeb46;0d159a974071d700da0787f20fcd362b4bedf420;e34fd2b5ca94e43f5750fcef927a14f2888908bf;6a2ef7ec6b6c9c640e409d5ec9cfd7ac183a0731;31296803d4dae4302ec4a0da45fb973c0f11635c;bcb81324a4134d22d5b735ff4905927936a4a627;332c9f829ca4b2177d2395efa6b0a90db80d5ebf;701b82aa1e6baf4e79fd253658cc2e045b1655eb;fb2f881871665c42e63dca08772da72f52462876;72b7b02113a83db4e443ad0eb2745d074224c7bf;edd3323055db7c5768a44f6ff19ec43a7ec20214;a399b931430db4f4f9acdcda4e1256092ab1bea3;e2e70cea9204705bf58e3cb80e9460e086151680;addc5acdc0b528c8a72456c9864f0890a892f00f;76aaecc28448e4f7c72a719997a6bca78c1ab1ca;a6a67c5ece744c28ddeda517a8f6983d68e0503d;554925b5834050eff9a4b97f50ad054ef114c5ef;1e445fbd68c05c64de10318cbfd2d2be862d8909;c396ae912e9c9cb6f8cf3f3f5c108c25d7513e77;198815a3650be98e4092d6b40c28832a3947807f;dc95e251c85e6bde0215402d53871c852ebd2ae0;bda703b588682c9c0190e6f8d90abb3fe77465e3;4391e03886b996201f3b8818f671b19eb24d0f7b;742188c3bb37af091c21d4d2a0b6bacecf66bf61,https://raw.githubusercontent.com/infiniflow/ragflow/main/internal/harness/core/agent_loop_stop.go,"package core
+
+import (
+	""context""
+	""sync""
+	""time""
+)
+
+// stopController owns global Stop state and optional active-turn cancel requests.
+type stopController struct {
+	mu sync.Mutex
+
+	phase stopPhase
+
+	hasActiveCancelTarget bool
+	pending               *stopCancelRequest
+	notify                chan struct{}
+
+	idleFor        time.Duration
+	skipCheckpoint bool
+	stopCause      string
+
+	closed bool
+}
+
+func newStopController() *stopController {
+	return &stopController{notify: make(chan struct{}, 1)}
+}
+
+func (c *stopController) requestStop(cfg *stopConfig) stopDecision {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return stopDecision{}
+	}
+	if cfg.skipCheckpoint {
+		c.skipCheckpoint = true
+	}
+	if cfg.stopCause != """" && c.stopCause == """" {
+		c.stopCause = cfg.stopCause
+	}
+	if cfg.idleFor > 0 {
+		if c.phase != stopCommitted && c.idleFor == 0 {
+			c.phase = stopIdleWaiting
+			c.idleFor = cfg.idleFor
+		}
+		return stopDecision{wakeIdle: c.phase == stopIdleWaiting}
+	}
+
+	committed := c.commitLocked()
+	if cfg.agentCancelOpts != nil {
+		now := time.Now()
+		if c.pending == nil {
+			c.pending = newStopCancelRequest(cfg.agentCancelOpts, now)
+		} else {
+			c.pending.merge(cfg.agentCancelOpts, now)
+		}
+		if c.hasActiveCancelTarget {
+			c.notifyWatcherLocked()
+		}
+	}
+	return stopDecision{commit: committed}
+}
+
+func (c *stopController) commit() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.commitLocked()
+}
+
+func (c *stopController) commitLocked() bool {
+	if c.closed || c.phase == stopCommitted {
+		return false
+	}
+	c.phase = stopCommitted
+	c.idleFor = 0
+	return true
+}
+
+func (c *stopController) isCommitted() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.phase == stopCommitted
+}
+
+func (c *stopController) idleDuration() time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.phase != stopIdleWaiting {
+		return 0
+	}
+	return c.idleFor
+}
+
+func (c *stopController) skipCheckpointEnabled() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.skipCheckpoint
+}
+
+func (c *stopController) cause() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.stopCause
+}
+
+func (c *stopController) beginActiveTurn() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return
+	}
+	c.hasActiveCancelTarget = true
+	if c.pending != nil {
+		c.notifyWatcherLocked()
+	}
+}
+
+func (c *stopController) endActiveTurn() *stopCancelRequest {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.hasActiveCancelTarget = false
+	req := c.pending
+	c.pending = nil
+	return req
+}
+
+func (c *stopController) receiveCancel() (*stopCancelRequest, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.hasActiveCancelTarget || c.pending == nil {
+		return nil, false
+	}
+	req := c.pending
+	c.pending = nil
+	return req, true
+}
+
+func (c *stopController) closeForLoopExit() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed = true
+	c.hasActiveCancelTarget = false
+	c.pending = nil
+	select {
+	case <-c.notify:
+	default:
+	}
+}
+
+func (c *stopController) notifyWatcherLocked() {
+	select {
+	case c.notify <- struct{}{}:
+	default:
+	}
+}
+
+// ---- StopOption constructors ----
+
+func WithGraceful() StopOption {
+	return func(cfg *stopConfig) {
+		cfg.agentCancelOpts = []CancelOption{
+			WithCancelMode(CancelAfterChatModel | CancelAfterToolCalls),
+			WithRecursiveCancel(),
+		}
+	}
+}
+
+func WithImmediate() StopOption {
+	return func(cfg *stopConfig) {
+		cfg.agentCancelOpts = []CancelOption{
+			WithRecursiveCancel(),
+		}
+	}
+}
+
+func WithGracefulTimeout(gracePeriod time.Duration) StopOption {
+	if gracePeriod <= 0 {
+		panic(""agentcore: WithGracefulTimeout: gracePeriod must be positive"")
+	}
+	return func(cfg *stopConfig) {
+		cfg.agentCancelOpts = []CancelOption{
+			WithCancelMode(CancelAfterChatModel | CancelAfterToolCalls),
+			WithRecursiveCancel(),
+			WithCancelTimeout(gracePeriod),
+		}
+	}
+}
+
+func WithStopTimeout(d time.Duration) StopOption {
+	return func(cfg *stopConfig) { cfg.timeout = &d }
+}
+
+func WithSkipCheckpoint() StopOption {
+	return func(cfg *stopConfig) {
+		cfg.skipCheckpoint = true
+	}
+}
+
+func WithStopCause(cause string) StopOption {
+	return func(cfg *stopConfig) {
+		cfg.stopCause = cause
+	}
+}
+
+func UntilIdleFor(duration time.Duration) StopOption {
+	if duration <= 0 {
+		panic(""agentcore: UntilIdleFor: duration must be positive"")
+	}
+	return func(cfg *stopConfig) {
+		cfg.idleFor = duration
+	}
+}
+
+// ---- PushOption constructors ----
+
+func WithPreempt[T any](safePoint SafePoint) PushOption[T] {
+	if safePoint == 0 {
+		panic(""agentcore: SafePoint must not be zero; use AfterToolCalls, AfterChatModel, or AnySafePoint"")
+	}
+	return func(cfg *pushConfig[T]) {
+		cfg.preempt = true
+		cfg.agentCancelOpts = []CancelOption{
+			WithCancelMode(safePoint.toCancelMode()),
+			WithRecursiveCancel(),
+		}
+	}
+}
+
+func WithPreemptTimeout[T any](safePoint SafePoint, timeout time.Duration) PushOption[T] {
+	if safePoint == 0 {
+		panic(""agentcore: SafePoint must not be zero; use AfterToolCalls, AfterChatModel, or AnySafePoint"")
+	}
+	return func(cfg *pushConfig[T]) {
+		cfg.preempt = true
+		cfg.agentCancelOpts = []CancelOption{
+			WithCancelMode(safePoint.toCancelMode()),
+			WithCancelTimeout(timeout),
+			WithRecursiveCancel(),
+		}
+	}
+}
+
+func WithPreemptDelay[T any](delay time.Duration) PushOption[T] {
+	return func(cfg *pushConfig[T]) {
+		cfg.preemptDelay = delay
+	}
+}
+
+func WithPushStrategy[T any](fn func(ctx context.Context, tc *TurnContext[T]) []PushOption[T]) PushOption[T] {
+	return func(cfg *pushConfig[T]) {
+		cfg.pushStrategy = fn
+	}
+}
+
+// ---- Deprecated aliases ----
+
+func WithImmediateStop() StopOption { return WithImmediate() }
+func WithGracefulStop() StopOption  { return WithGraceful() }
+"
+infiniflow/ragflow@main:internal/harness/core/agent_loop_preempt.go,infiniflow/ragflow,main,internal/harness/core/agent_loop_preempt.go,Go,agent-loop,188,4004,false,preemptController,newPreemptController;beginPlanningTurn;abortPlanningTurn;beginActiveTurn;endActiveTurn;requirePhaseLocked;requireNoPendingLocked;beginPush;endPush;waitForPushes;requestPreempt;receivePreempt;closeForLoopExit;notifyWatcherLocked,context;fmt;sync;time,,https://raw.githubusercontent.com/infiniflow/ragflow/main/internal/harness/core/agent_loop_preempt.go,"package core
+
+import (
+	""context""
+	""fmt""
+	""sync""
+	""time""
+)
+
+// preemptController owns turn-targeted preempt requests and Push critical sections.
+type preemptController struct {
+	mu   sync.Mutex
+	cond *sync.Cond
+
+	turnPhase     preemptTurnPhase
+	turnID        uint64
+	currentTC     any
+	currentRunCtx context.Context
+
+	pushInFlight int
+	pending      *preemptRequest
+	notify       chan struct{}
+	closed       bool
+}
+
+func newPreemptController() *preemptController {
+	c := &preemptController{notify: make(chan struct{}, 1)}
+	c.cond = sync.NewCond(&c.mu)
+	return c
+}
+
+func (c *preemptController) beginPlanningTurn() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.requirePhaseLocked(preemptTurnIdle, ""beginPlanningTurn"")
+	c.requireNoPendingLocked(""beginPlanningTurn"")
+	c.turnID++
+	c.turnPhase = preemptTurnPlanning
+	c.currentRunCtx = nil
+	c.currentTC = nil
+}
+
+func (c *preemptController) abortPlanningTurn() *preemptRequest {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.requirePhaseLocked(preemptTurnPlanning, ""abortPlanningTurn"")
+	c.turnPhase = preemptTurnIdle
+	c.currentRunCtx = nil
+	c.currentTC = nil
+	req := c.pending
+	c.pending = nil
+	c.cond.Broadcast()
+	return req
+}
+
+func (c *preemptController) beginActiveTurn(ctx context.Context, tc any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.requirePhaseLocked(preemptTurnPlanning, ""beginActiveTurn"")
+	c.turnPhase = preemptTurnActive
+	c.currentRunCtx = ctx
+	c.currentTC = tc
+	if c.pending != nil {
+		c.notifyWatcherLocked()
+	}
+}
+
+func (c *preemptController) endActiveTurn() *preemptRequest {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.requirePhaseLocked(preemptTurnActive, ""endActiveTurn"")
+	c.turnPhase = preemptTurnIdle
+	c.currentRunCtx = nil
+	c.currentTC = nil
+	req := c.pending
+	c.pending = nil
+	c.cond.Broadcast()
+	return req
+}
+
+func (c *preemptController) requirePhaseLocked(expected preemptTurnPhase, op string) {
+	if c.turnPhase != expected {
+		panic(fmt.Sprintf(""adk: preemptController.%s called while turn phase is %s; expected %s"", op, c.turnPhase, expected))
+	}
+}
+
+func (c *preemptController) requireNoPendingLocked(op string) {
+	if c.pending != nil {
+		panic(fmt.Sprintf(""adk: preemptController.%s called with stale pending preempt request"", op))
+	}
+}
+
+func (c *preemptController) beginPush() preemptTurnSnapshot {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.pushInFlight++
+	return preemptTurnSnapshot{
+		hasTargetTurn: c.turnPhase == preemptTurnPlanning || c.turnPhase == preemptTurnActive,
+		turnID:        c.turnID,
+		ctx:           c.currentRunCtx,
+		tc:            c.currentTC,
+	}
+}
+
+func (c *preemptController) endPush() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.pushInFlight--
+	if c.pushInFlight < 0 {
+		panic(""adk: preemptController.endPush called without matching beginPush"")
+	}
+	c.cond.Broadcast()
+}
+
+func (c *preemptController) waitForPushes() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for c.pushInFlight > 0 {
+		c.cond.Wait()
+	}
+}
+
+func (c *preemptController) requestPreempt(target preemptTurnSnapshot, ack chan struct{}, opts ...CancelOption) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed || !target.hasTargetTurn || c.turnPhase == preemptTurnIdle || c.turnID != target.turnID {
+		if ack != nil {
+			close(ack)
+		}
+		return
+	}
+
+	now := time.Now()
+	if c.pending == nil {
+		c.pending = newPreemptRequest(ack, opts, now)
+	} else {
+		c.pending.merge(ack, opts, now)
+	}
+	if c.turnPhase == preemptTurnActive {
+		c.notifyWatcherLocked()
+	}
+}
+
+func (c *preemptController) receivePreempt() (*preemptRequest, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.turnPhase != preemptTurnActive || c.pending == nil {
+		return nil, false
+	}
+	req := c.pending
+	c.pending = nil
+	return req, true
+}
+
+func (c *preemptController) closeForLoopExit() {
+	c.mu.Lock()
+	c.closed = true
+	c.turnPhase = preemptTurnIdle
+	c.currentRunCtx = nil
+	c.currentTC = nil
+	req := c.pending
+	c.pending = nil
+	select {
+	case <-c.notify:
+	default:
+	}
+	c.cond.Broadcast()
+	c.mu.Unlock()
+
+	req.ack()
+}
+
+func (c *preemptController) notifyWatcherLocked() {
+	select {
+	case c.notify <- struct{}{}:
+	default:
+	}
+}
+"
+infiniflow/ragflow@main:internal/harness/core/agent_loop_push.go,infiniflow/ragflow,main,internal/harness/core/agent_loop_push.go,Go,agent-loop,144,3198,false,,appendLate;Push;pushWithStrategy;pushWithConfig,context;sync/atomic;time,,https://raw.githubusercontent.com/infiniflow/ragflow/main/internal/harness/core/agent_loop_push.go,"package core
+
+import (
+	""context""
+	""sync/atomic""
+	""time""
+)
+
+// ---- AgentLoop push operations ----
+
+func (l *AgentLoop[T]) appendLate(item T) {
+	l.lateMu.Lock()
+	defer l.lateMu.Unlock()
+	if l.lateSealed {
+		panic(""AgentLoop: Push called after TakeLateItems"")
+	}
+	l.lateItems = append(l.lateItems, item)
+}
+
+// Push adds an item to the loop's buffer for processing.
+// Returns false if the loop has stopped. When preemptive, returns an ack channel.
+func (l *AgentLoop[T]) Push(item T, opts ...PushOption[T]) (bool, <-chan struct{}) {
+	cfg := &pushConfig[T]{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	if cfg.pushStrategy != nil {
+		return l.pushWithStrategy(item, cfg)
+	}
+
+	return l.pushWithConfig(item, cfg)
+}
+
+// pushWithStrategy snapshots the current target turn while the strategy decides
+// how to enqueue the item.
+//
+// When the loop is idle (no active turn), snapshot.ctx is nil and the strategy
+// receives context.TODO() — it cannot observe caller cancellation or deadlines
+// at that point. If the strategy needs the caller's context, use the Push overload
+// that accepts ctx (not yet available; pass via closure instead).
+func (l *AgentLoop[T]) pushWithStrategy(item T, cfg *pushConfig[T]) (bool, <-chan struct{}) {
+	strategy := cfg.pushStrategy
+
+	snapshot := l.preemptCtrl.beginPush()
+	defer l.preemptCtrl.endPush()
+
+	runCtx := snapshot.ctx
+	if runCtx == nil {
+		runCtx = context.TODO()
+	}
+	var tc *TurnContext[T]
+	if snapshot.tc != nil {
+		tc = snapshot.tc.(*TurnContext[T])
+	}
+	realOpts := strategy(runCtx, tc)
+	cfg = &pushConfig[T]{}
+	for _, opt := range realOpts {
+		opt(cfg)
+	}
+	cfg.pushStrategy = nil
+
+	if !cfg.preempt {
+		if !l.buffer.TrySend(item) {
+			l.appendLate(item)
+			return false, nil
+		}
+		return true, nil
+	}
+
+	if atomic.LoadInt32(&l.stopped) != 0 {
+		l.appendLate(item)
+		return false, nil
+	}
+
+	if !l.buffer.TrySend(item) {
+		l.appendLate(item)
+		return false, nil
+	}
+
+	ack := make(chan struct{})
+	if atomic.LoadInt32(&l.started) == 0 {
+		close(ack)
+		return true, ack
+	}
+
+	if cfg.preemptDelay > 0 {
+		go func() {
+			select {
+			case <-time.After(cfg.preemptDelay):
+				l.preemptCtrl.requestPreempt(snapshot, ack, cfg.agentCancelOpts...)
+			case <-l.done:
+				close(ack)
+			}
+		}()
+	} else {
+		l.preemptCtrl.requestPreempt(snapshot, ack, cfg.agentCancelOpts...)
+	}
+	return true, ack
+}
+
+func (l *AgentLoop[T]) pushWithConfig(item T, cfg *pushConfig[T]) (bool, <-chan struct{}) {
+	if atomic.LoadInt32(&l.stopped) != 0 {
+		l.appendLate(item)
+		return false, nil
+	}
+
+	if cfg.preempt {
+		snapshot := l.preemptCtrl.beginPush()
+		defer l.preemptCtrl.endPush()
+
+		if !l.buffer.TrySend(item) {
+			l.appendLate(item)
+			return false, nil
+		}
+
+		ack := make(chan struct{})
+		if atomic.LoadInt32(&l.started) == 0 {
+			close(ack)
+			return true, ack
+		}
+
+		if cfg.preemptDelay > 0 {
+			go func() {
+				select {
+				case <-time.After(cfg.preemptDelay):
+					l.preemptCtrl.requestPreempt(snapshot, ack, cfg.agentCancelOpts...)
+				case <-l.done:
+					close(ack)
+				}
+			}()
+		} else {
+			l.preemptCtrl.requestPreempt(snapshot, ack, cfg.agentCancelOpts...)
+		}
+		return true, ack
+	}
+
+	if !l.buffer.TrySend(item) {
+		l.appendLate(item)
+		return false, nil
+	}
+	return true, nil
+}
+"
+infiniflow/ragflow@main:internal/harness/core/agent_loop_checkpoint.go,infiniflow/ragflow,main,internal/harness/core/agent_loop_checkpoint.go,Go,agent-loop,101,2567,false,CheckPointDeleter,saveTurnLoopCheckpoint;deleteTurnLoopCheckpoint;tryLoadCheckpoint,bytes;context;encoding/gob;errors;fmt,,https://raw.githubusercontent.com/infiniflow/ragflow/main/internal/harness/core/agent_loop_checkpoint.go,"package core
+
+import (
+	""bytes""
+	""context""
+	""encoding/gob""
+	""errors""
+	""fmt""
+)
+
+// ---- AgentLoop checkpoint serialization and lifecycle ----
+
+type CheckPointDeleter interface {
+	Delete(ctx context.Context, key string) error
+}
+
+func marshalTurnLoopCheckpoint[T any](c *agentLoopCheckpoint[T]) ([]byte, error) {
+	buf := new(bytes.Buffer)
+	if err := gob.NewEncoder(buf).Encode(c); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func unmarshalTurnLoopCheckpoint[T any](data []byte) (*agentLoopCheckpoint[T], error) {
+	var c agentLoopCheckpoint[T]
+	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&c); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (l *AgentLoop[T]) saveTurnLoopCheckpoint(ctx context.Context, checkPointID string, c *agentLoopCheckpoint[T]) error {
+	if l.config.Store == nil {
+		return errors.New(""checkpoint store is nil"")
+	}
+	data, err := marshalTurnLoopCheckpoint(c)
+	if err != nil {
+		return err
+	}
+	return l.config.Store.Set(ctx, checkPointID, data)
+}
+
+func (l *AgentLoop[T]) deleteTurnLoopCheckpoint(ctx context.Context, checkPointID string) error {
+	if l.config.Store == nil {
+		return nil
+	}
+	if deleter, ok := l.config.Store.(CheckPointDeleter); ok {
+		return deleter.Delete(ctx, checkPointID)
+	}
+	return nil
+}
+
+func (l *AgentLoop[T]) tryLoadCheckpoint(ctx context.Context) error {
+	checkPointID := l.config.CheckpointID
+	if checkPointID == """" || l.config.Store == nil {
+		return nil
+	}
+
+	l.loadCheckpointID = checkPointID
+
+	data, existed, err := l.config.Store.Get(ctx, checkPointID)
+	if err != nil {
+		return fmt.Errorf(""failed to load checkpoint[%s]: %w"", checkPointID, err)
+	}
+	if !existed {
+		return nil
+	}
+
+	var cp *agentLoopCheckpoint[T]
+	if len(data) == 0 {
+		return nil
+	}
+	cp, err = unmarshalTurnLoopCheckpoint[T](data)
+	if err != nil {
+		return fmt.Errorf(""failed to unmarshal checkpoint[%s]: %w"", checkPointID, err)
+	}
+
+	newItems := l.buffer.TakeAll()
+
+	if cp.HasRunnerState {
+		if len(cp.RunnerCheckpoint) == 0 {
+			l.buffer.PushFront(newItems)
+			return fmt.Errorf(""checkpoint[%s] has runner state but bytes are empty"", checkPointID)
+		}
+		l.pendingResume = &agentLoopPendingResume[T]{
+			interrupted: append([]T{}, cp.CanceledItems...),
+			unhandled:   append([]T{}, cp.UnhandledItems...),
+			newItems:    append([]T{}, newItems...),
+			resumeBytes: append([]byte{}, cp.RunnerCheckpoint...),
+		}
+	} else {
+		items := make([]T, 0, len(cp.UnhandledItems)+len(newItems))
+		items = append(items, cp.UnhandledItems...)
+		items = append(items, newItems...)
+		l.buffer.PushFront(items)
+	}
+
+	return nil
+}
+"
+infiniflow/ragflow@main:internal/harness/core/evals/evals.go,infiniflow/ragflow,main,internal/harness/core/evals/evals.go,Go,agent-loop,534,14882,false,EvalCase;EvalResult;CaseReport;Failure;EvalReport;EvalConfig;testingT,RunT;Run;runCase;FinalTextContains;FinalTextExcludes;AgentError;AgentErrorContains;FileContentEquals;FileContains;ToolCalled;Steps;LLMJudge;judgeOutput;lastAssistantText;countAssistantMessages;truncate;scorerName;takeSnapshot;writeReport,context;fmt;os;path/filepath;strings;sync;time;ragflow/internal/common;ragflow/internal/harness/core;ragflow/internal/harness/core/schema,13c2be2a8faf278c6a2575ff94695fb0293fd267;c1711a2be1d427b8eaabb2d9aee2550f1c094f43;21032357b931188f4de5fe649cb0646c998fa239;5482c2e299cb307736d225b80b82eac27be2f96c;ba54d3ee64c589dc66588b035453701ece67408c;293ad720b1288b5c68dea369ce86a5e1aa337825;1e6c3e12a37d368707005319c134aa6f73ded905;cb7cc48ea5b5834d7a578fc36546706ede707774;b811e5bf67342b15d17030537dc893296519ade0;f7d9bce148a67a703c802317f39685ea24d07f25;fc215f299d5ad454f6328f5e5a7fee2ce997fe83;3d7033855a43fe64a6c7807355758a528a0d9656;7a5a337756c6182cf6dd58731de3cba3ef073a18;b3f84284144c1fa6eb593c17441e88e4df6c04da;51f473ecced4a5aad395362610aae121d4d9d1d6;d1b2d80ad7d6f6afd1243e8d5c18813e19200e53;62df716d971cff2248c34e8f0393dd1c26bccb74;a1208cd2733d7a738656430d5155dedeae19e626;2dbce829904b8e56a6e0e7298186c162440e2738;7090ca834bda64b5edeb1bbb19a504cb1343e6a7;96fcfd9905eed6e16acd03c3a727ad3cc36f8a5e;89a43f68727b9ea60c86dda3c32e464be2f9aad8;e9b8204642f2f5ea4fa8766906a295f7cb1c52a0;500fe29d62080214484cf92ce815d5c6cab467eb;880876f60ff8c30e023e42360d13688a0a021fdf,https://raw.githubusercontent.com/infiniflow/ragflow/main/internal/harness/core/evals/evals.go,"// Package evals provides an evaluation framework for agentcore agents.
+//
+// Modeled after deepagents/libs/evals, it enables running real-LLM agent
+// evaluations with trajectory scoring, success assertions, and report generation.
+//
+// Core concepts:
+//
+//   - EvalCase: a single test case (query, expected behavior, scorers)
+//   - TrajectoryScorer: builder for soft expectations + hard success checks
+//   - RunEval: executes the agent against a case, captures trajectory
+//   - EvalReport: aggregates multiple case results into a summary
+//
+// Usage in go test:
+//
+//	func TestMyAgent(t *testing.T) {
+//	    evals.RunT(t, &evals.EvalConfig{
+//	        Model: myModel,
+//	        Agent: myAgent,
+//	        Cases: []evals.EvalCase{
+//	            {
+//	                Name:  ""write_hello_py"",
+//	                Query: ""Create a hello.py file"",
+//	                Scorers: []evals.Scorer{
+//	                    evals.FinalTextContains(""Hello, World!""),
+//	                    evals.FileContentEquals(""hello.py"", `print(""Hello, World!"")`),
+//	                },
+//	            },
+//	        },
+//	    })
+//	}
+package evals
+
+import (
+	""context""
+	""fmt""
+	""os""
+	""path/filepath""
+	""strings""
+	""sync""
+	""time""
+
+	""ragflow/internal/common""
+	""ragflow/internal/harness/core""
+	""ragflow/internal/harness/core/schema""
+)
+
+// ========================================================================
+// Core types
+// ========================================================================
+
+// EvalCase defines a single evaluation scenario.
+type EvalCase struct {
+	// Name identifies this case in reports.
+	Name string
+
+	// Query is the user input to the agent.
+	Query string
+
+	// Agent overrides cfg.Agent for this specific case.
+	// When nil, cfg.Agent is used (or a default agent created from cfg.Model).
+	Agent core.Agent
+
+	// Scorers are checked against the agent's output.
+	// All scorers must pass for the case to succeed.
+	Scorers []Scorer
+
+	// Tags for categorising results.
+	Tags []string
+
+	// WorkDir is the temporary working directory for this case.
+	// When set, file-related scorers use this as the base.
+	WorkDir string
+}
+
+// Scorer evaluates an agent's output against an expectation.
+// Returns nil on success, or an error describing the failure.
+type Scorer func(ctx context.Context, result *EvalResult) error
+
+// EvalResult captures the agent's output for a single case.
+type EvalResult struct {
+	Case     EvalCase
+	Messages []*schema.Message // full conversation trajectory
+	Events   []*core.AgentEvent
+	Duration time.Duration
+	Err      error             // agent execution error (if any)
+	Snapshot map[string]string // file snapshots after execution
+}
+
+// CaseReport is the output of evaluating a single case.
+type CaseReport struct {
+	CaseName string
+	Passed   bool
+	Duration time.Duration
+	Failures []Failure
+	Tags     []string
+}
+
+// Failure describes a single assertion failure.
+type Failure struct {
+	ScorerName string
+	Message    string
+}
+
+// EvalReport aggregates results from multiple cases.
+type EvalReport struct {
+	Cases    []CaseReport
+	Total    int
+	Passed   int
+	Failed   int
+	Duration time.Duration
+}
+
+// EvalConfig configures an evaluation run.
+type EvalConfig struct {
+	// Model is the chat model for the agent. Required.
+	Model core.Model[*schema.Message]
+
+	// Agent is the agent to evaluate. If nil, a default ReAct agent is created.
+	Agent core.Agent
+
+	// Cases to evaluate.
+	Cases []EvalCase
+
+	// MaxConcurrency limits parallel case execution. 0 = unlimited.
+	MaxConcurrency int
+
+	// Timeout per case. 0 = no timeout.
+	Timeout time.Duration
+
+	// ReportDir is where JSON/HTML reports are written.
+	// When empty, no files are written.
+	ReportDir string
+
+	// LLMJudgeModel is used for LLM-as-judge scorers.
+	// When nil, LLMJudge scorers fall back to string matching.
+	LLMJudgeModel core.Model[*schema.Message]
+}
+
+// ========================================================================
+// RunT — single-function entry point for go test
+// ========================================================================
+
+// RunT runs all eval cases and reports results via testing.T.
+// It's the primary entry point for use in go test functions.
+//
+//go:generate echo ""RunT is designed for use with go test""
+func RunT(t testingT, cfg *EvalConfig) {
+	if cfg == nil {
+		t.Fatal(""evals: EvalConfig is nil"")
+		return
+	}
+
+	report := Run(context.Background(), cfg)
+
+	for _, c := range report.Cases {
+		if !c.Passed {
+			t.Errorf(""[FAIL] %s (%v):"", c.CaseName, c.Duration)
+			for _, f := range c.Failures {
+				t.Errorf(""  %s: %s"", f.ScorerName, f.Message)
+			}
+		} else {
+			t.Logf(""[PASS] %s (%v)"", c.CaseName, c.Duration)
+		}
+	}
+
+	t.Logf(""Eval summary: %d/%d passed (%v)"", report.Passed, report.Total, report.Duration)
+
+	if cfg.ReportDir != """" {
+		if err := writeReport(cfg.ReportDir, report); err != nil {
+			t.Logf(""evals: write report: %v"", err)
+		}
+	}
+}
+
+// testingT is the minimal interface we need from testing.T.
+type testingT interface {
+	Fatal(args ...any)
+	Errorf(format string, args ...any)
+	Logf(format string, args ...any)
+}
+
+// ========================================================================
+// Run — execute all eval cases
+// ========================================================================
+
+// Run executes all eval cases and returns a report.
+func Run(ctx context.Context, cfg *EvalConfig) *EvalReport {
+	start := time.Now()
+	report := &EvalReport{}
+
+	if cfg.MaxConcurrency <= 1 {
+		// Sequential execution.
+		for _, c := range cfg.Cases {
+			cr := runCase(ctx, cfg, c)
+			report.Cases = append(report.Cases, cr)
+			if cr.Passed {
+				report.Passed++
+			} else {
+				report.Failed++
+			}
+		}
+	} else {
+		// Parallel execution with bounded concurrency.
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, cfg.MaxConcurrency)
+
+		for _, c := range cfg.Cases {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(case_ EvalCase) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				cr := runCase(ctx, cfg, case_)
+				mu.Lock()
+				report.Cases = append(report.Cases, cr)
+				if cr.Passed {
+					report.Passed++
+				} else {
+					report.Failed++
+				}
+				mu.Unlock()
+			}(c)
+		}
+		wg.Wait()
+	}
+
+	report.Total = report.Passed + report.Failed
+	report.Duration = time.Since(start)
+	return report
+}
+
+func runCase(ctx context.Context, cfg *EvalConfig, c EvalCase) CaseReport {
+	cr := CaseReport{CaseName: c.Name, Tags: c.Tags}
+	start := time.Now()
+
+	// Use case-specific agent, or shared agent, or create a default.
+	agent := c.Agent
+	if agent == nil {
+		agent = cfg.Agent
+	}
+	if agent == nil {
+		agent = core.NewReActAgent(&core.ReActConfig[*schema.Message]{
+			Model: cfg.Model,
+		}).WithName(""eval_agent"")
+	}
+
+	// Run the agent.
+	runner := core.NewTypedRunner(core.RunnerConfig[*schema.Message]{Agent: agent})
+	iter := runner.Run(ctx, []*schema.Message{schema.UserMessage(c.Query)})
+
+	result := &EvalResult{
+		Case:     c,
+		Snapshot: takeSnapshot(c.WorkDir),
+	}
+
+	for {
+		ev, ok := iter.Next()
+		if !ok {
+			break
+		}
+		result.Events = append(result.Events, ev)
+		if ev.Err != nil {
+			result.Err = ev.Err
+			break
+		}
+		if ev.Output != nil && ev.Output.MessageOutput != nil && !ev.Output.MessageOutput.IsStreaming && ev.Output.MessageOutput.Message != nil {
+			result.Messages = append(result.Messages, ev.Output.MessageOutput.Message)
+		}
+	}
+
+	result.Duration = time.Since(start)
+	cr.Duration = result.Duration
+
+	// Run scorers.
+	for _, scorer := range c.Scorers {
+		if err := scorer(ctx, result); err != nil {
+			cr.Failures = append(cr.Failures, Failure{
+				ScorerName: scorerName(scorer),
+				Message:    err.Error(),
+			})
+		}
+	}
+
+	cr.Passed = len(cr.Failures) == 0
+	return cr
+}
+
+// ========================================================================
+// Built-in Scorers
+// ========================================================================
+
+// FinalTextContains returns a Scorer that checks the agent's final output
+// contains the given substring (case-insensitive).
+func FinalTextContains(substr string) Scorer {
+	return func(ctx context.Context, r *EvalResult) error {
+		text := lastAssistantText(r)
+		if text == """" {
+			return fmt.Errorf(""final text is empty, expected to contain %q"", substr)
+		}
+		if !common.ContainsFold(text, substr) {
+			return fmt.Errorf(""final text does not contain %q:\n%s"", substr, truncate(text, 500))
+		}
+		return nil
+	}
+}
+
+// FinalTextExcludes returns a Scorer that checks the agent's final output
+// does NOT contain the given substring.
+func FinalTextExcludes(substr string) Scorer {
+	return func(ctx context.Context, r *EvalResult) error {
+		text := lastAssistantText(r)
+		if common.ContainsFold(text, substr) {
+			return fmt.Errorf(""final text contains forbidden %q:\n%s"", substr, truncate(text, 500))
+		}
+		return nil
+	}
+}
+
+// AgentError returns a Scorer that passes if the agent completed without error.
+func AgentError() Scorer {
+	return func(ctx context.Context, r *EvalResult) error {
+		if r.Err != nil {
+			return fmt.Errorf(""agent error: %w"", r.Err)
+		}
+		return nil
+	}
+}
+
+// AgentErrorContains returns a Scorer that passes if the agent error contains
+// the given substring.
+func AgentErrorContains(substr string) Scorer {
+	return func(ctx context.Context, r *EvalResult) error {
+		if r.Err == nil {
+			return fmt.Errorf(""expected agent error containing %q, got none"", substr)
+		}
+		if !common.ContainsFold(r.Err.Error(), substr) {
+			return fmt.Errorf(""agent error %q does not contain %q"", r.Err.Error(), substr)
+		}
+		return nil
+	}
+}
+
+// FileContentEquals returns a Scorer that checks a file's content matches exactly.
+func FileContentEquals(path, expectedContent string) Scorer {
+	return func(ctx context.Context, r *EvalResult) error {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf(""read %s: %w"", path, err)
+		}
+		got := string(data)
+		if got != expectedContent {
+			return fmt.Errorf(""file %s content mismatch:\nexpected:\n%s\n\ngot:\n%s"", path, expectedContent, truncate(got, 500))
+		}
+		return nil
+	}
+}
+
+// FileContains returns a Scorer that checks a file contains the substring.
+func FileContains(path, substr string) Scorer {
+	return func(ctx context.Context, r *EvalResult) error {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf(""read %s: %w"", path, err)
+		}
+		if !common.ContainsFold(string(data), substr) {
+			return fmt.Errorf(""file %s does not contain %q"", path, substr)
+		}
+		return nil
+	}
+}
+
+// ToolCalled returns a Scorer that checks the agent called a specific tool.
+func ToolCalled(toolName string) Scorer {
+	return func(ctx context.Context, r *EvalResult) error {
+		for _, msg := range r.Messages {
+			for _, tc := range msg.ToolCalls {
+				if tc.Function.Name == toolName {
+					return nil
+				}
+			}
+		}
+		return fmt.Errorf(""agent did not call tool %q"", toolName)
+	}
+}
+
+// Steps returns a Scorer that counts agent steps and passes if >= min.
+func Steps(minSteps int) Scorer {
+	return func(ctx context.Context, r *EvalResult) error {
+		steps := countAssistantMessages(r.Messages)
+		if steps < minSteps {
+			return fmt.Errorf(""expected at least %d agent steps, got %d"", minSteps, steps)
+		}
+		return nil
+	}
+}
+
+// LLMJudge returns a Scorer that uses a judge LLM to evaluate the agent's
+// output against the given criteria.
+//
+// The judge model receives a structured prompt with the original query, the
+// agent's final output, and the evaluation instruction. It must respond with
+// PASS or FAIL.
+//
+// When judgeModel is nil, the scorer returns an error asking to configure one.
+func LLMJudge(judgeModel core.Model[*schema.Message], instruction string) Scorer {
+	return func(ctx context.Context, r *EvalResult) error {
+		text := lastAssistantText(r)
+		if text == """" {
+			return fmt.Errorf(""no assistant output to judge"")
+		}
+		if judgeModel == nil {
+			return fmt.Errorf(""LLM judge model is nil. Set evals.LLMJudgeModel or pass a model.\nInstruction: %s"", instruction)
+		}
+		return judgeOutput(ctx, judgeModel, r.Case.Query, text, instruction)
+	}
+}
+
+// judgeOutput sends the agent output to a judge LLM and returns the verdict.
+func judgeOutput(ctx context.Context, model core.Model[*schema.Message], query, output, instruction string) error {
+	prompt := fmt.Sprintf(judgePromptTemplate, query, output, instruction)
+	judgeMsgs := []*schema.Message{
+		schema.UserMessage(prompt),
+	}
+
+	result, err := model.Generate(ctx, judgeMsgs)
+	if err != nil {
+		return fmt.Errorf(""LLM judge error: %w"", err)
+	}
+	if result == nil {
+		return fmt.Errorf(""LLM judge returned nil response"")
+	}
+
+	response := strings.TrimSpace(result.Content)
+	if strings.HasPrefix(response, ""PASS"") {
+		return nil
+	}
+	return fmt.Errorf(""LLM judge: %s"", response)
+}
+
+const judgePromptTemplate = `You are evaluating an AI coding assistant's output.
+
+### User Query
+%s
+
+### Assistant Output
+%s
+
+### Evaluation Criteria
+%s
+
+Determine if the assistant's output satisfies the criteria.
+
+Reply with EXACTLY one line:
+- If the criteria are met: PASS
+- If the criteria are NOT met: FAIL: <reason>`
+
+// ========================================================================
+// Helpers
+// ========================================================================
+
+func lastAssistantText(r *EvalResult) string {
+	for i := len(r.Messages) - 1; i >= 0; i-- {
+		if r.Messages[i].Role == schema.RoleAssistant {
+			return r.Messages[i].Content
+		}
+	}
+	return """"
+}
+
+func countAssistantMessages(msgs []*schema.Message) int {
+	count := 0
+	for _, m := range msgs {
+		if m.Role == schema.RoleAssistant {
+			count++
+		}
+	}
+	return count
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + ""...""
+}
+
+func scorerName(s Scorer) string {
+	return fmt.Sprintf(""%T"", s)
+}
+
+func takeSnapshot(workDir string) map[string]string {
+	if workDir == """" {
+		return nil
+	}
+	snap := make(map[string]string)
+	filepath.Walk(workDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		data, _ := os.ReadFile(path)
+		snap[path] = string(data)
+		return nil
+	})
+	return snap
+}
+
+func writeReport(dir string, report *EvalReport) error {
+	os.MkdirAll(dir, 0755)
+
+	// Write summary JSON.
+	summary := fmt.Sprintf(`{""total"":%d,""passed"":%d,""failed"":%d,""duration"":""%s""}`,
+		report.Total, report.Passed, report.Failed, report.Duration)
+	if err := os.WriteFile(filepath.Join(dir, ""summary.json""), []byte(summary), 0644); err != nil {
+		return err
+	}
+
+	// Write per-case results.
+	var buf strings.Builder
+	buf.WriteString(""Case,Duration,Passed,Failures\n"")
+	for _, c := range report.Cases {
+		failures := """"
+		if len(c.Failures) > 0 {
+			var msgs []string
+			for _, f := range c.Failures {
+				msgs = append(msgs, f.ScorerName+"": ""+f.Message)
+			}
+			failures = strings.Join(msgs, ""; "")
+		}
+		buf.WriteString(fmt.Sprintf(""%s,%v,%v,%s\n"", c.CaseName, c.Duration, c.Passed, failures))
+	}
+	return os.WriteFile(filepath.Join(dir, ""results.csv""), []byte(buf.String()), 0644)
+}
+"
+infiniflow/ragflow@main:internal/harness/graph/graph/graph.go,infiniflow/ragflow,main,internal/harness/graph/graph/graph.go,Go,rag-retrieval,464,13886,false,stateGraph;compiledGraph,NewStateGraph;WithInputSchema;WithOutputSchema;AddNode;AddNodeWithOptions;WithStatePreHandler;WithStatePostHandler;WithFieldMapping;MapFields;MapTo;AddEdge;AddConditionalEdges;AddBranch;AddDataEdge;GetChannels;GetEntryPoint;GetNode;GetEdges;GetConditionalEdges;GetBranches;GetNodes;GetNodeTriggerMode;SetNodeTriggerMode;GetDataEdges;GetStateSchema;SetEntryPoint;SetFinishPoint;AddChannel;SetReducer;AddChannelWithReducer;Validate;computeReachable;configureChannelsFromSchema;Compile;WithCheckpointer;WithInterrupts;WithInterruptsAfter;WithRecursionLimit;WithDebug;WithNodeTriggerMode,context;fmt;slices;ragflow/internal/harness/graph/channels;ragflow/internal/harness/graph/constants;ragflow/internal/harness/graph/errors;ragflow/internal/harness/graph/types,47ec164933f6bc4be71e2da82332ffd6d48158c5;a310d11f7b3c5e47bb015a960dceb506ad570f70;38725dc07048de1e7a25980d2fe711fa4f788a68;34839b71457ad99d1bdaa5d9d763a5743b9a84f5;30359a7e88833d26b6db659a276470cea67cf39c;673da1e6f6c21a7af497424a10190867e53a7e62;5af649b3f301a5795cbf468d63931a8565c23dbb;1b6c087b39344982ba89d0a561bc8694b10c658e;2b8c97cbae662e44ca1111673dddfe5d777206f0;ecfe88f3e95843e8add877176507d20b9f091f38;45610c873c4431d3c5810f00b728d3d5eebdcc5f;eb57a8bed14335f796fa8a196fb069e6b505e940;fb125d078d8f20ab168aa04abc5aa1886cbde330;1413972e09a21bc11783b15ba59bbfbdbe15a056;98b48a085786fb9e14be8753b5a9a9ea02230ccf;519e7d98a5651564d4e35d6648f006cba4baaf4f;1648f0ba3ad8e72e9030cfb1a94e096a62e4f90a;4d1fa96a8d9ea4df5744e5f1ffbacb3816ddd97b;3b5ee7c6ce5526ed2fdb0b1debc5e3c4fe2ca8ac;071da6c3338a4d7c2abc9d6a8d2b255373933b5d;d9534f307f6e87f7d6284a68bb115a661ae4effe;df016eb5ea5197d86ea5f59f206c3102b0dfcecd;e2d3586cd5bb1497d7bf9b568ad9057e5e10b0aa;f872f55db43f6931388761b651ed5c9ce6eff429;c0e6bb21e1e8faa323d4153fd99acba3331e15a2,https://raw.githubusercontent.com/infiniflow/ragflow/main/internal/harness/graph/graph/graph.go,"// Package graph provides graph building capabilities for Harness-Go.
+package graph
+
+import (
+	""context""
+	""fmt""
+	""slices""
+
+	""ragflow/internal/harness/graph/channels""
+	""ragflow/internal/harness/graph/constants""
+	""ragflow/internal/harness/graph/errors""
+	""ragflow/internal/harness/graph/types""
+)
+
+// Interface compliance checks.
+var _ types.StateGraph = (*stateGraph)(nil)
+
+// stateGraph is a graph whose nodes communicate by reading and writing to a shared state.
+type stateGraph struct {
+	nodes            map[string]*types.Node
+	edges            []*types.Edge
+	dataEdges        []*types.DataEdge
+	conditionalEdges []*types.ConditionalEdge
+	branches         []*types.Branch
+	entryPoint       string
+	finishPoints     []string
+	channels         map[string]channels.Channel
+	reducers         map[string]types.ReducerFunc
+	stateSchema      interface{}
+	inputSchema      interface{}
+	outputSchema     interface{}
+	NodeTriggerMode  types.NodeTriggerMode
+}
+
+// NewStateGraph creates a new StateGraph with the given state schema.
+func NewStateGraph(stateSchema interface{}) types.StateGraph {
+	return &stateGraph{
+		nodes:            make(map[string]*types.Node),
+		edges:            make([]*types.Edge, 0),
+		conditionalEdges: make([]*types.ConditionalEdge, 0),
+		branches:         make([]*types.Branch, 0),
+		finishPoints:     make([]string, 0),
+		channels:         make(map[string]channels.Channel),
+		reducers:         make(map[string]types.ReducerFunc),
+		stateSchema:      stateSchema,
+		inputSchema:      stateSchema,
+		outputSchema:     stateSchema,
+	}
+}
+
+func (g *stateGraph) WithInputSchema(schema interface{}) types.StateGraph {
+	g.inputSchema = schema
+	return g
+}
+
+func (g *stateGraph) WithOutputSchema(schema interface{}) types.StateGraph {
+	g.outputSchema = schema
+	return g
+}
+
+func (g *stateGraph) AddNode(name string, fn types.NodeFunc) *types.Node {
+	node := &types.Node{
+		Name:     name,
+		Function: fn,
+		Triggers: make([]string, 0),
+		Writes:   make([]string, 0),
+		Tags:     make([]string, 0),
+		Metadata: make(map[string]interface{}),
+	}
+	g.nodes[name] = node
+	return node
+}
+
+func (g *stateGraph) AddNodeWithOptions(name string, fn types.NodeFunc, opts types.NodeOptions) *types.Node {
+	if opts.StatePre != nil || opts.StatePost != nil {
+		orig := fn
+		pre := opts.StatePre
+		post := opts.StatePost
+		fn = func(ctx context.Context, state interface{}) (interface{}, error) {
+			if pre != nil {
+				var err error
+				state, err = pre(ctx, state)
+				if err != nil {
+					return nil, fmt.Errorf(""state pre-handler for '%s': %w"", name, err)
+				}
+			}
+			out, err := orig(ctx, state)
+			if err != nil {
+				return nil, err
+			}
+			if post != nil {
+				out, err = post(ctx, out)
+				if err != nil {
+					return nil, fmt.Errorf(""state post-handler for '%s': %w"", name, err)
+				}
+			}
+			return out, nil
+		}
+	}
+
+	node := g.AddNode(name, fn)
+	if opts.RetryPolicy != nil {
+		node.RetryPolicy = opts.RetryPolicy
+	}
+	if len(opts.Tags) > 0 {
+		node.Tags = append(node.Tags, opts.Tags...)
+	}
+	if len(opts.Metadata) > 0 {
+		for k, v := range opts.Metadata {
+			node.Metadata[k] = v
+		}
+	}
+	if len(opts.Triggers) > 0 {
+		node.Triggers = append(node.Triggers, opts.Triggers...)
+	}
+	if len(opts.Writes) > 0 {
+		node.Writes = append(node.Writes, opts.Writes...)
+	}
+	if len(opts.FieldMapping) > 0 {
+		node.FieldMapping = append(node.FieldMapping, opts.FieldMapping...)
+	}
+	return node
+}
+
+// WithStatePreHandler wraps the node with a pre-execution state transform.
+func WithStatePreHandler(fn types.NodeFunc) func(*types.NodeOptions) {
+	return func(opts *types.NodeOptions) { opts.StatePre = fn }
+}
+
+// WithStatePostHandler wraps the node with a post-execution state transform.
+func WithStatePostHandler(fn types.NodeFunc) func(*types.NodeOptions) {
+	return func(opts *types.NodeOptions) { opts.StatePost = fn }
+}
+
+// WithFieldMapping sets field-level routing for this node's output.
+func WithFieldMapping(mappings ...types.FieldMapping) func(*types.NodeOptions) {
+	return func(opts *types.NodeOptions) { opts.FieldMapping = append(opts.FieldMapping, mappings...) }
+}
+
+// MapFields creates a FieldMapping from source to target path.
+func MapFields(from, to string) types.FieldMapping {
+	return types.FieldMapping{From: from, To: to}
+}
+
+// MapTo creates a FieldMapping that maps entire output to a target path.
+func MapTo(to string) types.FieldMapping {
+	return types.FieldMapping{To: to}
+}
+
+func (g *stateGraph) AddEdge(from, to string) error {
+	if _, ok := g.nodes[from]; !ok && from != constants.Start {
+		return &errors.NodeNotFoundError{NodeName: from}
+	}
+	if _, ok := g.nodes[to]; !ok && to != constants.End {
+		return &errors.NodeNotFoundError{NodeName: to}
+	}
+	g.edges = append(g.edges, &types.Edge{From: from, To: to})
+	if from == constants.Start {
+		g.entryPoint = to
+	}
+	if to == constants.End {
+		if !slices.Contains(g.finishPoints, from) {
+			g.finishPoints = append(g.finishPoints, from)
+		}
+	}
+	return nil
+}
+
+func (g *stateGraph) AddConditionalEdges(from string, condition types.EdgeFunc, mapping map[string]string) error {
+	if _, ok := g.nodes[from]; !ok {
+		return &errors.NodeNotFoundError{NodeName: from}
+	}
+	for _, target := range mapping {
+		if _, ok := g.nodes[target]; !ok && target != constants.End {
+			return &errors.NodeNotFoundError{NodeName: target}
+		}
+	}
+	g.conditionalEdges = append(g.conditionalEdges, &types.ConditionalEdge{
+		From: from, Condition: condition, Mapping: mapping,
+	})
+	return nil
+}
+
+func (g *stateGraph) AddBranch(from string, condition types.EdgeFunc, then func(interface{}) []string) error {
+	if _, ok := g.nodes[from]; !ok {
+		return &errors.NodeNotFoundError{NodeName: from}
+	}
+	g.branches = append(g.branches, &types.Branch{
+		From: from, Condition: condition, Then: then,
+	})
+	return nil
+}
+
+func (g *stateGraph) AddDataEdge(from, to string, mappings ...types.FieldMapping) error {
+	if _, ok := g.nodes[from]; !ok && from != constants.Start {
+		return &errors.NodeNotFoundError{NodeName: from}
+	}
+	if _, ok := g.nodes[to]; !ok && to != constants.End {
+		return &errors.NodeNotFoundError{NodeName: to}
+	}
+	g.dataEdges = append(g.dataEdges, &types.DataEdge{From: from, To: to, Mapping: mappings})
+	return nil
+}
+
+// --- types.StateGraph interface methods ---
+
+func (g *stateGraph) GetChannels() map[string]interface{} {
+	result := make(map[string]interface{}, len(g.channels))
+	for k, v := range g.channels {
+		result[k] = v
+	}
+	return result
+}
+
+func (g *stateGraph) GetEntryPoint() string { return g.entryPoint }
+func (g *stateGraph) GetNode(name string) (*types.Node, bool) {
+	n, ok := g.nodes[name]
+	return n, ok
+}
+func (g *stateGraph) GetEdges() []*types.Edge                       { return g.edges }
+func (g *stateGraph) GetConditionalEdges() []*types.ConditionalEdge { return g.conditionalEdges }
+func (g *stateGraph) GetBranches() []*types.Branch                  { return g.branches }
+func (g *stateGraph) GetNodes() map[string]*types.Node              { return g.nodes }
+func (g *stateGraph) GetNodeTriggerMode() types.NodeTriggerMode     { return g.NodeTriggerMode }
+func (g *stateGraph) SetNodeTriggerMode(mode types.NodeTriggerMode) { g.NodeTriggerMode = mode }
+func (g *stateGraph) GetDataEdges() []*types.DataEdge               { return g.dataEdges }
+func (g *stateGraph) GetStateSchema() interface{}                   { return g.stateSchema }
+
+func (g *stateGraph) SetEntryPoint(node string) error {
+	if _, ok := g.nodes[node]; !ok {
+		return &errors.NodeNotFoundError{NodeName: node}
+	}
+	g.entryPoint = node
+	return nil
+}
+
+func (g *stateGraph) SetFinishPoint(node string) error {
+	if _, ok := g.nodes[node]; !ok {
+		return &errors.NodeNotFoundError{NodeName: node}
+	}
+	g.finishPoints = append(g.finishPoints, node)
+	return nil
+}
+
+func (g *stateGraph) AddChannel(name string, channel interface{}) {
+	if ch, ok := channel.(channels.Channel); ok {
+		ch.SetKey(name)
+		g.channels[name] = ch
+	}
+}
+
+func (g *stateGraph) SetReducer(channelName string, reducer types.ReducerFunc) {
+	if channel, ok := g.channels[channelName]; ok {
+		g.channels[channelName] = channels.NewReducerChannel(channel, reducer)
+	}
+	g.reducers[channelName] = reducer
+}
+
+func (g *stateGraph) AddChannelWithReducer(name string, channel interface{}, reducer types.ReducerFunc) {
+	if ch, ok := channel.(channels.Channel); ok {
+		ch.SetKey(name)
+		if reducer != nil {
+			g.channels[name] = channels.NewReducerChannel(ch, reducer)
+			g.reducers[name] = reducer
+		} else {
+			g.channels[name] = ch
+		}
+	}
+}
+
+func (g *stateGraph) Validate() error {
+	if g.entryPoint == """" {
+		return fmt.Errorf(""no entry point set"")
+	}
+	if len(g.finishPoints) == 0 {
+		return fmt.Errorf(""no finish points set"")
+	}
+	reachable := g.computeReachable()
+	for name := range g.nodes {
+		if !reachable[name] {
+			return fmt.Errorf(""node %s is not reachable from entry point"", name)
+		}
+	}
+	if err := g.ValidateStateSchema(); err != nil {
+		return fmt.Errorf(""state schema validation failed: %w"", err)
+	}
+	return nil
+}
+
+func (g *stateGraph) computeReachable() map[string]bool {
+	reachable := make(map[string]bool)
+	if g.entryPoint == """" {
+		return reachable
+	}
+	queue := []string{g.entryPoint}
+	reachable[g.entryPoint] = true
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, edge := range g.edges {
+			if edge.From == current && !reachable[edge.To] && edge.To != constants.End {
+				reachable[edge.To] = true
+				queue = append(queue, edge.To)
+			}
+		}
+		for _, condEdge := range g.conditionalEdges {
+			if condEdge.From == current {
+				for _, target := range condEdge.Mapping {
+					if _, ok := g.nodes[target]; ok && !reachable[target] && target != constants.End {
+						reachable[target] = true
+						queue = append(queue, target)
+					}
+				}
+			}
+		}
+	}
+	return reachable
+}
+
+func (g *stateGraph) configureChannelsFromSchema() error {
+	fieldInfos, err := g.GetStateSchemaInfo()
+	if err != nil {
+		return err
+	}
+	for fieldName, info := range fieldInfos {
+		if _, exists := g.channels[fieldName]; !exists {
+			g.channels[fieldName] = info.Channel
+		}
+		if info.Annotation != nil && info.Annotation.Reducer != nil {
+			g.reducers[fieldName] = info.Annotation.Reducer
+		}
+	}
+	return nil
+}
+
+// --- Compile and CompiledGraph ---
+
+// CompileOption configures CompiledGraph behavior at compile time.
+type CompileOption func(*compiledGraph)
+
+// compiledGraph is a compiled, executable graph.
+type compiledGraph struct {
+	graph           *stateGraph
+	checkpointer    interface{} // checkpoint.BaseCheckpointer
+	interrupts      map[string]bool
+	interruptsAfter map[string]bool
+	recursionLimit  int
+	debug           bool
+	nodeTriggerMode types.NodeTriggerMode
+}
+
+func (g *stateGraph) Compile(opts ...interface{}) (types.CompiledGraph, error) {
+	if err := g.Validate(); err != nil {
+		return nil, fmt.Errorf(""graph validation failed: %w"", err)
+	}
+	if err := g.configureChannelsFromSchema(); err != nil {
+		return nil, fmt.Errorf(""failed to configure channels from schema: %w"", err)
+	}
+	cg := &compiledGraph{
+		graph:           g,
+		interrupts:      make(map[string]bool),
+		interruptsAfter: make(map[string]bool),
+		recursionLimit:  constants.DefaultRecursionLimit,
+		nodeTriggerMode: types.NodeTriggerAnyPredecessor,
+	}
+	for _, opt := range opts {
+		if fn, ok := opt.(CompileOption); ok {
+			fn(cg)
+		}
+	}
+	g.NodeTriggerMode = cg.nodeTriggerMode
+	return cg, nil
+}
+
+func WithCheckpointer(checkpointer interface{}) CompileOption {
+	return func(cg *compiledGraph) {
+		cg.checkpointer = checkpointer
+	}
+}
+
+func WithInterrupts(nodes ...string) CompileOption {
+	return func(cg *compiledGraph) {
+		for _, node := range nodes {
+			cg.interrupts[node] = true
+		}
+	}
+}
+
+func WithInterruptsAfter(nodes ...string) CompileOption {
+	return func(cg *compiledGraph) {
+		for _, node := range nodes {
+			cg.interruptsAfter[node] = true
+		}
+	}
+}
+
+func WithRecursionLimit(limit int) CompileOption {
+	return func(cg *compiledGraph) {
+		cg.recursionLimit = limit
+	}
+}
+
+func WithDebug(debug bool) CompileOption {
+	return func(cg *compiledGraph) {
+		cg.debug = debug
+	}
+}
+
+func WithNodeTriggerMode(mode types.NodeTriggerMode) CompileOption {
+	return func(cg *compiledGraph) {
+		cg.nodeTriggerMode = mode
+	}
+}
+
+func (cg *compiledGraph) Invoke(ctx context.Context, input interface{}, config ...*types.RunnableConfig) (interface{}, error) {
+	rc := &types.RunnableConfig{}
+	if len(config) > 0 && config[0] != nil {
+		rc = config[0]
+	}
+	return cg.run(ctx, input, rc, types.StreamModeValues)
+}
+
+func (cg *compiledGraph) Stream(ctx context.Context, input interface{}, mode types.StreamMode, config ...*types.RunnableConfig) (<-chan interface{}, <-chan error) {
+	outputCh := make(chan interface{}, 1)
+	errCh := make(chan error, 1)
+	rc := &types.RunnableConfig{}
+	if len(config) > 0 && config[0] != nil {
+		rc = config[0]
+	}
+	go func() {
+		defer close(outputCh)
+		defer close(errCh)
+		result, err := cg.run(ctx, input, rc, mode)
+		if err != nil {
+			select {
+			case errCh <- err:
+			case <-ctx.Done():
+			}
+			return
+		}
+		select {
+		case outputCh <- result:
+		case <-ctx.Done():
+		}
+	}()
+	return outputCh, errCh
+}
+
+func (cg *compiledGraph) run(ctx context.Context, input interface{}, config *types.RunnableConfig, streamMode types.StreamMode) (interface{}, error) {
+	if types.PregelRunFunc == nil {
+		return nil, fmt.Errorf(""graph: pregel engine not installed"")
+	}
+	return types.PregelRunFunc(ctx, cg, input, config, streamMode)
+}
+
+// --- types.CompiledGraph interface methods ---
+
+func (cg *compiledGraph) GetGraph() types.StateGraph          { return cg.graph }
+func (cg *compiledGraph) GetCheckpointer() interface{}        { return cg.checkpointer }
+func (cg *compiledGraph) GetInterrupts() map[string]bool      { return cg.interrupts }
+func (cg *compiledGraph) GetInterruptsAfter() map[string]bool { return cg.interruptsAfter }
+func (cg *compiledGraph) GetRecursionLimit() int              { return cg.recursionLimit }
+func (cg *compiledGraph) IsDebug() bool                       { return cg.debug }
+"
