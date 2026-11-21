@@ -117,7 +117,7 @@ export async function setTargetConfig(
     const b = String(branch).trim();
     if (b.length > 0) {
       if (!validTargetBranchFormat(b)) {
-        throw new Error(`Invalid branch "${b}" — must be a valid git branch name`);
+        throw new Error(`Invalid branch "${b}" — must be a valid git branch name (no whitespace, no "..", no leading '-', max 120 chars)`);
       }
       branchValue = b;
     }
@@ -161,6 +161,14 @@ export async function clearTargetConfig(): Promise<boolean> {
 
 /** Append-only audit trail: the outcome of the last run attempt. */
 export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
+  // Validate required fields
+  if (!rec || typeof rec !== 'object') {
+    throw new Error("Target run record must be a valid object");
+  }
+  if (!rec.at || !rec.repo || !rec.status) {
+    throw new Error("Target run record must include 'at', 'repo', and 'status' fields");
+  }
+  
   try {
     await db.systemFlag.upsert({
       where: { key: LAST_RUN_KEY },
@@ -206,11 +214,7 @@ export async function getTargetLastRun(): Promise<TargetRunRecord | null> {
  */
 export async function resolveTargetToken(clientToken?: string): Promise<string | null> {
   if (clientToken) return clientToken;
-  try {
-    const stored = await getStoredTarget();
-    if (stored?.token) return stored.token;
-  } catch (error) {
-    console.error("Failed to get stored target token:", error);
-  }
+  const stored = await getStoredTarget();
+  if (stored?.token) return stored.token;
   return null;
 }
