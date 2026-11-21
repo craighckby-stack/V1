@@ -209,6 +209,7 @@ export async function POST(req: Request) {
           repo,
           branch,
           filePath,
+          source: "auto",
           failureType: pm.failureType,
           symptom: `[auto-gauntlet] ${pm.symptom}`,
           evidence: pm.evidence,

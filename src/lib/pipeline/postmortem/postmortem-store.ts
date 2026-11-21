@@ -257,6 +257,16 @@ export type PostmortemFailureType =
   | "WEAK_RATCHET"
   | "OTHER";
 
+/** Who recorded a postmortem scar — the labeled-feedback discriminator
+ *  (operator decision "B": manual is a sandbox, autonomous is the
+ *  population). The lesson distiller filters to "autonomous" so sandbox
+ *  scars never pollute the self-loop's aggregated lessons.
+ *  - "autonomous" — the self-enhance loop or the [TARGET] command flow.
+ *  - "auto"        — the one-click gauntlet on an external repo.
+ *  - "manual"      — the manual-gauntlet runner on an external repo.
+ *  - "system"      — red-team probes, duress events, hot-swap records. */
+export type PostmortemSource = "autonomous" | "auto" | "manual" | "system";
+
 export interface PostmortemRecord {
   id: string;
   targetRepo: string;
@@ -582,9 +592,18 @@ ${reflectionBlock}
      *  an existing candidate to verified, because nothing was observed
      *  about the real file. */
     observed?: boolean;
+    /** Labeled feedback (operator decision "B"): who recorded this scar.
+     *  Defaults to "autonomous" (the self-loop / [TARGET] — the population).
+     *  "auto" / "manual" = the gauntlet on an external repo (sandbox). The
+     *  lesson distiller filters to "autonomous" so sandbox scars never
+     *  pollute the self-loop's aggregated lessons. Only set on CREATE —
+     *  an update preserves the original source (a manual run that hits an
+     *  existing autonomous scar increments it without relabeling it). */
+    source?: PostmortemSource;
   }): Promise<PostmortemRecord> {
     const { repo, branch, filePath, failureType, symptom, evidence, constraints } = params;
     const verificationStatus = params.verificationStatus ?? "verified";
+    const source: PostmortemSource = params.source ?? "autonomous";
     let record: PostmortemRecord;
     try {
       const existing = await db.postmortem.findUnique({
@@ -646,6 +665,7 @@ ${reflectionBlock}
             targetRepo: repo, branch, filePath,
             status: "active", verificationStatus,
             failureType, symptom, evidence, constraints,
+            source,
             attempts: 1, lastAttemptAt: new Date(),
             parentHash, hash,
           },

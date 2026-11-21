@@ -528,6 +528,12 @@ export class UnifiedPipelineRunner {
           repo: config.targetRepo,
           branch: config.targetBranch,
           filePath: config.filePath,
+          // Labeled feedback: tag the scar with whoever ran the pipeline so
+          // the lesson distiller can keep sandbox scars (gauntlet auto/
+          // manual on external repos) out of the autonomous aggregation.
+          source: config.triggeredBy === "manual" ? "manual"
+            : config.triggeredBy === "auto" ? "auto"
+            : "autonomous",
           failureType: "OTHER",
           symptom: `Mutation guard rejected (${gateResult.rejectedBy})`,
           evidence: gateResult.reasons.join("\n"),

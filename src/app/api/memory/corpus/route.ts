@@ -23,16 +23,19 @@ export const runtime = "nodejs";
  */
 export async function GET() {
   try {
+    // Validate input keyword to prevent potential injection
+    const keyword = "orchestrator agent loop";
+    if (typeof keyword !== "string" || keyword.trim() === "") {
+      throw new Error("Invalid search keyword provided");
+    }
+    
     // Run status and digest retrieval in parallel with search operation
     const [status, digest] = await Promise.all([
       getCorpusStatus(),
       getFleetDigest()
     ]);
     
-    // Keyword is hardcoded and guaranteed to be valid for this endpoint's purpose.
-    const keyword = "orchestrator agent loop";
-    
-    // Add timeout to prevent hanging, wrapping the actual async call.
+    // Add timeout to prevent hanging, wrapping the actual async call
     let sample;
     try {
       sample = await Promise.race([
@@ -42,13 +45,25 @@ export async function GET() {
         )
       ]);
       
+      // Validate search results before mapping
+      if (!Array.isArray(sample)) {
+        throw new Error("Invalid search results format");
+      }
+      
       // Map results only after successful retrieval
-      sample = sample.map((h: { engine: { id: string; role: string }; score: number; matchedTerms: string[] }) => ({
-        id: h.engine.id,
-        role: h.engine.role,
-        score: Number(h.score.toFixed(2)),
-        matched: h.matchedTerms.slice(0, 5),
-      }));
+      sample = sample.map((h: { engine: { id: string; role: string }; score: number; matchedTerms: string[] }) => {
+        if (!h.engine || typeof h.engine.id !== "string" || typeof h.engine.role !== "string" || 
+            typeof h.score !== "number" || !Array.isArray(h.matchedTerms)) {
+          throw new Error("Invalid search result item format");
+        }
+        
+        return {
+          id: h.engine.id,
+          role: h.engine.role,
+          score: Number(h.score.toFixed(2)),
+          matched: h.matchedTerms.slice(0, 5),
+        };
+      });
 
     } catch (searchError) {
       if (searchError instanceof Error && searchError.message.includes("Search timed out")) {

@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/memory/corpus/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 5 → evolved 7), no behavioral signal, 12 changed lines — mutations must change observable behavior, not add guards to code that already works",
@@ -12,8 +12,8 @@
   "parentHash": "15aa0c6d09c602a6aec16a283bca5d50b618af55ae50d994e48c728e61c54792",
   "hash": "d728ac1c09ad09fd33b675bcc566e2804600ac7c30c8bba9eee5b7d79fa72fe2",
   "lastAttemptAt": "2026-11-21T00:55:39.324Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-21T01:36:16.419Z",
   "createdAt": "2026-11-21T00:31:21.339Z",
-  "updatedAt": "2026-11-21T00:55:39.324Z",
+  "updatedAt": "2026-11-21T01:36:16.419Z",
   "schema": 2
 }

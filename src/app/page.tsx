@@ -1299,12 +1299,14 @@ export default function Home() {
           "  push force  — (removed) force-push disabled (audit 3); runs a normal push",
           "  push clear  — Disconnect the push target",
           "  config      — Open the Git config panel (or click [CONFIG] in header)",
-          "  target      — Open the external-repo pipeline panel (rea revival)",
+          "  target      — Open the TARGET panel (6-stage gauntlet pointed at any repo)",
           "  target <owner/repo> — Point the STRICT gate chain at an external repo",
           "  target dry  — full gate rehearsal, nothing lands | target run — land it",
           "  target status — audit trail | target off — disconnect",
           "  logs        — Show recent logs",
           "  files       — List files being enhanced",
+          "  answer      — List + answer the loop's pending yes/no questions",
+          "                (answer yes | answer no | answer <id> yes|no)",
           "  tasks [status] — Self-generated task queue (system-defined input)",
           "  rescan      — Re-analyze own source, queue new tasks",
           "  skip        — Veto the next pending task (user override)",
@@ -1316,9 +1318,15 @@ export default function Home() {
           "  oracle judge    — Evaluate all due prophecies now",
           "  oracle list     — List recent prophecies + verdicts",
           "  oracle status   — Track record: counts, calibration, Brier score",
-          "  memory      — GitHistory-Sync corpus: fleet evidence + engine prior-art",
+          "  memory      — Fleet-harvester corpus: harvested engine prior-art + evidence",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
+          "",
+          "Background behaviors (no command — they run on their own):",
+          "  fleet-harvester  — mini-service on :3010, harvests commit-history lessons",
+          "  curiosity drive  — flag-gated (set SystemFlag 'curiosity-drive-enabled')",
+          "  health metrics   — snapshots the codebase health every 10 cycles",
+          "  operator questions — the loop poses yes/no questions; answer them here",
           "",
           "Scrollback:",
           "  mouse wheel up            — pauses tail-follow instantly",
@@ -1557,12 +1565,14 @@ export default function Home() {
         }
         setTargetOpen(true);
         return [
-          "Opening TARGET panel — external repository pipeline...",
-          "The 6-stage gauntlet pointed at any GitHub repo: fetch → sanitize →",
-          "reason (LLM) → AST gate → debate tribunal → push survivors to an",
-          "evolution branch. Reads are anonymous on public repos; pushes need",
-          "a PAT with repo scope. (This is the 'rea' pipeline, revived — see",
-          "DIRECTIONS.md Direction 3.)",
+          "Opening TARGET panel — the 6-stage gauntlet...",
+          "Fetch a repo → sanitize → reason (LLM) → AST gate → debate tribunal →",
+          "push survivors to an <branch>-evolution branch (never the target branch).",
+          "Reads are anonymous on public repos; pushes need a PAT with repo scope.",
+          "",
+          "One-click AUTO: paste a PAT + repo URL → the system picks the highest-",
+          "signal file, runs all 6 stages, and auto-pushes survivors to the side",
+          "branch. Manual mode (single-file test) is the second card in the panel.",
           "",
           "For the STRICT gate chain (self-parity guards + scar memory + one",
           "loop-t-NN branch per mutation): target <owner/repo>, then 'target dry'",
@@ -1944,6 +1954,77 @@ export default function Home() {
           ];
         } catch (e) {
           return [`Oracle error: ${(e as Error).message}`];
+        }
+      }
+
+      case "answer": {
+        // The loop's "voice" reply path. The loop poses yes/no questions via
+        // /api/operator-questions (DB-backed); the operator answers here.
+        //   answer            — list pending questions
+        //   answer yes|no     — answer the MOST RECENT pending question
+        //   answer <id> yes|no — answer a specific question by short id
+        //   answer list       — same as bare `answer`
+        // The answer is operator-only input — the loop can pose but never
+        // self-answer (recordAnswer lives in the protected control surface).
+        try {
+          const arg1 = (parts[1] ?? "").toLowerCase();
+          if (!arg1 || arg1 === "list") {
+            const res = await fetch("/api/operator-questions");
+            if (!res.ok) return [`Error: operator-questions endpoint returned ${res.status}`];
+            const data = (await res.json()) as {
+              pending: Array<{ id: string; cycleNumber: number; text: string; rationale: string | null; createdAt: string }>;
+            };
+            if (data.pending.length === 0) {
+              return ["No pending questions from the loop."];
+            }
+            const lines = [
+              `PENDING QUESTIONS FROM THE LOOP (${data.pending.length}):`,
+              "",
+            ];
+            for (const q of data.pending) {
+              lines.push(`  [${q.id.slice(-6)}] (cycle ${q.cycleNumber}) ${q.text}`);
+              if (q.rationale) lines.push(`         why: ${q.rationale}`);
+              lines.push(`         → answer ${q.id.slice(-6)} yes  OR  answer ${q.id.slice(-6)} no`);
+              lines.push("");
+            }
+            return lines;
+          }
+          let questionId: string | undefined;
+          let answer: "yes" | "no" | undefined;
+          if (arg1 === "yes" || arg1 === "no") {
+            answer = arg1;
+          } else {
+            const shortId = arg1;
+            answer = (parts[2] ?? "").toLowerCase() === "no" ? "no" : "yes";
+            const res = await fetch("/api/operator-questions");
+            if (!res.ok) return [`Error: could not fetch pending questions (${res.status})`];
+            const data = (await res.json()) as { pending: Array<{ id: string }> };
+            const match = data.pending.find((q) => q.id.endsWith(shortId));
+            if (!match) {
+              return [`No pending question matching id '${shortId}'. Type 'answer' to list pending.`];
+            }
+            questionId = match.id;
+          }
+          if (!answer) return ["Usage: answer yes|no  OR  answer <id> yes|no  OR  answer (to list)"];
+          const body: Record<string, string> = { answer };
+          if (questionId) body.id = questionId;
+          const res = await fetch("/api/operator-questions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            return [`Error recording answer: ${(err as { error?: string }).error ?? res.status}`];
+          }
+          const result = (await res.json()) as { text: string; status: string };
+          return [
+            `Answer recorded: ${result.status.replace("answered_", "").toUpperCase()}`,
+            `  Question: ${result.text}`,
+            "The loop will read this on its next relevant cycle.",
+          ];
+        } catch (err) {
+          return [`Error: ${err instanceof Error ? err.message : String(err)}`];
         }
       }
 

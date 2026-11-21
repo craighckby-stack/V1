@@ -182,6 +182,9 @@ export function ManualPipelineRunner() {
         url: `https://github.com/${form.repo}/commit/${commitSha}`,
         branch: evolutionBranch,
       });
+      // Re-call the feedback route with the push outcome so the survivor
+      // line is recorded (markResolved is idempotent on a COMPLETED run).
+      void finishManual({ pushed: true, commitSha });
       toast({
         title: "Pushed to evolution branch",
         description: `${form.repo}@${evolutionBranch} · ${commitSha.slice(0, 7)}`,
@@ -224,6 +227,10 @@ export function ManualPipelineRunner() {
       const data = (await res.json()) as PipelineReport;
       if (!res.ok) throw new Error((data as unknown as { error?: string }).error ?? "Pipeline failed");
       setPipelineReport(data);
+      // Labeled feedback (operator decision "B"): record the run's outcome
+      // as a sandbox postmortem (source: "manual") — retrievable for
+      // analysis, excluded from the autonomous lesson distiller.
+      void finishManual({ pushed: false });
       toast({
         title: `Pipeline ${data.status}`,
         description: `AST ${data.astScore} · ${data.consensus} · proof ${data.proofCommitHash}`,
@@ -232,6 +239,48 @@ export function ManualPipelineRunner() {
       toast({ title: "Pipeline failed", description: (e as Error).message, variant: "destructive" });
     } finally {
       setPipelineRunning(false);
+    }
+  }
+
+  /**
+   * Labeled feedback (operator decision "B"): record the manual run's
+   * outcome as a SANDBOX postmortem — `source: "manual"`, retrievable for
+   * analysis, EXCLUDED from the autonomous lesson distiller (which filters
+   * to source: "autonomous"). Called after runPipeline (writes the scar on
+   * failure / markResolved on COMPLETED) and again after a successful push
+   * (adds the survivor-landed line; markResolved is idempotent). Best-effort:
+   * a feedback failure never masks a successful run or push.
+   */
+  async function finishManual(opts: { pushed?: boolean; commitSha?: string; pushError?: string }) {
+    const report = usePipelineStore.getState().pipelineReport;
+    if (!report) return;
+    try {
+      const res = await fetch("/api/pipeline/manual/finish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo: form.repo,
+          branch: form.branch,
+          report,
+          pushed: opts.pushed === true,
+          ...(opts.commitSha ? { commitSha: opts.commitSha } : {}),
+          ...(opts.pushError ? { pushError: opts.pushError } : {}),
+        }),
+      });
+      const data = (await res.json()) as { feedback?: string[]; postmortem?: string; error?: string };
+      if (!res.ok) {
+        // Non-fatal: feedback is best-effort. Don't toast an error — the
+        // run/push already succeeded. Surface in console only.
+        console.warn("[manual-gauntlet] feedback failed:", data.error ?? res.status);
+        return;
+      }
+      if (data.feedback && data.feedback.length > 0) {
+        // Toast the headline feedback line so the operator sees the scar
+        // was recorded (or resolved). Keep it short.
+        toast({ title: "Feedback recorded", description: data.feedback[0] });
+      }
+    } catch (e) {
+      console.warn("[manual-gauntlet] feedback error:", (e as Error).message);
     }
   }
 

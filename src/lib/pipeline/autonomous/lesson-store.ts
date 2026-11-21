@@ -325,16 +325,20 @@ export async function markInjected(ids: string[]): Promise<void> {
  *  dreamer's named patterns ride along when fresh. */
 async function buildHistoryDigest(): Promise<string> {
   try {
+    // Labeled feedback (operator decision "B"): the distiller is the
+    // autonomous loop's self-education. Sandbox scars (gauntlet auto/manual
+    // on external repos) never feed it — only the system's own
+    // "autonomous"-source failures (the self-loop + [TARGET] flow) do.
     const [byType, hotFiles, resolved, total, corpusDigest] = await Promise.all([
-      db.postmortem.groupBy({ by: ["failureType"], _count: { _all: true }, where: { status: "active" } }),
+      db.postmortem.groupBy({ by: ["failureType"], _count: { _all: true }, where: { status: "active", source: "autonomous" } }),
       db.postmortem.findMany({
-        where: { status: "active" },
+        where: { status: "active", source: "autonomous" },
         orderBy: { attempts: "desc" },
         take: 5,
         select: { filePath: true, failureType: true, attempts: true, symptom: true },
       }),
-      db.postmortem.count({ where: { status: "resolved" } }),
-      db.postmortem.count(),
+      db.postmortem.count({ where: { status: "resolved", source: "autonomous" } }),
+      db.postmortem.count({ where: { source: "autonomous" } }),
       getCorpusDigest(),
     ]);
     const typeLines = byType
@@ -578,7 +582,11 @@ Extract up to ${MAX_LESSONS_PER_RUN} general lessons as JSON.`;
 
 async function countPostmortems(): Promise<number> {
   try {
-    return await db.postmortem.count();
+    // Labeled feedback: only autonomous-source scars count toward the
+    // distilled lessons' sourceCount. Sandbox scars (gauntlet auto/manual
+    // on external repos) are excluded — manual is a sandbox, autonomous
+    // is the population.
+    return await db.postmortem.count({ where: { source: "autonomous" } });
   } catch {
     return 1;
   }

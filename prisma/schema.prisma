@@ -115,6 +115,19 @@ model Postmortem {
   symptom      String   // human-readable one-line summary
   evidence     String   // machine-copied facts (AST violations, dropped symbols, etc.)
   constraints  String   // imperative instructions the LLM must follow
+  // ── Labeled feedback (operator decision "B": sandbox vs population) ─
+  // Who recorded this scar:
+  //   "autonomous" — the self-enhance loop or the [TARGET] command flow
+  //                  (the system's own gate-chain learning — the population).
+  //   "auto"        — the one-click gauntlet on an external repo (sandbox).
+  //   "manual"      — the manual-gauntlet runner on an external repo (sandbox).
+  //   "system"      — red-team probes, duress events, hot-swap postmortems
+  //                  (system records, not observed failures).
+  // The lesson distiller filters to "autonomous" so sandbox scars never
+  // pollute the self-loop's aggregated lessons. Defaults to "autonomous"
+  // so every existing caller (self-loop, [TARGET], red-team, duress,
+  // hot-swap) keeps feeding the distiller unchanged.
+  source       String   @default("autonomous")
   attempts     Int      @default(1)  // how many times this file has failed
   // ── D7: REFLEXION (concept: noahshinn/reflexion, NeurIPS 2023) ─────
   // After a failed mutation, one cheap LLM call asks the model to
