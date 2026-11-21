@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { cn } from "@/lib/utils";
-import { memo } from "react";
+import { memo, useMemo } from "react";
 
 interface LogEntry {
   type: string;
@@ -37,6 +37,8 @@ const SOURCE_COLOR = {
   github: "bg-violet-500/15 text-violet-300 border-violet-500/30",
 };
 
+const MAX_LOG_ENTRIES = 100; // Prevent unbounded memory growth
+
 const LogEntryComponent = memo(({ entry }: { entry: LogEntry }) => {
   // Safely access type with guard
   const typeKey = entry.type in TYPE_ICON ? entry.type : 'info';
@@ -51,17 +53,7 @@ const LogEntryComponent = memo(({ entry }: { entry: LogEntry }) => {
   const timestamp = entry.timestamp || 'N/A';
   
   // Use a stable identifier. Prioritize a unique ID if present.
-  let key: string;
-  if (entry.id) {
-      key = entry.id;
-  } else if (entry.timestamp && entry.message) {
-      // Use timestamp + first 20 chars of message for stability if ID is missing
-      const safeMessage = entry.message.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '');
-      key = `${entry.timestamp}-${safeMessage}`;
-  } else {
-      // Fallback key generation using counter-based approach
-      key = `log-entry-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-  }
+  const key = entry.id || `${timestamp}-${entry.source}-${entry.message?.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '') || 'no-message'}`;
   
   return (
     <motion.div
@@ -96,6 +88,12 @@ export function LogStream() {
   const loopState = usePipelineStore((s) => s.loopState);
   const logs = loopState?.logs || [] as LogEntry[];
   const wsConnected = usePipelineStore((s) => s.wsConnected);
+
+  // Use memo to prevent unnecessary re-renders when logs array reference changes
+  const processedLogs = useMemo(() => {
+    // Only take the most recent MAX_LOG_ENTRIES to prevent unbounded memory growth
+    return logs.slice(-MAX_LOG_ENTRIES);
+  }, [logs]);
 
   return (
     <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur h-full flex flex-col">
@@ -132,12 +130,12 @@ export function LogStream() {
         {/* Responsive height: max-h-[80vh] ensures it doesn't overflow on large screens, but allows flexibility on mobile */}
         <ScrollArea className="h-[400px] sm:h-[70vh] px-4 md:px-6 pb-4">
           <AnimatePresence initial={false}>
-            {logs.length === 0 ? (
+            {processedLogs.length === 0 ? (
               <div className="text-slate-500 italic py-12 text-center text-sm">
                 No telemetry yet. Start the loop or trigger a cycle to see live logs.
               </div>
             ) : (
-              logs.map((entry) => (
+              processedLogs.map((entry) => (
                 <LogEntryComponent key={entry.id || `log-${entry.timestamp}-${entry.source}`} entry={entry} />
               ))
             )}
