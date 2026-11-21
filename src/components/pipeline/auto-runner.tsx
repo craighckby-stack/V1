@@ -223,8 +223,8 @@ export function AutoPipelineRunner() {
       toast({
         title: `Auto run ${runData.status}`,
         description: finishData.pushed
-          ? `pushed to ${finishData.evolutionBranch} · AST ${runData.astScore} · ${runData.consensus}`
-          : `no push — ${runData.status} · AST ${runData.astScore} · ${runData.consensus}`,
+          ? `pushed to ${finishData.evolutionBranch} · AST ${runData.astDiffResult?.astScore ?? "—"} · ${runData.reviewVerdict?.consensus ?? "—"}`
+          : `no push — ${runData.status} · AST ${runData.astDiffResult?.astScore ?? "—"} · ${runData.reviewVerdict?.consensus ?? "—"}`,
       });
     } catch (e) {
       const msg = (e as Error).message;
@@ -390,7 +390,8 @@ export function AutoPipelineRunner() {
                     )}
                     {p.id === "gauntlet" && runData && (
                       <div className="text-slate-400 font-mono break-all mt-0.5">
-                        {runData.status} · AST {runData.astScore} · {runData.consensus} · proof {runData.proofCommitHash}
+                        {runData.status} · AST {runData.astDiffResult?.astScore ?? "—"} ·{" "}
+                        {runData.reviewVerdict?.consensus ?? "—"} · proof {runData.proofCommitHash}
                       </div>
                     )}
                     {p.id === "push" && finishResult && (

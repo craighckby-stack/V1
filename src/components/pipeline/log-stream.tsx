@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { cn } from "@/lib/utils";
+import { memo } from "react";
 
 interface LogEntry {
   type: string;
@@ -35,6 +36,61 @@ const SOURCE_COLOR = {
   pipeline: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
   github: "bg-violet-500/15 text-violet-300 border-violet-500/30",
 };
+
+const LogEntryComponent = memo(({ entry }: { entry: LogEntry }) => {
+  // Safely access type with guard
+  const typeKey = entry.type in TYPE_ICON ? entry.type : 'info';
+  const Icon = TYPE_ICON[typeKey as keyof typeof TYPE_ICON] || Info;
+  const color = TYPE_COLOR[typeKey as keyof typeof TYPE_COLOR] || "text-slate-400";
+  
+  // Safely access source with guard
+  const sourceKey = entry.source in SOURCE_COLOR ? entry.source : 'pipeline';
+  const sourceColor = SOURCE_COLOR[sourceKey as keyof typeof SOURCE_COLOR] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
+  
+  // Validate timestamp and provide fallback
+  const timestamp = entry.timestamp || 'N/A';
+  
+  // Use a stable identifier. Prioritize a unique ID if present.
+  let key: string;
+  if (entry.id) {
+      key = entry.id;
+  } else if (entry.timestamp && entry.message) {
+      // Use timestamp + first 20 chars of message for stability if ID is missing
+      const safeMessage = entry.message.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '');
+      key = `${entry.timestamp}-${safeMessage}`;
+  } else {
+      // Fallback key generation using counter-based approach
+      key = `log-entry-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  }
+  
+  return (
+    <motion.div
+      key={key}
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.18 }}
+      // Increased padding/size for touch target (min 44px height/width) and added transitions
+      className="flex items-start gap-3 rounded-lg px-3 py-2 transition-colors duration-150 hover:bg-slate-900/50 border border-transparent hover:border-slate-800/50 active:scale-[0.99]"
+      role="log-entry"
+      aria-label={`Log entry from ${entry.source} at ${timestamp}: ${entry.message ?? 'No message'}`}
+    >
+      <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", color)} aria-hidden="true" />
+      <span className="text-slate-500 shrink-0 tabular-nums text-xs hidden sm:block">{timestamp}</span>
+      <span
+        className={cn(
+          "shrink-0 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border",
+          sourceColor
+        )}
+        aria-label={`Source: ${sourceKey}`}
+      >
+        {sourceKey}
+      </span>
+      <span className="text-slate-200 leading-snug break-all flex-1 text-sm">{entry.message ?? ''}</span>
+    </motion.div>
+  );
+});
+
+LogEntryComponent.displayName = 'LogEntryComponent';
 
 export function LogStream() {
   const loopState = usePipelineStore((s) => s.loopState);
@@ -81,58 +137,9 @@ export function LogStream() {
                 No telemetry yet. Start the loop or trigger a cycle to see live logs.
               </div>
             ) : (
-              logs.map((entry) => {
-                // Safely access type with guard
-                const typeKey = entry.type in TYPE_ICON ? entry.type : 'info';
-                const Icon = TYPE_ICON[typeKey as keyof typeof TYPE_ICON] || Info;
-                const color = TYPE_COLOR[typeKey as keyof typeof TYPE_COLOR] || "text-slate-400";
-                
-                // Safely access source with guard
-                const sourceKey = entry.source in SOURCE_COLOR ? entry.source : 'pipeline';
-                const sourceColor = SOURCE_COLOR[sourceKey as keyof typeof SOURCE_COLOR] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
-                
-                // Validate timestamp and provide fallback
-                const timestamp = entry.timestamp || 'N/A';
-                
-                // Use a stable identifier. Prioritize a unique ID if present.
-                let key: string;
-                if (entry.id) {
-                    key = entry.id;
-                } else if (entry.timestamp && entry.message) {
-                    // Use timestamp + first 20 chars of message for stability if ID is missing
-                    const safeMessage = entry.message.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '');
-                    key = `${entry.timestamp}-${safeMessage}`;
-                } else {
-                    // Fallback key generation
-                    key = `unstable-log-${Math.random()}`;
-                }
-                
-                return (
-                  <motion.div
-                    key={key}
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.18 }}
-                    // Increased padding/size for touch target (min 44px height/width) and added transitions
-                    className="flex items-start gap-3 rounded-lg px-3 py-2 transition-colors duration-150 hover:bg-slate-900/50 border border-transparent hover:border-slate-800/50 active:scale-[0.99]"
-                    role="log-entry"
-                    aria-label={`Log entry from ${entry.source} at ${timestamp}: ${entry.message ?? 'No message'}`}
-                  >
-                    <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", color)} aria-hidden="true" />
-                    <span className="text-slate-500 shrink-0 tabular-nums text-xs hidden sm:block">{timestamp}</span>
-                    <span
-                      className={cn(
-                        "shrink-0 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border",
-                        sourceColor
-                      )}
-                      aria-label={`Source: ${sourceKey}`}
-                    >
-                      {sourceKey}
-                    </span>
-                    <span className="text-slate-200 leading-snug break-all flex-1 text-sm">{entry.message ?? ''}</span>
-                  </motion.div>
-                );
-              })
+              logs.map((entry) => (
+                <LogEntryComponent key={entry.id || `log-${entry.timestamp}-${entry.source}`} entry={entry} />
+              ))
             )}
           </AnimatePresence>
         </ScrollArea>
