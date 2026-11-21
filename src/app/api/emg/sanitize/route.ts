@@ -30,6 +30,14 @@ export async function POST(req: Request) {
     );
   }
 
+  // Additional validation for empty string code
+  if (body.code.trim() === "") {
+    return NextResponse.json(
+      { error: "code cannot be an empty string." },
+      { status: 400 }
+    );
+  }
+
   try {
     const result = sanitizeAndGovern(body.code);
     return NextResponse.json({
