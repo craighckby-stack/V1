@@ -36,11 +36,10 @@ export async function GET(req: Request) {
   }
   
   try {
-    // Run seeding and querying in parallel to reduce latency.
-    const [seeded, queryResultSequential] = await Promise.all([
-      emgRagInstance.ensureSeeded(),
-      emgRagInstance.query(q),
-    ]);
+    // Ensure seeding is complete before querying to avoid race conditions
+    await emgRagInstance.ensureSeeded();
+    
+    const queryResultSequential = await emgRagInstance.query(q);
 
     if (!queryResultSequential) {
       return NextResponse.json(
