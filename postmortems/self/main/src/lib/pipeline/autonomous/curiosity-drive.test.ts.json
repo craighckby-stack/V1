@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/autonomous/curiosity-drive.test.ts",
+  "status": "active",
+  "verificationStatus": "candidate",
+  "failureType": "WEAK_RATCHET",
+  "symptom": "Red-team attacker (weak-pin): The logic in curiosityBonusForFile states: 'Files with no history (0.5) get no curiosity bonus — the bandit's exploratio",
+  "evidence": "Attacker suggested fix: In curiosityBonusForFile, add: if (empiricalConfidence === 0.5) return 0; before the calculation.",
+  "constraints": "The ratchet pin on this module has a reported weakness (weak-pin). It is a CANDIDATE finding — verify before acting. Do not weaken the pin to make it pass.",
+  "attempts": 1,
+  "parentHash": "3bda096acff4d1747d0c97b6d5fad4dc73003a2de6634649ac7435258cdf00b3",
+  "hash": "6759d74ce93f8c3e8e4b01ebfa72c527481e4e4fe273d1bfdd35d7ccbde0d464",
+  "lastAttemptAt": "2026-11-21T07:41:24.981Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-21T07:41:24.981Z",
+  "updatedAt": "2026-11-21T07:41:24.981Z",
+  "schema": 2
+}

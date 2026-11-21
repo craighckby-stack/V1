@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/core/auto-picker.test.ts",
+  "status": "active",
+  "verificationStatus": "candidate",
+  "failureType": "WEAK_RATCHET",
+  "symptom": "Red-team attacker (weak-pin): The `pickBestFileToRefactor` function determines the best file based on the highest finding score. If scores are tied (i",
+  "evidence": "Attacker suggested fix: In `pickBestFileToRefactor`, change `if (score > bestScore)` to `if (score >= bestScore)` AND ensure the initial `bestScore` is set such that the first element (even if score is 0) is selected, or modify the logic to explicitly check for the first element if scores are equal, to maintain strict inpu",
+  "constraints": "The ratchet pin on this module has a reported weakness (weak-pin). It is a CANDIDATE finding — verify before acting. Do not weaken the pin to make it pass.",
+  "attempts": 1,
+  "parentHash": "eff1250ad40cae2c5e7c7ac42eecb79021450848a81c08e2de0bbc5aaee05883",
+  "hash": "3bda096acff4d1747d0c97b6d5fad4dc73003a2de6634649ac7435258cdf00b3",
+  "lastAttemptAt": "2026-11-21T07:40:53.300Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-21T07:40:53.301Z",
+  "updatedAt": "2026-11-21T07:40:53.301Z",
+  "schema": 2
+}
