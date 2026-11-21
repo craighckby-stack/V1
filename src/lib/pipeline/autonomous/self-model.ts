@@ -53,6 +53,7 @@ import {
   computeCuriosityState,
   curiosityBonusForFile,
 } from "./curiosity-drive";
+import { poseQuestion } from "./operator-questions";
 // NOTE: readArchaeologyReport is imported LAZILY inside bootstrapSelfModel
 // (not at module top-level). This keeps the import chain of getSelfModelSummary
 // (the function the /api/self-model route calls) lightweight — just `db` —
@@ -103,6 +104,16 @@ export function classifyOutcome(enhanced: boolean, reason: string): SelfOutcome 
 // ── Bootstrap: instant self-knowledge from history ────────────────────
 
 let bootstrapped = false;
+
+// ── Curiosity-first-fire trigger (operator-question #9) ────────────────
+// Module-level flag: was the curiosity drive firing on the LAST bandit
+// pass? The false→true transition poses ONE operator question ("the loop
+// is now exploring files it can't predict — should I let it?"). The
+// question fires at most once per firing episode (the flag flips back
+// to false when the drive stops firing, so the next firing episode can
+// pose again). Rate-limited by poseQuestion (50 cycles between
+// questions) — even rapid firing episodes can't spam the operator.
+let curiosityWasFiring = false;
 
 /** One-time: aggregate the MutationCorpus audit trail (every attempt the
  *  loop has ever recorded) into per-file SelfModelFile rows, then apply
@@ -659,6 +670,41 @@ export async function orderTargetsByBandit(
     }));
     if (curiosityState.enabled && curiosityState.firing && log) {
       log(`🧠 curiosity: ${curiosityState.reason}`, "info");
+    }
+    // ── OPERATOR QUESTION TRIGGER: curiosity first fire (#9) ────────
+    // The false→true transition is the "the loop just got bored and is
+    // now exploring files it can't predict" moment. Pose ONE question
+    // so the operator knows the autonomous file selection just shifted,
+    // and can veto (answer "no" → the loop keeps running but the
+    // operator is informed). Fires at most once per firing episode
+    // (the flag flips back when the drive stops firing). Rate-limited
+    // by poseQuestion (50 cycles between questions) so even rapid
+    // firing episodes can't spam the operator. Best-effort — never
+    // throws into the bandit.
+    if (curiosityState.enabled && curiosityState.firing && !curiosityWasFiring) {
+      curiosityWasFiring = true;
+      // The cycle number: read from the highest cycle in the corpus,
+      // or 0 if unavailable. poseQuestion rate-limits by cycleNumber.
+      let cycleForQuestion = 0;
+      try {
+        const maxCycle = await db.mutationCorpus.aggregate({ _max: { cycleNumber: true } });
+        cycleForQuestion = maxCycle._max.cycleNumber ?? 0;
+      } catch {
+        /* aggregate unavailable — 0 is fine, poseQuestion double-checks the rate limit */
+      }
+      void poseQuestion(
+        cycleForQuestion,
+        "I'm now too confident in my predictions and the codebase health is flat or worsening — my curiosity drive just turned on, boosting files I can't predict. Should I keep exploring those unpredictable files, or stay on the files I'm good at?",
+        curiosityState.reason,
+      ).then((q) => {
+        if (q && log) {
+          log(`🤔 Asked the operator (curiosity first fire): "${q.text}" — type 'answer' to respond.`, "info");
+        }
+      }).catch(() => { /* best-effort */ });
+    } else if (!curiosityState.firing) {
+      // The drive stopped firing — reset the flag so the NEXT firing
+      // episode can pose again.
+      curiosityWasFiring = false;
     }
     // Normalize candidates to repo-relative paths for model lookup.
     const rel = candidateAbsPaths.map((p) =>

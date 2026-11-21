@@ -52,7 +52,7 @@ A single full-screen BIOS terminal at `/` (`src/app/page.tsx`) — black backgro
 
 **The header** has `[START]`, `[CLEAR]`, `[CONFIG]`, `[TARGET]`, `[ORACLE]`, `[DEFENSE]`, `[BRANCHES]`, `[MERGE-BACK]` buttons, plus a `LOOP ●` heartbeat.
 
-**The console stream** (`console-stream.tsx`) shows every scan, gate, push, retry, and backoff in real time. You can also type commands: `start` / `stop` / `status` / `about` / `help` / `trigger` / `task <goal>` / `push` / `config` / `target` / `oracle` / `skip` / `rescan` / `clear`.
+**The console stream** (`console-stream.tsx`) shows every scan, gate, push, retry, and backoff in real time. You can also type commands: `start` / `stop` / `status` / `about` / `help` / `trigger` / `task <goal>` / `push` / `config` / `target` / `oracle` / `answer` / `provenance <file>` / `benchmark` / `memory` / `skip` / `rescan` / `clear`.
 
 ### The TARGET panel — the machine pointed at YOUR repo
 
@@ -386,6 +386,49 @@ Paste a Gemini API key via the `[CONFIG]` modal (or `POST /api/self-enhance/llm-
 ### The unlock PIN
 
 The saturation panel's `[unlock]` buttons ask for the operator PIN. Its value is documented mid-README (see *Why it can't go rogue → The unlock PIN*) — we don't repeat it here on purpose. Override it with `LOOP_UNLOCK_PIN` in `.env`; both the edge route (`/api/self-enhance/unlock`) and the loop-worker's mirror endpoint validate it.
+
+---
+
+## Alive behaviors, provenance, and the benchmark
+
+The loop isn't just a mutator — it has three "alive" behaviors (curiosity, health monitoring, operator questions) and two auditability surfaces (provenance, benchmark). All ship dormant or read-only by default.
+
+```
+LOOP ──► provenance <file>     who changed what, when (per-file timeline)
+     ──► benchmark             does the complexity earn its keep? (A/B)
+     ──► answer                the loop's pending yes/no questions
+     ──► 🧠 curiosity drive    flag-gated (set 'curiosity-drive-enabled')
+     ──► 📊 health metrics     snapshots every 10 cycles
+     ──► 🤔 operator questions  the loop poses; operator answers
+```
+
+| Behavior | Command / File | What it does |
+|---|---|---|
+| **Provenance** | `provenance <file>` + `/api/provenance` | Joins git log + mutation corpus + postmortems + pipeline runs + lessons into ONE chronological timeline per file. Answers "what part of the system fixed this, and when?" The actor tag (`[LOOP]`/`[YOU]`/`[MANL]`/`[AUTO]`/`[SYS]`) tells you WHO made each change. |
+| **Benchmark** | `benchmark` + `/api/benchmark` | The #1 honest question: does the complexity earn its keep? A retrospective A/B over the mutation corpus — three natural experiments (lessons injected vs not, provenance vs not, postmortem vs not) with confidence labels by N and confounders stated. Reports "Insufficient data" honestly until N ≥ 20 per arm. |
+| **Operator questions** | `answer` + `/api/operator-questions` | The loop's voice. Three triggers: health DECLINING (after a snapshot showing more errors), goal-review tie (the loop couldn't decide its own direction), curiosity first-fire (the loop just got bored and is exploring unpredictable files). Rate-limited (50 cycles between questions). The loop poses; the operator answers; the loop reads the answer on its next relevant cycle. |
+| **Curiosity drive** | `autonomous/curiosity-drive.ts` | When the self-model is too confident (Brier ≤ 0.08) AND health is flat/worsening, the drive adds a bounded bonus (+0.0 to +0.25) to files the loop is LEAST confident about. Flag-gated (default OFF — set SystemFlag `curiosity-drive-enabled`=`true`). The loop can't enable it on itself. |
+| **Health metrics** | `autonomous/health-metrics.ts` | Every 10 cycles: snapshot `{testCount, testFail, tscErrors, lintErrors, protectedFileCount}` via `bun test` + `tsc` + `eslint`. The delta between snapshots is the first real OUTCOME signal — did the loop's mutations make the codebase healthier? |
+| **Provenance-as-loop-input** | `autonomous/provenance-digest.ts` | The loop reads its OWN per-file history before mutating — attempt frequency, last outcome, rejection pattern, knowledge trail, operator's last change — and injects a ~1500b "provenance digest" into the enhance prompt. The loop mutates WITH the context of "I've been here 15 times, my last attempt was enhanced, the operator's last commit was a purge of prank code" instead of blind. |
+| **Labeled feedback** | `Postmortem.source` column | Every scar is tagged `autonomous` / `auto` / `manual` / `system`. The lesson distiller filters to `autonomous` only — sandbox scars (gauntlet auto/manual on external repos) never pollute the self-loop's aggregated lessons. Manual = sandbox, autonomous = population. |
+| **Boot soundtrack** | `retro-boot-audio.ts` | Restored: CRT degauss thump + floppy-seek clatter + Imperial March + happy POST beep. Plays for ~6s after ENTER; any key/click skips the soundcheck. Volume pinned at 1.0, no mute — the loud prank is the point ("funny even on mute"). |
+
+### The prompt-construction refactor (coherence-debt fix)
+
+The enhance prompt used to be a 6-block string concat that knew about 8 subsystems (postmortems, ancestral RAG, prior-art, lessons, rejected transforms, arch context, provenance, goals) — each assembled inline across ~110 lines, then 3 template literals (refactor / visual-polish / schema) each concatenating a different subset. Adding a context source meant editing 3 template strings + the inline assembly.
+
+`autonomous/prompt-context.ts` separates the ASSEMBLY (which blocks, in what order, with what budgets, fail-soft) from the TEMPLATE (role / job / format / hard rules). `buildEnhanceContext(filePath, relPath, mode)` returns ordered arrays the templates join. Adding a context source is now ONE function, not a 40-line template edit.
+
+### The panel-sequencing fix (the "starts straight away" bug)
+
+Saving an NVIDIA or Gemini key used to fire `POST /api/self-enhance/reboot`, which called `markSelfEnhanceArmed(true)` — persisting `armed:true` to disk AND starting the loop immediately. One key-save = loop starts now + re-arms for every future boot. The fix:
+
+- **Decoupled save from reboot**: saving a key is now a pure config change. A separate `[REBOOT LOOP NOW]` button (only visible when a key is configured) is the explicit "apply now" gesture.
+- **Decoupled arming from reboot**: `/api/self-enhance/reboot` no longer calls `markSelfEnhanceArmed`. Only `/api/self-enhance/start` arms. `[STOP]` is sticky: a stopped loop stays stopped across reboots.
+- **Dead-man's switch on the self-enhance loop**: the boot auto-start now checks `isDeadMansTripped()` — if the operator hasn't touched the system in 24h, the auto-start is refused even when armed.
+- **`[START]` prerequisite gate**: disabled until a push target is configured. Tooltip guides the onboarding: `1. [CONFIG] → 2. [NVIDIA]/[GEMINI] → 3. [START]`.
+- **CONFIG first-proof prompt**: `window.confirm` before pushing the first proof (the old code pushed immediately, sweeping in-flight worker changes into the commit). `cfgAutoCreate` defaults to `false`.
+- **Modal exclusivity**: CONFIG/NVIDIA/GEMINI are mutually exclusive — opening one closes the others.
 
 ---
 

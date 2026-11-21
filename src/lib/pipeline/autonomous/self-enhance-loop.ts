@@ -21,8 +21,6 @@ import { llmComplete, extractSummaryAndCode, llmCooldownMs } from "../llm/agent-
 import { conductLlmDebate } from "../llm/debate-llm";
 import { renderGoalsBullets, renderGoalsTopicLine, maybeReviewGoals } from "./goal-engine";
 import { postmortemStore } from "../postmortem/postmortem-store";
-import { queryRelevantPostmortems, formatAncestralPromptBlock } from "../postmortem/ancestral-rag";
-import { searchEngines, formatPriorArtBlock } from "./githistory-corpus";
 import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, findLowestFreeBranchSlot, formatLoopBranch, validateCommitMessage, amendUuidHeadCommit, pruneOldLoopBranches } from "./push-target";
 import { db } from "@/lib/db";
 import { generateTasks, claimNextTask } from "./self-task-generator";
@@ -43,12 +41,8 @@ import { isProtectedPath } from "./protected-files";
 // pattern): the in-memory stats reset on every worker boot while the
 // self-model panel read the DB — two windows, one lying banner comment.
 import { readLoopStats, writeLoopStats } from "./loop-stats";
-// D1 (architecture context): builds a 2-hop "neighborhood map" of the
-// file being enhanced (its imports + their exports + 2-hop imports) and
-// injects it into the refactor prompt so the LLM refactors with
-// architecture-level vision instead of in isolation. Fail-soft: if the
-// builder throws or returns empty, the prompt proceeds without it.
-import { buildArchContext } from "./arch-context";
+// D1 (architecture context): built by prompt-context.ts now, not
+// inline here. See prompt-context.ts for the assembly.
 import {
   bootstrapSelfModel,
   orderTargetsByBandit,
@@ -60,16 +54,10 @@ import {
   predictConfidence,
 } from "./self-model";
 import {
-  getLessonsForPrompt,
-  getPromotedProcedures,
-  formatLessonsBlock,
-  formatOperatingConstraintsBlock,
-  markInjected,
   recordLessonOutcome,
   maybeDistill,
   seedLessons,
   DISTILL_INTERVAL,
-  type LessonRow,
 } from "./lesson-store";
 import {
   captureAndPersistHealthSnapshot,
@@ -77,7 +65,7 @@ import {
   getHealthTrendDigest,
 } from "./health-metrics";
 import { poseQuestion } from "./operator-questions";
-import { buildProvenanceDigestForPrompt } from "./provenance-digest";
+import { buildEnhanceContext } from "./prompt-context";
 import { applySchemaMutation } from "./schema-gate";
 import { PROJECT_ROOT } from "../core/paths";
 import { recoverCrashedTestGate } from "../core/test-gate-journal";
@@ -104,8 +92,6 @@ import {
   classifyGateOutcome,
   recordMutationAttempt,
   firstMeaningfulLine,
-  getRejectedTransformsForFile,
-  formatRejectedTransformsBlock,
 } from "./mutation-corpus";
 import { maybeDream, getRatchetDraft } from "./dreamer";
 import { noteAttemptOutcome, maybeMetaTune } from "./meta-tuner";
@@ -1597,160 +1583,34 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
         return result;
       }
 
-      // 2. Check for postmortem constraints
-      const postmortem = await postmortemStore.getConstraintsForFile(
-        "self",
-        "main",
-        relPath
-      );
-
-      // 2b. Ancestral RAG (concept: DARLEK_CAAN queryAncestralWisdom / GRAFT 3).
-      // The per-file postmortem (above) only sees THIS file's history.
-      // The ancestral query pulls VERIFIED postmortems from OTHER files
-      // whose symptom/evidence/constraints match a keyword derived
-      // from this file's path + (if present) its current symptom. So a
-      // syntax-drop failure on foo.ts teaches a constraint that surfaces
-      // when enhancing bar.ts. Local, synchronous, zero LLM cost.
-      const ancestralKeyword =
-        (postmortem.symptom ? postmortem.symptom + " " : "") +
-        relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
-      let ancestralBlock = "";
-      try {
-        const ancestral = await queryRelevantPostmortems({
-          keyword: ancestralKeyword,
-          excludeFilePath: relPath,
-          repo: "self",
-          limit: 5,
-        });
-        ancestralBlock = formatAncestralPromptBlock(ancestral);
-      } catch {
-        /* best-effort — ancestral RAG is an enhancement, not a gate */
-      }
-
-      // 2c. PRIOR-ART RAG (GitHistory-Sync corpus) — same keyword, a
-      // different corpus: the operator's sibling deployments (17 repos,
-      // 117 harvested engines) instead of this loop's own postmortems.
-      // When the file being enhanced has a counterpart in the fleet —
-      // an orchestrator, an agent loop, a RAG retriever — the prompt
-      // names it: role, path, signature names. Metadata only (never
-      // foreign source bodies), bounded to 3 hits, explicitly framed
-      // as patterns-not-code. NOT injected into visual-polish mode
-      // (the engine corpus is backend logic; styling prompts have no
-      // use for it — same exclusion as arch context). Fail-soft like
-      // the ancestral block: an absent corpus (memory/commit-history.*.json
-      // missing) returns no hits and the prompt proceeds unchanged.
-      let priorArtBlock = "";
-      try {
-        const engineHits = searchEngines(ancestralKeyword, 3);
-        priorArtBlock = formatPriorArtBlock(engineHits);
-        if (priorArtBlock) {
-          this.log(
-            `Injecting ${engineHits.length} prior-art engine(s) for ${relPath} (GitHistory-Sync corpus)`,
-            "info"
-          );
-        }
-      } catch {
-        /* best-effort — prior art is an amplifier, not a gate */
-      }
+      // 2. Postmortem constraints are now built by buildEnhanceContext
+      // (below) — no inline fetch needed here. The postmortemStore call
+      // moved to prompt-context.ts with the other 7 context blocks.
 
       // 3. LLM improvement — ask for REAL improvements, not cosmetic refactoring
       this.log(`Improving ${relPath}...`, "info");
 
-      // 3-lessons. COMPOUNDING INTELLIGENCE — general lessons distilled
-      // from aggregate history inject into EVERY enhance prompt (that's
-      // the transfer: a lesson from pipeline failures shapes a UI
-      // component mutation). The ids ride on the instance so runCycle
-      // can feed the verdict back — see the wrapper after the enhanceFile
-      // call in runCycle. Serial loop ⇒ instance field is safe.
+      // ── CONTEXT ASSEMBLY (coherence-debt fix #4) ─────────────────
+      // The prompt's 8 context blocks (postmortem, ancestral, priorArt,
+      // lessons, rejected, archContext, provenance, operating) used to
+      // be assembled inline across ~110 lines + 3 template literals.
+      // Now buildEnhanceContext assembles them in ONE fail-soft call,
+      // returning ordered arrays the templates join. Adding a context
+      // source is now ONE function, not a 3-template edit.
       //
-      // D2 two-track: PROMOTED procedures (active, lapsed 6+ times)
-      // inject through a separate, unbounded Operating Constraints block
-      // ABOVE the postmortem block — non-negotiable by position. The
-      // bounded block carries the rest under a hard byte budget (D6).
-      let operatingBlock = "";
-      let lessonsBlock = "";
-      this.lastLessonIds = [];
-      try {
-        const promoted: LessonRow[] = await getPromotedProcedures();
-        const ls = await getLessonsForPrompt();
-        const all = [...promoted, ...ls];
-        if (all.length > 0) {
-          this.lastLessonIds = all.map((x) => x.id);
-          operatingBlock = formatOperatingConstraintsBlock(promoted);
-          lessonsBlock = formatLessonsBlock(ls);
-          await markInjected(this.lastLessonIds);
-        }
-      } catch {
-        /* lessons are an amplifier, not a gate */
-      }
-
-      // 3-negatives. NEGATIVE CONSTRAINTS (RAS graft) — this file's
-      // gate-rejected transforms from the mutation corpus, fed back as
-      // do-not-reuse constraints EVERY cycle. The distiller sees the
-      // aggregate shape once per DISTILL_INTERVAL; this block shows the
-      // per-file exhausted space to the proposer itself. Directly saves
-      // scarce LLM calls: a proposal the gates already rejected is a
-      // wasted call in a 429-starved loop.
-      let rejectedBlock = "";
-      try {
-        const rejected = await getRejectedTransformsForFile(relPath);
-        rejectedBlock = formatRejectedTransformsBlock(rejected);
-        if (rejectedBlock) {
-          this.log(
-            `Injecting ${rejected.length} rejected-transform constraint(s) for ${relPath} (corpus negative constraints)`,
-            "info"
-          );
-        }
-      } catch {
-        /* amplifier, not a gate */
-      }
-
-      // 3-arch. ARCHITECTURE CONTEXT (D1) — a 2-hop "neighborhood map"
-      // of the file being refactored: its exports + its imports' exports
-      // + its 2-hop neighbors. Injected into the refactor prompt so the
-      // LLM refactors with architecture-level vision (it sees which
-      // other modules import THIS file's exports, so it won't rename a
-      // helper that 5 other files depend on). Computed ONCE per
-      // enhanceFile call (cheap: target + ≤19 1-hop files), cached in
-      // archContextBlock. Fail-soft: any error → empty block, prompt
-      // proceeds without arch vision (better than losing the cycle).
-      // NOT injected into visual-polish mode (UI components —
-      // architecture context is less relevant for styling changes).
-      let archContextBlock = "";
-      try {
-        const arch = buildArchContext(filePath);
-        if (arch.summary.length > 0) {
-          // Wrap with delimiters so the LLM can clearly see where the
-          // injected context begins and ends (vs. the file's own code
-          // above it). The summary itself already has an "=== ARCHITECTURE
-          // CONTEXT ===" header from the builder; the outer dashes make
-          // the injection block visually distinct from the code fence.
-          archContextBlock = `\n--- ARCHITECTURE CONTEXT (2-hop neighborhood, ${arch.fileCount} files parsed, hop=${arch.hopCount}) ---\n${arch.summary}\n--- END ARCHITECTURE CONTEXT ---\n`;
-          this.log(
-            `Built arch context for ${relPath}: ${arch.fileCount} files, ${arch.hopCount}-hop, ${arch.summary.length}b`,
-            "info"
-          );
-        }
-      } catch {
-        /* arch context is a vision amplifier, not a gate — fail-soft */
-      }
-
-      // GOAL ENGINE — the SYSTEM DIRECTION bullets render from the
-      // LoopGoal table: operator-seeded, then reviewed and updated by
-      // the loop's own goal review (retire met/unproductive goals, mint
-      // new ones from observed evidence — clamped; see goal-engine.ts).
-      // The loop pursues goals it OWNS. Fail-soft: any goal-store error
-      // falls back to the static operator seed bullets inside the
-      // renderer, so the enhance prompt can never fail on this path.
+      // goalsBullets stays inline (it renders into the role body, not
+      // the system tail) — see the template below. The file content
+      // stays inline in the user prompt (it's the bulk of the prompt).
       const goalsBullets = await renderGoalsBullets();
-
-      // ── PROVENANCE DIGEST (the loop reads its own history) ──────
-      // The "do better" direction: the loop mutates WITH the context of
-      // "I've been here 15 times, my last attempt was enhanced, the
-      // operator's last commit was a purge of prank code" instead of
-      // blind. Fail-soft: "" on any error → prompt proceeds without it.
-      // Mode-agnostic: injected in both refactor and visual-polish.
-      const provenanceBlock = await buildProvenanceDigestForPrompt(relPath);
+      // Build BOTH context variants once (refactor + visual-polish differ:
+      // visual-polish excludes priorArt + archContext — see prompt-context.ts).
+      // The schema mode is built separately in enhanceSchema below.
+      const enhanceCtx = await buildEnhanceContext(filePath, relPath, "refactor");
+      const enhanceCtxVP = await buildEnhanceContext(filePath, relPath, "visual-polish");
+      this.lastLessonIds = enhanceCtx.lessonIds;
+      const systemTail = enhanceCtx.systemBlocks.join("");
+      const userTail = enhanceCtx.userBlocks.join("");
+      const systemTailVP = enhanceCtxVP.systemBlocks.join("");
 
       const refactorSystem = `You are a senior code reviewer improving a TypeScript file inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
 
@@ -1788,9 +1648,9 @@ OUTPUT FORMAT (mandatory):
 \`\`\`typescript
 // the full file with fixes applied
 \`\`\`
-${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${provenanceBlock}${rejectedBlock}${ancestralBlock}${priorArtBlock}${lessonsBlock}`;
+${systemTail}`;
 
-      const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n${archContextBlock}\nFind real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in this file. Fix them. Where the file's basic robustness is already in place, pursue the SYSTEM DIRECTION goals above instead (design or performance work) rather than adding more defensive checks. If nothing needs fixing, return the file unchanged. Use the architecture context above (if present) to avoid breaking changes that would affect importing modules. Output the summary first, then the code.`;
+      const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n${userTail}Find real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in this file. Fix them. Where the file's basic robustness is already in place, pursue the SYSTEM DIRECTION goals above instead (design or performance work) rather than adding more defensive checks. If nothing needs fixing, return the file unchanged. Use the architecture context above (if present) to avoid breaking changes that would affect importing modules. Output the summary first, then the code.`;
 
       // ── VISUAL-POLISH MODE (audit 6 — the user flagged "still not
       //    enhancing its own ui look") ────────────────────────────────
@@ -1835,7 +1695,7 @@ OUTPUT FORMAT (mandatory):
 \`\`\`typescript
 // the full file with visual improvements applied
 \`\`\`
-${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${provenanceBlock}${rejectedBlock}${ancestralBlock}${lessonsBlock}`;
+${systemTailVP}`;
 
       const visualPolishUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nImprove the visual presentation, accessibility, and responsiveness of this UI component. Do NOT change any logic or functionality — only styling, aria attributes, responsive breakpoints, and micro-interactions. If it already looks polished, return the file unchanged. Output the summary first, then the code.`;
 
@@ -2301,49 +2161,16 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
         return result;
       }
 
-      // Postmortem constraints — the schema can fail too (a past
-      // proposal that broke validate leaves a scar).
-      const postmortem = await postmortemStore.getConstraintsForFile("self", "main", relPath);
-
-      // Lessons — compounding applies to schema proposals as well.
-      // D2 two-track, same as the file path: promoted procedures ride
-      // the Operating Constraints block, the rest the bounded block.
-      let operatingBlock = "";
-      let lessonsBlock = "";
-      try {
-        const promoted: LessonRow[] = await getPromotedProcedures();
-        const ls = await getLessonsForPrompt();
-        const all = [...promoted, ...ls];
-        if (all.length > 0) {
-          this.lastLessonIds = all.map((x) => x.id);
-          operatingBlock = formatOperatingConstraintsBlock(promoted);
-          lessonsBlock = formatLessonsBlock(ls);
-          await markInjected(this.lastLessonIds);
-        }
-      } catch {
-        /* amplifier, not a gate */
-      }
-
-      // Negative constraints (RAS graft) — schema-rejected proposals
-      // ride the same per-file block. Schema attempts are recorded in
-      // the corpus with relPath "prisma/schema.prisma" (runCycle records
-      // every enhanceFile result, and the schema path returns through
-      // it), so rejected schema transforms accumulate here too.
-      let rejectedBlock = "";
-      try {
-        const rejected = await getRejectedTransformsForFile(relPath);
-        rejectedBlock = formatRejectedTransformsBlock(rejected);
-        if (rejectedBlock) {
-          this.log(
-            `Injecting ${rejected.length} rejected-transform constraint(s) for schema (corpus negative constraints)`,
-            "info"
-          );
-        }
-      } catch {
-        /* amplifier, not a gate */
-      }
-
+      // ── CONTEXT ASSEMBLY (coherence-debt fix #4) ─────────────────
+      // Schema mode: operating + postmortem + provenance + rejected +
+      // lessons (no ancestral, no priorArt, no archContext — the schema
+      // is a single file with no imports neighborhood). See prompt-
+      // context.ts for the mode → block mapping.
       this.log(`Proposing schema mutation for ${relPath}...`, "info");
+      const schemaCtx = await buildEnhanceContext(filePath, relPath, "schema");
+      this.lastLessonIds = schemaCtx.lessonIds;
+      const schemaSystemTail = schemaCtx.systemBlocks.join("");
+
       const system = `You are modifying the Prisma schema of a self-improving system — the schema IS the system's memory. This is the most dangerous file you can touch.
 
 THE CONTRACT (the gate enforces this mechanically — violations are auto-reverted):
@@ -2365,7 +2192,7 @@ If there is NO genuinely useful additive change to make, output the original sch
 
 OUTPUT FORMAT:
 First a SHORT summary starting with "## Changes", then the COMPLETE schema in a single \`\`\`prisma fenced block.
-${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${provenanceBlock}${rejectedBlock}${lessonsBlock}`;
+${schemaSystemTail}`;
 
       const user = `Current prisma/schema.prisma:\n\n\`\`\`prisma\n${original}\n\`\`\`\n\nPropose an additive-only improvement, or return it unchanged if none is genuinely useful.`;
 

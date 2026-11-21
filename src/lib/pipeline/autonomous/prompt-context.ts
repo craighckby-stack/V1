@@ -1,0 +1,230 @@
+/**
+ * prompt-context.ts — the loop's context-assembly, separated from the
+ * prompt template.
+ *
+ * WHAT THIS IS
+ * ───────────
+ * The coherence-debt fix (#4 from the 10/10 list). The enhance prompt
+ * used to be a 6-block string concat that knew about 8 subsystems:
+ * postmortems, ancestral RAG, prior-art, lessons (promoted + bounded),
+ * rejected transforms, arch context, provenance, goals — each with its
+ * own try/catch assembly inline, then 3 template literals (refactor /
+ * visual-polish / schema) each concatenating a different subset.
+ *
+ * Adding a context source meant editing 3 template strings + the
+ * inline assembly. This module separates the ASSEMBLY (which blocks,
+ * in what order, with what budgets, fail-soft) from the TEMPLATE (the
+ * role / job / format / hard rules). Adding a context source is now
+ * ONE function, not a 40-line template edit.
+ *
+ * THE CONTRACT
+ * ───────────
+ * buildEnhanceContext(filePath, relPath, mode) → {
+ *   systemBlocks: string[],   // ordered, already-wrapped, ready to join
+ *   userBlocks: string[],     // ordered, ready to join
+ *   lessonIds: string[],      // for the verdict feedback loop
+ * }
+ *
+ * - Each block is fail-soft: "" on any error, and the array filters
+ *   empties out so the joined string has no empty blocks.
+ * - The ORDER is the documented prompt structure (see the loop's
+ *   self-enhance-loop.ts comments): operating constraints → postmortem
+ *   → provenance → rejected → ancestral → priorArt (refactor only) →
+ *   lessons. This module owns that order; the template doesn't.
+ * - MODE-AGNOSTIC blocks (operating, postmortem, provenance, rejected,
+ *   ancestral, lessons) are included in both refactor and visual-polish.
+ *   MODE-SPECIFIC blocks (priorArt, archContext) are excluded from
+ *   visual-polish (the engine corpus is backend logic; arch context is
+ *   less relevant for styling changes).
+ * - The caller (the loop) still owns `goalsBullets` (it's rendered into
+ *   the role body inside the template, not the system tail) and the
+ *   file content (goes into the user prompt).
+ *
+ * WHY THIS IS BETTER
+ * ──────────────────
+ * - Adding a context source = add one assembly line + one array push.
+ *   No template edit.
+ * - The order is explicit + named, not implicit in a 40-line literal.
+ * - Each block's fail-soft contract is in ONE place (this module), not
+ *   duplicated across 3 try/catches.
+ * - The template is a thin role/format/hard-rules string — readable.
+ *
+ * PERFORMANCE: same as before. The blocks are computed once per
+ * enhanceFile call; this module just collects them into arrays instead
+ * of inline-concatenating. No extra DB calls, no extra LLM calls.
+ */
+
+import { postmortemStore } from "../postmortem/postmortem-store";
+import { queryRelevantPostmortems, formatAncestralPromptBlock } from "../postmortem/ancestral-rag";
+import { searchEngines, formatPriorArtBlock } from "./githistory-corpus";
+import {
+  getPromotedProcedures,
+  getLessonsForPrompt,
+  formatOperatingConstraintsBlock,
+  formatLessonsBlock,
+  markInjected,
+  type LessonRow,
+} from "./lesson-store";
+import {
+  getRejectedTransformsForFile,
+  formatRejectedTransformsBlock,
+} from "./mutation-corpus";
+import { buildArchContext } from "./arch-context";
+import { buildProvenanceDigestForPrompt } from "./provenance-digest";
+
+export interface EnhanceContext {
+  /** Ordered system-prompt blocks (fail-soft, empties filtered). The
+   *  caller joins them and appends to the role/format template. */
+  systemBlocks: string[];
+  /** Ordered user-prompt blocks (fail-soft, empties filtered). The
+   *  caller joins them and appends to the file-content template. */
+  userBlocks: string[];
+  /** The lesson IDs injected this cycle (for the verdict feedback loop
+   *  in runCycle — the wrapper after the enhanceFile call). */
+  lessonIds: string[];
+}
+
+/** Build the enhance context for one file. One DB/git call per block
+ *  (fail-soft), collected into ordered arrays. The caller decides which
+ *  template (refactor / visual-polish / schema) to splice into.
+ *
+ *  `mode` controls which blocks are included:
+ *    - "refactor": all blocks (operating, postmortem, provenance,
+ *      rejected, ancestral, priorArt, lessons; archContext in user).
+ *    - "visual-polish": all EXCEPT priorArt + archContext (the engine
+ *      corpus is backend logic; arch context is less relevant for
+ *      styling changes).
+ *    - "schema": operating, postmortem, provenance, rejected, lessons
+ *      (no ancestral, no priorArt, no archContext — schema is a single
+ *      file with no imports neighborhood). */
+export async function buildEnhanceContext(
+  filePath: string,
+  relPath: string,
+  mode: "refactor" | "visual-polish" | "schema",
+): Promise<EnhanceContext> {
+  const systemBlocks: string[] = [];
+  const userBlocks: string[] = [];
+  let lessonIds: string[] = [];
+
+  // ── 1. POSTMORTEM (per-file active constraint) ──────────────────
+  // Always first (after the operating block below) — the active
+  // failure constraint is the most prominent per-file signal.
+  let postmortemBlock = "";
+  let postmortemActive = false;
+  try {
+    const postmortem = await postmortemStore.getConstraintsForFile("self", "main", relPath);
+    postmortemActive = postmortem.hasActivePostmortem;
+    postmortemBlock = postmortemActive ? `\n${postmortem.promptBlock}\n` : "";
+  } catch {
+    /* best-effort */
+  }
+
+  // ── 2. ANCESTRAL RAG (verified postmortems from OTHER files) ────
+  // Schema mode: skip (a single-file schema has no imports neighborhood
+  // to cross-reference). Refactor + visual-polish: include.
+  let ancestralBlock = "";
+  if (mode !== "schema") {
+    try {
+      const ancestralKeyword =
+        (postmortemActive ? "" : "") +
+        relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
+      const ancestral = await queryRelevantPostmortems({
+        keyword: ancestralKeyword,
+        excludeFilePath: relPath,
+        repo: "self",
+        limit: 5,
+      });
+      ancestralBlock = formatAncestralPromptBlock(ancestral);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  // ── 3. PRIOR-ART RAG (GitHistory-Sync fleet corpus) ─────────────
+  // Refactor mode only — the engine corpus is backend logic; styling
+  // prompts have no use for it. Same exclusion as arch context.
+  let priorArtBlock = "";
+  if (mode === "refactor") {
+    try {
+      const ancestralKeyword = relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
+      const engineHits = searchEngines(ancestralKeyword, 3);
+      priorArtBlock = formatPriorArtBlock(engineHits);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  // ── 4. LESSONS (promoted procedures + bounded general rules) ───
+  // D2 two-track: PROMOTED procedures inject through a separate,
+  // unbounded Operating Constraints block ABOVE the postmortem; the
+  // bounded block carries the rest under a hard byte budget.
+  let operatingBlock = "";
+  let lessonsBlock = "";
+  try {
+    const promoted: LessonRow[] = await getPromotedProcedures();
+    const ls = await getLessonsForPrompt();
+    const all = [...promoted, ...ls];
+    if (all.length > 0) {
+      lessonIds = all.map((x) => x.id);
+      operatingBlock = formatOperatingConstraintsBlock(promoted);
+      lessonsBlock = formatLessonsBlock(ls);
+      await markInjected(lessonIds);
+    }
+  } catch {
+    /* lessons are an amplifier, not a gate */
+  }
+
+  // ── 5. REJECTED TRANSFORMS (this file's exhausted space) ────────
+  let rejectedBlock = "";
+  try {
+    const rejected = await getRejectedTransformsForFile(relPath);
+    rejectedBlock = formatRejectedTransformsBlock(rejected);
+  } catch {
+    /* best-effort */
+  }
+
+  // ── 6. ARCH CONTEXT (2-hop neighborhood) ───────────────────────
+  // Refactor mode only (in the user prompt). Schema + visual-polish
+  // skip it.
+  let archContextBlock = "";
+  if (mode === "refactor") {
+    try {
+      const arch = buildArchContext(filePath);
+      if (arch.summary.length > 0) {
+        archContextBlock = `\n--- ARCHITECTURE CONTEXT (2-hop neighborhood, ${arch.fileCount} files parsed, hop=${arch.hopCount}) ---\n${arch.summary}\n--- END ARCHITECTURE CONTEXT ---\n`;
+      }
+    } catch {
+      /* arch context is a vision amplifier, not a gate */
+    }
+  }
+
+  // ── 7. PROVENANCE DIGEST (the loop's own history with this file) ─
+  // Mode-agnostic: the loop's prior attempts are relevant in all modes.
+  let provenanceBlock = "";
+  try {
+    provenanceBlock = await buildProvenanceDigestForPrompt(relPath);
+  } catch {
+    /* best-effort */
+  }
+
+  // ── ASSEMBLE THE ORDERED BLOCKS ────────────────────────────────
+  // The documented prompt structure (self-enhance-loop.ts comments):
+  //   1. operating constraints (promoted procedures, always-on)
+  //   2. postmortem (the active per-file constraint)
+  //   3. provenance (the loop's wider history)
+  //   4. rejected transforms (the exhausted space)
+  //   5. ancestral (cross-file wisdom)
+  //   6. priorArt (fleet corpus) — refactor only
+  //   7. lessons (general rules, bounded)
+  if (operatingBlock) systemBlocks.push(operatingBlock);
+  if (postmortemBlock) systemBlocks.push(postmortemBlock);
+  if (provenanceBlock) systemBlocks.push(provenanceBlock);
+  if (rejectedBlock) systemBlocks.push(rejectedBlock);
+  if (ancestralBlock) systemBlocks.push(ancestralBlock);
+  if (priorArtBlock) systemBlocks.push(priorArtBlock);
+  if (lessonsBlock) systemBlocks.push(lessonsBlock);
+
+  if (archContextBlock) userBlocks.push(archContextBlock);
+
+  return { systemBlocks, userBlocks, lessonIds };
+}
