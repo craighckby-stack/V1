@@ -1361,6 +1361,8 @@ export default function Home() {
           "  memory      — Fleet-harvester corpus: harvested engine prior-art + evidence",
           "  provenance <file> — Per-file timeline: who (loop/you/gauntlet) changed what, when",
           "                (joins git + mutations + postmortems + gauntlet runs + lessons)",
+          "  benchmark   — Does the complexity earn its keep? A/B over the mutation corpus",
+          "                (lessons vs not, provenance vs not, postmortem vs not — honest confidence)",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
           "",
@@ -2214,6 +2216,62 @@ export default function Home() {
           return lines;
         } catch (err) {
           return [`provenance error: ${err instanceof Error ? err.message : String(err)}`];
+        }
+      }
+
+      case "benchmark": {
+        // The #1 gap from the 10/10 list: does the complexity earn its
+        // keep? A retrospective A/B over the mutation corpus — three
+        // natural experiments (lessons, provenance, postmortem) with
+        // honest confidence labels and confounders stated. Read-only.
+        try {
+          const res = await fetch("/api/benchmark");
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            return [`benchmark unavailable (${res.status}): ${(err as { error?: string }).error ?? "unknown"}`];
+          }
+          const r = (await res.json()) as {
+            overall: {
+              lifetime: { enhanced: number; failed: number; passRatePct: number };
+              recent: { enhanced: number; failed: number; passRatePct: number; trend: string };
+              cyclesCompleted: number;
+            };
+            experiments: Array<{
+              name: string;
+              description: string;
+              confounder: string;
+              armA: { n: number; enhanced: number; failed: number; passRatePct: number };
+              armB: { n: number; enhanced: number; failed: number; passRatePct: number };
+              deltaPct: number;
+              confidence: string;
+              verdict: string;
+            }>;
+          };
+          const o = r.overall;
+          const lines = [
+            "BENCHMARK — does the complexity earn its keep?",
+            "(observational, not randomized — confounders stated per experiment)",
+            "",
+            `OVERALL: lifetime ${o.lifetime.enhanced}/${o.lifetime.enhanced + o.lifetime.failed} enhanced (${o.lifetime.passRatePct}%) · recent 20: ${o.recent.passRatePct}% · ${o.recent.trend}`,
+            "",
+            "EXPERIMENTS (3 natural experiments over the mutation corpus):",
+            "",
+          ];
+          for (let i = 0; i < r.experiments.length; i++) {
+            const e = r.experiments[i];
+            lines.push(`${i + 1}. ${e.name.toUpperCase()}`);
+            lines.push(`   ${e.description}`);
+            lines.push(`   Arm A (control): ${e.armA.enhanced}/${e.armA.n} enhanced (${e.armA.passRatePct}%)`);
+            lines.push(`   Arm B (treatment): ${e.armB.enhanced}/${e.armB.n} enhanced (${e.armB.passRatePct}%)`);
+            lines.push(`   Delta: ${e.deltaPct > 0 ? "+" : ""}${e.deltaPct}pp (B - A) · confidence: ${e.confidence}`);
+            lines.push(`   Verdict: ${e.verdict}`);
+            lines.push(`   Confounder: ${e.confounder}`);
+            lines.push("");
+          }
+          lines.push("Re-run as the loop accumulates cycles — confidence improves with N.");
+          return lines;
+        } catch (err) {
+          return [`benchmark error: ${err instanceof Error ? err.message : String(err)}`];
         }
       }
 
