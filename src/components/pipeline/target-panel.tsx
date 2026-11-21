@@ -62,6 +62,7 @@ export function TargetPanel({ open, onClose }: Props) {
   const [runs, setRuns] = useState<HistoryRun[]>([]);
   const [loading, setLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadHistory = useCallback(async () => {
     // Cancel any ongoing request
@@ -75,7 +76,7 @@ export function TargetPanel({ open, onClose }: Props) {
     setLoading(true);
     
     // Set up timeout and request concurrently for better latency
-    const timeoutId = setTimeout(() => {
+    timeoutRef.current = setTimeout(() => {
         if (signal.aborted) return;
         abortControllerRef.current?.abort();
         console.error("Pipeline history request timed out");
@@ -86,7 +87,11 @@ export function TargetPanel({ open, onClose }: Props) {
     try {
       const res = await fetch("/api/pipeline/history", { signal });
       
-      clearTimeout(timeoutId);
+      // Clear timeout if request completes
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
       
       if (signal.aborted) return;
       
@@ -134,6 +139,9 @@ export function TargetPanel({ open, onClose }: Props) {
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
+      }
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
       }
     };
   }, [open, loadHistory]);
