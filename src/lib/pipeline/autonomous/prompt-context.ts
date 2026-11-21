@@ -109,12 +109,17 @@ export async function buildEnhanceContext(
   // ── 1. POSTMORTEM (per-file active constraint) ──────────────────
   // Always first (after the operating block below) — the active
   // failure constraint is the most prominent per-file signal.
+  // Also capture the symptom string — the ancestral query (below)
+  // prepends it to the keyword so a syntax-drop scar on foo.ts
+  // surfaces verified scars from other files with the same symptom.
   let postmortemBlock = "";
   let postmortemActive = false;
+  let postmortemSymptom = "";
   try {
     const postmortem = await postmortemStore.getConstraintsForFile("self", "main", relPath);
     postmortemActive = postmortem.hasActivePostmortem;
     postmortemBlock = postmortemActive ? `\n${postmortem.promptBlock}\n` : "";
+    postmortemSymptom = postmortem.symptom ?? "";
   } catch {
     /* best-effort */
   }
@@ -122,11 +127,14 @@ export async function buildEnhanceContext(
   // ── 2. ANCESTRAL RAG (verified postmortems from OTHER files) ────
   // Schema mode: skip (a single-file schema has no imports neighborhood
   // to cross-reference). Refactor + visual-polish: include.
+  // The keyword prepends the active postmortem's symptom (when present)
+  // so a file with a "AST_SYMBOL_DROPPED" scar surfaces other files'
+  // verified scars with the same symptom — cross-file failure transfer.
   let ancestralBlock = "";
   if (mode !== "schema") {
     try {
       const ancestralKeyword =
-        (postmortemActive ? "" : "") +
+        (postmortemSymptom ? postmortemSymptom + " " : "") +
         relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
       const ancestral = await queryRelevantPostmortems({
         keyword: ancestralKeyword,
@@ -142,11 +150,14 @@ export async function buildEnhanceContext(
 
   // ── 3. PRIOR-ART RAG (GitHistory-Sync fleet corpus) ─────────────
   // Refactor mode only — the engine corpus is backend logic; styling
-  // prompts have no use for it. Same exclusion as arch context.
+  // prompts have no use for it. Same exclusion as arch context. Reuses
+  // the ancestral keyword (symptom + relPath) for consistency.
   let priorArtBlock = "";
   if (mode === "refactor") {
     try {
-      const ancestralKeyword = relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
+      const ancestralKeyword =
+        (postmortemSymptom ? postmortemSymptom + " " : "") +
+        relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
       const engineHits = searchEngines(ancestralKeyword, 3);
       priorArtBlock = formatPriorArtBlock(engineHits);
     } catch {

@@ -8,6 +8,57 @@ plateaued at 0.7% yield after 900 cycles
 
 ---
 
+## This README is self-referential
+
+This document is written for **two readers**:
+
+1. **The human operator** — the person who runs LOOP, configures the PAT, reads the audit findings, and decides what to build next.
+2. **The loop itself** — the autonomous self-enhancement system this document describes. The loop can read this README as part of its system-direction context (via the `provenance` command on itself, or a future `read-readme` hook). The README is a protected file — the loop can't rewrite its own documentation — but it CAN read it, and the structure below is designed to be machine-parsable so a future cycle could ingest the "what LOOP is" summary into its own prompt.
+
+The honest framing: this is not the loop becoming sentient of its own docs. It's the docs being **shaped so the system they describe can read them** — a closed loop between the documentation and the documented. The loop's `provenance src/README.md` command already shows the README's own change history (every operator edit, every audit). A future step could inject the README's summary block (below) into the enhance prompt as system-direction context, so the loop mutates with the awareness of "what I am."
+
+### Machine-readable summary (for the loop + the operator)
+
+```yaml
+# LOOP — self-description (machine-parsable)
+identity: "A self-improving Next.js app that rewrites its own source code"
+architecture:
+  framework: "Next.js 16 App Router + React 19 + TypeScript 5"
+  database: "Prisma 6 + SQLite (12+ models)"
+  llm: "z-ai-web-dev-sdk (primary), Gemini (optional), NVIDIA NIM (optional tier-1)"
+  side_processes: ["loop-ws-service:3003", "loop-worker:3004", "fleet-harvester:3010"]
+core_cycle:
+  - "scan own source for issues"
+  - "pick a non-protected file (bandit-scored)"
+  - "build context (8 blocks: postmortem, ancestral, priorArt, lessons, rejected, archContext, provenance, operating)"
+  - "LLM proposes one focused improvement"
+  - "gate chain: mutation-guard → structural → AST → typecheck → sandbox-test → debate → secret-scan"
+  - "pass: commit + push to loop-NN branch. fail: write postmortem + feed lesson"
+  - "repeat forever (bounded by crash-wall, dead-man's switch, quota gate, [STOP])"
+safety:
+  protected_files: "36 exact paths + 18 prefix subtrees (the loop's own brain is off-limits to itself)"
+  mutation_guard: "synchronous fail-closed: eval, child_process, path-traversal, MD5/SHA1, protected-path"
+  dead_mans_switch: "24h without operator touch → ARMED-PAUSED"
+  crash_wall: "3 consecutive same-class crashes → ARMED-PAUSED"
+  quota_gate: "429 escalation: 2/5/15/30min cooldowns"
+alive_behaviors:
+  curiosity_drive: "flag-gated (default OFF); when overconfident + health flat, boosts unpredictable files"
+  health_metrics: "snapshot every 10 cycles (test/tsc/lint counts)"
+  operator_questions: "loop poses yes/no (health DECLINING, goal-review tie, curiosity first-fire); operator answers"
+auditability:
+  provenance: "per-file timeline (git + mutations + postmortems + gauntlet + lessons) — who changed what, when"
+  benchmark: "A/B over the mutation corpus — does the complexity earn its keep?"
+  dropbox: "external-system learning (dropbox/<system>/ → candidate lessons, bandit-scored)"
+honest_limitations:
+  - "the intelligence is an LLM call the system wraps, not a novel algorithm"
+  - "the pass-rate trend is the honest signal (the benchmark measures it)"
+  - "the postmortem chain is the system vouching for itself (no external verification)"
+  - "single-operator, single-instance, SQLite — research system, not production"
+self_rating: "6.5/10 (novel self-reference + thoughtful trust model; held back by scale + coherence strain + outsourced intelligence)"
+```
+
+---
+
 ## Start here (if you're new)
 
 LOOP is a program that edits **its own code** while it runs — and the edits have to pass a gauntlet of automated checks before they're allowed to land. Think of it as a careful mechanic working on a car while the engine is running: it proposes a tweak, a panel of inspectors checks that the tweak doesn't break anything, and only then does the tweak get installed.
@@ -411,7 +462,9 @@ LOOP ──► provenance <file>     who changed what, when (per-file timeline)
 | **Health metrics** | `autonomous/health-metrics.ts` | Every 10 cycles: snapshot `{testCount, testFail, tscErrors, lintErrors, protectedFileCount}` via `bun test` + `tsc` + `eslint`. The delta between snapshots is the first real OUTCOME signal — did the loop's mutations make the codebase healthier? |
 | **Provenance-as-loop-input** | `autonomous/provenance-digest.ts` | The loop reads its OWN per-file history before mutating — attempt frequency, last outcome, rejection pattern, knowledge trail, operator's last change — and injects a ~1500b "provenance digest" into the enhance prompt. The loop mutates WITH the context of "I've been here 15 times, my last attempt was enhanced, the operator's last commit was a purge of prank code" instead of blind. |
 | **Labeled feedback** | `Postmortem.source` column | Every scar is tagged `autonomous` / `auto` / `manual` / `system`. The lesson distiller filters to `autonomous` only — sandbox scars (gauntlet auto/manual on external repos) never pollute the self-loop's aggregated lessons. Manual = sandbox, autonomous = population. |
+| **Dropbox ingester** | `autonomous/dropbox-ingester.ts` | The #8 "learns from external systems" axis. The operator drops `dropbox/<system>/` folders; the ingester walks them, dedupes by content hash, extracts text (`.ts`/`.md`/`.pdf`), distills CANDIDATE lessons tagged `source: "dropbox"`, `system: "<tag>"`. Wired to the curiosity drive (one ingest per firing cycle, budget-capped at 3 files). The bandit scores the candidates — helpful ones rise into the prompt, harmful ones sink. `dropbox` + `dropbox scan` console commands. |
 | **Boot soundtrack** | `retro-boot-audio.ts` | Restored: CRT degauss thump + floppy-seek clatter + Imperial March + happy POST beep. Plays for ~6s after ENTER; any key/click skips the soundcheck. Volume pinned at 1.0, no mute — the loud prank is the point ("funny even on mute"). |
+| **Self-referential README** | `README.md` | This document is written for BOTH the human operator AND the loop. A machine-readable YAML summary block (top of the README) describes LOOP's identity, architecture, core cycle, safety, alive behaviors, auditability, and honest limitations in a parseable form. A future cycle could ingest it as system-direction context — the docs shaped so the system they describe can read them. |
 
 ### The prompt-construction refactor (coherence-debt fix)
 

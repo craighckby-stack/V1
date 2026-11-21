@@ -700,11 +700,38 @@ export async function orderTargetsByBandit(
         if (q && log) {
           log(`🤔 Asked the operator (curiosity first fire): "${q.text}" — type 'answer' to respond.`, "info");
         }
-      }).catch(() => { /* best-effort */ });
+      }).catch((err) => {
+        // SMELL-9 fix: log the error so a real poseQuestion bug is visible,
+        // not silently swallowed. poseQuestion itself is fail-soft (returns
+        // null on internal errors); this catch is for unexpected throws.
+        console.error("[curiosity-trigger] poseQuestion failed:", err instanceof Error ? err.message : err);
+      });
     } else if (!curiosityState.firing) {
       // The drive stopped firing — reset the flag so the NEXT firing
       // episode can pose again.
       curiosityWasFiring = false;
+    }
+    // ── DROPBOX INGEST (the #8 "learns from external systems" axis) ──
+    // When the curiosity drive fires (the loop is bored of its own
+    // files and the codebase health is flat), the loop ALSO explores
+    // external systems the operator dropped into dropbox/<system>/.
+    // The ingester is budget-capped (MAX 3 files/scan) + dedup'd by
+    // content hash, so a 500-file dropbox doesn't burn the LLM quota.
+    // Best-effort: never throws into the bandit. The candidate lessons
+    // seed as source:"dropbox" and ride the bandit — helpful ones rise
+    // into the prompt, harmful ones sink. This wires the dropbox to the
+    // curiosity drive (one ingest per firing cycle, budget-capped).
+    if (curiosityState.enabled && curiosityState.firing) {
+      try {
+        const { ingestDropbox } = await import("./dropbox-ingester");
+        void ingestDropbox().then((r) => {
+          if (r.ingested > 0 && log) {
+            log(`📦 dropbox: ingested ${r.ingested} file(s), ${r.lessonsDistilled} candidate lesson(s) (curiosity-driven)`, "info");
+          }
+        }).catch(() => { /* best-effort */ });
+      } catch {
+        /* dynamic import failed — module unavailable, skip silently */
+      }
     }
     // Normalize candidates to repo-relative paths for model lookup.
     const rel = candidateAbsPaths.map((p) =>

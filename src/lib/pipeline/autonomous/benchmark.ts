@@ -169,7 +169,7 @@ export async function buildBenchmarkReport(): Promise<BenchmarkReport | null> {
     const rows = await db.mutationCorpus.findMany({
       orderBy: { createdAt: "desc" },
       take: 5000,
-      select: { gateOutcome: true, lessonIdsInjected: true, createdAt: true, filePath: true },
+      select: { gateOutcome: true, lessonIdsInjected: true, createdAt: true, filePath: true, cycleNumber: true },
     });
 
     // ── 2. OVERALL LIFETIME + RECENT TREND ───────────────────────
@@ -294,7 +294,7 @@ export async function buildBenchmarkReport(): Promise<BenchmarkReport | null> {
           passRatePct: recentArm.passRatePct,
           trend,
         },
-        cyclesCompleted: rows.length > 0 ? Math.max(...rows.map((r) => r.createdAt.getTime())) : 0,
+        cyclesCompleted: rows.length > 0 ? Math.max(...rows.map((r) => r.cycleNumber ?? 0)) : 0,
       },
       experiments,
       generatedAt: new Date().toISOString(),

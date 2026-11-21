@@ -420,6 +420,24 @@ model Lesson {
   // or "seed" (hand-planted at schema-creation time).
   sourceType String  @default("distilled")
 
+  // ── Labeled feedback (operator decision "B" + dropbox direction) ─
+  // Who recorded / what fed this lesson:
+  //   "autonomous" — the self-loop's distiller (the population). DEFAULT.
+  //   "dropbox"     — the dropbox ingester (external systems the operator
+  //                  dropped into dropbox/<system>/). Seeded as candidate,
+  //                  promoted by the bandit only if it helps. Never feeds
+  //                  the autonomous distiller's sourceCount.
+  //   "seed"        — hand-planted (kept for back-compat with sourceType).
+  // The autonomous lesson distiller filters to "autonomous" so dropbox
+  // lessons never pollute the self-loop's aggregated sourceCount.
+  source     String   @default("autonomous")
+
+  // The dropbox source-system tag (e.g. "darlek-caan") when source =
+  // "dropbox". null for autonomous/seed lessons. Carried through the
+  // lesson's whole lifecycle so `provenance <file>` can always tell you
+  // "this lesson came from the Darlek Caan system, applied 3 times".
+  system     String?
+
   // How many postmortems/events fed the distillation that produced it.
   // Higher = broader evidence base = started with more trust.
   sourceCount Int    @default(1)

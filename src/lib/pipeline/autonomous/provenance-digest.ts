@@ -129,7 +129,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
       }
 
       // ── 3. KNOWLEDGE TRAIL ──────────────────────────────────
-      // "What lessons did I inject last time?" — the loop's借鉴ing
+      // "What lessons did I inject last time?" — the loop's borrowing
       // trail. This connects the provenance surface to the lesson
       // injection: the loop can see "I applied L-42 and L-7 here last
       // time" and judge whether to lean on the same knowledge or try
@@ -182,8 +182,13 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     // so this is a lower bound (>= N), not exact — honest about it.
     const loopCommits = gitLog.filter((c) => classifyCommitActor(c.message) === "loop");
     if (loopCommits.length > 0) {
+      // The "+" suffix means "at least this many, possibly more" — honest
+      // only when we hit the GIT_LOG_TAKE cap (we know there are more
+      // commits we didn't read). When loopCommits < GIT_LOG_TAKE, we read
+      // ALL the loop commits in the window, so the count is exact (no "+").
+      const plus = loopCommits.length === GIT_LOG_TAKE ? "+" : "";
       lines.push(
-        `Git history: ${loopCommits.length}+ self-enhancement commit(s) by you${operatorCommits.length > 0 ? ` + ${operatorCommits.length} by the operator` : ""} (in the last ${GIT_LOG_TAKE} commits).`,
+        `Git history: ${loopCommits.length}${plus} self-enhancement commit(s) by you${operatorCommits.length > 0 ? ` + ${operatorCommits.length} by the operator` : ""} (in the last ${GIT_LOG_TAKE} commits).`,
       );
     }
 

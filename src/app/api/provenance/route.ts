@@ -72,8 +72,11 @@ export async function GET(req: Request) {
     if (filePath.startsWith(projectRoot + "/")) filePath = filePath.slice(projectRoot.length + 1);
 
     // ── Gather all sources in parallel ────────────────────────────
+    // PERF-3 fix: cap gitLogForFile at 200 (matching the timeline cap) so
+    // a heavily-mutated file (100+ commits) doesn't spawn a full-history git
+    // log only to truncate after sorting. The cap matches the timeline cap.
     const [gitLog, mutations, postmortems, pipelineRuns, lessons] = await Promise.all([
-      gitLogForFile(projectRoot, filePath),
+      gitLogForFile(projectRoot, filePath, 200),
       // MutationCorpus is the SELF-loop only (no repo field) — these
       // are the autonomous loop's attempts on this file.
       db.mutationCorpus

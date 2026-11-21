@@ -1363,6 +1363,8 @@ export default function Home() {
           "                (joins git + mutations + postmortems + gauntlet runs + lessons)",
           "  benchmark   — Does the complexity earn its keep? A/B over the mutation corpus",
           "                (lessons vs not, provenance vs not, postmortem vs not — honest confidence)",
+          "  dropbox     — Status of external-system learning (dropbox/<system>/ folder)",
+          "  dropbox scan — Ingest now (budget-capped, distills candidate lessons)",
           "  clear       — Clear the terminal",
           "  help        — Show this help",
           "",
@@ -2275,6 +2277,71 @@ export default function Home() {
         }
       }
 
+      case "dropbox": {
+        // The #8 from the 10/10 list: the loop learns from external
+        // systems the operator drops into dropbox/<system>/. This command
+        // shows the status (what's been ingested) and, with `scan`, triggers
+        // a budget-capped ingest (MAX 3 files/scan).
+        //   dropbox          — status (what's ingested, what's pending)
+        //   dropbox scan     — ingest now (budget-capped, best-effort)
+        const sub = (parts[1] ?? "").toLowerCase();
+        try {
+          if (sub === "scan") {
+            const res = await fetch("/api/dropbox", { method: "POST" });
+            const data = (await res.json()) as {
+              scanned: number; newFiles: number; ingested: number;
+              lessonsDistilled: number; skipped: string[]; errors: string[];
+              error?: string;
+            };
+            if (!res.ok) {
+              return [`dropbox scan failed: ${data.error ?? res.status}`];
+            }
+            const lines = [
+              `DROPBOX SCAN — scanned ${data.scanned}, new ${data.newFiles}, ingested ${data.ingested}`,
+              `Candidate lessons distilled: ${data.lessonsDistilled}`,
+            ];
+            if (data.skipped.length > 0) {
+              lines.push(`Skipped (${data.skipped.length}):`);
+              for (const s of data.skipped.slice(0, 8)) lines.push(`  · ${s}`);
+            }
+            lines.push("");
+            lines.push("The candidate lessons are now in the Lesson table (source: dropbox).");
+            lines.push("The bandit scores them — helpful ones rise into the prompt, harmful ones sink.");
+            return lines;
+          }
+          // Default: status.
+          const res = await fetch("/api/dropbox");
+          const data = (await res.json()) as {
+            configured: boolean; totalFiles: number; ingestedFiles: number;
+            pendingFiles: number; candidateLessons: number;
+            bySystem: Array<{ system: string; lessons: number }>;
+            error?: string;
+          };
+          if (!res.ok) {
+            return [`dropbox status failed: ${data.error ?? res.status}`];
+          }
+          const lines = [
+            "DROPBOX — the loop learns from external systems",
+            "",
+            `Configured: ${data.configured ? "yes (dropbox/ folder exists)" : "no (create dropbox/<system>/ and drop files in)"}`,
+            `Total files: ${data.totalFiles} · Ingested: ${data.ingestedFiles} · Pending: ${data.pendingFiles}`,
+            `Candidate lessons (active): ${data.candidateLessons}`,
+          ];
+          if (data.bySystem.length > 0) {
+            lines.push("");
+            lines.push("BY SYSTEM:");
+            for (const s of data.bySystem) {
+              lines.push(`  · ${s.system}: ${s.lessons} lesson(s)`);
+            }
+          }
+          lines.push("");
+          lines.push("Type 'dropbox scan' to ingest now (budget-capped at 3 files).");
+          return lines;
+        } catch (err) {
+          return [`dropbox error: ${err instanceof Error ? err.message : String(err)}`];
+        }
+      }
+
       default:
         return [`Unknown command: ${command}. Type 'help' for available commands.`];
     }
@@ -2619,7 +2686,7 @@ export default function Home() {
               e.stopPropagation();
               toggleLoop();
             }}
-            disabled={loopBusy || pushTarget?.configured !== true}
+            disabled={loopBusy || (pushTarget?.configured !== true && !running)}
             title={
               pushTarget?.configured !== true
                 ? "Onboarding: 1. [CONFIG] — paste a Git token + repo → 2. [NVIDIA] or [GEMINI] — paste an LLM key (optional, Z.AI is the fallback) → 3. [START]"

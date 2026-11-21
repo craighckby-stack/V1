@@ -85,6 +85,9 @@ export function GeminiPanel({ open, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [rebooting, setRebooting] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "warn" | "err"; text: string } | null>(null);
+  // BUG-4 fix: capture the auto-close timeout so a stale one can't close
+  // a re-opened panel. Cleared on unmount + on reopen.
+  const autoCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Initialize to 0 (not Date.now()) so the server-rendered HTML and the
   // client's first render produce the SAME value — `Date.now()` as the
   // useState initializer runs on both server and client at different
@@ -139,10 +142,20 @@ export function GeminiPanel({ open, onClose }: Props) {
       setMsg(null);
       setKey("");
       setShowKey(false);
+      // BUG-4 fix: clear any stale auto-close timer from a prior save.
+      if (autoCloseTimer.current) {
+        clearTimeout(autoCloseTimer.current);
+        autoCloseTimer.current = null;
+      }
       // Fresh sync each open — the stored model may have changed elsewhere.
       syncedModelRef.current = false;
     }
   }, [open]);
+
+  // BUG-4 fix: clear the auto-close timer on unmount.
+  useEffect(() => () => {
+    if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current);
+  }, []);
 
   if (!open) return null;
 
@@ -186,9 +199,10 @@ export function GeminiPanel({ open, onClose }: Props) {
           "\n\nThe loop picks up the new provider on its next cycle. Press [REBOOT LOOP NOW] to apply immediately.",
       });
       void poll();
-      // H2: auto-close after 2s so the operator sees the "saved ✓" message
-      // then the panel clears (no stale "Saved" panel left polling forever).
-      setTimeout(() => onClose(), 2000);
+      // H2: auto-close after 2s. BUG-4 fix: capture the timer so a stale
+      // one can't close a re-opened panel.
+      if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current);
+      autoCloseTimer.current = setTimeout(() => onClose(), 2000);
     } catch (e) {
       setMsg({ kind: "err", text: (e as Error).message });
     } finally {
@@ -213,6 +227,8 @@ export function GeminiPanel({ open, onClose }: Props) {
           ? `Loop rebooted — ${rbData.message ?? "running with the new provider chain."}`
           : `Reboot failed: ${rbData.error ?? "unknown error"}`,
       });
+      // SMELL-12 fix: refresh the panel's status after a successful reboot.
+      if (rbData.rebooted) void poll();
     } catch (e) {
       setMsg({ kind: "err", text: `Reboot request failed: ${(e as Error).message}` });
     } finally {

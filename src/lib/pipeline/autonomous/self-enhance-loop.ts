@@ -1602,15 +1602,19 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // the system tail) — see the template below. The file content
       // stays inline in the user prompt (it's the bulk of the prompt).
       const goalsBullets = await renderGoalsBullets();
-      // Build BOTH context variants once (refactor + visual-polish differ:
-      // visual-polish excludes priorArt + archContext — see prompt-context.ts).
-      // The schema mode is built separately in enhanceSchema below.
-      const enhanceCtx = await buildEnhanceContext(filePath, relPath, "refactor");
-      const enhanceCtxVP = await buildEnhanceContext(filePath, relPath, "visual-polish");
+      // Build ONLY the context for the mode actually used this cycle.
+      // The OLD refactor built BOTH refactor + visual-polish unconditionally —
+      // 2x the DB calls + a double markInjected write (the lesson injection
+      // counter over-counted). Now one call per cycle, matching the mode.
+      const isVisualPolish = mode === "visual-polish";
+      const enhanceCtx = await buildEnhanceContext(
+        filePath,
+        relPath,
+        isVisualPolish ? "visual-polish" : "refactor",
+      );
       this.lastLessonIds = enhanceCtx.lessonIds;
       const systemTail = enhanceCtx.systemBlocks.join("");
       const userTail = enhanceCtx.userBlocks.join("");
-      const systemTailVP = enhanceCtxVP.systemBlocks.join("");
 
       const refactorSystem = `You are a senior code reviewer improving a TypeScript file inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
 
@@ -1695,11 +1699,10 @@ OUTPUT FORMAT (mandatory):
 \`\`\`typescript
 // the full file with visual improvements applied
 \`\`\`
-${systemTailVP}`;
+${systemTail}`;
 
       const visualPolishUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nImprove the visual presentation, accessibility, and responsiveness of this UI component. Do NOT change any logic or functionality — only styling, aria attributes, responsive breakpoints, and micro-interactions. If it already looks polished, return the file unchanged. Output the summary first, then the code.`;
 
-      const isVisualPolish = mode === "visual-polish";
       const activeSystem = isVisualPolish ? visualPolishSystem : refactorSystem;
       const activeUser = isVisualPolish ? visualPolishUser : refactorUser;
 
