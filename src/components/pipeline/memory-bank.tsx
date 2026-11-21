@@ -23,8 +23,6 @@ export function MemoryBank() {
   const [isMounted, setIsMounted] = useState(true);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Determine if we are currently fetching or if the fetch has never been initiated.
-  // isLoading should be true if we are actively fetching AND haven't successfully fetched yet.
   const isLoading = isFetchingRef.current && !hasFetchedRef.current;
 
   useEffect(() => {
@@ -32,7 +30,6 @@ export function MemoryBank() {
     
     return () => {
       setIsMounted(false);
-      // Abort any ongoing fetch when component unmounts
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
@@ -42,7 +39,7 @@ export function MemoryBank() {
 
   useEffect(() => {
     const fetchMemoryEntries = async () => {
-      if (hasFetchedRef.current) return;
+      if (hasFetchedRef.current || !isMounted) return;
       
       isFetchingRef.current = true;
       abortControllerRef.current = new AbortController();
@@ -53,7 +50,7 @@ export function MemoryBank() {
           abortController.abort();
           abortControllerRef.current = null;
         }
-      }, 10000); // 10 second timeout
+      }, 10000);
       
       try {
         const res = await fetch("/api/memory/entries", {
@@ -68,42 +65,40 @@ export function MemoryBank() {
         
         const data = await res.json();
         
-        // Validate API response structure
         if (!data || !Array.isArray(data.entries)) {
           throw new Error("Invalid API response structure: expected 'entries' array in response body.");
         }
         
-        // Only update state if component is still mounted
         if (isMounted) {
           setEntries(data.entries);
         }
       } catch (error) {
-        // Only log if not an abort error
         if (error instanceof Error && error.name !== 'AbortError') {
-          const errorMessage = error.message;
-          console.error("Error loading memory entries from API:", { error: errorMessage, context: "MemoryBank fetch" });
+          console.error("Error loading memory entries from API:", { 
+            error: error.message, 
+            context: "MemoryBank fetch",
+            timestamp: new Date().toISOString()
+          });
         }
       } finally {
-        // Only update refs if component is still mounted
         if (isMounted) {
           hasFetchedRef.current = true;
           isFetchingRef.current = false;
         }
-        // Ensure timeout is cleared even if fetch succeeds/fails before timeout
-        clearTimeout(timeoutId); 
+        clearTimeout(timeoutId);
         abortControllerRef.current = null;
       }
     };
 
     fetchMemoryEntries();
-  }, [setEntries]);
+  }, [setEntries, isMounted]);
 
-  // Filter out invalid entries before rendering to prevent crashes
   const validEntries = entries.filter(entry => {
     return entry && 
            typeof entry === 'object' && 
            'id' in entry && 
-           'provenance' in entry;
+           'provenance' in entry &&
+           typeof entry.provenance === 'string';
   });
 
   return (
