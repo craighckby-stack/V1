@@ -286,7 +286,7 @@ export default function Home() {
   const [cfgToken, setCfgToken] = useState("");
   const [cfgRepo, setCfgRepo] = useState("");
   const [cfgPublic, setCfgPublic] = useState(false);
-  const [cfgAutoCreate, setCfgAutoCreate] = useState(true);
+  const [cfgAutoCreate, setCfgAutoCreate] = useState(false);
   const [cfgShowToken, setCfgShowToken] = useState(false);
   const [cfgLoading, setCfgLoading] = useState(false);
   const [cfgError, setCfgError] = useState<string | null>(null);
@@ -325,7 +325,9 @@ export default function Home() {
   // no path back to main; this panel is that path (typecheck-gated). On-
   // demand fetch. Opened from the [MERGE-BACK] header button.
   const [mergeBackOpen, setMergeBackOpen] = useState(false);
-  // GeminiPanel — LLM provider chain (Gemini → Z.AI). The panel owns its
+  // LLM provider config (polled for the [START] prerequisite tooltip +
+  // the onboarding sequence). The key itself is never returned.
+  const [llmConfig, setLlmConfig] = useState<{ configured: boolean; nvidiaConfigured?: boolean } | null>(null);
   // own polling of /api/self-enhance/llm-config while open (key is
   // never returned). Opened from the [GEMINI] header button.
   const [geminiOpen, setGeminiOpen] = useState(false);
@@ -579,10 +581,11 @@ export default function Home() {
 
     async function poll() {
       try {
-        const [statusRes, targetRes, hotSwapRes] = await Promise.all([
+        const [statusRes, targetRes, hotSwapRes, llmCfgRes] = await Promise.all([
           fetch("/api/self-enhance/status"),
           fetch("/api/self-enhance/push-target"),
           fetch("/api/hot-swap/status"),
+          fetch("/api/self-enhance/llm-config", { cache: "no-store" }),
         ]);
         if (mounted && statusRes.ok) {
           const s = (await statusRes.json()) as SelfEnhanceStatus;
@@ -627,6 +630,10 @@ export default function Home() {
           }
         }
         if (mounted && targetRes.ok) setPushTarget(await targetRes.json());
+        if (mounted && llmCfgRes.ok) {
+          const lc = (await llmCfgRes.json()) as { configured: boolean; nvidia?: { configured: boolean } };
+          setLlmConfig({ configured: lc.configured, nvidiaConfigured: lc.nvidia?.configured === true });
+        }
         if (mounted && hotSwapRes.ok) {
           const hs = await hotSwapRes.json();
           setHotSwapStatus({
@@ -893,6 +900,11 @@ export default function Home() {
   }
 
   async function openConfig() {
+    // H3: onboarding panels are mutually exclusive — opening CONFIG
+    // closes NVIDIA + GEMINI so the operator isn't staring at two modals
+    // at once (which caused the "disconnect" the operator reported).
+    setNvidiaOpen(false);
+    setGeminiOpen(false);
     setConfigOpen(true);
     setCfgError(null);
     setCfgStatusMsg(null);
@@ -1136,9 +1148,29 @@ export default function Home() {
       }
       setCfgStatusMsg(
         data.created
-          ? `Created github.com/${data.repo} (private). Pushing first proof...`
-          : `Connected as ${data.login}. Pushing first proof...`
+          ? `Created github.com/${data.repo} (private). Push first proof now?`
+          : `Connected as ${data.login}. Push first proof now?`
       );
+      // C4 (Phase 2): the old code immediately pushed the current state
+      // as the "first proof" — sweeping any in-flight worker changes into
+      // the commit. Now the operator chooses: confirm to push, or skip
+      // (the loop pushes on its own next successful enhancement anyway).
+      const doPush = window.confirm(
+        `Push the current state as the first proof to github.com/${data.repo}?\n\n` +
+        `This commits every local change and pushes to the repo's seed branch.\n` +
+        `Click Cancel to skip — the loop will push on its next successful enhancement.`
+      );
+      if (!doPush) {
+        // Token saved, push skipped — refresh the panel's target view so
+        // it shows "configured" (H6: always refresh after token-save
+        // success, regardless of push outcome).
+        const fresh = await fetch("/api/self-enhance/push-target");
+        if (fresh.ok) setCfgTarget(await fresh.json());
+        setCfgToken("");
+        setCfgShowToken(false);
+        setCfgStatusMsg(`Connected to github.com/${data.repo}. First proof push skipped — the loop will push on its next enhancement.`);
+        return;
+      }
       // Immediately push the current state as the first proof
       try {
         const pushRes = await fetch("/api/self-enhance/push", { method: "POST" });
@@ -1156,9 +1188,17 @@ export default function Home() {
           setCfgShowToken(false);
           setCfgStatusMsg(`Pushed commit ${pushData.commitSha}. Connected ✓`);
         } else {
+          // H6: refresh cfgTarget even on push failure — the token IS
+          // configured (the server has it); the panel should show the
+          // configured state, not the stale pre-connect view.
+          const fresh = await fetch("/api/self-enhance/push-target");
+          if (fresh.ok) setCfgTarget(await fresh.json());
           setCfgError(`Connected, but initial push failed: ${pushData.error ?? "unknown"}`);
         }
       } catch {
+        // H6: same for network errors — the token is configured server-side.
+        const fresh = await fetch("/api/self-enhance/push-target");
+        if (fresh.ok) setCfgTarget(await fresh.json());
         setCfgError("Connected, but initial push failed (network error). Try 'push' from the terminal.");
       }
     } catch (e) {
@@ -2510,13 +2550,25 @@ export default function Home() {
               ⟳{hotSwapStatus.swapCount}
             </span>
           )}
+          {/* [START] prerequisite gate (Phase 2): the loop needs a push target
+              (so its mutations land somewhere). Z.AI is the always-available LLM
+              fallback, so an LLM key is NOT strictly required — but the tooltip
+              guides the operator to add one for a second quota. This stops the
+              "start a half-configured loop" scenario the operator flagged. */}
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               toggleLoop();
             }}
-            disabled={loopBusy}
+            disabled={loopBusy || pushTarget?.configured !== true}
+            title={
+              pushTarget?.configured !== true
+                ? "Onboarding: 1. [CONFIG] — paste a Git token + repo → 2. [NVIDIA] or [GEMINI] — paste an LLM key (optional, Z.AI is the fallback) → 3. [START]"
+                : llmConfig?.configured !== true && llmConfig?.nvidiaConfigured !== true
+                  ? "Ready. Z.AI is the fallback LLM — add an NVIDIA or Gemini key for a second quota."
+                  : "Start the self-enhancement loop (push target + LLM configured)"
+            }
             aria-label={running ? "Stop the self-enhancement loop" : "Start the self-enhancement loop"}
             className={running ? "lbtn lbtn--danger" : "lbtn lbtn--primary"}
           >
@@ -2538,20 +2590,30 @@ export default function Home() {
           <HeaderBtn
             label="TARGET"
             onClick={() => setTargetOpen(true)}
-            title="External-repo pipeline (rea revival) — run the 6-stage gauntlet against any GitHub repo"
+            title="TARGET — 6-stage gauntlet: fetch repo → sanitize → reason → AST gate → debate → push to <branch>-evolution"
             dialog
             active={targetOpen}
           />
           <HeaderBtn
             label="NVIDIA"
-            onClick={() => setNvidiaOpen(true)}
+            onClick={() => {
+              // H3: onboarding panels are mutually exclusive.
+              setConfigOpen(false);
+              setGeminiOpen(false);
+              setNvidiaOpen(true);
+            }}
             title="Tier-1 LLM provider — paste an NVIDIA key for free-catalog NIM models (nvidia first → gemini → Z.AI)"
             dialog
             active={nvidiaOpen}
           />
           <HeaderBtn
             label="GEMINI"
-            onClick={() => setGeminiOpen(true)}
+            onClick={() => {
+              // H3: onboarding panels are mutually exclusive.
+              setConfigOpen(false);
+              setNvidiaOpen(false);
+              setGeminiOpen(true);
+            }}
             title="LLM provider chain — paste a Gemini key for a second quota (gemini first, Z.AI fallback)"
             dialog
             active={geminiOpen}

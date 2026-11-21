@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { spawn } from "child_process";
 import { db } from "@/lib/db";
+import { gitLogForFile, classifyCommitActor } from "@/lib/pipeline/core/git-log";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -43,59 +43,6 @@ export const runtime = "nodejs";
  * mutated file (the loop has touched some files 100+ times) doesn't
  * flood the terminal. `summary` gives the headline counts.
  */
-
-/** Run `git log --follow` for a path and parse the %h|%an|%ad|%s lines.
- *  Returns [] on any error (git not available, file not tracked, etc.)
- *  — the rest of the timeline still renders. */
-function gitLogForFile(repoPath: string, filePath: string): Promise<
-  Array<{ sha: string; author: string; at: string; message: string }>
-> {
-  return new Promise((resolve) => {
-    const args = [
-      "log",
-      "--follow",
-      "--pretty=format:%h|%an|%ad|%s",
-      "--date=iso",
-      "--",
-      filePath,
-    ];
-    const git = spawn("git", args, { cwd: repoPath });
-    let out = "";
-    let err = "";
-    git.stdout.on("data", (d) => (out += d.toString()));
-    git.stderr.on("data", (d) => (err += d.toString()));
-    git.on("error", () => resolve([]));
-    git.on("close", () => {
-      if (!out.trim()) return resolve([]);
-      resolve(
-        out
-          .trim()
-          .split("\n")
-          .map((line) => {
-            const i1 = line.indexOf("|");
-            const i2 = line.indexOf("|", i1 + 1);
-            const i3 = line.indexOf("|", i2 + 1);
-            if (i1 < 0 || i2 < 0 || i3 < 0) return null;
-            return {
-              sha: line.slice(0, i1),
-              author: line.slice(i1 + 1, i2),
-              at: line.slice(i2 + 1, i3),
-              message: line.slice(i3 + 1),
-            };
-          })
-          .filter((v): v is { sha: string; author: string; at: string; message: string } => v !== null)
-      );
-    });
-  });
-}
-
-/** Classify a git commit message into an actor. */
-function classifyCommit(message: string): "loop" | "operator" {
-  if (message.startsWith("Self-enhancement:")) return "loop";
-  // "fix(audit-...)" and "Manual push" are operator gestures;
-  // anything else (initial authoring, hotfixes) is operator too.
-  return "operator";
-}
 
 interface TimelineEntry {
   at: string; // ISO timestamp (sortable)
@@ -206,7 +153,7 @@ export async function GET(req: Request) {
 
     // Git commits (classify loop vs operator).
     for (const c of gitLog) {
-      const actor = classifyCommit(c.message);
+      const actor = classifyCommitActor(c.message);
       entries.push({
         at: c.at,
         atMs: Date.parse(c.at) || 0,

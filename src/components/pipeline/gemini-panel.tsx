@@ -83,6 +83,7 @@ export function GeminiPanel({ open, onClose }: Props) {
   const [model, setModel] = useState(MODEL_OPTIONS[0]);
   const [showKey, setShowKey] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [rebooting, setRebooting] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "warn" | "err"; text: string } | null>(null);
   // Initialize to 0 (not Date.now()) so the server-rendered HTML and the
   // client's first render produce the SAME value — `Date.now()` as the
@@ -171,40 +172,51 @@ export function GeminiPanel({ open, onClose }: Props) {
         return;
       }
 
-      // Key saved (verified, or location-blocked-but-valid). Now reboot the
-      // self-enhancement loop so it picks up the new provider chain
-      // immediately instead of waiting for a manual [START] — this is the
-      // "when I input the API key, the system reboots" behavior. Scoped to
-      // the self-enhance loop; the autonomous scheduler's sticky [STOP] is
-      // left untouched (operator-gated, not overridden by a config change).
-      const keyLine =
-        data.warning ??
-        `Key verified and saved — the loop now calls ${data.model ?? model} FIRST and falls back to Z.AI on any failure.`;
-      let rebootLine = "";
-      try {
-        const rb = await fetch("/api/self-enhance/reboot", { method: "POST" });
-        const rbData = (await rb.json()) as {
-          rebooted?: boolean;
-          message?: string;
-          error?: string;
-        };
-        rebootLine = rbData.rebooted
-          ? `\n\nSYSTEM REBOOTED — ${rbData.message ?? "self-enhancement loop restarted with the new provider chain."}`
-          : `\n\nReboot failed: ${rbData.error ?? "unknown error"} — the loop is NOT running. Press [START] in the console.`;
-      } catch (e) {
-        rebootLine = `\n\nReboot request failed: ${(e as Error).message}`;
-      }
-
+      // Key saved (verified, or location-blocked-but-valid). The loop
+      // does NOT auto-reboot on key save — that was the reported "starts
+      // straight away" bug. Saving a key is now a pure config change;
+      // the loop picks up the new provider on its next cycle (if running)
+      // or when the operator presses [REBOOT LOOP NOW] / [START].
       setKey("");
       setMsg({
         kind: data.locationBlocked ? "warn" : "ok",
-        text: keyLine + rebootLine,
+        text:
+          (data.warning ??
+          `Key verified and saved — the loop calls ${data.model ?? model} FIRST and falls back to Z.AI on any failure.`) +
+          "\n\nThe loop picks up the new provider on its next cycle. Press [REBOOT LOOP NOW] to apply immediately.",
       });
       void poll();
+      // H2: auto-close after 2s so the operator sees the "saved ✓" message
+      // then the panel clears (no stale "Saved" panel left polling forever).
+      setTimeout(() => onClose(), 2000);
     } catch (e) {
       setMsg({ kind: "err", text: (e as Error).message });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // [REBOOT LOOP NOW] — the explicit "apply the new key now" gesture.
+  // Decoupled from save() so a key save never starts the loop (the
+  // reported "starts straight away" bug). Restarts the loop in this
+  // session; does NOT change the [START]/[STOP] armed state (a stopped
+  // loop stays stopped for future boots — press [START] to re-arm).
+  const rebootNow = async () => {
+    setRebooting(true);
+    setMsg(null);
+    try {
+      const rb = await fetch("/api/self-enhance/reboot", { method: "POST" });
+      const rbData = (await rb.json()) as { rebooted?: boolean; message?: string; error?: string };
+      setMsg({
+        kind: rbData.rebooted ? "ok" : "err",
+        text: rbData.rebooted
+          ? `Loop rebooted — ${rbData.message ?? "running with the new provider chain."}`
+          : `Reboot failed: ${rbData.error ?? "unknown error"}`,
+      });
+    } catch (e) {
+      setMsg({ kind: "err", text: `Reboot request failed: ${(e as Error).message}` });
+    } finally {
+      setRebooting(false);
     }
   };
 
@@ -300,9 +312,7 @@ export function GeminiPanel({ open, onClose }: Props) {
           Paste a Gemini API key and the loop calls Google FIRST — a separate free-tier
           quota — falling back to Z.AI on any failure. Gemini failures never trip the
           Z.AI 429 gate, and vice versa. Prompts (source code being enhanced) will be
-          sent to Google while this is active. <span style={{ color: WARN_COLOR }}>Saving a verified
-          key reboots the self-enhancement loop immediately AND arms it to auto-start on
-          every system boot</span> — no manual [START] needed, now or after a restart.
+          sent to Google while this is active. <span style={{ color: WARN_COLOR }}>Saving a verified key does NOT start the loop — it is a pure config change. The loop picks up the new provider on its next cycle (if running). Press [REBOOT LOOP NOW] to apply immediately, or [START] in the console to arm + start (which persists across boots).</span>
         </div>
 
         {/* Gemini status */}
@@ -420,8 +430,24 @@ export function GeminiPanel({ open, onClose }: Props) {
               color: OK_COLOR,
             }}
           >
-            {loading ? "[ … ]" : "[ SAVE · VERIFY · REBOOT ]"}
+            {loading ? "[ … ]" : "[ SAVE · VERIFY ]"}
           </button>
+          {cfg?.configured && (
+            <button
+              type="button"
+              onClick={() => void rebootNow()}
+              disabled={loading || rebooting}
+              style={{
+                ...btnStyle,
+                opacity: loading || rebooting ? 0.5 : 1,
+                cursor: loading || rebooting ? "wait" : "pointer",
+                borderColor: WARN_COLOR,
+                color: WARN_COLOR,
+              }}
+            >
+              {rebooting ? "[ … ]" : "[ REBOOT LOOP NOW ]"}
+            </button>
+          )}
           {cfg?.configured && (
             <button
               type="button"

@@ -102,6 +102,7 @@ export function NvidiaPanel({ open, onClose }: Props) {
   const [model, setModel] = useState(MODEL_OPTIONS[0]);
   const [showKey, setShowKey] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [rebooting, setRebooting] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "warn" | "err"; text: string } | null>(null);
   // Initialize to 0 (not Date.now()) so the server-rendered HTML and the
   // client's first render produce the SAME value — `Date.now()` as the
@@ -192,39 +193,51 @@ export function NvidiaPanel({ open, onClose }: Props) {
         return;
       }
 
-      // Key saved (verified, or saved-with-warning). Now reboot the
-      // self-enhancement loop so it picks up the new tier-1 provider
-      // immediately. The Gemini panel does the same — both panels
-      // share the same singleton LlmConfig row, so rebooting once
-      // after either save covers both.
-      const keyLine =
-        data.warning ??
-        `Key verified and saved — the loop now calls ${data.model ?? model} FIRST (NVIDIA → Gemini → Z.AI).`;
-      let rebootLine = "";
-      try {
-        const rb = await fetch("/api/self-enhance/reboot", { method: "POST" });
-        const rbData = (await rb.json()) as {
-          rebooted?: boolean;
-          message?: string;
-          error?: string;
-        };
-        rebootLine = rbData.rebooted
-          ? `\n\nSYSTEM REBOOTED — ${rbData.message ?? "self-enhancement loop restarted with NVIDIA as tier 1."}`
-          : `\n\nReboot failed: ${rbData.error ?? "unknown error"} — the loop is NOT running. Press [START] in the console.`;
-      } catch (e) {
-        rebootLine = `\n\nReboot request failed: ${(e as Error).message}`;
-      }
-
+      // Key saved (verified, or saved-with-warning). The loop does NOT
+      // auto-reboot on key save — that was the reported "starts straight
+      // away" bug. Saving a key is now a pure config change; the loop
+      // picks up the new provider on its next cycle (if running) or when
+      // the operator presses [REBOOT LOOP NOW] / [START].
       setKey("");
       setMsg({
         kind: data.verified === false && data.warning ? "warn" : "ok",
-        text: keyLine + rebootLine,
+        text:
+          (data.warning ??
+          `Key verified and saved — the loop calls ${data.model ?? model} FIRST (NVIDIA → Gemini → Z.AI).`) +
+          "\n\nThe loop picks up the new provider on its next cycle. Press [REBOOT LOOP NOW] to apply immediately.",
       });
       void poll();
+      // H2: auto-close after 2s so the operator sees the "saved ✓" message
+      // then the panel clears (no stale "Saved" panel left polling forever).
+      setTimeout(() => onClose(), 2000);
     } catch (e) {
       setMsg({ kind: "err", text: (e as Error).message });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // [REBOOT LOOP NOW] — the explicit "apply the new key now" gesture.
+  // Decoupled from save() so a key save never starts the loop (the
+  // reported "starts straight away" bug). Restarts the loop in this
+  // session; does NOT change the [START]/[STOP] armed state (a stopped
+  // loop stays stopped for future boots — press [START] to re-arm).
+  const rebootNow = async () => {
+    setRebooting(true);
+    setMsg(null);
+    try {
+      const rb = await fetch("/api/self-enhance/reboot", { method: "POST" });
+      const rbData = (await rb.json()) as { rebooted?: boolean; message?: string; error?: string };
+      setMsg({
+        kind: rbData.rebooted ? "ok" : "err",
+        text: rbData.rebooted
+          ? `Loop rebooted — ${rbData.message ?? "running with the new NVIDIA provider chain."}`
+          : `Reboot failed: ${rbData.error ?? "unknown error"}`,
+      });
+    } catch (e) {
+      setMsg({ kind: "err", text: `Reboot request failed: ${(e as Error).message}` });
+    } finally {
+      setRebooting(false);
     }
   };
 
@@ -323,7 +336,7 @@ export function NvidiaPanel({ open, onClose }: Props) {
           HK sandbox</span>, ~1.7s tribunal / 14s refactor on Bolt, $0 rate-limit-only free tier. Falls through
           to Gemini → Z.AI on any NVIDIA failure. NVIDIA failures never trip the Gemini or Z.AI gates (separate
           quotas). Prompts (your source code) will be sent to NVIDIA while this is active.{" "}
-          <span style={{ color: WARN_COLOR }}>Saving a verified key reboots the self-enhancement loop immediately.</span>
+          <span style={{ color: WARN_COLOR }}>Saving a verified key does NOT start the loop — it is a pure config change. The loop picks up the new provider on its next cycle (if running). Press [REBOOT LOOP NOW] to apply immediately, or [START] in the console to arm + start.</span>
         </div>
 
         {/* NVIDIA status */}
@@ -429,8 +442,24 @@ export function NvidiaPanel({ open, onClose }: Props) {
               color: OK_COLOR,
             }}
           >
-            {loading ? "[ … ]" : "[ SAVE · VERIFY · REBOOT ]"}
+            {loading ? "[ … ]" : "[ SAVE · VERIFY ]"}
           </button>
+          {nvCfg?.configured && (
+            <button
+              type="button"
+              onClick={() => void rebootNow()}
+              disabled={loading || rebooting}
+              style={{
+                ...btnStyle,
+                opacity: loading || rebooting ? 0.5 : 1,
+                cursor: loading || rebooting ? "wait" : "pointer",
+                borderColor: WARN_COLOR,
+                color: WARN_COLOR,
+              }}
+            >
+              {rebooting ? "[ … ]" : "[ REBOOT LOOP NOW ]"}
+            </button>
+          )}
           {nvCfg?.configured && (
             <button
               type="button"

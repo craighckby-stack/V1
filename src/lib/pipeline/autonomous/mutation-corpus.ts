@@ -213,6 +213,49 @@ export async function getRejectedTransformsForFile(filePath: string): Promise<Re
   }
 }
 
+/** A recent mutation attempt for a file — the provenance digest's
+ *  primary signal. ALL outcomes (enhanced + rejected + deferred), not
+ *  just failures (getRejectedTransformsForFile covers the failure-only
+ *  view for the rejected block). */
+export interface RecentAttempt {
+  readonly cycleNumber: number;
+  readonly branchNumber: number | null;
+  readonly gateOutcome: string;
+  readonly transformSummary: string | null;
+  readonly lessonIdsInjected: string;
+  readonly createdAt: Date;
+}
+
+/** The last `take` mutation attempts for this file (all outcomes).
+ *  Fail-soft — returns [] on any error (the provenance digest proceeds
+ *  without the attempts section rather than crashing the cycle). Used
+ *  by the provenance-digest builder to give the loop "I've been here N
+ *  times, my last attempt was X" context before mutating. */
+export async function getRecentAttemptsForFile(
+  filePath: string,
+  take = 10,
+): Promise<RecentAttempt[]> {
+  const c = corpus();
+  if (!c) return [];
+  try {
+    return await c.findMany({
+      where: { filePath },
+      orderBy: { createdAt: "desc" },
+      take,
+      select: {
+        cycleNumber: true,
+        branchNumber: true,
+        gateOutcome: true,
+        transformSummary: true,
+        lessonIdsInjected: true,
+        createdAt: true,
+      },
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** Format the negative-constraint block. Empty list → empty string —
  * dormant until the corpus holds rejections for this file (same
  * lifecycle as the lessons block: no data, no block, no cost).

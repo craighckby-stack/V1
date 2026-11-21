@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { workerFetch, ensureWorkerRunning } from "@/lib/pipeline/autonomous/loop-worker-client";
 import { markSelfEnhanceArmed } from "@/lib/pipeline/autonomous/self-enhance-armed-state";
+import { markOperatorTouch } from "@/lib/pipeline/autonomous/operator-touch";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -10,6 +11,13 @@ export async function POST() {
   // this is what makes [START] a ONE-TIME ritual — every subsequent process
   // boot re-arms from disk. Best-effort, never throws.
   markSelfEnhanceArmed(true, "operator-start");
+
+  // Refresh the dead-man's switch — [START] is the canonical operator
+  // gesture. The 24h auto-pause gate now counts from THIS press, so the
+  // loop keeps running for the next day without another touch. Without
+  // this, the boot auto-start (armed from disk) could fire after a long
+  // operator absence and burn quota unattended.
+  markOperatorTouch("operator-start");
 
   // The runtime lives in the worker. Self-heal it if it's down (a stopped
   // worker respawned here honors the armed:true we just persisted).

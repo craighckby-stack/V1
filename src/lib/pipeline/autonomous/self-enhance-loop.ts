@@ -74,7 +74,10 @@ import {
 import {
   captureAndPersistHealthSnapshot,
   HEALTH_SNAPSHOT_INTERVAL_CYCLES,
+  getHealthTrendDigest,
 } from "./health-metrics";
+import { poseQuestion } from "./operator-questions";
+import { buildProvenanceDigestForPrompt } from "./provenance-digest";
 import { applySchemaMutation } from "./schema-gate";
 import { PROJECT_ROOT } from "../core/paths";
 import { recoverCrashedTestGate } from "../core/test-gate-journal";
@@ -115,6 +118,12 @@ import { runGateIntegrityProbes, PROBE_INTERVAL } from "../red-team/gate-integri
 // the exact condition the flag was raised for. Static import is safe:
 // core/duress imports push-target, never this module.
 import { isSafeMode } from "../core/duress";
+// Dead-man's switch — the 24h auto-pause gate. If the operator hasn't
+// touched the system (no [START]/[STOP]/config PATCH) in 24h, the boot
+// auto-start is refused even when the armed-state file says armed:true.
+// This stops a runaway loop from quietly burning API quota for days while
+// the operator is away. Pure leaf (fs + path), no circulars.
+import { isDeadMansTripped } from "./operator-touch";
 // Operator armed-intent tier for THIS loop (.git/info/loop-self-enhance-
 // armed.json). Pure leaf (fs + path), no circulars — safe to load from
 // the constructor. See self-enhance-armed-state.ts for why the boot
@@ -750,6 +759,16 @@ class SelfEnhanceLoop {
             this.log(
               `SAFE-MODE active at boot — self-enhance loop NOT auto-started despite armed state (armed at ${disk.at} by ${disk.by}). Clear safe-mode then press [START].`,
               "error"
+            );
+          } else if (isDeadMansTripped()) {
+            // Dead-man's switch tripped: the operator hasn't touched the
+            // system in 24h. The armed state says "run" but the operator
+            // isn't present — refuse the auto-start so the loop doesn't
+            // burn quota unattended. The operator must press [START] to
+            // re-arm (which also refreshes the dead-man's switch).
+            this.log(
+              `DEAD-MAN'S SWITCH tripped — last operator touch was >24h ago. The armed state (armed at ${disk.at} by ${disk.by}) is respected but the loop is NOT auto-started. Press [START] to re-arm and refresh the switch.`,
+              "warn"
             );
           } else {
             // 2s delay mirrors the autonomous loop's auto-arm timer: lets
@@ -1725,6 +1744,14 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // renderer, so the enhance prompt can never fail on this path.
       const goalsBullets = await renderGoalsBullets();
 
+      // ── PROVENANCE DIGEST (the loop reads its own history) ──────
+      // The "do better" direction: the loop mutates WITH the context of
+      // "I've been here 15 times, my last attempt was enhanced, the
+      // operator's last commit was a purge of prank code" instead of
+      // blind. Fail-soft: "" on any error → prompt proceeds without it.
+      // Mode-agnostic: injected in both refactor and visual-polish.
+      const provenanceBlock = await buildProvenanceDigestForPrompt(relPath);
+
       const refactorSystem = `You are a senior code reviewer improving a TypeScript file inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
 
 Your job: find and fix REAL issues. Do NOT make cosmetic changes (type annotations, magic numbers, syntax modernization). Those are pointless. Instead, look for:
@@ -1761,7 +1788,7 @@ OUTPUT FORMAT (mandatory):
 \`\`\`typescript
 // the full file with fixes applied
 \`\`\`
-${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${rejectedBlock}${ancestralBlock}${priorArtBlock}${lessonsBlock}`;
+${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${provenanceBlock}${rejectedBlock}${ancestralBlock}${priorArtBlock}${lessonsBlock}`;
 
       const refactorUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n${archContextBlock}\nFind real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in this file. Fix them. Where the file's basic robustness is already in place, pursue the SYSTEM DIRECTION goals above instead (design or performance work) rather than adding more defensive checks. If nothing needs fixing, return the file unchanged. Use the architecture context above (if present) to avoid breaking changes that would affect importing modules. Output the summary first, then the code.`;
 
@@ -1808,7 +1835,7 @@ OUTPUT FORMAT (mandatory):
 \`\`\`typescript
 // the full file with visual improvements applied
 \`\`\`
-${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${rejectedBlock}${ancestralBlock}${lessonsBlock}`;
+${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${provenanceBlock}${rejectedBlock}${ancestralBlock}${lessonsBlock}`;
 
       const visualPolishUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nImprove the visual presentation, accessibility, and responsiveness of this UI component. Do NOT change any logic or functionality — only styling, aria attributes, responsive breakpoints, and micro-interactions. If it already looks polished, return the file unchanged. Output the summary first, then the code.`;
 
@@ -2338,7 +2365,7 @@ If there is NO genuinely useful additive change to make, output the original sch
 
 OUTPUT FORMAT:
 First a SHORT summary starting with "## Changes", then the COMPLETE schema in a single \`\`\`prisma fenced block.
-${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${rejectedBlock}${lessonsBlock}`;
+${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}\n` : ""}${provenanceBlock}${rejectedBlock}${lessonsBlock}`;
 
       const user = `Current prisma/schema.prisma:\n\n\`\`\`prisma\n${original}\n\`\`\`\n\nPropose an additive-only improvement, or return it unchanged if none is genuinely useful.`;
 
@@ -3546,12 +3573,37 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
       ) {
         const capCycle = cycleNow;
         void captureAndPersistHealthSnapshot(capCycle)
-          .then((snap) => {
+          .then(async (snap) => {
             if (snap.ok) {
               this.log(
                 `📊 Health snapshot @ cycle ${capCycle}: tests ${snap.testCount} (fail ${snap.testFail}), tsc ${snap.tscErrors}, lint ${snap.lintErrors}, protected ${snap.protectedFileCount}`,
                 "info",
               );
+              // ── OPERATOR QUESTION TRIGGER: health worsens ──────────
+              // After each snapshot, check the trend. If the codebase
+              // got WORSE (more test/type/lint errors since last snapshot),
+              // pose a question to the operator — the loop's mutations
+              // are making things worse, and the operator should weigh in
+              // on whether to pause new enhancements. Rate-limited by
+              // poseQuestion (50 cycles between questions).
+              try {
+                const digest = await getHealthTrendDigest();
+                if (digest) {
+                  const q = await poseQuestion(
+                    capCycle,
+                    "My codebase health is declining (more test/type/lint errors since my last check). Should I pause new enhancements and focus on fixing what's broken first?",
+                    `Health trend digest: ${digest.slice(0, 200)}`,
+                  );
+                  if (q) {
+                    this.log(
+                      `🤔 Asked the operator (cycle ${capCycle}): "${q.text}" — type 'answer' to respond.`,
+                      "info",
+                    );
+                  }
+                }
+              } catch {
+                /* question trigger is best-effort */
+              }
             } else {
               this.log(
                 `📊 Health snapshot @ cycle ${capCycle} captured with errors: ${snap.error ?? "unknown"}`,
@@ -3591,7 +3643,7 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
           totalReverted: this.stats.totalReverted,
         };
         void maybeReviewGoals(goalEvidence, (line, level) => this.log(line, level))
-          .then((outcome) => {
+          .then(async (outcome) => {
             if (outcome.error) {
               this.log(`🎯 goal review skipped: ${outcome.error}`, "warn");
             } else if (outcome.ran && !outcome.retired && !outcome.minted) {
@@ -3599,6 +3651,26 @@ ${operatingBlock}${postmortem.hasActivePostmortem ? `\n${postmortem.promptBlock}
                 `🎯 goal review (cycle ${cycleNow}): no change — ${outcome.commentary ?? ""}`.slice(0, 300),
                 "info"
               );
+              // ── OPERATOR QUESTION TRIGGER: goal-review tie ─────────
+              // The goal review ran but couldn't decide whether to retire
+              // or mint a goal — the loop is uncertain about its own
+              // direction. Pose a question so the operator can weigh in.
+              // Rate-limited by poseQuestion (50 cycles between questions).
+              try {
+                const q = await poseQuestion(
+                  cycleNow,
+                  "I reviewed my goals but couldn't decide whether to retire any or mint a new one. Should I keep the current direction, or try a different approach?",
+                  `Goal review commentary: ${(outcome.commentary ?? "no commentary").slice(0, 200)}`,
+                );
+                if (q) {
+                  this.log(
+                    `🤔 Asked the operator (cycle ${cycleNow}): "${q.text}" — type 'answer' to respond.`,
+                    "info",
+                  );
+                }
+              } catch {
+                /* question trigger is best-effort */
+              }
             } else if (outcome.ran) {
               this.log(
                 `🎯 goal review (cycle ${cycleNow}): direction updated — ${outcome.commentary ?? ""}`.slice(0, 300),
