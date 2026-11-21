@@ -45,7 +45,7 @@ export async function GET() {
     const summary = await getSelfModelSummary();
     return NextResponse.json(summary);
   } catch (err) {
-    const errorMessage = (err as Error)?.message || "An unknown error occurred while fetching self-model summary.";
+    const errorMessage = (err instanceof Error ? err.message : "An unknown error occurred while fetching self-model summary.");
     return createErrorResponse(`Failed to retrieve self-model summary: ${errorMessage}`);
   }
 }
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
           body = JSON.parse(bodyText);
         } catch (jsonError) {
           // Re-throw as a specific error type to be caught below for 400 response
-          throw new SyntaxError(`Invalid JSON in request body: ${(jsonError as Error)?.message || 'Malformed JSON'}`);
+          throw new SyntaxError(`Invalid JSON in request body: ${(jsonError instanceof Error ? jsonError.message : 'Malformed JSON')}`);
         }
     }
 
@@ -125,7 +125,7 @@ export async function POST(req: Request) {
     const summary = await getSelfModelSummary();
     return NextResponse.json(summary);
   } catch (err) {
-    const errorMessage = (err as Error)?.message || "An unknown error occurred while fetching self-model summary after POST operation.";
+    const errorMessage = (err instanceof Error ? err.message : "An unknown error occurred while fetching self-model summary after POST operation.");
     return createErrorResponse(`Failed to retrieve self-model summary after POST operation: ${errorMessage}`);
   }
 }
