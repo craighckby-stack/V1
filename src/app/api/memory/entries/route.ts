@@ -20,14 +20,11 @@ export async function GET() {
 
   try {
     // Run seeding and retrieval in parallel to reduce latency
-    await Promise.all([
-      emgRagInstance.ensureSeeded(),
+    const [entries] = await Promise.all([
       emgRagInstance.getAll(),
+      emgRagInstance.ensureSeeded(),
     ]);
     
-    // getAll() returns the entries directly, which should be an array or null/undefined if empty/error state
-    const entries = await emgRagInstance.getAll();
-
     // Ensure we return an array, defaulting to empty array if null or undefined
     return NextResponse.json({ entries: entries || [] });
   } catch (err: unknown) {

@@ -1,0 +1,19 @@
+{
+  "targetRepo": "craighckby-stack/GitHistory-Sync",
+  "branch": "main",
+  "filePath": "src/App.tsx",
+  "status": "resolved",
+  "verificationStatus": "verified",
+  "failureType": "AST_SYMBOL_DROPPED",
+  "symptom": "[auto-gauntlet] AST gate rejected: dropped symbol foo",
+  "evidence": "AST score: 40/100\nSymbol map: orig=10 proposed=7 retained=7\nMissing symbols: foo (function)\nViolation [high] AST_SYMBOL_DROPPED: dropped symbol foo\nReview consensus: REJECTED\nSecurity findings: \nLead summary: no",
+  "constraints": "Preserve EVERY symbol from the original file. The following were dropped last time and MUST appear in the output:\n  - foo (function)\nDo NOT remove, rename, or merge any function, class, method, interface, type, or const.",
+  "attempts": 1,
+  "parentHash": "64e8bec3db6d83f225bb13f444dfc082bc6537b3b0647b454f5827cab38dec9d",
+  "hash": "b38b47b266f5614c21a38239168a7fa75a005b84aefaf5fea298b51be9d6bb44",
+  "lastAttemptAt": "2026-11-21T00:45:27.615Z",
+  "resolvedAt": "2026-11-21T00:45:27.635Z",
+  "createdAt": "2026-11-21T00:45:27.616Z",
+  "updatedAt": "2026-11-21T00:45:27.635Z",
+  "schema": 2
+}

@@ -48,7 +48,7 @@ export interface PipelineConfig {
   userPrompt: string;
   siphonSourceId: string;
   code: string;
-  triggeredBy?: "manual" | "autonomous" | "watch" | "continuous" | "scheduled";
+  triggeredBy?: "manual" | "auto" | "autonomous" | "watch" | "continuous" | "scheduled";
 }
 
 export interface PipelineExecutionReport {

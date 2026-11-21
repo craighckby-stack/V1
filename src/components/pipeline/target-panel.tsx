@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import { ManualPipelineRunner } from "./manual-runner";
+import { AutoPipelineRunner } from "./auto-runner";
 
 const PROMPT_COLOR = "#e0e0e0";
 const DIM_COLOR = "#777777";
@@ -56,6 +57,12 @@ function statusColor(status: string): string {
   if (status === "COMPLETED") return GOOD_COLOR;
   if (status === "REJECTED" || status === "HALTED") return BAD_COLOR;
   return WARN_COLOR;
+}
+
+function triggeredByColor(source: string): string {
+  if (source === "auto") return "#22d3ee"; // cyan — one-click gauntlet runs
+  if (source === "autonomous") return "#ffaa33"; // the self-enhance loop
+  return DIM_COLOR; // manual
 }
 
 export function TargetPanel({ open, onClose }: Props) {
@@ -209,10 +216,20 @@ export function TargetPanel({ open, onClose }: Props) {
           debate tribunal → push survivors to an{" "}
           <span style={{ color: PROMPT_COLOR }}>&lt;branch&gt;-evolution</span> branch
           — never the target branch itself. Reads work anonymously on public
-          repos; pushes need a PAT with repo scope.
+          repos; pushes need a PAT with repo scope. The{" "}
+          <span style={{ color: "#22d3ee" }}>auto</span> card below does all
+          of it in one click — auto runs are labeled{" "}
+          <span style={{ color: "#22d3ee" }}>triggeredBy=auto</span> and feed
+          postmortem scars per target repo, never the autonomous loop&apos;s
+          lessons (sandbox, not population).
         </div>
 
-        {/* The runner (repo/branch/token + file list + code + run button) */}
+        {/* The one-click auto runner (pick → gauntlet → push → feedback) */}
+        <AutoPipelineRunner />
+
+        <div style={{ height: "12px" }} />
+
+        {/* The manual runner (repo/branch/token + file list + code + run button) */}
         <ManualPipelineRunner />
 
         {/* Run history strip */}
@@ -253,6 +270,17 @@ export function TargetPanel({ open, onClose }: Props) {
                   }}
                 >
                   <span style={{ color: statusColor(r.status), minWidth: "110px" }}>{r.status}</span>
+                  <span
+                    style={{
+                      color: triggeredByColor(r.triggeredBy),
+                      minWidth: "86px",
+                      border: `1px solid ${DIM_COLOR}`,
+                      padding: "0 4px",
+                      fontSize: "11px",
+                    }}
+                  >
+                    {r.triggeredBy}
+                  </span>
                   <span style={{ color: PROMPT_COLOR, flex: 1, minWidth: "180px", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {r.targetRepo}:{r.filePath}
                   </span>
