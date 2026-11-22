@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/operator-questions/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "1853c4f2e162ac870ac42682ee47bb68aaa87aa8f4f1e99bfee4647c9eb0d178",
   "hash": "3500fcaf64fb23d71743f63589fb62587c70254d21f91858ef0da4ba15dbcfd2",
   "lastAttemptAt": "2026-11-22T03:03:58.200Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T05:57:50.062Z",
   "createdAt": "2026-11-22T02:44:42.619Z",
-  "updatedAt": "2026-11-22T03:03:58.200Z",
+  "updatedAt": "2026-11-22T05:57:50.062Z",
   "schema": 2
 }
