@@ -33,7 +33,7 @@ async function main() {
   );
 }
 main().catch((e) => {
-  // Log full error stack for better debugging context
-  console.error("Error during task claim peek:", (e as Error).stack || (e as Error).message);
+  const errorMessage = e instanceof Error ? e.message : String(e);
+  console.error(`Error during task claim peek: Failed to retrieve next task state. Context: ${errorMessage}`);
   process.exit(1);
 });
