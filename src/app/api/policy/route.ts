@@ -27,8 +27,9 @@ export async function GET() {
     const report = await buildPolicyReport();
     return NextResponse.json(report);
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred while building the policy report.";
     return NextResponse.json(
-      { error: `policy report failed: ${(err as Error).message}` },
+      { error: `Failed to generate policy report. Context: ${errorMessage}` },
       { status: 500 }
     );
   }
