@@ -105,9 +105,9 @@ export function TargetPanel({ open, onClose }: Props) {
       
       if (!res.ok) {
         const errorText = await res.text();
-        console.error(`Failed to load pipeline history: HTTP status ${res.status}. Details: ${errorText.substring(0, 100)}`);
+        console.error(`Failed to load pipeline history: HTTP status ${res.status}. Context: ${errorText.substring(0, 100)}`);
         setRuns([]);
-        setLoading(false);
+        setLoading(false); // Ensure loading is false on HTTP error
         return;
       }
       
@@ -115,9 +115,9 @@ export function TargetPanel({ open, onClose }: Props) {
       
       // Validate response structure
       if (!data || !Array.isArray(data.runs)) {
-        console.error("Unexpected response structure from pipeline history API");
+        console.error("Unexpected response structure from pipeline history API: expected { runs: [...] }");
         setRuns([]);
-        setLoading(false);
+        setLoading(false); // Ensure loading is false on structure error
         return;
       }
       
@@ -132,15 +132,13 @@ export function TargetPanel({ open, onClose }: Props) {
       // Network or parsing error: log error but ensure loading state is resolved.
       console.error("Network or parsing error fetching pipeline history:", error instanceof Error ? error.message : "Unknown error");
       setRuns([]);
-      setLoading(false);
+      setLoading(false); // Ensure loading is false on network/parsing error
     } finally {
       // Ensure cleanup of timeout reference if it wasn't cleared in try block
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
-      // Note: setLoading(false) is now handled explicitly in success/error paths above
-      // to correctly manage the state based on request outcome vs. abort.
     }
   }, []);
 
