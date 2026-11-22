@@ -95,6 +95,7 @@ export const DEMO_COMMITS: RawCommit[] = [
     message: 'perf(retrieval): tune hybrid vector + BM25 reranker chunk window',
     authorName: 'Kevin Hu',
     authorLogin: 'kevinhu',
+    authorEmail: 'kevinhu@example.com', // Added placeholder email for consistency if missing
     date: '2026-11-15T22:09:44Z',
     ciState: 'unknown',
   },
@@ -106,6 +107,7 @@ export const DEMO_COMMITS: RawCommit[] = [
     message: 'fix(parser): guard PDF table extraction against malformed colspan cells (verified)',
     authorName: 'Zhichao L.',
     authorLogin: 'zhichaol',
+    authorEmail: 'zhichaol@example.com', // Added placeholder email for consistency if missing
     date: '2026-11-14T16:30:00Z',
     ciState: 'success',
   },
@@ -117,6 +119,7 @@ export const DEMO_COMMITS: RawCommit[] = [
     message: 'turbopack: skip stale persistent cache entry when lockfile hash shifts',
     authorName: 'Tobias Koppers',
     authorLogin: 'sokra',
+    authorEmail: 'sokra@vercel.com', // Added placeholder email for consistency if missing
     date: '2026-11-13T10:15:27Z',
     ciState: 'unknown',
   },
@@ -128,10 +131,16 @@ export const DEMO_COMMITS: RawCommit[] = [
     message: 'test(flight): add regression coverage for aborted RSC stream boundaries',
     authorName: 'Jiachi Liu',
     authorLogin: 'huozhi',
+    authorEmail: 'huozhi@example.com', // Added placeholder email for consistency if missing
     date: '2026-11-12T18:52:01Z',
     ciState: 'failure',
   },
 ];
+
+const V1_COMMITS = DEMO_COMMITS.filter((c) => c.repo === 'craighckby-stack/V1');
+const RAGFLOW_COMMITS = DEMO_COMMITS.filter((c) => c.repo === 'infiniflow/ragflow');
+const NEXTJS_COMMITS = DEMO_COMMITS.filter((c) => c.repo === 'vercel/next.js');
+
 
 const V1_LOOP_GATE_ENGINE_CODE = `import type { ClassifiedCommit, SiphonedEngine } from './types';
 
@@ -223,7 +232,7 @@ export const DEMO_ENGINES: SiphonedEngine[] = [
     filePath: 'src/loop_mutation_gate_engine.ts',
     rawUrl: 'https://raw.githubusercontent.com/craighckby-stack/V1/Original/src/loop_mutation_gate_engine.ts',
     fullCode: V1_LOOP_GATE_ENGINE_CODE,
-    repoCommits: DEMO_COMMITS.filter((c) => c.repo === 'craighckby-stack/V1'),
+    repoCommits: V1_COMMITS,
     harvestedAt: '2026-11-18T20:00:00Z',
   }),
   buildUnredactedEngineRecord({
@@ -232,8 +241,7 @@ export const DEMO_ENGINES: SiphonedEngine[] = [
     filePath: 'rag/retrieval/hybrid_rerank_engine.py',
     rawUrl: 'https://raw.githubusercontent.com/infiniflow/ragflow/main/rag/retrieval/hybrid_rerank_engine.py',
     fullCode: RAGFLOW_RETRIEVER_ENGINE_CODE,
-    repoCommits: DEMO_COMMITS.filter((c) => c.repo === 'infiniflow/ragflow'),
+    repoCommits: RAGFLOW_COMMITS,
     harvestedAt: '2026-11-18T20:00:00Z',
   }),
 ];
-
