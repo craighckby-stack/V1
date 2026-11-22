@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "scripts/audit-remote.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
+  "evidence": "Original: 5770 bytes, Refactored: 6752 bytes. Errors: Verifier produced no output",
+  "constraints": "The previous refactor of scripts/audit-remote.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "7250b5907314d8ab522fbe259c1c941da5650663129ccd5becacf4df9b7e60ca",
+  "hash": "fba5d086a96c221710ecfe52c7e61b6fb1556b3a04b15a5e75294f41ae2613f2",
+  "lastAttemptAt": "2026-11-22T06:33:59.370Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-22T06:33:59.371Z",
+  "updatedAt": "2026-11-22T06:33:59.371Z",
+  "schema": 2
+}

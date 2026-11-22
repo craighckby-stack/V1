@@ -27,17 +27,20 @@ async function main() {
   console.log(`MAX_TARGET_FILE_BYTES: ${MAX_TARGET_FILE_BYTES}`);
   console.log(`\nall files (path | size | mutable?):`);
   let mutable = 0;
+  const exts = new Map<string, number>();
+
   for (const f of files) {
     const isMut = isMutableTargetPath(f.path) && f.size <= MAX_TARGET_FILE_BYTES;
     if (isMut) mutable++;
     console.log(`  ${isMut ? "Y" : "."}  ${String(f.size).padStart(8)}  ${f.path}`);
-  }
-  console.log(`\nmutable+size-ok files: ${mutable} / ${files.length}`);
-  const exts = new Map<string, number>();
-  for (const f of files) {
-    const ext = f.path.includes(".") ? f.path.split(".").pop()! : "(no-ext)";
+
+    // Safely extract extension
+    const parts = f.path.split(".");
+    const ext = parts.length > 1 ? parts.pop()! : "(no-ext)";
     exts.set(ext, (exts.get(ext) ?? 0) + 1);
   }
+
+  console.log(`\nmutable+size-ok files: ${mutable} / ${files.length}`);
   console.log(`\nfile-type breakdown:`);
   [...exts.entries()].sort((a, b) => b[1] - a[1]).forEach(([e, n]) => console.log(`  ${n}  .${e}`));
 }
