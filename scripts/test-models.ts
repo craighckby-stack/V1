@@ -10,12 +10,12 @@ async function tryModel(model: string) {
     const c = (r as unknown as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content ?? "(no content)";
     console.log(`  ${model}: OK -> ${String(c).slice(0,60)}`);
   } catch (e) {
-    console.log(`  ${model}: FAIL -> ${(e instanceof Error ? e.message : String(e)).slice(0,100)}`);
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    console.log(`  ${model}: FAIL -> ${errorMessage.slice(0,100)}`);
   }
 }
 async function main() {
-  for (const m of ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-2.5-pro", "glm-4.6", "glm-4.5", "gpt-4o", "claude-3.5-sonnet", "deepseek-v3", "qwen-max"]) {
-    await tryModel(m);
-  }
+  const models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-2.5-pro", "glm-4.6", "glm-4.5", "gpt-4o", "claude-3.5-sonnet", "deepseek-v3", "qwen-max"];
+  await Promise.all(models.map(m => tryModel(m)));
 }
 main();
