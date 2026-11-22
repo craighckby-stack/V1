@@ -61,6 +61,12 @@ export interface ArmedState {
  *  never fail a start/stop that already succeeded in memory (the in-memory
  *  flag remains the live source; the disk file is the restart tier). */
 export function markArmed(armed: boolean, by: string): void {
+  // Validate the 'by' parameter to ensure only valid values are persisted
+  if (!VALID_BY_VALUES.includes(by)) {
+    console.error(`markArmed: Invalid 'by' value "${by}". Must be one of: ${VALID_BY_VALUES.join(", ")}`);
+    return;
+  }
+
   try {
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
     // Rely on atomicWriteFileSync to handle directory creation or fail gracefully
@@ -79,6 +85,7 @@ export function markArmed(armed: boolean, by: string): void {
  *  a bad read. This is the dual-layer fail-closed contract: the boot
  *  auto-arm only proceeds when the disk EXPLICITLY says armed:true. */
 export function readArmedState(): ArmedState | null {
+  // Check file existence first to avoid unnecessary error handling for missing file
   if (!existsSync(ARMED_STATE_FILE)) {
     // File not found is expected on first run, treated as not armed.
     return null;
