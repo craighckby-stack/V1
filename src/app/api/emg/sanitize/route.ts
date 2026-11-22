@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   try {
     const parsedBody = await req.json();
     body = parsedBody as SanitizeRequest;
-  } catch (e) {
+  } catch {
     // Catch JSON parsing errors specifically
     return NextResponse.json(
       { error: "Invalid JSON format in request body." },

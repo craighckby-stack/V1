@@ -57,7 +57,7 @@ export async function POST(req: Request) {
   try {
     // Use req.json() for idiomatic Next.js API route body parsing
     body = await req.json();
-  } catch (e) {
+  } catch {
     // Handles JSON parsing errors (e.g., invalid JSON, non-JSON body)
     return NextResponse.json(
       { error: "Invalid request body: Body must be valid JSON." },

@@ -24,14 +24,12 @@ export function AstInspectorModal() {
   if (!inspectorFile) return null;
   const { path, original, evolved, report } = inspectorFile;
   
-  // Ensure report exists before accessing nested properties
-  if (!report) return null;
+  // Use optional chaining for safe access to nested report properties
+  const ast = report?.astDiffResult;
+  const sanitizer = report?.sanitizerResult;
 
-  const ast = report.astDiffResult;
-  const sanitizer = report.sanitizerResult;
-
-  // Ensure report, ast, and sanitizer are defined before using them in rendering logic
-  if (!ast || !sanitizer) return null;
+  // Guard against missing essential data structures
+  if (!report || !ast || !sanitizer) return null;
 
   // Define violationIcon mapping explicitly for known severities, defaulting to AlertTriangle
   const violationIcon: Record<string, React.ElementType> = {

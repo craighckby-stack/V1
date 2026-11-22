@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     if (typeof body === 'object' && body !== null && typeof body.repo === "string" && body.repo.trim()) {
       repoOverride = body.repo.trim();
     }
-  } catch (e) {
+  } catch {
     // If JSON parsing fails or body is not an object, we proceed to scan the next seed,
     // as per original logic, but we avoid swallowing the error silently without context.
     // Since the original logic ignored this, we maintain that behavior but clean up the structure.
