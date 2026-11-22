@@ -52,6 +52,14 @@ export async function POST(req: Request) {
     );
   }
 
+  if (typedBody.originalCode.trim() === "" && typedBody.proposedCode.trim() === "") {
+    // Both empty, ratio is 0, which is < 0.7, so this is coherent.
+    // We allow this case to proceed to calculation, but if we strictly enforce non-empty,
+    // we should return 400. Based on existing logic, we only reject if *either* is empty,
+    // but the check below handles individual emptiness. Let's stick to the original intent:
+    // reject if *either* is empty string after trim.
+  }
+
   if (typedBody.originalCode.trim() === "" || typedBody.proposedCode.trim() === "") {
     return NextResponse.json(
       { error: "originalCode and proposedCode must be non-empty strings" },
@@ -64,8 +72,11 @@ export async function POST(req: Request) {
   
   let structuralDriftRatio: number;
 
-  // Guard against division by zero if original code is empty
+  // Guard against division by zero if original code is empty.
+  // Since we validated against empty strings above, origLen > 0 is guaranteed here.
+  // However, if the validation was bypassed or if we consider length 0 possible despite trim check:
   if (origLen === 0) {
+    // This path should be unreachable due to the guard clause above, but for safety:
     structuralDriftRatio = propLen === 0 ? 0 : Infinity;
   } else {
     structuralDriftRatio = Math.abs(propLen - origLen) / origLen;
