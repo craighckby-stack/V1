@@ -1,82 +1,43 @@
-// Check live prophecy settlement since the same-attempt fix + SelfTask backlog
-import Database from "better-sqlite3";
-
+import { Database } from "bun:sqlite";
 const db = new Database("/home/z/my-project/db/custom.db", { readonly: true });
+const q = (sql: string, ...params: (string | number)[]) => {
+  try {
+    return db.query(sql).all(...params);
+  } catch (e) {
+    return [{ error: String(e) }];
+  }
+};
 
-// 1. Overall prophecy stats
-const overall = db
-  .prepare(`SELECT status, COUNT(*) as n FROM Prophecy GROUP BY status`)
-  .all();
-console.log("=== Prophecy overall ===", overall);
+const now = Date.now();
+const twoHoursAgo = now - 2 * 60 * 60 * 1000;
 
-// 2. Self-prediction prophecies created in last 2 hours: status breakdown
-const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
-const recent = db
-  .prepare(
-    `SELECT status, COUNT(*) as n FROM Prophecy WHERE domain='self-prediction' AND createdAt >= ? GROUP BY status`,
-  )
-  .all(twoHoursAgo);
-console.log("=== Self-prophecies last 2h ===", recent);
+// Any recent deadline-timeout or retroactive settlements (the OLD failure mode)?
+console.log("== Settlement method breakdown, last 24h ==");
+console.log(q(
+  "SELECT CASE WHEN evaluation LIKE 'Auto-adjudicated%' THEN 'auto-adjudicated' WHEN evaluation LIKE 'Retroactive%' THEN 'retroactive-corpus' WHEN evaluation LIKE 'Deterministic deadline%' THEN 'deadline-timeout' WHEN evaluation LIKE '[verdict%' THEN 'llm-evaluator' ELSE 'other' END AS method, status, COUNT(*) as n FROM Prophecy WHERE evaluatedAt >= ? GROUP BY method, status",
+  now - 24 * 60 * 60 * 1000,
+));
 
-// 3. Recent self-prophecies detail (last 10)
-const detail = db
-  .prepare(
-    `SELECT id, status, confidence, createdAt, evaluatedAt, evaluateBy, claim, evaluation FROM Prophecy WHERE domain='self-prediction' ORDER BY createdAt DESC LIMIT 10`,
-  )
-  .all() as Array<{
-  id: string;
-  status: string;
-  confidence: number;
-  createdAt: number;
-  evaluatedAt: number | null;
-  evaluateBy: number;
-  claim: string;
-  evaluation: string | null;
-}>;
-for (const d of detail) {
-  console.log(
-    `\n[${d.status}] conf=${d.confidence.toFixed(2)} created=${new Date(d.createdAt).toISOString()} evaluated=${d.evaluatedAt ? new Date(d.evaluatedAt).toISOString() : "never"}`,
-  );
-  console.log(`  claim: ${d.claim.slice(0, 120)}`);
-  if (d.evaluation) console.log(`  eval: ${d.evaluation.slice(0, 200)}`);
-}
+// The lone pending prophecy
+console.log("\n== Pending prophecies ==");
+console.log(q("SELECT id, domain, claim, evaluateBy, createdAt FROM Prophecy WHERE status='pending'"));
 
-// 4. SelfTask backlog by kind+status
-const tasks = db
-  .prepare(`SELECT kind, status, COUNT(*) as n FROM SelfTask GROUP BY kind, status ORDER BY kind, status`)
-  .all();
-console.log("\n=== SelfTask by kind/status ===");
-for (const t of tasks) console.log(t);
+// MutationCorpus recent outcomes — what's the actual gate pass rate?
+console.log("\n== MutationCorpus gateOutcome, last 2h ==");
+console.log(q("SELECT gateOutcome, COUNT(*) as n FROM MutationCorpus WHERE createdAt >= ? GROUP BY gateOutcome", twoHoursAgo));
 
-// 5. Pending oracle-failed-prophecy tasks: oldest and count
-const pending = db
-  .prepare(
-    `SELECT COUNT(*) as n, MIN(createdAt) as oldest FROM SelfTask WHERE kind='oracle-failed-prophecy' AND status='pending'`,
-  )
-  .get() as { n: number; oldest: number | null };
-console.log("\n=== Pending oracle-failed-prophecy ===", {
-  count: pending.n,
-  oldest: pending.oldest ? new Date(pending.oldest).toISOString() : null,
-});
+// Distinct file prefixes mutated in last 24h — is scope already beyond src/?
+console.log("\n== File scope touched, last 24h (by top-level dir) ==");
+console.log(q(
+  "SELECT CASE WHEN filePath LIKE 'src/%' THEN 'src' WHEN filePath LIKE 'mini-services/%' THEN 'mini-services' WHEN filePath LIKE '.zscripts/%' THEN '.zscripts' WHEN filePath LIKE 'scripts/%' THEN 'scripts' ELSE 'other' END AS bucket, COUNT(DISTINCT filePath) as files, COUNT(*) as attempts FROM MutationCorpus WHERE createdAt >= ? GROUP BY bucket",
+  now - 24 * 60 * 60 * 1000,
+));
 
-// 6. Self-prophecies created in last 24h
-const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
-const sinceFix = db
-  .prepare(
-    `SELECT status, COUNT(*) as n, AVG(confidence) as avgConf FROM Prophecy WHERE domain='self-prediction' AND createdAt >= ? GROUP BY status`,
-  )
-  .all(dayAgo);
-console.log("\n=== Self-prophecies last 24h ===", sinceFix);
-
-// 7. Recent OracleEvents mentioning self-prophecy (last 15)
-const events = db
-  .prepare(
-    `SELECT type, message, timestamp FROM OracleEvent WHERE message LIKE '%self-prophecy%' ORDER BY timestamp DESC LIMIT 15`,
-  )
-  .all() as Array<{ type: string; message: string; timestamp: number }>;
-console.log("\n=== Recent self-prophecy events ===");
-for (const e of events) {
-  console.log(`${new Date(e.timestamp).toISOString()} [${e.type}] ${e.message.slice(0, 150)}`);
+// OracleEvent recent — timestamp column format check
+console.log("\n== OracleEvent sample ==");
+const ev = q("SELECT type, message, timestamp FROM OracleEvent ORDER BY rowid DESC LIMIT 3") as Array<{ type: string; message: string; timestamp: unknown }>;
+for (const e of ev) {
+  console.log(`[${e.type}] ts(${typeof e.timestamp})=${String(e.timestamp).slice(0, 30)} :: ${e.message.slice(0, 120)}`);
 }
 
 db.close();

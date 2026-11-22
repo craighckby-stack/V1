@@ -146,14 +146,19 @@ let pollFailureCount = 0;
 
 async function pollNextJsState() {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+
     const res = await fetch(NEXTJS_STATUS_URL, {
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(3000),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
+
     lastPollAt = new Date().toISOString();
     if (!res.ok) {
       nextJsReachable = false;
-      console.warn(`[LOOP-WS] /api/autonomous/status returned ${res.status} ${res.statusText}`);
+      console.warn(`[LOOP-WS] /api/autonomous/status returned ${res.status} ${res.statusText}. Next.js unreachable.`);
       return;
     }
     nextJsReachable = true;
@@ -168,8 +173,12 @@ async function pollNextJsState() {
     }
   } catch (err) {
     nextJsReachable = false;
-    if (pollFailureCount % 10 === 0) {
-      console.warn(`[LOOP-WS] poll failed (#${pollFailureCount + 1}) for ${NEXTJS_STATUS_URL}: ${err instanceof Error ? err.message : String(err)}`);
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    
+    if (err instanceof DOMException && err.name === 'AbortError') {
+        console.warn(`[LOOP-WS] Poll request to ${NEXTJS_STATUS_URL} timed out after 3s.`);
+    } else if (pollFailureCount % 10 === 0) {
+      console.warn(`[LOOP-WS] Poll failed (#${pollFailureCount + 1}) for ${NEXTJS_STATUS_URL}: ${errorMessage}`);
     }
     pollFailureCount++;
   }
