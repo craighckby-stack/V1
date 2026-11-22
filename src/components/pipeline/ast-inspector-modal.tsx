@@ -185,7 +185,7 @@ export function AstInspectorModal() {
                 </div>
               </div>
               <div className="text-[10px] text-slate-500 pt-1">
-                Drift ratio: <span className="font-mono text-amber-300">{(ast.structuralDriftRatio ? (ast.structuralDriftRatio * 100).toFixed(0) : '0')}%</span>
+                Drift ratio: <span className="font-mono text-amber-300">{(ast.structuralDriftRatio !== undefined && ast.structuralDriftRatio !== null ? (ast.structuralDriftRatio * 100).toFixed(0) : '0')}%</span>
               </div>
             </div>
             <div className="space-y-3">

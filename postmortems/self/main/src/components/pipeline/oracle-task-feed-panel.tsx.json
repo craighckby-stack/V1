@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/oracle-task-feed-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: oracle-check.tmp.ts(1,26): error TS2307: Cannot find module 'bun:sqlite' or its corresponding type declarations.",
@@ -12,8 +12,8 @@
   "parentHash": "f702f968f5c6ac0fd07dd7da7e1f85cf3eb8ffdfa4a10fc827c08840177bcc95",
   "hash": "835c6a2b386b824b87e7a6ef9eb1d352faeb309f702fcf302b6fcb5a333df629",
   "lastAttemptAt": "2026-11-22T06:25:59.063Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T10:04:48.736Z",
   "createdAt": "2026-11-22T02:44:42.588Z",
-  "updatedAt": "2026-11-22T06:25:59.063Z",
+  "updatedAt": "2026-11-22T10:04:48.736Z",
   "schema": 2
 }
