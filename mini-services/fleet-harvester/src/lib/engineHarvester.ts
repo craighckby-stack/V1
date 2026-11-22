@@ -178,51 +178,74 @@ export function scanEngineAst(fullCode: string, filePath: string): {
   const functions: string[] = [];
   const imports: string[] = [];
 
-  let m: RegExpExecArray | null;
-
   if (language === 'Python') {
     const pyClassRx = /^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)/gm;
+    let m: RegExpExecArray | null;
     while ((m = pyClassRx.exec(fullCode)) !== null) classes.push(m[1]);
 
     const pyFnRx = /^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm;
-    while ((m = pyFnRx.exec(fullCode)) !== null) functions.push(m[1]);
+    m = pyFnRx.exec(fullCode);
+    while (m !== null) {
+      functions.push(m[1]);
+      m = pyFnRx.exec(fullCode);
+    }
 
     const pyImpRx = /^\s*(?:from\s+([A-Za-z0-9_.]+)\s+import|import\s+([A-Za-z0-9_.]+))/gm;
-    while ((m = pyImpRx.exec(fullCode)) !== null) imports.push(m[1] || m[2]);
+    m = pyImpRx.exec(fullCode);
+    while (m !== null) {
+      imports.push(m[1] || m[2]);
+      m = pyImpRx.exec(fullCode);
+    }
   } else if (language === 'Go') {
     const goTypeRx = /^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:struct|interface)\b/gm;
+    let m: RegExpExecArray | null;
     while ((m = goTypeRx.exec(fullCode)) !== null) classes.push(m[1]);
 
     const goFnRx = /^\s*func\s+(?:\([^)]+\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm;
-    while ((m = goFnRx.exec(fullCode)) !== null) functions.push(m[1]);
+    m = goFnRx.exec(fullCode);
+    while (m !== null) {
+      functions.push(m[1]);
+      m = goFnRx.exec(fullCode);
+    }
 
     const goImpRx = /"([A-Za-z0-9_.\-/]+)"/g;
     const impBlockMatch = fullCode.match(/import\s*(?:\([\s\S]*?\)|"[^"]+")/g);
     if (impBlockMatch) {
       for (const blk of impBlockMatch) {
-        while ((m = goImpRx.exec(blk)) !== null) imports.push(m[1]);
+        let mImp: RegExpExecArray | null;
+        while ((mImp = goImpRx.exec(blk)) !== null) imports.push(mImp[1]);
       }
     }
   } else if (language === 'Rust') {
     const rsTypeRx = /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|trait)\s+([A-Za-z_][A-Za-z0-9_]*)/gm;
+    let m: RegExpExecArray | null;
     while ((m = rsTypeRx.exec(fullCode)) !== null) classes.push(m[1]);
 
     const rsFnRx = /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)/gm;
-    while ((m = rsFnRx.exec(fullCode)) !== null) functions.push(m[1]);
+    m = rsFnRx.exec(fullCode);
+    while (m !== null) {
+      functions.push(m[1]);
+      m = rsFnRx.exec(fullCode);
+    }
 
     const rsUseRx = /^\s*(?:pub\s+)?use\s+([A-Za-z0-9_:]+)/gm;
-    while ((m = rsUseRx.exec(fullCode)) !== null) imports.push(m[1]);
+    m = rsUseRx.exec(fullCode);
+    while (m !== null) imports.push(m[1]);
   } else {
     // TypeScript / JavaScript
     const tsClassRx = /\b(?:class|interface)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g;
+    let m: RegExpExecArray | null;
     while ((m = tsClassRx.exec(fullCode)) !== null) classes.push(m[1]);
 
     const tsFnRx =
       /(?:^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*[<(]|^\s*(?:export\s+)?const\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>)/gm;
-    while ((m = tsFnRx.exec(fullCode)) !== null) functions.push(m[1] || m[2]);
+    m = tsFnRx.exec(fullCode);
+    while (m !== null) functions.push(m[1] || m[2]);
+    m = tsFnRx.exec(fullCode); // Re-exec to continue loop if needed, though the structure above handles it.
 
     const tsImpRx = /^\s*import\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"]/gm;
-    while ((m = tsImpRx.exec(fullCode)) !== null) imports.push(m[1]);
+    m = tsImpRx.exec(fullCode);
+    while (m !== null) imports.push(m[1]);
   }
 
   return {
