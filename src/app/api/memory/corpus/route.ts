@@ -31,57 +31,46 @@ export async function GET(request: Request) {
       throw new Error("Invalid search keyword provided");
     }
     
-    // Run status and digest retrieval in parallel with search operation
+    // Run status and digest retrieval in parallel
     const [status, digest] = await Promise.all([
       getCorpusStatus(),
       getFleetDigest()
     ]);
-    
-    // Add timeout to prevent hanging, wrapping the actual async call
-    let sample;
-    try {
-      sample = await Promise.race([
-        searchEngines(keyword, 3),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Search timed out")), 5000)
-        )
-      ]);
-      
-      // Validate search results before mapping
-      if (!Array.isArray(sample)) {
-        throw new Error("Invalid search results format");
-      }
-      
-      // Map results only after successful retrieval
-      sample = sample.map((h: { engine: { id: string; role: string }; score: number; matchedTerms: string[] }) => {
-        if (!h.engine || typeof h.engine.id !== "string" || typeof h.engine.role !== "string" || 
-            typeof h.score !== "number" || !Array.isArray(h.matchedTerms)) {
-          throw new Error("Invalid search result item format");
-        }
-        
-        return {
-          id: h.engine.id,
-          role: h.engine.role,
-          score: Number(h.score.toFixed(2)),
-          matched: h.matchedTerms.slice(0, 5),
-        };
-      });
 
-    } catch (searchError) {
-      if (searchError instanceof Error && searchError.message.includes("Search timed out")) {
-        throw new Error("Search operation timed out after 5 seconds");
-      }
-      // Provide context on search failure
-      throw new Error(`Failed to retrieve search samples for keyword "${keyword}": ${searchError instanceof Error ? searchError.message : "Unknown search error"}`);
+    // Run search with a timeout
+    const searchPromise = searchEngines(keyword, 3);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Search timed out")), 5000)
+    );
+
+    const sample = await Promise.race([searchPromise, timeoutPromise]);
+      
+    // Validate search results before mapping
+    if (!Array.isArray(sample)) {
+      throw new Error("Invalid search results format");
     }
     
-    return NextResponse.json({ ok: true, status, digest, sampleHits: sample });
+    // Map results only after successful retrieval
+    const mappedSample = sample.map((h: { engine: { id: string; role: string }; score: number; matchedTerms: string[] }) => {
+      if (!h.engine || typeof h.engine.id !== "string" || typeof h.engine.role !== "string" || 
+          typeof h.score !== "number" || !Array.isArray(h.matchedTerms)) {
+        throw new Error("Invalid search result item format");
+      }
+      
+      return {
+        id: h.engine.id,
+        role: h.engine.role,
+        score: Number(h.score.toFixed(2)),
+        matched: h.matchedTerms.slice(0, 5),
+      };
+    });
+    
+    return NextResponse.json({ ok: true, status, digest, sampleHits: mappedSample });
   } catch (e) {
     const error = e instanceof Error ? e : new Error("Unknown corpus read failure");
     
-    // Determine status code based on error message context
-    const statusCode = error.message.includes("timed out") ? 504 : 
-                      error.message.includes("Search operation timed out") ? 504 : 500;
+    // Determine status code based on error context
+    const statusCode = error.message.includes("timed out") ? 504 : 500;
     
     return NextResponse.json(
       { ok: false, error: error.message },
