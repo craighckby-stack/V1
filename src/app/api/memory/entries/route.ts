@@ -20,19 +20,9 @@ export async function GET() {
 
   try {
     // Run seeding and retrieval in parallel to reduce latency
-    await Promise.all([
+    const [_, entriesResult] = await Promise.all([
       emgRagInstance.ensureSeeded(),
       emgRagInstance.getAll(),
-    ]);
-    
-    // Retrieve entries (getAll() result is now available)
-    const entries = await emgRagInstance.getAll(); // Re-awaiting here is redundant if Promise.all was structured differently, but keeping structure simple: getAll() is called once in Promise.all, so we extract it.
-    // Correction: Promise.all returns an array of results. We need to adjust how we capture the result.
-
-    // Re-implementing parallel execution correctly:
-    const [_, entriesResult] = await Promise.all([
-        emgRagInstance.ensureSeeded(),
-        emgRagInstance.getAll(),
     ]);
     
     // Ensure we return an array, defaulting to empty array if null or undefined

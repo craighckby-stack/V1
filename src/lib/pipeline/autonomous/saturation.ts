@@ -135,6 +135,23 @@ export const SCAN_SCOPES: Array<{ dir: string; extensions: string[] }> = [
   { dir: "mini-services/loop-worker", extensions: [".ts"] },
   { dir: "mini-services/loop-ws-service", extensions: [".ts"] },
   { dir: "mini-services/fleet-harvester", extensions: [".ts"] },
+  // v7 (operator-directed, 2026-11-22): the operator utility scripts —
+  // audit-remote, check-llm, inspect-target-tree, q, record-uuid-
+  // postmortem, test-*, repair-prophecy-verdicts. These are bun-run
+  // TypeScript (same language, same gates) and in the ROOT tsconfig
+  // program (tsconfig.json only excludes mini-services, not scripts/),
+  // so the full-project in-memory typecheck covers them natively — no
+  // scoped-program path needed. Deliberate exclusions (protected-files.ts):
+  //   - push-now.ts + seal-push-token.ts: the push/auth path (PAT
+  //     sealing, manual push). Same class as push-target.ts — the loop
+  //     must never rewrite the code that handles its own credentials.
+  //   - dev-daemon.py: the dev-server daemonizer (supervision chain).
+  //     .py isn't scanned today; the entry pins intent for any future
+  //     .py scope widening.
+  //   - .zscripts/ (prefix-protected): the launch layer — dev.sh,
+  //     start.sh, mini-services-*.sh. Same rationale as dev-watchdog:
+  //     the resurrection chain is never a mutation target.
+  { dir: "scripts", extensions: [".ts"] },
 ];
 
 /** The Prisma schema — handled as a special single-file scope. Not a

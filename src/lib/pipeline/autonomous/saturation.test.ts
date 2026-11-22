@@ -19,20 +19,33 @@ import { existsSync, readdirSync, statSync } from "fs";
  *   boot-splash.tsx) are protected individually in PROTECTED_FILES;
  *   the operator-PIN gate on [unlock] + the convergent-move guard are
  *   the friction layers that made the re-expansion safe.
+ *   v6 (2026-11-22): out-of-src expansion — the mini-services
+ *   loop-worker, loop-ws-service, and fleet-harvester join the scope
+ *   (scoped-program typecheck via in-memory-typecheck.ts; dev-watchdog
+ *   stays protected as the resurrection layer).
+ *   v7 (2026-11-22): the operator utility scripts join as `scripts/`
+ *   (.ts, root tsconfig program). push-now.ts / seal-push-token.ts
+ *   (the credential/push path) and dev-daemon.py (supervision) are
+ *   protected individually; .zscripts/ (the launch chain) is
+ *   prefix-protected.
  *
- * These tests pin the v5 scope so a future "the loop should also scan X"
+ * These tests pin the v7 scope so a future "the loop should also scan X"
  * expansion has to update this file (and an operator has to review it).
  * The enforcement is architectural: `saturation.ts` is in PROTECTED_FILES
  * (protected-files.ts), so the loop itself cannot edit SCAN_SCOPES —
  * only a human-directed change to this protected file can. These tests
  * are the documentation + the regression canary.
  */
-describe("SCAN_SCOPES (v5 operator-directed re-expansion)", () => {
-  test("exactly three scopes: src/lib/pipeline, src/app, src/components/pipeline", () => {
-    expect(SCAN_SCOPES).toHaveLength(3);
+describe("SCAN_SCOPES (v7 operator-directed expansion)", () => {
+  test("exactly seven scopes: 3 src + 3 mini-services + scripts", () => {
+    expect(SCAN_SCOPES).toHaveLength(7);
     expect(SCAN_SCOPES[0].dir).toBe("src/lib/pipeline");
     expect(SCAN_SCOPES[1].dir).toBe("src/app");
     expect(SCAN_SCOPES[2].dir).toBe("src/components/pipeline");
+    expect(SCAN_SCOPES[3].dir).toBe("mini-services/loop-worker");
+    expect(SCAN_SCOPES[4].dir).toBe("mini-services/loop-ws-service");
+    expect(SCAN_SCOPES[5].dir).toBe("mini-services/fleet-harvester");
+    expect(SCAN_SCOPES[6].dir).toBe("scripts");
   });
 
   test("includes ONLY src/components/pipeline — not all of src/components, not the vendored ui subtree", () => {
@@ -146,5 +159,57 @@ describe("SCAN_SCOPES (v5 operator-directed re-expansion)", () => {
         expect(inScope).toBe(false);
       }
     }
+  });
+
+  test("v6 boundary in mini-services: the three services ARE in scope, dev-watchdog is NOT", () => {
+    // The out-of-src expansion (v6) covers the worker wrapper, the WS
+    // relay, and the fleet harvester. dev-watchdog — the dev server's
+    // 2-strike respawn supervisor — is prefix-protected and must stay
+    // out of every scope (the resurrection layer is never a mutation
+    // target).
+    const inScope = (rel: string) =>
+      SCAN_SCOPES.some((s) => rel.startsWith(s.dir + "/"));
+    expect(inScope("mini-services/loop-worker/index.ts")).toBe(true);
+    expect(inScope("mini-services/loop-ws-service/index.ts")).toBe(true);
+    expect(inScope("mini-services/fleet-harvester/src/lib/engineHarvester.ts")).toBe(true);
+    // The watchdog is BOTH out of scope and explicitly protected:
+    expect(inScope("mini-services/dev-watchdog/index.ts")).toBe(false);
+    expect(isProtectedPath("mini-services/dev-watchdog/index.ts")).toBe(true);
+  });
+
+  test("v7 boundary in scripts/: utility scripts ARE in scope, the credential/push path is NOT", () => {
+    // The operator utility scripts join the scope; the two scripts
+    // that handle the sealed PAT (push-now, seal-push-token) and the
+    // dev-server daemonizer stay protected. A loop that could rewrite
+    // its own credential-sealing path is the same escape hatch as
+    // rewriting push-target.ts.
+    const inScope = (rel: string) =>
+      SCAN_SCOPES.some((s) => rel.startsWith(s.dir + "/"));
+    // Utility scripts — scannable (root tsconfig program, same gates):
+    expect(inScope("scripts/audit-remote.ts")).toBe(true);
+    expect(inScope("scripts/check-llm.ts")).toBe(true);
+    expect(inScope("scripts/q.ts")).toBe(true);
+    expect(inScope("scripts/record-uuid-postmortem.ts")).toBe(true);
+    expect(inScope("scripts/repair-prophecy-verdicts.ts")).toBe(true);
+    // Credential/push path — protected:
+    expect(isProtectedPath("scripts/push-now.ts")).toBe(true);
+    expect(isProtectedPath("scripts/seal-push-token.ts")).toBe(true);
+    expect(inScope("scripts/push-now.ts")).toBe(true); // in the scripts/ scope...
+    // ...but isProtectedPath is the hard floor: scanFiles filters it.
+    // (Being in a scope AND protected means the scope walk enumerates
+    // it and the filter drops it — same as protected src/app routes.)
+  });
+
+  test("v7 launch chain: .zscripts/ is prefix-protected and never scannable", () => {
+    // .zscripts/ holds dev.sh / start.sh / mini-services-*.sh — the
+    // launch layer. Not in any scan scope, and prefix-protected so a
+    // future widening can't reach it without operator review.
+    const inScope = (rel: string) =>
+      SCAN_SCOPES.some((s) => rel.startsWith(s.dir + "/"));
+    expect(inScope(".zscripts/dev.sh")).toBe(false);
+    expect(isProtectedPath(".zscripts/dev.sh")).toBe(true);
+    expect(isProtectedPath(".zscripts/mini-services-start.sh")).toBe(true);
+    // And the daemonizer entry (defense in depth for a future .py scope):
+    expect(isProtectedPath("scripts/dev-daemon.py")).toBe(true);
   });
 });

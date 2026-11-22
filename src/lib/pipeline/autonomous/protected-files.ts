@@ -203,6 +203,27 @@ export const PROTECTED_FILES = new Set([
   // The database client — a mutation here could break every db.* call
   // site at once, including the postmortem and lesson stores.
   "src/lib/db.ts",
+  // ── v7 scope expansion (2026-11-22): scripts/ joins the scan scope
+  // (saturation.ts v7). The utility scripts are mutable, but the two
+  // that touch the credential/push path are NOT — same protection
+  // class as push-target.ts:
+  //   - push-now.ts invokes pushCurrentState() with the sealed PAT; a
+  //     mutated version could push to a different repo, leak the push
+  //     outcome to a third party, or corrupt the manual-push path the
+  //     operator relies on when the loop is down.
+  //   - seal-push-token.ts is the ONLY path that writes a fresh PAT
+  //     into the vault (AES-256-GCM, .git/info/ + DB tiers). A mutated
+  //     version could seal the token to an attacker-controlled tier,
+  //     echo the plaintext token (it reads it from the environment),
+  //     or downgrade the sealing — the credential chain is operator-
+  //     only, full stop.
+  "scripts/push-now.ts", // the manual push path (sealed-PAT consumer)
+  "scripts/seal-push-token.ts", // the PAT sealing path (credential writer)
+  // The dev-server daemonizer (scripts/dev-daemon.py) — supervision
+  // chain, same class as dev-watchdog. .py files aren't scanned today
+  // (extensions: [".ts"] only); this entry pins intent so a future
+  // .py scope widening can't silently include it.
+  "scripts/dev-daemon.py", // the dev-server daemon (supervision chain)
 ]);
 
 /** Directory subtrees the loop must never touch — same contract as
@@ -293,6 +314,18 @@ export const PROTECTED_PREFIXES = [
   // adds the whole mini-services/ dir, this prefix keeps the watchdog
   // out of reach.
   "mini-services/dev-watchdog/",
+  // ── v7 scope expansion (2026-11-22): the launch chain ────────────
+  // .zscripts/ holds the launch layer — dev.sh (the dev server
+  // launcher the watchdog prods), start.sh, mini-services-start.sh,
+  // mini-services-build.sh, and the mini-service logs. Same rationale
+  // as dev-watchdog: a bad shell mutation in the launch chain could
+  // break the resurrection path while everything LOOKS healthy (the
+  // scripts are only exercised on restart, so a corrupted one can sit
+  // silently until the next crash — exactly when it hurts most). Not
+  // in any scan scope today; this prefix is defense in depth so a
+  // future widening can't reach it without an operator reviewing
+  // this file.
+  ".zscripts/",
 ];
 
 /** Normalize a possibly-sloppy relative path to the canonical POSIX form
