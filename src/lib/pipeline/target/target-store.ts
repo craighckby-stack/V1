@@ -84,7 +84,7 @@ export async function getTargetConfig(): Promise<TargetRepoConfig | null> {
     const row = await db.systemFlag.findUnique({ where: { key: CONFIG_KEY } });
     if (!row || !row.value) return null;
     const parsed = JSON.parse(row.value) as TargetRepoConfig;
-    if (!parsed || !parsed.repo || !validTargetRepoFormat(parsed.repo)) {
+    if (!parsed || typeof parsed !== 'object' || !parsed.repo || !validTargetRepoFormat(parsed.repo)) {
       console.error(`Target config found but invalid format for repo key ${CONFIG_KEY}. Parsed data:`, parsed);
       return null;
     }
