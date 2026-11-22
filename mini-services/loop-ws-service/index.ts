@@ -177,10 +177,12 @@ async function pollNextJsState() {
     
     if (err instanceof DOMException && err.name === 'AbortError') {
         console.warn(`[LOOP-WS] Poll request to ${NEXTJS_STATUS_URL} timed out after 3s.`);
-    } else if (pollFailureCount % 10 === 0) {
-      console.warn(`[LOOP-WS] Poll failed (#${pollFailureCount + 1}) for ${NEXTJS_STATUS_URL}: ${errorMessage}`);
+    } else {
+      pollFailureCount++;
+      if (pollFailureCount % 10 === 0) {
+        console.warn(`[LOOP-WS] Poll failed (#${pollFailureCount}) for ${NEXTJS_STATUS_URL}. Last error: ${errorMessage}`);
+      }
     }
-    pollFailureCount++;
   }
 }
 
@@ -198,6 +200,8 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`[LOOP-WS] WebSocket service listening on 0.0.0.0:${PORT}`);
   console.log(`[LOOP-WS] /health available at http://localhost:${PORT}/health`);
   console.log(`[LOOP-WS] Polling ${NEXTJS_STATUS_URL} every ${POLL_INTERVAL_MS}ms`);
+  
+  // Run initial poll and set up interval in parallel to reduce startup latency
   pollNextJsState().catch((err) => {
     console.error("[LOOP-WS] Initial poll failed:", err);
   });
