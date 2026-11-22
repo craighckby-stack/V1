@@ -84,9 +84,13 @@ const LogEntryComponent = memo(({ entry }: { entry: LogEntry }) => {
 
 LogEntryComponent.displayName = 'LogEntryComponent';
 
+// Stable empty-array reference — `loopState?.logs || []` inline would create a
+// fresh array each render and defeat the useMemo dependency check below.
+const EMPTY_LOGS: LogEntry[] = [];
+
 export function LogStream() {
   const loopState = usePipelineStore((s) => s.loopState);
-  const logs = loopState?.logs || [] as LogEntry[];
+  const logs = loopState?.logs ?? EMPTY_LOGS;
   const wsConnected = usePipelineStore((s) => s.wsConnected);
 
   // Use memo to prevent unnecessary re-renders when logs array reference changes
