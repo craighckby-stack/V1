@@ -122,9 +122,12 @@ class LoopEventBus {
     }
     this.emitter.on("event", listener);
     return () => {
-      // Removed try/catch as cleanup should generally not be suppressed unless logging is required.
-      // If off fails, it indicates a deeper EventEmitter state issue, which should ideally surface.
-      this.emitter.off("event", listener);
+      try {
+        this.emitter.off("event", listener);
+      } catch (error) {
+        // Log the error but don't throw to allow cleanup to continue
+        console.error("Error removing listener from LoopEventBus:", error);
+      }
     };
   }
 }

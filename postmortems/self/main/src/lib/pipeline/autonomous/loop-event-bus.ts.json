@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/autonomous/loop-event-bus.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "Test gate failed: test failed (sandboxed): src/lib/pipeline/autonomous/loop-event-bus.test.ts — \nsrc/lib/pipeline/autonomous/loop-event-bus.test.ts:\n12 | \n13 | describe(\"loopEventBus\", () => {\n14 |   test(\"should successfully emit a 'state' event with a valid positive timestamp\", () => {\n15 |   ",
@@ -12,8 +12,8 @@
   "parentHash": "d2ab14855b7e29dfc278a015d8fb651b2289ba108ba6676c25caf0ecf577dd4a",
   "hash": "1c69026d6004735ab3129df4c7f5d7dd80c51a1f23825faf85ec5d225e1175c3",
   "lastAttemptAt": "2026-11-22T16:06:25.695Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T16:28:06.756Z",
   "createdAt": "2026-11-22T16:02:44.222Z",
-  "updatedAt": "2026-11-22T16:06:25.695Z",
+  "updatedAt": "2026-11-22T16:28:06.756Z",
   "schema": 2
 }
