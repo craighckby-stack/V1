@@ -107,6 +107,16 @@ export const PROTECTED_FILES = new Set([
   // operator-provided and outside the loop's scan scope already; this
   // entry protects the READER that turns them into prompt content.
   "src/lib/pipeline/autonomous/githistory-corpus.ts",
+  // Learned mutation policy — the loop's first LEARNED component. It
+  // trains on the MutationCorpus (own gates) + the fleet archive (wild
+  // prior) and injects a transform-family strategy block into every
+  // refactor prompt. A corrupted version could fabricate rates ("guard
+  // transforms always pass"), drop the honesty deferral (speak on N=2),
+  // or launder wild evidence as own experience — poisoning the loop's
+  // learned steering with fake confidence. The PARAMETERS are learned;
+  // the ESTIMATOR (this file) is protected: the thing being measured
+  // must not rewrite the ruler.
+  "src/lib/pipeline/autonomous/mutation-policy.ts",
   // Curiosity drive + health metrics — the loop's EXTERNAL objective
   // signal (codebase health snapshots) AND the behavior change that
   // reads it (the curiosity bonus in the bandit). Same category as

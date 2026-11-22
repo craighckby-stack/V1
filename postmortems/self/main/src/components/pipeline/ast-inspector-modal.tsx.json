@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/ast-inspector-modal.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/page.tsx(2187,71): error TS2339: Property 'gitCommits' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.; src/app/page.tsx(2187,97): error TS2339: Property 'loopMutations' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.; src/app/page.tsx(2187,122): error TS2339: Property 'postmortems' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.",
@@ -12,8 +12,8 @@
   "parentHash": "36011b4e54d4a67c76d4d227a0ee1c90e3d50a0a584d36cced6f06769a2d6058",
   "hash": "fe308025d94856f26edb4783d53c1e2aec25ab44824e7c704de05f9dcd41ad23",
   "lastAttemptAt": "2026-11-21T22:46:35.538Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T03:04:57.599Z",
   "createdAt": "2026-11-21T19:05:54.479Z",
-  "updatedAt": "2026-11-21T22:46:35.538Z",
+  "updatedAt": "2026-11-22T03:04:57.599Z",
   "schema": 2
 }

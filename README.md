@@ -30,13 +30,14 @@ architecture:
 core_cycle:
   - "scan own source for issues"
   - "pick a non-protected file (bandit-scored)"
-  - "build context (8 blocks: postmortem, ancestral, priorArt, lessons, rejected, archContext, provenance, operating)"
+  - "build context (9 blocks: postmortem, ancestral, priorArt, lessons, rejected, archContext, provenance, operating, mutationPolicy)"
+  - "mutation policy steers the transform KIND (learned, two-tier)"
   - "LLM proposes one focused improvement"
   - "gate chain: mutation-guard → structural → AST → typecheck → sandbox-test → debate → secret-scan"
   - "pass: commit + push to loop-NN branch. fail: write postmortem + feed lesson"
   - "repeat forever (bounded by crash-wall, dead-man's switch, quota gate, [STOP])"
 safety:
-  protected_files: "36 exact paths + 18 prefix subtrees (the loop's own brain is off-limits to itself)"
+  protected_files: "59 exact paths + 18 prefix subtrees (the loop's own brain is off-limits to itself)"
   mutation_guard: "synchronous fail-closed: eval, child_process, path-traversal, MD5/SHA1, protected-path"
   dead_mans_switch: "24h without operator touch → ARMED-PAUSED"
   crash_wall: "3 consecutive same-class crashes → ARMED-PAUSED"
@@ -49,12 +50,15 @@ auditability:
   provenance: "per-file timeline (git + mutations + postmortems + gauntlet + lessons) — who changed what, when"
   benchmark: "A/B over the mutation corpus — does the complexity earn its keep?"
   dropbox: "external-system learning (dropbox/<system>/ → candidate lessons, bandit-scored)"
+  autofork: "curated reference-repo learning (autofork-seeds.json → candidate lessons, any language)"
+  mutation_policy: "learned transform prior (own gates + wild fleet archive) — `policy` command"
 honest_limitations:
-  - "the intelligence is an LLM call the system wraps, not a novel algorithm"
+  - "the core intelligence is still an LLM call; the mutation policy is a learned PRIOR over transform kinds, not learned code generation"
   - "the pass-rate trend is the honest signal (the benchmark measures it)"
   - "the postmortem chain is the system vouching for itself (no external verification)"
+  - "the wild tier is single-repo-dominant (ragflow) — borrowed evidence, confounders declared"
   - "single-operator, single-instance, SQLite — research system, not production"
-self_rating: "6.5/10 (novel self-reference + thoughtful trust model; held back by scale + coherence strain + outsourced intelligence)"
+self_rating: "7/10 (novel self-reference + thoughtful trust model + first learned component; held back by scale + research-grade ML + outsourced core generation)"
 ```
 
 ---
@@ -103,7 +107,7 @@ A single full-screen BIOS terminal at `/` (`src/app/page.tsx`) — black backgro
 
 **The header** has `[START]`, `[CLEAR]`, `[CONFIG]`, `[TARGET]`, `[ORACLE]`, `[DEFENSE]`, `[BRANCHES]`, `[MERGE-BACK]` buttons, plus a `LOOP ●` heartbeat.
 
-**The console stream** (`console-stream.tsx`) shows every scan, gate, push, retry, and backoff in real time. You can also type commands: `start` / `stop` / `status` / `about` / `help` / `trigger` / `task <goal>` / `push` / `config` / `target` / `oracle` / `answer` / `provenance <file>` / `benchmark` / `memory` / `skip` / `rescan` / `clear`.
+**The console stream** (`console-stream.tsx`) shows every scan, gate, push, retry, and backoff in real time. You can also type commands: `start` / `stop` / `status` / `about` / `help` / `trigger` / `task <goal>` / `push` / `config` / `target` / `oracle` / `answer` / `provenance <file>` / `benchmark` / `policy` / `memory` / `skip` / `rescan` / `clear`.
 
 ### The TARGET panel — the machine pointed at YOUR repo
 
@@ -464,6 +468,7 @@ LOOP ──► provenance <file>     who changed what, when (per-file timeline)
 | **Labeled feedback** | `Postmortem.source` column | Every scar is tagged `autonomous` / `auto` / `manual` / `system`. The lesson distiller filters to `autonomous` only — sandbox scars (gauntlet auto/manual on external repos) never pollute the self-loop's aggregated lessons. Manual = sandbox, autonomous = population. |
 | **Dropbox ingester** | `autonomous/dropbox-ingester.ts` | The #8 "learns from external systems" axis. The operator drops `dropbox/<system>/` folders; the ingester walks them, dedupes by content hash, extracts text (`.ts`/`.md`/`.pdf`), distills CANDIDATE lessons tagged `source: "dropbox"`, `system: "<tag>"`. Wired to the curiosity drive (one ingest per firing cycle, budget-capped at 3 files). The bandit scores the candidates — helpful ones rise into the prompt, harmful ones sink. `dropbox` + `dropbox scan` console commands. |
 | **Auto-fork ingester** | `autonomous/autofork-ingester.ts` | The dropbox generalized to a GitHub source: instead of the operator manually dropping files, the loop AUTONOMOUSLY fetches curated reference repos (`autofork-seeds.json` — react, next.js, prisma by default) and ingests them through the same candidate → verified → promoted lifecycle. Reuses the gauntlet's auto-picker to rank files, dedupes by blob sha (manifest at `.git/info/`), distills candidate lessons tagged `source: "autofork"`, `system: <repo>`. One repo per scan, 3 files per repo (budget-capped). Wired to the curiosity drive alongside the dropbox. `autofork` + `autofork scan` console commands. The operator edits `autofork-seeds.json` to add/remove reference repos — the loop can't add its own seeds (trust boundary). |
+| **Learned mutation policy** | `autonomous/mutation-policy.ts` + `policy` + `/api/policy` | 10/10 #6 — the loop's first LEARNED component (parameters estimated from evidence, not hand-written, not an LLM call). Two tiers: **own** (pass rates by transform family over the MutationCorpus, Laplace-smoothed, 14d recency decay, deferred until N≥10 per family) and **wild** (success rates by change kind over the fleet archive you pushed — 9.5k successful / 1.6k failed harvested commits, evidence-weighted: reverted/CI-failed full, regex-match half). The active tier injects a bounded (~900b) strategy block into every refactor prompt: "these transform kinds historically pass; this one doesn't — weigh it, don't obey it." The ESTIMATOR is protected (the thing being measured must not rewrite the ruler); the PARAMETERS stay learned and drift with the data. |
 | **Boot soundtrack** | `retro-boot-audio.ts` | Restored: CRT degauss thump + floppy-seek clatter + Imperial March + happy POST beep. Plays for ~6s after ENTER; any key/click skips the soundcheck. Volume pinned at 1.0, no mute — the loud prank is the point ("funny even on mute"). |
 | **Self-referential README** | `README.md` | This document is written for BOTH the human operator AND the loop. A machine-readable YAML summary block (top of the README) describes LOOP's identity, architecture, core cycle, safety, alive behaviors, auditability, and honest limitations in a parseable form. A future cycle could ingest it as system-direction context — the docs shaped so the system they describe can read them. |
 
