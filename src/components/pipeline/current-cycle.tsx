@@ -62,17 +62,29 @@ export function CurrentCycle() {
   
   const firstProofHash = totalFiles > 0 ? fileResults[0]?.proofHash : undefined;
 
+  let cardBgClass = "bg-rose-950/30 border-rose-800/50";
+  let cardBadgeClass = "bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/20";
+  let activityColor = "text-slate-400";
+
+  if (status === "running") {
+    cardBgClass = "bg-cyan-950/40 border-cyan-700/50";
+    cardBadgeClass = "bg-cyan-500/15 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/20";
+    activityColor = "text-cyan-400 animate-pulse";
+  } else if (status === "completed") {
+    cardBgClass = "bg-emerald-950/30 border-emerald-800/50";
+    cardBadgeClass = "bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/20";
+    activityColor = "text-slate-400";
+  } else if (status === "halted") {
+    cardBgClass = "bg-amber-950/30 border-amber-800/50";
+    cardBadgeClass = "bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/20";
+    activityColor = "text-slate-400";
+  }
+
   return (
     <Card
       className={cn(
         "backdrop-blur border transition-colors duration-200 shadow-lg",
-        status === "running"
-          ? "bg-cyan-950/40 border-cyan-700/50"
-          : status === "completed"
-          ? "bg-emerald-950/30 border-emerald-800/50"
-          : status === "halted"
-          ? "bg-amber-950/30 border-amber-800/50"
-          : "bg-rose-950/30 border-rose-800/50"
+        cardBgClass
       )}
       aria-live="polite"
     >
@@ -82,7 +94,7 @@ export function CurrentCycle() {
             <Activity
               className={cn(
                 "h-5 w-5",
-                status === "running" ? "text-cyan-400 animate-pulse" : "text-slate-400"
+                activityColor
               )}
               aria-hidden="true"
             />
@@ -95,13 +107,7 @@ export function CurrentCycle() {
             variant="outline"
             className={cn(
               "uppercase text-[10px] tracking-widest px-3 py-1 transition-colors",
-              status === "running"
-                ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/20"
-                : status === "completed"
-                ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/20"
-                : status === "halted"
-                ? "bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/20"
-                : "bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/20"
+              cardBadgeClass
             )}
             aria-label={`Current cycle status: ${status}`}
           >
