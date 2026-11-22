@@ -47,7 +47,9 @@ export interface ParsedSource {
  * Parses comma- or newline-separated GitHub usernames, orgs, owner/repo slugs,
  * or full GitHub URLs into normalized, deduplicated targets.
  */
-export function parseSources(input: string): ParsedSource[] {
+export function parseSources(input: string | null | undefined): ParsedSource[] {
+  if (!input) return [];
+  
   const tokens = input
     .split(/[\n,]+/)
     .map((s) => s.trim())
@@ -88,7 +90,10 @@ export function parseSources(input: string): ParsedSource[] {
 /**
  * Appends new preset tokens to an existing sources string without duplicating entries.
  */
-export function appendPresetToSources(existing: string, additions: string[]): string {
+export function appendPresetToSources(existing: string | null | undefined, additions: string[]): string {
+  if (typeof existing !== 'string') {
+    existing = '';
+  }
   const current = parseSources(existing);
   const existingKeys = new Set(current.map((c) => c.raw.toLowerCase()));
   const merged = current.map((c) => c.raw);
@@ -125,8 +130,8 @@ export function validateDestination(repo: string, branch: string, filePath: stri
   if (!trimmedPath || trimmedPath.startsWith('/') || trimmedPath.endsWith('/')) {
     throw new Error(`File path must point to a relative file (for example ${DEFAULT_BASE_PATH}).`);
   }
-  for (const seg of trimmedPath.split('/')) {
-    if (!seg || seg === '.' || seg === '..') {
+  for (const seg of trimmedPath.split('/').filter(Boolean)) {
+    if (seg === '.' || seg === '..') {
       throw new Error(`Invalid path segment "${seg}".`);
     }
   }
