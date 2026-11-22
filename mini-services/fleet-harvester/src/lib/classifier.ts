@@ -14,6 +14,9 @@ export function compileRegexSafe(
   pattern: string,
   fallback: string
 ): { regex: RegExp; error?: string } {
+  if (typeof pattern !== 'string') {
+    return { regex: new RegExp(fallback, 'i'), error: 'Input pattern must be a string.' };
+  }
   const trimmed = pattern.trim();
   if (!trimmed) {
     return { regex: new RegExp(fallback, 'i') };
@@ -35,6 +38,7 @@ export function detectRevertedShas(commits: RawCommit[]): Set<string> {
   const prefixToShas = new Map<string, string[]>();
   const subjectToShas = new Map<string, string[]>();
 
+  // First pass: Build maps
   for (const commit of commits) {
     const lowerSha = commit.sha.toLowerCase();
     const prefix7 = lowerSha.slice(0, 7);
@@ -51,13 +55,20 @@ export function detectRevertedShas(commits: RawCommit[]): Set<string> {
   const revertLineRx = /This reverts commit ([0-9a-f]{7,40})/gi;
   const revertHeaderRx = /^\s*Revert\s+"([^"]+)"/i;
 
+  // Second pass: Check for reverts
   for (const commit of commits) {
+    const lowerSha = commit.sha.toLowerCase();
     let match: RegExpExecArray | null;
+
+    // Check revert line format
     revertLineRx.lastIndex = 0;
     while ((match = revertLineRx.exec(commit.message)) !== null) {
       const refSha = match[1].toLowerCase();
-      const candidates = prefixToShas.get(refSha.slice(0, 7));
+      const refPrefix7 = refSha.slice(0, 7);
+      const candidates = prefixToShas.get(refPrefix7);
+
       if (candidates) {
+        // Only add full SHAs that start with the referenced SHA (refSha)
         for (const fullSha of candidates) {
           if (fullSha.startsWith(refSha)) {
             reverted.add(fullSha);
@@ -66,14 +77,15 @@ export function detectRevertedShas(commits: RawCommit[]): Set<string> {
       }
     }
 
+    // Check revert header format
     const headerMatch = revertHeaderRx.exec(commit.message);
     if (headerMatch) {
       const revertedSubject = headerMatch[1].trim().toLowerCase();
       const targets = subjectToShas.get(revertedSubject);
       if (targets) {
-        const selfSha = commit.sha.toLowerCase();
         for (const t of targets) {
-          if (t !== selfSha) {
+          // Do not add the current commit itself if it's listed as a target
+          if (t !== lowerSha) {
             reverted.add(t);
           }
         }
