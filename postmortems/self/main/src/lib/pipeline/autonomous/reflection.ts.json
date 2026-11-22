@@ -8,12 +8,12 @@
   "symptom": "LLM output truncated: parse error at end of output: Unterminated regular expression literal.",
   "evidence": "Original: 4345b, Refactored: 4027b. The LLM hit its output token limit before finishing.",
   "constraints": "The previous refactor of src/lib/pipeline/autonomous/reflection.ts was truncated by the LLM's output limit. Make smaller, more targeted changes — do not rewrite the whole file.",
-  "attempts": 30,
-  "parentHash": "690e6a87e6ef526c85a2cc8a5116997cb62132a38b4e4ccf74d1eca06fa38a3f",
-  "hash": "0ed03161650d286cebf91c6e4c4e12adfdaf2ff91412753e48732862a401b0eb",
-  "lastAttemptAt": "2026-11-22T10:35:23.154Z",
+  "attempts": 31,
+  "parentHash": "a6228f209f3e473e99f4aafcf40af02c8fab30b1267c1d14bda4e41a7d321cf1",
+  "hash": "afe4f9b7108d9abce2995dbd1a848817de16ee73da54ea57e8f3221edba070d4",
+  "lastAttemptAt": "2026-11-22T10:56:59.729Z",
   "resolvedAt": null,
   "createdAt": "2026-11-22T09:19:56.687Z",
-  "updatedAt": "2026-11-22T10:35:23.154Z",
+  "updatedAt": "2026-11-22T10:56:59.729Z",
   "schema": 2
 }

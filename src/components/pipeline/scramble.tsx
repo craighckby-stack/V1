@@ -52,10 +52,19 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
         GLYPHS[Math.floor(Math.random() * GLYPHS.length)]
       ).join("");
 
-      setOut(solvedPrefix + scrambledTail);
+      const newOut = solvedPrefix + scrambledTail;
+      
+      // Only update state if the content has actually changed to avoid redundant re-renders
+      if (newOut !== out) {
+        setOut(newOut);
+      }
 
       if (p < 1) {
         raf = requestAnimationFrame(tick);
+      } else {
+        // Ensure final state is exactly 'text' when animation completes, 
+        // preventing potential floating point inaccuracies from leaving a partial scramble.
+        setOut(text);
       }
     };
 
@@ -65,7 +74,7 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
         cancelAnimationFrame(raf);
       }
     };
-  }, [start, text, ms]);
+  }, [start, text, ms, out]); // Added 'out' dependency to check for content change before setting state
 
   if (text.length === 0) {
     return <span className={className}>{text}</span>;
