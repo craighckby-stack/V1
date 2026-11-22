@@ -123,7 +123,7 @@ export function DebateChamber() {
       <CardContent>
         <div className="space-y-4">
           <AnimatePresence>
-            {verdict.arguments?.length ? (
+            {verdict.arguments && verdict.arguments.length > 0 ? (
               verdict.arguments.map((arg, idx) => {
                 const frictionValue = (typeof arg.cognitiveFriction === 'number' && !isNaN(arg.cognitiveFriction)) 
                   ? arg.cognitiveFriction * 100 

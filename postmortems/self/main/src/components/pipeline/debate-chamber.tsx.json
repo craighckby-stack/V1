@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/debate-chamber.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "821357d99b5dd9803569bd91078c65c38b28005e3abd0b5de5c1d5aee741dce5",
   "hash": "3ae06ab7d3df2d0587606ec2f250f6bfff9ee5fff0de702d7e543404b72ad29a",
   "lastAttemptAt": "2026-11-21T22:48:03.501Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T03:07:27.511Z",
   "createdAt": "2026-11-21T19:05:54.477Z",
-  "updatedAt": "2026-11-21T22:48:03.501Z",
+  "updatedAt": "2026-11-22T03:07:27.511Z",
   "schema": 2
 }
