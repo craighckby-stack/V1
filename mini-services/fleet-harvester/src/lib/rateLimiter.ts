@@ -83,6 +83,7 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
 
   // Proactive pacing based on remaining quota
   if (remaining !== null && !Number.isNaN(remaining)) {
+    // Check for exhaustion based on reset time, only if not already handled by hard 403/429 logic above
     if (remaining === 0 && resetEpochSec !== null && !Number.isNaN(resetEpochSec)) {
       const waitMs = Math.max(1000, resetEpochSec * 1000 - now + 500);
       if (waitMs <= MAX_AUTO_WAIT_MS) {
@@ -167,10 +168,11 @@ export async function fetchWithTimeout(
   }, timeoutMs);
 
   try {
-    return await fetch(url, {
+    const response = await fetch(url, {
       ...init,
       signal: controller.signal,
     });
+    return response;
   } catch (err) {
     if (timedOut) {
       throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
@@ -182,6 +184,9 @@ export async function fetchWithTimeout(
   } finally {
     clearTimeout(timer);
     callerSignal?.removeEventListener('abort', onCallerAbort);
-    controller.abort(); // Ensure controller is cleaned up even if fetch succeeded or failed early
+    // Only abort controller if it hasn't already been aborted by timeout or caller signal
+    if (!controller.signal.aborted) {
+        controller.abort();
+    }
   }
 }

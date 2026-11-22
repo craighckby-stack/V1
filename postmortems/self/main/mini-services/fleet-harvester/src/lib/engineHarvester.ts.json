@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "mini-services/fleet-harvester/src/lib/engineHarvester.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: mini-services/fleet-harvester/src/lib/engineHarvester.ts(185,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.; mini-services/fleet-harvester/src/lib/engineHarvester.ts(189,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.; mini-services/fleet-harvester/src/lib/engineHarvester.ts(193,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.",
+  "evidence": "Original: 10752 bytes, Refactored: 10998 bytes. Errors: mini-services/fleet-harvester/src/lib/engineHarvester.ts(185,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.\nmini-services/fleet-harvester/src/lib/engineHarvester.ts(189,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.\nmini-services/fleet-harvester/src/lib/engineHarvester.ts(193,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.\nmini-services/fleet-harvester/src/lib/engineHarvester.ts(197,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.\nmini-services/fleet-harvester/src/lib/engineHarvester.ts(201,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.\nmini-services/fleet-harvester/src/lib/engineHarvester.ts(208,9): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.\nmini-services/fleet-harvester/src/lib/engineHarvester.ts(214,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.\nmini-services/fleet-harvester/src/lib/engineHarvester.ts(218,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.\nmini-services/fleet-harvester/src/lib/engineHarvester.ts(222,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.\nmini-services/fleet-harvester/src/lib/engineHarvester.ts(227,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.\nmini-services/fleet-harvester/src/lib/engineHarvester.ts(232,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.\nmini-services/fleet-harvester/src/lib/engineHarvester.ts(236,5): error TS2740: Type 'RegExp' is missing the following properties from type 'RegExpExecArray': index, input, 0, length, and 38 more.",
+  "constraints": "The previous refactor of mini-services/fleet-harvester/src/lib/engineHarvester.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "cd73f88b2669f8b5651f4af2d48bb27aecb58b1a0e3ee492b9562cb5231033c6",
+  "hash": "567fabded2ac8e068aeef6b96fe5ac7c52eea780c8460fcc905d0c3963ac278b",
+  "lastAttemptAt": "2026-11-22T06:42:00.595Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-22T06:42:00.596Z",
+  "updatedAt": "2026-11-22T06:42:00.596Z",
+  "schema": 2
+}

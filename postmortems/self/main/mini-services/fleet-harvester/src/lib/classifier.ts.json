@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "mini-services/fleet-harvester/src/lib/classifier.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 7 → evolved 9), no behavioral signal, 10 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "evidence": "Original: 10054 bytes, Refactored: 10264 bytes. Errors: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 7 → evolved 9), no behavioral signal, 10 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "constraints": "The previous refactor of mini-services/fleet-harvester/src/lib/classifier.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "567fabded2ac8e068aeef6b96fe5ac7c52eea780c8460fcc905d0c3963ac278b",
+  "hash": "1664064aaa01d0ac677cca0873f30dafa0040075eae73d2dcaa24f625391c498",
+  "lastAttemptAt": "2026-11-22T06:43:22.083Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-22T06:43:22.084Z",
+  "updatedAt": "2026-11-22T06:43:22.084Z",
+  "schema": 2
+}
