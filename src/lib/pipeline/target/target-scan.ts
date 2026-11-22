@@ -114,7 +114,7 @@ function scriptKindFor(relPath: string): ts.ScriptKind {
  * for script-kind detection and evidence lines).
  */
 export function scanTargetContent(relPath: string, text: string): TargetFinding[] {
-  if (!text || typeof text !== "string") {
+  if (typeof text !== "string" || text.length === 0) {
     return [];
   }
   
@@ -123,17 +123,8 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
   const findings: TargetFinding[] = [];
   const seen = new Set<string>();
 
-  // Pre-calculate line numbers for all nodes during traversal for performance
-  const nodeLineMap = new Map<ts.Node, number>();
-  const calculateLine = (node: ts.Node) => {
-    const line = lineOf(sf, node.getStart());
-    nodeLineMap.set(node, line);
-    ts.forEachChild(node, calculateLine);
-  };
-  calculateLine(sf);
-
   const push = (kind: TargetTaskKind, pos: number) => {
-    const line = nodeLineMap.has(sf) ? nodeLineMap.get(sf)! : lineOf(sf, pos);
+    const line = lineOf(sf, pos);
     const key = `${kind}:${line}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -176,20 +167,24 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
       const clause = node.importClause;
       const importLineNo = lineOf(sf, node.getStart());
       const bindings: string[] = [];
-      if (clause.name) bindings.push(clause.name.text);
+      
+      if (clause.name) {
+        bindings.push(clause.name.text);
+      }
       if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
         for (const el of clause.namedBindings.elements) {
           bindings.push(el.name.text);
         }
-      }
-      if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+      } else if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
         bindings.push(clause.namedBindings.name.text);
       }
+
       // Optimization: only filter lines *after* the import line.
       const restOfFileLines = lines.slice(importLineNo);
       const restOfFile = restOfFileLines.join("\n");
 
       for (const b of bindings) {
+        if (!b) continue; // Should not happen if structure is correct, but defensive.
         // Ensure proper regex escaping for binding names
         const escapedBinding = b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const re = new RegExp(`\\b${escapedBinding}\\b`, "g");

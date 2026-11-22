@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/log-stream.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "25a475093957e3718e165578d578ce6448ef37fce8230771cf43203f20da4884",
   "hash": "450051329617cd3df4ab066578929e673b8c6a0aa29b4a16380d8dcb031ad397",
   "lastAttemptAt": "2026-11-21T23:00:06.981Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T05:53:51.562Z",
   "createdAt": "2026-11-21T19:05:54.446Z",
-  "updatedAt": "2026-11-21T23:00:06.981Z",
+  "updatedAt": "2026-11-22T05:53:51.562Z",
   "schema": 2
 }
