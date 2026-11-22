@@ -44,15 +44,17 @@ export function detectRevertedShas(commits: RawCommit[]): Set<string> {
     const prefix7 = lowerSha.slice(0, 7);
 
     // Efficiently update prefixToShas
-    const existingPrefixShas = prefixToShas.get(prefix7) || [];
-    existingPrefixShas.push(lowerSha);
-    prefixToShas.set(prefix7, existingPrefixShas);
+    if (!prefixToShas.has(prefix7)) {
+      prefixToShas.set(prefix7, []);
+    }
+    prefixToShas.get(prefix7)!.push(lowerSha);
 
     const subject = commit.message.split('\n')[0].trim().toLowerCase();
     // Efficiently update subjectToShas
-    const existingSubjectShas = subjectToShas.get(subject) || [];
-    existingSubjectShas.push(lowerSha);
-    subjectToShas.set(subject, existingSubjectShas);
+    if (!subjectToShas.has(subject)) {
+      subjectToShas.set(subject, []);
+    }
+    subjectToShas.get(subject)!.push(lowerSha);
   }
 
   const revertLineRx = /This reverts commit ([0-9a-f]{7,40})/gi;
@@ -193,9 +195,8 @@ export function reconcileDualVerdicts(
   strategy: AiStrategy,
   tieBreakerVerdict?: LlmVerdict
 ): ReconcileResult {
-  const defaultFootprint = summarizeFootprint(commit.message);
-
   if (!heuristic.needsAi) {
+    const defaultFootprint = summarizeFootprint(commit.message);
     return {
       classified: {
         ...commit,
@@ -208,6 +209,8 @@ export function reconcileDualVerdicts(
       needsTieBreaker: false,
     };
   }
+
+  const defaultFootprint = summarizeFootprint(commit.message);
 
   if (tieBreakerVerdict) {
     return {
