@@ -28,7 +28,10 @@ export async function GET() {
     return NextResponse.json(report);
   } catch (err) {
     // Security constraint: Do not expose internal stack traces or detailed error messages in API responses.
-    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred.";
+    let errorMessage = "An unknown error occurred.";
+    if (err instanceof Error) {
+      errorMessage = err.message;
+    }
     
     // Provide a generic, actionable error message to the client while logging the full error server-side (implied).
     return NextResponse.json(

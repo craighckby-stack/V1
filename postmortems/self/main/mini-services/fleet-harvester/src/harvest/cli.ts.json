@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "mini-services/fleet-harvester/src/harvest/cli.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 8 → evolved 10), no behavioral signal, 30 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "evidence": "Original: 5839 bytes, Refactored: 6431 bytes. Errors: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 8 → evolved 10), no behavioral signal, 30 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "constraints": "The previous refactor of mini-services/fleet-harvester/src/harvest/cli.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "f7e6a601d11835a278384c893b5c34dc0bccd09045bc9e376bfcf393d3db2cd3",
+  "hash": "208b47082c96cbda1c5b881134d0f8d4ee034bb67cf103bec9bfa9448b377254",
+  "lastAttemptAt": "2026-11-22T10:51:19.104Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-22T10:51:19.105Z",
+  "updatedAt": "2026-11-22T10:51:19.105Z",
+  "schema": 2
+}
