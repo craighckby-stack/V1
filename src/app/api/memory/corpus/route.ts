@@ -21,10 +21,12 @@ export const runtime = "nodejs";
  *   - sampleHits: what searchEngines returns for a demo keyword, so
  *     the prior-art retrieval is visible without running a cycle
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    // Validate input keyword to prevent potential injection
-    const keyword = "orchestrator agent loop";
+    // Extract and validate keyword from query parameters
+    const { searchParams } = new URL(request.url);
+    const keyword = searchParams.get("keyword") || "orchestrator agent loop";
+    
     if (typeof keyword !== "string" || keyword.trim() === "") {
       throw new Error("Invalid search keyword provided");
     }
