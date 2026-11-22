@@ -200,20 +200,29 @@ export function readOracleEvents(afterSeq?: number): {
       return { events: [], seq: currentSeq };
     }
 
-    // Calculate the required starting index based on sequence number.
-    // We need the smallest index `i` such that: currentSeq - bufferLength + i > afterSeq
-    // i > afterSeq - currentSeq + bufferLength
-    // i_start = floor(afterSeq - currentSeq + bufferLength) + 1
+    // Find the first index `i` such that the event at `i` has a sequence > afterSeq.
+    // Since the buffer is a ring buffer conceptually (though implemented as an array
+    // with splicing from the front), we iterate linearly from the start (index 0).
+    let startIndex = 0;
+    for (let i = 0; i < bufferLength; i++) {
+      // The sequence of the event at index i is currentSeq - bufferLength + i
+      const eventSeq = currentSeq - bufferLength + i;
+      if (eventSeq > afterSeq) {
+        startIndex = i;
+        break;
+      }
+      // If we reach the end without finding a sequence > afterSeq, startIndex remains 0,
+      // but the initial check (afterSeq >= currentSeq) should prevent this if logic is sound.
+      // However, if afterSeq is valid but the buffer is full and we are at the start,
+      // we rely on the loop finding the correct start.
+      if (i === bufferLength - 1) {
+        // If we looped through everything and didn't break, it means all events are <= afterSeq,
+        // which contradicts afterSeq < currentSeq unless bufferLength is 0 (handled by initial check).
+        // If we are here, startIndex should effectively be bufferLength (no events found).
+        startIndex = bufferLength;
+      }
+    }
     
-    // Calculate the required starting index.
-    const requiredMinIndex = afterSeq - currentSeq + bufferLength;
-    // Use Math.floor for correct index calculation based on the inequality derived above
-    let startIndex = Math.floor(requiredMinIndex) + 1;
-    
-    // Clamp the start index to be within [0, bufferLength]
-    startIndex = Math.max(0, Math.min(bufferLength, startIndex));
-
-    // Get the events from startIndex to the end
     const events = s.buffer.slice(startIndex);
 
     // Update lastReadAt ONLY when events are successfully read

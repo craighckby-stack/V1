@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "scripts/inspect-target-tree.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [TEST_DELETION] Original test file had 1 tests, candidate has 0. Refactoring must never delete test cases.",
@@ -12,8 +12,8 @@
   "parentHash": "e6dd6353c47210704e983386c58ca9b6bf343a7055b565db4074885176ecf401",
   "hash": "5dab270650d61a099dea3d5e3d92cdff8a302d13f017f04cb48bd3c9f1402778",
   "lastAttemptAt": "2026-11-22T10:49:48.062Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T11:11:49.421Z",
   "createdAt": "2026-11-22T10:19:59.921Z",
-  "updatedAt": "2026-11-22T10:49:48.062Z",
+  "updatedAt": "2026-11-22T11:11:49.421Z",
   "schema": 2
 }
