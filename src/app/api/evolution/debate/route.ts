@@ -71,15 +71,14 @@ export async function POST(req: Request) {
 
     let errorMessage = `Debate execution failed for ${body.filePath}. Please check the logs for details.`;
     
-    // Handle different error types to provide more contextual messages
+    // Provide a more concise and actionable error message based on error type
     if (err instanceof Error) {
       errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${err.message}. Check logs for full details.`;
+    } else if (typeof err === 'string') {
+      errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${err}. Check logs for full details.`;
     } else if (typeof err === 'object' && err !== null && 'message' in err) {
       // Handle cases where err is an object but not an instance of Error (e.g., { message: "..." })
       errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${(err as { message: string }).message}. Check logs for full details.`;
-    } else if (typeof err === 'string') {
-      // Handle plain string errors
-      errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${err}. Check logs for full details.`;
     }
     
     // Return a standardized 500 response

@@ -1,0 +1,10 @@
+{
+  "name": "dev-watchdog",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mutual-supervision watchdog for the Next.js dev server (port 3000). Probes /api/healthz every 30s; after 2 consecutive failures respawns `bun run dev` detached. Survives sandbox boots via .zscripts/dev.sh's mini-service scan. Port 3005.",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  }
+}

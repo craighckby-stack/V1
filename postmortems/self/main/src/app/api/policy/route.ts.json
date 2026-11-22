@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/policy/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [AST_STRUCTURAL_DRIFT] Structural drift exceeds safe threshold (100%)",
@@ -12,8 +12,8 @@
   "parentHash": "a2f0d61be39fe1303dbac9ac0a5250fae1220711aa43e9f3775ce5a4baea4c62",
   "hash": "93c0039c9ad7340fa1641015de4aca65d01574a8922a4723b86164c61ab0da6b",
   "lastAttemptAt": "2026-11-22T03:13:14.696Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T04:56:38.843Z",
   "createdAt": "2026-11-22T03:13:14.696Z",
-  "updatedAt": "2026-11-22T03:13:14.696Z",
+  "updatedAt": "2026-11-22T04:56:38.843Z",
   "schema": 2
 }
