@@ -102,6 +102,10 @@ export function scoreEngineFilePath(filePath: string, size?: number): number {
  * Selects the top-scored runtime engine paths from a repository Git tree in a single pass.
  */
 export function selectEngineTreePaths(treeNodes: GitTreeNode[], maxPerRepo = 12): GitTreeNode[] {
+  if (maxPerRepo < 0) {
+    throw new Error('maxPerRepo must be a non-negative number');
+  }
+
   const scored: Array<{ node: GitTreeNode; score: number }> = [];
 
   for (const node of treeNodes) {
@@ -184,29 +188,20 @@ export function scanEngineAst(fullCode: string, filePath: string): {
     while ((m = pyClassRx.exec(fullCode)) !== null) classes.push(m[1]);
 
     const pyFnRx = /^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm;
-    m = pyFnRx.exec(fullCode);
-    while (m !== null) {
-      functions.push(m[1]);
-      m = pyFnRx.exec(fullCode);
-    }
+    let mFn: RegExpExecArray | null;
+    while ((mFn = pyFnRx.exec(fullCode)) !== null) functions.push(mFn[1]);
 
     const pyImpRx = /^\s*(?:from\s+([A-Za-z0-9_.]+)\s+import|import\s+([A-Za-z0-9_.]+))/gm;
-    m = pyImpRx.exec(fullCode);
-    while (m !== null) {
-      imports.push(m[1] || m[2]);
-      m = pyImpRx.exec(fullCode);
-    }
+    let mImp: RegExpExecArray | null;
+    while ((mImp = pyImpRx.exec(fullCode)) !== null) imports.push(mImp[1] || mImp[2]);
   } else if (language === 'Go') {
     const goTypeRx = /^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:struct|interface)\b/gm;
     let m: RegExpExecArray | null;
     while ((m = goTypeRx.exec(fullCode)) !== null) classes.push(m[1]);
 
     const goFnRx = /^\s*func\s+(?:\([^)]+\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm;
-    m = goFnRx.exec(fullCode);
-    while (m !== null) {
-      functions.push(m[1]);
-      m = goFnRx.exec(fullCode);
-    }
+    let mFn: RegExpExecArray | null;
+    while ((mFn = goFnRx.exec(fullCode)) !== null) functions.push(mFn[1]);
 
     const goImpRx = /"([A-Za-z0-9_.\-/]+)"/g;
     const impBlockMatch = fullCode.match(/import\s*(?:\([\s\S]*?\)|"[^"]+")/g);
@@ -222,15 +217,12 @@ export function scanEngineAst(fullCode: string, filePath: string): {
     while ((m = rsTypeRx.exec(fullCode)) !== null) classes.push(m[1]);
 
     const rsFnRx = /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)/gm;
-    m = rsFnRx.exec(fullCode);
-    while (m !== null) {
-      functions.push(m[1]);
-      m = rsFnRx.exec(fullCode);
-    }
+    let mFn: RegExpExecArray | null;
+    while ((mFn = rsFnRx.exec(fullCode)) !== null) functions.push(mFn[1]);
 
     const rsUseRx = /^\s*(?:pub\s+)?use\s+([A-Za-z0-9_:]+)/gm;
-    m = rsUseRx.exec(fullCode);
-    while (m !== null) imports.push(m[1]);
+    let mImp: RegExpExecArray | null;
+    while ((mImp = rsUseRx.exec(fullCode)) !== null) imports.push(mImp[1]);
   } else {
     // TypeScript / JavaScript
     const tsClassRx = /\b(?:class|interface)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g;
@@ -239,13 +231,12 @@ export function scanEngineAst(fullCode: string, filePath: string): {
 
     const tsFnRx =
       /(?:^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*[<(]|^\s*(?:export\s+)?const\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>)/gm;
-    m = tsFnRx.exec(fullCode);
-    while (m !== null) functions.push(m[1] || m[2]);
-    m = tsFnRx.exec(fullCode); // Re-exec to continue loop if needed, though the structure above handles it.
+    let mFn: RegExpExecArray | null;
+    while ((mFn = tsFnRx.exec(fullCode)) !== null) functions.push(mFn[1] || mFn[2]);
 
     const tsImpRx = /^\s*import\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"]/gm;
-    m = tsImpRx.exec(fullCode);
-    while (m !== null) imports.push(m[1]);
+    let mImp: RegExpExecArray | null;
+    while ((mImp = tsImpRx.exec(fullCode)) !== null) imports.push(mImp[1]);
   }
 
   return {
