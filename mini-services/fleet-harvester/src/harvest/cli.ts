@@ -118,9 +118,10 @@ async function main() {
   log(`Push to V1: ${pushToV1 ? v1DestRepo + "@" + v1DestBranch : "(disabled)"}`);
   log(`LLM: ${args.dryRun ? "disabled (--dry-run)" : "z-ai-web-dev-sdk"}`);
   log(`Format: ${args.format}`);
+  let reposArray: string[] | undefined = undefined;
   if (args.repos) {
-    const repos = args.repos.split(",").map((s) => s.trim()).filter(Boolean);
-    log(`Smoke-test repos: ${repos.length} (${repos.join(", ")})`);
+    reposArray = args.repos.split(",").map((s) => s.trim()).filter(Boolean);
+    log(`Smoke-test repos: ${reposArray.length} (${reposArray.join(", ")})`);
   }
 
   const result: HarvestResult = await runHarvest({
@@ -130,9 +131,7 @@ async function main() {
     loopMemoryDir,
     pushToV1,
     maxLlmCommitsPerHarvest: maxLlm,
-    reposOverride: args.repos
-      ? { repos: args.repos.split(",").map((s) => s.trim()).filter(Boolean) }
-      : undefined,
+    reposOverride: reposArray ? { repos: reposArray } : undefined,
     onLog: (msg, level) => console.log(`[${level ?? "info"}] ${msg}`),
   });
 
