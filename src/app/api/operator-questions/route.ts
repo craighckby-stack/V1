@@ -99,10 +99,20 @@ export async function POST(req: Request) {
           { status: 404 },
         );
       }
-      questionId = pending[0].id; // newest-first
+      // Assuming pending is ordered newest-first as per comment
+      questionId = pending[0].id; 
     }
 
     const cycle = autonomousLoopRuntime.getState().stats.totalRuns;
+    
+    // Ensure questionId is defined before calling recordAnswer, although logic above should guarantee it.
+    if (!questionId) {
+        return NextResponse.json(
+            { error: "Could not determine a valid question ID to record the answer against." },
+            { status: 500 }
+        );
+    }
+
     const result = await recordAnswer(questionId, answer, cycle, parsedBody.note);
     if (!result) {
       return NextResponse.json(

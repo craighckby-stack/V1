@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "scripts/inspect-target-tree.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
+  "evidence": "Original: 2799 bytes, Refactored: 2465 bytes. Errors: Verifier produced no output",
+  "constraints": "The previous refactor of scripts/inspect-target-tree.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "47297be47b88ec4b22de12504753f0ae6562aa1b8611703109ff6d210bd6ae55",
+  "hash": "070879db2826a2c7aa34b7d5de1f9d21b43425ad9fd24ae7a50dc4dc5e6a983b",
+  "lastAttemptAt": "2026-11-22T10:19:59.920Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-22T10:19:59.921Z",
+  "updatedAt": "2026-11-22T10:19:59.921Z",
+  "schema": 2
+}
