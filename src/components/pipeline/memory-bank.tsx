@@ -57,8 +57,6 @@ export function MemoryBank() {
           signal: abortController.signal
         });
         
-        clearTimeout(timeoutId);
-        
         if (!res.ok) {
           throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
