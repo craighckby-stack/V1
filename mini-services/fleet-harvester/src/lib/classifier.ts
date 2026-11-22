@@ -34,12 +34,18 @@ export function compileRegexSafe(
  * is flagged as reverted later.
  */
 export function detectRevertedShas(commits: RawCommit[]): Set<string> {
+  if (!commits) {
+    return new Set<string>();
+  }
+
   const reverted = new Set<string>();
   const prefixToShas = new Map<string, string[]>();
   const subjectToShas = new Map<string, string[]>();
 
   // First pass: Build maps
   for (const commit of commits) {
+    if (!commit || !commit.sha || !commit.message) continue;
+    
     const lowerSha = commit.sha.toLowerCase();
     const prefix7 = lowerSha.slice(0, 7);
 
@@ -62,6 +68,8 @@ export function detectRevertedShas(commits: RawCommit[]): Set<string> {
 
   // Second pass: Check for reverts
   for (const commit of commits) {
+    if (!commit || !commit.sha || !commit.message) continue;
+    
     const lowerSha = commit.sha.toLowerCase();
     let match: RegExpExecArray | null;
 
@@ -118,6 +126,10 @@ export function classifyHeuristic(
     okRx: RegExp;
   }
 ): HeuristicResult {
+  if (!commit || !commit.sha || !commit.message) {
+    throw new Error('Invalid commit: missing required fields (sha, message)');
+  }
+
   const shaLower = commit.sha.toLowerCase();
 
   if (options.revertedShas.has(shaLower)) {
@@ -195,6 +207,10 @@ export function reconcileDualVerdicts(
   strategy: AiStrategy,
   tieBreakerVerdict?: LlmVerdict
 ): ReconcileResult {
+  if (!commit || !commit.sha || !commit.message) {
+    throw new Error('Invalid commit: missing required fields (sha, message)');
+  }
+
   if (!heuristic.needsAi) {
     const defaultFootprint = summarizeFootprint(commit.message);
     return {
@@ -326,6 +342,10 @@ export function reconcileDualVerdicts(
 }
 
 export function summarizeFootprint(message: string): string {
+  if (!message) {
+    return 'chore';
+  }
+
   const firstLine = message.split('\n')[0].trim();
   const match = /^([a-zA-Z0-9_-]+)(\([^)]+\))?:\s*(.+)$/.exec(firstLine);
   if (match) {
