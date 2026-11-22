@@ -42,6 +42,7 @@ function parseArgs(argv: string[]): CliArgs {
     else if (arg.startsWith("--format=")) {
       const f = arg.slice("--format=".length) as ArchiveFormat;
       if (f === "json" || f === "markdown" || f === "csv") out.format = f;
+      // If format is invalid, it retains the default "json"
     }
   }
   return out;
@@ -67,6 +68,11 @@ async function main() {
   const defaultScratchDir = resolve(DEFAULT_LOOP_MEMORY_DIR, "scratch");
   const loopMemoryDir = process.env.LOOP_MEMORY_DIR ?? defaultScratchDir;
   const maxLlm = Number(process.env.MAX_LLM_COMMITS_PER_HARVEST ?? "500");
+
+  if (isNaN(maxLlm) || maxLlm < 0) {
+    log("ERROR: MAX_LLM_COMMITS_PER_HARVEST must be a non-negative integer.");
+    process.exit(2);
+  }
 
   if (!githubToken) {
     log("ERROR: GITHUB_TOKEN is not set. Set it in the environment or .env.");
@@ -112,6 +118,7 @@ async function main() {
     autoCreateRepo: false,
   };
 
+  // Push to V1 requires no --no-push, no --dry-run, AND a non-empty targetRepo.
   const pushToV1 = !args.noPush && !args.dryRun && v1DestRepo.trim().length > 0;
 
   log(`Loop memory dir: ${loopMemoryDir} (exists: ${loopMemoryDirExists(loopMemoryDir)})`);
