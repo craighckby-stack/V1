@@ -71,6 +71,7 @@ export function MemoryBank() {
         
         if (isMounted) {
           setEntries(data.entries);
+          hasFetchedRef.current = true; // Mark success only after state update
         }
       } catch (error) {
         if (error instanceof Error && error.name !== 'AbortError') {
@@ -81,11 +82,10 @@ export function MemoryBank() {
           });
         }
       } finally {
+        clearTimeout(timeoutId);
         if (isMounted) {
-          hasFetchedRef.current = true;
           isFetchingRef.current = false;
         }
-        clearTimeout(timeoutId);
         abortControllerRef.current = null;
       }
     };
