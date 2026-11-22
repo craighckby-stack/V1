@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   try {
     const parsedBody = await req.json();
     body = parsedBody as SanitizeRequest;
-  } catch {
+  } catch (e) {
     // Catch JSON parsing errors specifically
     return NextResponse.json(
       { error: "Invalid JSON format in request body." },
@@ -21,8 +21,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // Check for undefined body (e.g., empty body that resolves but isn't a valid object structure)
-  // Also checks if the structure matches SanitizeRequest requirements
+  // Check for required structure and type
   if (!body || typeof body.code !== "string") {
     return NextResponse.json(
       { error: "code (string) is required in the request body." },
@@ -51,7 +50,7 @@ export async function POST(req: Request) {
     // Catch errors originating from sanitizeAndGovern, ensuring safe casting and context
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during sanitization.";
     return NextResponse.json(
-      { error: `Sanitization failed: ${errorMessage}` },
+      { error: `Sanitization failed for input code: ${body.code.substring(0, 50)}... Error: ${errorMessage}` },
       { status: 500 }
     );
   }
