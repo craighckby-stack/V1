@@ -61,6 +61,23 @@ export interface SelfEnhanceArmedState {
  *  never fail a start/stop that already succeeded in memory (the in-memory
  *  flag remains the live source; the disk file is the restart tier). */
 export function markSelfEnhanceArmed(armed: boolean, by: string): void {
+  // TEST-ORIGIN GUARD (pollution class: "armed by test-run"): a test run
+  // must NEVER write the production armed tier. The incident: a test
+  // called markSelfEnhanceArmed(true, "test-run"), the file survived with
+  // armed:true, and every subsequent boot auto-started the loop on a
+  // TEST'S intent. Refuse outright under any test runner — tests that
+  // need to exercise the write path pin the guard/read functions instead
+  // (see self-enhance-armed-state.test.ts).
+  if (
+    process.env.BUN_TEST === "1" ||
+    process.env.VITEST === "1" ||
+    process.env.NODE_ENV === "test"
+  ) {
+    console.error(
+      `markSelfEnhanceArmed: refused test-origin write (armed=${armed}, by=${by}) — tests must never write the production armed tier.`
+    );
+    return;
+  }
   if (!PROJECT_ROOT || !ARMED_STATE_FILE) {
     console.error(`markSelfEnhanceArmed: Cannot write armed state because PROJECT_ROOT is undefined. Persistence skipped.`);
     return;

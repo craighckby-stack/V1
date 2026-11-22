@@ -65,6 +65,15 @@ import {
   getHealthTrendDigest,
 } from "./health-metrics";
 import { poseQuestion } from "./operator-questions";
+// Operator mutation freeze — the "stop evolving, hold this state" lock.
+// Checked at every mutation surface in this file (boot auto-start, cycle
+// entry, the drain loop, both guarded live writes, the continuous loop)
+// plus executeTask / pushCurrentState / executeMergeBack / applyTaskPlan
+// in their own modules. See mutation-freeze.ts for the tier contract.
+import {
+  isMutationFrozen,
+  mutationFreezeNotice,
+} from "./mutation-freeze";
 import { buildEnhanceContext } from "./prompt-context";
 import { applySchemaMutation } from "./schema-gate";
 import { PROJECT_ROOT } from "../core/paths";
@@ -737,12 +746,22 @@ class SelfEnhanceLoop {
           disk = null; // fail-closed: unreadable ≠ armed
         }
         if (disk && disk.armed) {
-          // Respect safe-mode: if it's raised at boot (duress / red-team
-          // bypass / gate-integrity failure), do NOT auto-start. The
-          // runCycle's own safe-mode check would refuse the first cycle
-          // anyway, but skipping the start keeps the log honest ("SAFE-
-          // MODE active — not auto-starting") instead of a silent refusal.
-          if (isSafeMode()) {
+          // Respect the operator's mutation freeze FIRST: the armed tier
+          // says "run" but the operator locked the system in its current
+          // state. Auto-starting would only produce refused cycles (the
+          // runCycle freeze check below), so skip the start and say why —
+          // an honest log instead of a wedge of refused-cycle spam.
+          if (isMutationFrozen()) {
+            this.log(
+              `${mutationFreezeNotice()} Armed state (armed at ${disk.at} by ${disk.by}) is respected but the loop is NOT auto-started while frozen.`,
+              "warn"
+            );
+          } else if (isSafeMode()) {
+            // Respect safe-mode: if it's raised at boot (duress / red-team
+            // bypass / gate-integrity failure), do NOT auto-start. The
+            // runCycle's own safe-mode check would refuse the first cycle
+            // anyway, but skipping the start keeps the log honest ("SAFE-
+            // MODE active — not auto-starting") instead of a silent refusal.
             this.log(
               `SAFE-MODE active at boot — self-enhance loop NOT auto-started despite armed state (armed at ${disk.at} by ${disk.by}). Clear safe-mode then press [START].`,
               "error"
@@ -1924,6 +1943,13 @@ ${systemTail}`;
           this.log(`Aborting enhance for ${relPath} — stop requested before live write`, "warn");
           return { kind: "stopped" };
         }
+        // Freeze landed while the gates ran — refuse the live write the
+        // same way a stop does. The file stays exactly as it was; the
+        // operator's lock beats an in-flight candidate every time.
+        if (isMutationFrozen()) {
+          this.log(`Aborting enhance for ${relPath} — mutation freeze active before live write`, "warn");
+          return { kind: "stopped" };
+        }
         const diskNow = readFileSync(filePath, "utf-8");
         if (sha16(diskNow) !== sha16(originalCode)) {
           this.log(`CONFLICT: ${relPath} changed on disk while the gates ran — aborting instead of clobbering the concurrent write`, "error");
@@ -2408,6 +2434,14 @@ ${schemaSystemTail}`;
       this.log("SAFE-MODE active — self-enhancement cycle refused (clear via the Duress panel after review)", "error");
       return { filesScanned: 0, filesEnhanced: 0, results: [] };
     }
+    // Operator mutation freeze — the "hold this state" lock. Refuse the
+    // whole cycle (scan, SelfTask drain, whole-file enhance, push) with
+    // the uniform notice; the continuous loop also stands down on its
+    // next iteration so this line appears once, not every 5s.
+    if (isMutationFrozen()) {
+      this.log(`${mutationFreezeNotice()} Cycle refused.`, "warn");
+      return { filesScanned: 0, filesEnhanced: 0, results: [] };
+    }
     this.running = true;
     this.currentFile = null;
     // Capture this cycle's generation. stop() increments runId; if it fires
@@ -2490,6 +2524,9 @@ ${schemaSystemTail}`;
         for (let i = 0; i < SELF_TASKS_PER_CYCLE; i++) {
           if (myRun !== this.runId) break;
           if (isSafeMode()) break;
+          // Freeze mid-drain: stop claiming tasks — requeue semantics for
+          // any in-flight task are handled at the guarded write below.
+          if (isMutationFrozen()) break;
           // Prefer deterministic tasks (no LLM, zero-diff-immune). Fall
           // back to LLM tasks only if the deterministic queue is empty
           // AND the LLM gate is open.
@@ -2597,6 +2634,13 @@ ${schemaSystemTail}`;
               | { kind: "done"; pushed: boolean; commitSha?: string };
             const writeOutcome = await withTreeLock<SelfTaskWriteOutcome>(async () => {
               if (myRun !== this.runId) {
+                return { kind: "stopped" };
+              }
+              // Freeze landed while the gates ran — same requeue semantics
+              // as a stop: the task goes back to pending, nothing is
+              // written, and the drain loop above breaks on its next
+              // iteration check.
+              if (isMutationFrozen()) {
                 return { kind: "stopped" };
               }
               // The target file may have been DELETED (not just changed)
@@ -3736,6 +3780,14 @@ ${schemaSystemTail}`;
       // merely the current cycle.
       if (isSafeMode()) {
         this.log("SAFE-MODE active — continuous self-enhancement loop halted (clear via the Duress panel after review)", "error");
+        break;
+      }
+      // Operator mutation freeze: stand the continuous loop down entirely
+      // (runCycle would refuse every cycle anyway — this avoids the 5s
+      // wait-then-refuse spin). The worker process stays up serving
+      // status/health; only the mutation machinery goes quiet.
+      if (isMutationFrozen()) {
+        this.log(`${mutationFreezeNotice()} Continuous loop standing down — the system keeps operating (dashboard, ingest, health) but code stays untouched.`, "warn");
         break;
       }
       try {

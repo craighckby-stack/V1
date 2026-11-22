@@ -96,7 +96,10 @@ export async function GET(req: Request) {
           orderBy: { createdAt: "desc" },
           take: 100,
         })
-        .catch(() => []),
+        .catch((err) => {
+          console.error("Failed to fetch mutations:", err);
+          return [];
+        }),
       db.postmortem
         .findMany({
           where: { filePath },
@@ -116,7 +119,10 @@ export async function GET(req: Request) {
           orderBy: { createdAt: "desc" },
           take: 50,
         })
-        .catch(() => []),
+        .catch((err) => {
+          console.error("Failed to fetch postmortems:", err);
+          return [];
+        }),
       db.pipelineRun
         .findMany({
           where: { filePath },
@@ -133,7 +139,10 @@ export async function GET(req: Request) {
           orderBy: { createdAt: "desc" },
           take: 50,
         })
-        .catch(() => []),
+        .catch((err) => {
+          console.error("Failed to fetch pipeline runs:", err);
+          return [];
+        }),
       db.lesson
         .findMany({
           where: { active: true },
@@ -148,7 +157,10 @@ export async function GET(req: Request) {
           orderBy: { createdAt: "desc" },
           take: 20,
         })
-        .catch(() => []),
+        .catch((err) => {
+          console.error("Failed to fetch lessons:", err);
+          return [];
+        }),
     ]);
 
     // ── Build the timeline ────────────────────────────────────────
@@ -174,7 +186,7 @@ export async function GET(req: Request) {
     for (const m of mutations as Array<{
       cycleNumber: number; branchNumber: number | null; gateOutcome: string;
       failureType: string | null; originalSha: string; mutatedSha: string | null;
-      transformSummary: string | null; lessonIdsInjected: string; createdAt: Date;
+      transformSummary: string | null; lessonIdsInjected: string | null; createdAt: Date;
     }>) {
       entries.push({
         at: m.createdAt.toISOString(),
@@ -189,7 +201,14 @@ export async function GET(req: Request) {
           failureType: m.failureType,
           transform: m.transformSummary?.slice(0, 120) ?? null,
           lessonsInjected: (() => {
-            try { return JSON.parse(m.lessonIdsInjected) as string[]; } catch { return []; }
+            try { 
+              if (m.lessonIdsInjected) {
+                return JSON.parse(m.lessonIdsInjected) as string[];
+              }
+              return [];
+            } catch { 
+              return []; 
+            }
           })(),
         },
       });

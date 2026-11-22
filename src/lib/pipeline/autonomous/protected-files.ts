@@ -43,6 +43,15 @@ export const PROTECTED_FILES = new Set([
   "src/lib/pipeline/autonomous/archaeology.ts", // protect the history miner
   "src/lib/pipeline/autonomous/schema-gate.ts", // protect the schema gate
   "src/lib/pipeline/autonomous/protected-files.ts", // protect the protection list
+  // The operator's mutation-freeze lock. If the loop could rewrite this
+  // file it could neuter isMutationFrozen() itself — the lock that stops
+  // the loop. Same self-protection class as protected-files.ts above.
+  "src/lib/pipeline/autonomous/mutation-freeze.ts", // protect the freeze tier
+  // The armed-intent tier: a mutated version could fabricate armed:true
+  // writes or drop the test-origin guard (the "armed by test-run"
+  // pollution class). The freeze checks happen at runtime, but this file
+  // decides whether the loop auto-starts at ALL — operator-only.
+  "src/lib/pipeline/autonomous/self-enhance-armed-state.ts",
   "src/lib/pipeline/llm/agent-llm.ts", // protect the LLM wrapper
   "src/lib/pipeline/llm/debate-llm.ts",
   "src/lib/pipeline/llm/gemini-direct.ts", // audit 3: third LLM wrapper was unprotected

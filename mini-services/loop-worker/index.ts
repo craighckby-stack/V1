@@ -74,6 +74,19 @@ async function main() {
     "../../src/lib/pipeline/autonomous/self-enhance-loop"
   );
   const agentLlm = await import("../../src/lib/pipeline/llm/agent-llm");
+  // Operator mutation freeze — pure leaf module (fs+path only), safe to
+  // import statically, but kept here with the graph for symmetry. Read
+  // LIVE on every check: the control route writes the shared file and
+  // this process sees it on the next guard evaluation, no restart.
+  const freeze = await import(
+    "../../src/lib/pipeline/autonomous/mutation-freeze"
+  );
+  // Health metrics — powers the periodic baseline check below (keeps the
+  // dashboard's health trend flowing even while the loop is stopped or
+  // frozen: the system keeps watching its own codebase integrity).
+  const healthMetrics = await import(
+    "../../src/lib/pipeline/autonomous/health-metrics"
+  );
 
   // Warm the Z.AI cortex in THIS process — the loop's LLM calls happen
   // here now; the server's warm-up no longer covers them.
@@ -116,6 +129,7 @@ async function main() {
           // rejects and resolves in <1s on a warm boot (file read), so
           // the added latency is negligible after the first poll.
           await loop.whenStatsReady();
+          const freezeState = freeze.readMutationFreezeState();
           return json({
             running: loop.isRunning(),
             stats: loop.getStats(),
@@ -125,6 +139,13 @@ async function main() {
             // process now — the UI's 429 countdown reads it from here.
             llmGate: agentLlm.llmGateInfo?.(),
             saturation: loop.getSaturation(),
+            // Operator mutation-freeze state — read from the shared
+            // wipe-proof file so the dashboard shows the lock even if
+            // this worker was booted before the freeze landed. The
+            // server-side status route re-reads the same file, so the
+            // two sources can never disagree for more than a poll.
+            mutationFrozen: freezeState?.frozen === true,
+            freezeState: freezeState?.frozen ? freezeState : null,
             // Operator master-unlock flag (secret master PIN 4444 /
             // LOOP_MASTER_PIN — NOT in the README). While true, the
             // UI skips the per-file PIN prompt and unlocks directly.

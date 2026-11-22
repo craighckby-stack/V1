@@ -61,6 +61,20 @@ export interface ArmedState {
  *  never fail a start/stop that already succeeded in memory (the in-memory
  *  flag remains the live source; the disk file is the restart tier). */
 export function markArmed(armed: boolean, by: string): void {
+  // TEST-ORIGIN GUARD: same pollution class as the self-enhance armed
+  // tier ("armed by test-run") — no test runner may ever write the
+  // production intent file, regardless of the 'by' value passing the
+  // whitelist below.
+  if (
+    process.env.BUN_TEST === "1" ||
+    process.env.VITEST === "1" ||
+    process.env.NODE_ENV === "test"
+  ) {
+    console.error(
+      `markArmed: refused test-origin write (armed=${armed}, by=${by}) — tests must never write the production armed tier.`
+    );
+    return;
+  }
   // Validate the 'by' parameter to ensure only valid values are persisted
   if (!VALID_BY_VALUES.includes(by)) {
     console.error(`markArmed: Invalid 'by' value "${by}". Must be one of: ${VALID_BY_VALUES.join(", ")}`);

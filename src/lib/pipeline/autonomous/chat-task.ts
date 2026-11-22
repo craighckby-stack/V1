@@ -20,6 +20,7 @@ import { pushCurrentState } from "./push-target";
 import { detectTruncation } from "./code-analysis";
 import { typecheckRefactor } from "./in-memory-typecheck";
 import { isProtectedPath } from "./protected-files";
+import { isMutationFrozen, mutationFreezeNotice } from "./mutation-freeze";
 import { gateMutation } from "../core/mutation-guard";
 import { evaluateAstDiff } from "../core/ast-diff-gate";
 import { withTreeLock } from "../core/tree-lock";
@@ -286,6 +287,18 @@ function normalizePlanPath(p: string): string {
  * verify via in-memory typecheck, write to disk, and push.
  */
 export async function applyTaskPlan(plan: ChatTaskPlan): Promise<ChatTaskApplyResult> {
+  // Operator mutation freeze: operator-approved or not, a chat task plan
+  // writes source code — the exact surface the operator locked. Refuse
+  // up front (before any LLM work or staging) with the uniform notice so
+  // the chat answer explains WHY instead of failing mid-plan.
+  if (isMutationFrozen()) {
+    return {
+      ok: false,
+      results: [],
+      pushed: false,
+      error: mutationFreezeNotice() ?? "MUTATION FREEZE active — chat code-writes refused",
+    };
+  }
   if (!plan.files || plan.files.length === 0) {
     return {
       ok: false,

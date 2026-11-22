@@ -28,6 +28,7 @@ import {
   type SecretFinding,
 } from "../core/secret-scan";
 import { recordPushSuccess, recordPushAuthFailure, isSafeMode, raiseSafeModeFlag } from "../core/duress";
+import { isMutationFrozen, mutationFreezeNotice } from "./mutation-freeze";
 import { recoverCrashedTestGate } from "../core/test-gate-journal";
 import { PROJECT_ROOT } from "../core/paths";
 import { sealToken, openToken, isSealedEnvelope } from "../crypto/token-vault";
@@ -1125,6 +1126,21 @@ export async function pushCurrentState(opts?: {
     return {
       pushed: false,
       error: "SAFE-MODE active — commits and pushes refused until an operator clears it (see /api/duress/status)",
+    };
+  }
+
+  // ── OPERATOR MUTATION FREEZE ─────────────────────────────────────
+  // The "hold this state" lock: while frozen, NO commits and NO pushes —
+  // from the loop, the manual [PUSH] button, chat-task, or any other
+  // caller. The repo state is part of what the operator froze (a commit
+  // would change the very system they locked). Unfreeze via the [FREEZE]
+  // header button (operator PIN) to push again.
+  if (isMutationFrozen()) {
+    return {
+      pushed: false,
+      error:
+        mutationFreezeNotice() ??
+        "MUTATION FREEZE active — commits and pushes refused",
     };
   }
 

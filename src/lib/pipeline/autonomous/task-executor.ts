@@ -31,6 +31,7 @@ import { getTaskMethod } from "./self-task-generator";
 // project location) — a hardcoded "/home/z/my-project" here broke every
 // other machine this repo is cloned onto.
 import { PROJECT_ROOT } from "../core/paths";
+import { isMutationFrozen, mutationFreezeNotice } from "./mutation-freeze";
 
 export interface TaskExecutionResult {
   status: "applied" | "deferred" | "failed" | "no-op";
@@ -415,6 +416,18 @@ function replaceImportLine(code: string, decl: ts.ImportDeclaration, sf: ts.Sour
  * verifies the result IN MEMORY. Returns verified newCode (not written).
  */
 export async function executeTask(task: TaskRow): Promise<TaskExecutionResult> {
+  // Operator mutation freeze — belt-and-braces: runCycle checks before
+  // claiming tasks, but this is the shared execution surface; any future
+  // caller (API route, test harness, operator script) hits the same
+  // refusal instead of silently writing code the operator locked.
+  if (isMutationFrozen()) {
+    return {
+      status: "failed",
+      method: "deterministic",
+      summary: "mutation freeze active — task not executed",
+      error: mutationFreezeNotice() ?? "MUTATION FREEZE active — task not executed",
+    };
+  }
   const absPath = join(PROJECT_ROOT, task.filePath);
 
   let code: string;

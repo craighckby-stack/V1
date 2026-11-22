@@ -45,6 +45,7 @@ import { PROJECT_ROOT } from "../core/paths";
 import { getStoredTargetSync } from "./push-target";
 import { isProtectedPath } from "./protected-files";
 import { withTreeLock } from "../core/tree-lock";
+import { isMutationFrozen, mutationFreezeNotice } from "./mutation-freeze";
 
 const execFileAsync = promisify(execFile);
 
@@ -394,6 +395,22 @@ export async function executeMergeBack(
   branchName: string,
   opts: { strategy: "theirs-for-source" | "dry-run"; push?: boolean }
 ): Promise<MergeBackResult> {
+  // Operator mutation freeze: a merge-back mutates main's working tree
+  // (and optionally pushes it) — exactly what the operator locked. Plan
+  // and list stay available (read-only) so the dashboard can still show
+  // what a merge WOULD bring; only execution refuses. Full result shape
+  // (no partial object): consumers read committed/filesChanged honestly.
+  if (isMutationFrozen()) {
+    return {
+      ok: false,
+      branch: branchName.trim(),
+      strategy: opts.strategy ?? "dry-run",
+      committed: false,
+      filesChanged: 0,
+      typecheckPassed: false,
+      error: mutationFreezeNotice() ?? "MUTATION FREEZE active — merge-back refused",
+    };
+  }
   // Same strict validation as the plan path — the execute surface was the
   // worse half of the injection finding (POST {branch} reached the same
   // interpolated rev-parse and the checkout/refspec commands below).
