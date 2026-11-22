@@ -7,20 +7,27 @@ import { listTargetTree } from "@/lib/pipeline/target/target-github";
 import { isMutableTargetPath, MAX_TARGET_FILE_BYTES } from "@/lib/pipeline/target/target-scan";
 
 async function main() {
-  const cfg = await getTargetConfig();
+  // Fetch config and token concurrently to reduce latency
+  const [cfg, token] = await Promise.all([
+    getTargetConfig(),
+    resolveTargetToken(),
+  ]);
+
   if (!cfg) {
     console.error("No target configured.");
     process.exitCode = 1;
     return;
   }
-  const token = await resolveTargetToken();
+
   const ref = cfg.branch ?? "main";
   const res = await listTargetTree(cfg.repo, ref, token);
+
   if (!res.ok) {
     console.error(`Tree fetch failed for ${cfg.repo} @ ${ref}:`, res.error);
     process.exitCode = 1;
     return;
   }
+
   const files = res.tree.files;
   console.log(`\nrepo: ${cfg.repo} @ ${ref}`);
   console.log(`total tree entries: ${files.length} (truncated=${res.tree.truncated})`);
@@ -34,23 +41,27 @@ async function main() {
     if (isMut) mutable++;
     console.log(`  ${isMut ? "Y" : "."}  ${String(f.size).padStart(8)}  ${f.path}`);
 
-    // Safely extract extension
+    // Unified and simplified extension extraction logic
     const lastDotIndex = f.path.lastIndexOf('.');
-    if (lastDotIndex > 0) { // lastDotIndex > 0 ensures it's not a leading dot like in .gitignore
-      const ext = f.path.substring(lastDotIndex + 1);
-      exts.set(ext, (exts.get(ext) ?? 0) + 1);
+    let ext: string;
+
+    if (lastDotIndex > 0) {
+      // Standard case: dot is not the first character
+      ext = f.path.substring(lastDotIndex + 1);
     } else if (lastDotIndex === 0 && f.path.length > 1) {
-      // Handle dotfiles like .gitignore where the dot is the first character, but it has content after.
-      // We treat the whole name (minus the leading dot) as the extension/identifier for counting purposes,
-      // or more simply, group them under a specific dotfile category if no further dot exists.
-      // For consistency with the original logic's intent (grouping by segment after dot),
-      // if there's only one segment after the leading dot, we use that.
-      const parts = f.path.substring(1).split(".");
-      const ext = parts.length === 1 ? parts[0] : parts.pop()!;
-      exts.set(ext, (exts.get(ext) ?? 0) + 1);
+      // Dotfile case (e.g., .gitignore, .config/file)
+      // Extract segment after the leading dot, handling potential internal dots.
+      const nameWithoutDot = f.path.substring(1);
+      const parts = nameWithoutDot.split(".");
+      // If there are no more dots (e.g., .gitignore), use the whole name.
+      // Otherwise, use the last segment (consistent with original intent for complex dotfiles).
+      ext = parts.length === 1 ? parts[0] : parts.pop()!;
     } else {
-      exts.set("(no-ext)", (exts.get("(no-ext)") ?? 0) + 1);
+      // No dot, or path is just "." or "" (shouldn't happen in file list)
+      ext = "(no-ext)";
     }
+    
+    exts.set(ext, (exts.get(ext) ?? 0) + 1);
   }
 
   console.log(`\nmutable+size-ok files: ${mutable} / ${files.length}`);
