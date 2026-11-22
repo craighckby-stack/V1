@@ -103,7 +103,7 @@ export function OracleTaskFeedPanel() {
         intervalRef.current = null;
       }
     };
-  }, [fetchTasks]);
+  }, [fetchTasks, isRefreshing]); // Added isRefreshing dependency to ensure interval logic respects state changes
 
   // Memoize status styles to avoid unnecessary re-renders
   const statusStyles = useMemo(() => STATUS_STYLES, []);
