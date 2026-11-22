@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/policy/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "REVIEW_REJECTED",
   "symptom": "Debate rejected the refactor: Debate rejected (REQUIRES_REWRITE): The Security Reviewer correctly identified a critical information disclosure vulnerability by exposing stack traces in API responses. This outweighs the Architecture Reviewer's desire for better debugging context. The change must be reverted to log the stack trace server-side only, while still providing a generic, safe error message to the client. This is not low-value churn, but a necessary security fix.",
@@ -12,8 +12,8 @@
   "parentHash": "de47529e46c3ed83a413eef660c9c3ff3ccf7075e328f79cf3eb2bfe9e07628c",
   "hash": "bc4506359cd113095f61f2d4db9fe63c3928bd428f897be4214a9410c1a2b079",
   "lastAttemptAt": "2026-11-22T05:34:33.115Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T09:42:43.711Z",
   "createdAt": "2026-11-22T03:13:14.696Z",
-  "updatedAt": "2026-11-22T05:34:33.115Z",
+  "updatedAt": "2026-11-22T09:42:43.711Z",
   "schema": 2
 }
