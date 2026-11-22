@@ -6,11 +6,16 @@ async function tryModel(model: string) {
       model,
       messages: [{ role: "user", content: "say OK" }],
       thinking: { type: "disabled" },
-    } as Parameters<typeof zai.chat.completions.create>[0]);
-    const c = (r as unknown as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content ?? "(no content)";
+    });
+    
+    // Safely access content without unsafe casting
+    const content = r?.choices?.[0]?.message?.content;
+    const c = content ?? "(no content)";
+    
     console.log(`  ${model}: OK -> ${String(c).slice(0,60)}`);
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : String(e);
+    // Added model context to the failure log for better debugging
     console.log(`  ${model}: FAIL -> ${errorMessage.slice(0,100)}`);
   }
 }
