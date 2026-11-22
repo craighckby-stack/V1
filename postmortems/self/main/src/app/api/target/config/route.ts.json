@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/target/config/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/autonomous/githistory-corpus.ts(243,5): error TS2322: Type 'GitHistoryCommit[]' is not assignable to type 'WildCommit[]'.\n  Type 'GitHistoryCommit' is not assignable to type 'WildCommit'.\n    Property 'source' is optional in type 'GitHistoryCommit' but required in type 'WildCommit'.; src/lib/pipeline/autonomous/githistory-corpus.ts(244,5): error TS2322: Type 'GitHistoryCommit[]' is not assignable to type 'WildCommit[]'.\n  Type 'GitHistoryCommit' is not assignable to type 'WildCommit'.\n    Property 'source' is optional in type 'GitHistoryCommit' but required in type 'WildCommit'.",
@@ -12,8 +12,8 @@
   "parentHash": "6645e9d2c496dab8c13634cb1982544c572e7664da6491b7093b8d532c889ec7",
   "hash": "f1d8a48b4b3cd41cd05cd343c5b9082e8eae516c1e23ccd46617e3578a0ff57e",
   "lastAttemptAt": "2026-11-22T03:02:27.109Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T05:21:44.743Z",
   "createdAt": "2026-11-22T02:44:42.614Z",
-  "updatedAt": "2026-11-22T03:02:27.109Z",
+  "updatedAt": "2026-11-22T05:21:44.743Z",
   "schema": 2
 }

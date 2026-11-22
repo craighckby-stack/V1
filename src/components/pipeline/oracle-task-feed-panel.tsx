@@ -56,7 +56,7 @@ export function OracleTaskFeedPanel() {
       const data = await response.json();
       
       // Validate and extract tasks with proper type checking
-      if (!data || typeof data !== 'object' || !Array.isArray(data.tasks)) {
+      if (!data || typeof data !== 'object' || !Array.isArray((data as any).tasks)) {
         throw new Error("API response validation failed: Expected an object containing a 'tasks' array.");
       }
       
@@ -103,7 +103,7 @@ export function OracleTaskFeedPanel() {
         intervalRef.current = null;
       }
     };
-  }, [fetchTasks, isRefreshing]);
+  }, [fetchTasks]);
 
   // Memoize status styles to avoid unnecessary re-renders
   const statusStyles = useMemo(() => STATUS_STYLES, []);
