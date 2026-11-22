@@ -1,5 +1,5 @@
-import { describe, test, expect } from "bun:test";
-import { GET, dynamic, runtime } from "./route";
+import { test, expect } from "bun:test";
+import { dynamic, runtime } from "./route";
 
 // Mocking the dependency buildBenchmarkReport since we cannot rely on external state/files
 // We need to mock the module that GET calls, which is "@/lib/pipeline/autonomous/benchmark"
@@ -51,7 +51,6 @@ test("GET returns 503 if buildBenchmarkReport returns null", async () => {
 // Test 4: Error path simulation (buildBenchmarkReport throws an error)
 test("GET returns 500 with error message if buildBenchmarkReport throws", async () => {
   // Simulate buildBenchmarkReport throwing an error with a specific message
-  const mockError = new Error("Corpus access denied");
   const expectedErrorBody = { error: "benchmark failed: Corpus access denied" };
   // Asserting the expected status code and body structure for the 500 case.
   expect(expectedErrorBody.error).toContain("Corpus access denied");

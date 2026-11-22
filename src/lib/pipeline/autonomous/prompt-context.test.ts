@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { buildEnhanceContext, type EnhanceContext } from "./prompt-context";
+import { buildEnhanceContext } from "./prompt-context";
 
 describe("buildEnhanceContext", () => {
   test("returns correct structure for refactor mode", async () => {
@@ -82,6 +82,16 @@ describe("buildEnhanceContext", () => {
     if (foundProvenance && foundRejected) {
       expect(result.systemBlocks.findIndex(b => b.includes("PROVENANCE DIGEST")))
         .toBeLessThan(result.systemBlocks.findIndex(b => b.includes("REJECTED TRANSFORMS")));
+    }
+
+    if (foundAncestral && foundPriorArt) {
+      expect(result.systemBlocks.findIndex(b => b.includes("ANCESTRAL WISDOM")))
+        .toBeLessThan(result.systemBlocks.findIndex(b => b.includes("PRIOR ART")));
+    }
+
+    if (foundPriorArt && foundLessons) {
+      expect(result.systemBlocks.findIndex(b => b.includes("PRIOR ART")))
+        .toBeLessThan(result.systemBlocks.findIndex(b => b.includes("LESSONS")));
     }
   });
 

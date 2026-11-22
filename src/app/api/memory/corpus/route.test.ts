@@ -1,23 +1,11 @@
 import { describe, test, expect } from "bun:test";
-import { GET, dynamic, runtime } from "./route";
+import { dynamic, runtime } from "./route";
 import { NextResponse } from "next/server";
 
-// Mock external dependencies to isolate pure logic testing
-// Since we cannot mock imports directly in this setup, we must rely on
-// testing the observable contract based on the hardcoded logic.
-// We assume the external functions (getCorpusStatus, getFleetDigest, searchEngines)
-// return predictable values for successful paths, and throw specific errors for failure paths.
-
-// Mocking the environment for testing GET behavior
-const mockGetCorpusStatus = () => Promise.resolve({ loaded: true, engine: "success", failed: 1, successful: 10, repo: 5, generatedAt: "2023-01-01T00:00:00Z" });
-const mockGetFleetDigest = () => Promise.resolve("abcdef123456");
-const mockSearchEngines = (keyword: string, limit: number) => Promise.resolve([
-    { engine: { id: "e1", role: "r1" }, score: 0.9876, matchedTerms: ["a", "b", "c", "d", "e", "f"] },
-    { engine: { id: "e2", role: "r2" }, score: 0.50, matchedTerms: ["x", "y"] },
-]);
-
-// Temporarily override imports for testing purposes (conceptual, as actual mocking setup is outside scope)
-// In a real setup, we would mock "@/lib/pipeline/autonomous/githistory-corpus"
+// NOTE: bun:test in this setup cannot intercept the route's module imports
+// ("@/lib/pipeline/autonomous/githistory-corpus"), so dependency-shaped mocks
+// are NOT declared here — the tests below pin constants and the mapping logic
+// derived from the source (score rounding, matchedTerms slicing).
 
 describe("Corpus Route Exports", () => {
   test("should export correct configuration constants", () => {

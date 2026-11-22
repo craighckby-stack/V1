@@ -1,74 +1,9 @@
 import { describe, test, expect } from "bun:test";
 import { GET, dynamic, runtime } from "./route";
-import { NextResponse } from "next/server";
 
-// Mock dependencies used by GET
-// Since we are testing the observable behavior of GET, we must mock its external dependencies
-// to control the input data flow and test the logic paths.
-const mockNextResponse = (data: any, status: number) => ({
-  json: () => Promise.resolve(data),
-  status: status,
-});
-
-// Mock implementation of external functions/DB calls to simulate different data states
-// We mock the entire GET function execution context to control the results of Promise.all
-const mockGet = async (req: Request) => {
-  const url = new URL(req.url);
-  const fileParam = url.searchParams.get("file") ?? "";
-
-  if (!fileParam.trim()) {
-    return NextResponse.json(
-      { error: "file query param is required (e.g. ?file=src/lib/retro-boot-audio.ts)" },
-      { status: 400 }
-    );
-  }
-
-  // Simulate successful data gathering for a valid file path
-  // We only need to ensure the path normalization works and the structure is returned.
-  const filePath = fileParam.trim().replace(/^\.?\//, "");
-  // Assuming process.cwd() is '/' for simple path resolution in tests
-  const projectRoot = "/";
-  if (filePath.startsWith(projectRoot + "/")) {
-    // This path normalization logic is complex to mock perfectly without mocking process.cwd(),
-    // but we test the core logic path assuming normalization succeeds for a known input.
-    // For simplicity in this characterization, we assume the input path is clean enough
-    // or that the normalization results in the input path if it's relative to root.
-  }
-
-  // Simulate empty results from all sources to test the structure without complex data setup
-  const gitLog = [];
-  const mutations = [];
-  const postmortems = [];
-  const pipelineRuns = [];
-  const lessons = [];
-
-  // Build timeline (will be empty)
-  const entries: any[] = [];
-
-  // Sort and cap (empty list remains empty)
-  const capped = entries.slice(0, 200);
-
-  // Summary calculation (all counts are 0)
-  const byActor: Record<string, number> = {};
-  const byKind: Record<string, number> = {};
-
-  return NextResponse.json({
-    file: filePath,
-    summary: {
-      total: 0,
-      shown: 0,
-      byActor: byActor,
-      byKind: byKind,
-      gitCommits: 0,
-      loopMutations: 0,
-      postmortems: 0,
-      pipelineRuns: 0,
-      activeLessons: 0,
-    },
-    timeline: capped,
-  });
-};
-
+// NOTE: the handler's module imports (db, gitLogForFile) cannot be intercepted
+// in this bun:test setup, so the tests below pin the input-validation paths
+// (which need no data) and the empty-data base case against the real module.
 
 describe("Provenance Route Constants", () => {
   test("dynamic constant must be 'force-dynamic'", () => {

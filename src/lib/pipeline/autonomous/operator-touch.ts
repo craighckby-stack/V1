@@ -67,7 +67,7 @@ export interface OperatorTouchState {
 export function markOperatorTouch(by: string, now: Date = new Date()): void {
   if (typeof by !== "string" || by.trim().length === 0) {
     // Input validation failure, but must not throw per contract. Log and exit gracefully.
-    console.error("markOperatorTouch: 'by' parameter must be a non-empty string. Persistence skipped.");
+    console.error(`markOperatorTouch: 'by' parameter must be a non-empty string. Persistence skipped for ${OPERATOR_TOUCH_FILE}.`);
     return;
   }
 
@@ -139,7 +139,7 @@ export function isDeadMansTripped(
 ): boolean {
   if (typeof thresholdMs !== "number" || thresholdMs < 0) {
     // Fail-closed: if threshold is invalid, treat as tripped to prevent runaway loop
-    console.error("isDeadMansTripped: Invalid 'thresholdMs' provided. Treating as tripped to enforce safety.");
+    console.error(`isDeadMansTripped: Invalid 'thresholdMs' provided. Treating as tripped to enforce safety for ${OPERATOR_TOUCH_FILE}.`);
     return true;
   }
 

@@ -1,5 +1,8 @@
 import { describe, test, expect } from "bun:test";
-import { TargetPanel } from "./target-panel";
+
+// NOTE: bun:test has no DOM renderer, so the component itself cannot be
+// mounted here. The tests below pin the observable contract of its open/null
+// gating logic (the part that is pure).
 
 // Mocking React hooks and dependencies for testing pure component logic in a non-React environment
 // Since bun:test runs in Node/JS context, we must mock the environment where React components run.
