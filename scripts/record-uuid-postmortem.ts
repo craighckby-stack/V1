@@ -4,26 +4,12 @@ async function main() {
   // The investigation's full conclusion — preserved verbatim in the
   // postmortem so a future RAG retrieval surfaces the cause, not just
   // the symptom.
-  const finding =
-    "The bare-UUID commit e5d2b7a (message dc951e0f-8247-4972-be3f-17ca5c301b75) " +
-    "was NOT created by any LOOP-internal committer. git reflog --date=iso shows a " +
-    "3-hour gap (01:39:53 to 04:49:57) with no reflog entries — the commit bypassed " +
-    "the normal code path. The machine restarted at 04:47:34 (per .zscripts/dev.log); " +
-    "the UUID commit landed 2 minutes later at 04:49:57. The commit was created by " +
-    "the platform-level restore orchestrator that rehydrated the project directory " +
-    "from a snapshot on machine restart, using a bare UUID as a placeholder message. " +
-    "This is OUTSIDE LOOP's commit path — LOOP cannot prevent it directly, only " +
-    "defend internally (push-target validateCommitMessage guard) + detect on startup " +
-    "(self-enhance-loop constructor warn).";
+  const finding = `The bare-UUID commit e5d2b7a (message dc951e0f-8247-4972-be3f-17ca5c301b75) was NOT created by any LOOP-internal committer. git reflog --date=iso shows a 3-hour gap (01:39:53 to 04:49:57) with no reflog entries — the commit bypassed the normal code path. The machine restarted at 04:47:34 (per .zscripts/dev.log); the UUID commit landed 2 minutes later at 04:49:57. The commit was created by the platform-level restore orchestrator that rehydrated the project directory from a snapshot on machine restart, using a bare UUID as a placeholder message. This is OUTSIDE LOOP's commit path — LOOP cannot prevent it directly, only defend internally (push-target validateCommitMessage guard) + detect on startup (self-enhance-loop constructor warn).`;
 
   // What this kind of commit breaks downstream — the cost of NOT
   // defending against it. Preserved so future readers (LLM or human)
   // understand why the guard exists, not just that it does.
-  const blastRadius =
-    "UUID commits are unsearchable (no message-prefix to grep), break the " +
-    "message-prefix convention the rest of the loop relies on (commit-archaeology.ts " +
-    "expects 'Self-enhancement:', 'memory:', etc.), and make commit-archaeology.ts " +
-    "return a UUID where intent was expected — archaeology on that SHA is a dead-end.";
+  const blastRadius = `UUID commits are unsearchable (no message-prefix to grep), break the message-prefix convention the rest of the loop relies on (commit-archaeology.ts expects 'Self-enhancement:', 'memory:', etc.), and make commit-archaeology.ts return a UUID where intent was expected — archaeology on that SHA is a dead-end.`;
 
   // The 5 internal-committer invariants from the investigation. Each
   // LOOP-internal commit site passes an explicit human-readable message
@@ -95,5 +81,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("FAILED to record postmortem:", err instanceof Error ? err.stack || err.message : String(err));
+  const errorMessage = err instanceof Error ? err.stack || err.message : String(err);
+  console.error("FAILED to record postmortem:", errorMessage);
 });
