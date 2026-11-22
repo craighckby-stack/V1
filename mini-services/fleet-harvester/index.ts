@@ -38,9 +38,15 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true, ...result }));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      let msg: string;
+      if (err instanceof Error) {
+        msg = err.message;
+      } else {
+        msg = String(err);
+      }
+      // Provide full error context without arbitrary slicing, as the client should handle length.
       res.writeHead(502, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: false, error: msg.slice(0, 280) }));
+      res.end(JSON.stringify({ ok: false, error: msg }));
     }
     return;
   }
