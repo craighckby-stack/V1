@@ -24,12 +24,15 @@ export function AstInspectorModal() {
   if (!inspectorFile) return null;
   const { path, original, evolved, report } = inspectorFile;
   
+  // Guard against missing essential data structures early
+  if (!report) return null;
+
   // Use optional chaining for safe access to nested report properties
-  const ast = report?.astDiffResult;
-  const sanitizer = report?.sanitizerResult;
+  const ast = report.astDiffResult;
+  const sanitizer = report.sanitizerResult;
 
   // Guard against missing essential data structures
-  if (!report || !ast || !sanitizer) return null;
+  if (!ast || !sanitizer) return null;
 
   // Define violationIcon mapping explicitly for known severities, defaulting to AlertTriangle
   const violationIcon: Record<string, React.ElementType> = {
