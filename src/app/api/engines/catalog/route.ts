@@ -40,37 +40,39 @@ export async function GET() {
   // Process and validate in a single pass for better performance
   for (let i = 0; i < SIPHON_SOURCES.length; i++) {
     const source = SIPHON_SOURCES[i];
-    
-    if (!source) {
-      invalidSources.push({ index: i, reason: "Source element is null or undefined." });
-      continue;
-    }
+    let isValid = true;
+    let reason = "";
 
-    if (!('patterns' in source) || !Array.isArray(source.patterns)) {
-      invalidSources.push({ index: i, reason: "Source is missing 'patterns' array or 'patterns' is not an array." });
-      continue;
-    }
-    
-    const patterns = source.patterns;
-    
-    if (patterns.length === 0) {
-      invalidSources.push({ index: i, reason: "Source patterns array is empty." });
-      continue;
-    }
-    
-    // Check all patterns for validity
-    for (let j = 0; j < patterns.length; j++) {
-      if (typeof patterns[j] !== 'string') {
-        invalidSources.push({ index: i, reason: `Pattern at index ${j} is not a string.` });
-        break; // No need to check more patterns for this source
+    if (!source) {
+      isValid = false;
+      reason = "Source element is null or undefined.";
+    } else if (!('patterns' in source) || !Array.isArray(source.patterns)) {
+      isValid = false;
+      reason = "Source is missing 'patterns' array or 'patterns' is not an array.";
+    } else {
+      const patterns = source.patterns;
+      if (patterns.length === 0) {
+        isValid = false;
+        reason = "Source patterns array is empty.";
+      } else {
+        // Check all patterns for validity
+        for (let j = 0; j < patterns.length; j++) {
+          if (typeof patterns[j] !== 'string') {
+            isValid = false;
+            reason = `Pattern at index ${j} is not a string.`;
+            break; // No need to check more patterns for this source
+          }
+        }
       }
     }
-    
-    // If we made it here, the source is valid
-    if (!invalidSources.some(inv => inv.index === i)) {
+
+    if (!isValid) {
+      invalidSources.push({ index: i, reason: reason });
+    } else {
+      // If we made it here, the source is valid
       validSources.push({
         source: source as SiphonSource,
-        count: patterns.length,
+        count: (source as any).patterns.length, // Safe cast as validation passed
         complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
         status: "configured",
       });
