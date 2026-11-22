@@ -1363,6 +1363,8 @@ export default function Home() {
           "                (joins git + mutations + postmortems + gauntlet runs + lessons)",
           "  benchmark   — Does the complexity earn its keep? A/B over the mutation corpus",
           "                (lessons vs not, provenance vs not, postmortem vs not — honest confidence)",
+          "  policy      — The learned mutation policy (10/10 #6): which transform kinds",
+          "                pass the gates — own history + wild fleet prior, two honest tiers",
           "  dropbox     — Status of external-system learning (dropbox/<system>/ folder)",
           "  dropbox scan — Ingest now (budget-capped, distills candidate lessons)",
           "  autofork    — Status of curated reference-repo learning (autofork-seeds.json)",
@@ -2282,6 +2284,79 @@ export default function Home() {
           return lines;
         } catch (err) {
           return [`benchmark error: ${err instanceof Error ? err.message : String(err)}`];
+        }
+      }
+
+      case "policy": {
+        // 10/10 #6 — the learned mutation policy: which KINDS of
+        // transforms pass the gates. Two tiers: own gate history
+        // (MutationCorpus, deferred until N) and the wild fleet prior
+        // (the harvested archive under memory/). Read-only.
+        try {
+          const res = await fetch("/api/policy");
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            return [`policy unavailable (${res.status}): ${(err as { error?: string }).error ?? "unknown"}`];
+          }
+          const r = (await res.json()) as {
+            verdict: string;
+            trainedAt: string;
+            own: {
+              totalDefinitive: number;
+              active: boolean;
+              cells: Array<{ family: string; attempts: number; passes: number; passRate: number; deferred: boolean }>;
+            };
+            wild: {
+              successfulCommits: number;
+              failedCommits: number;
+              repos: string[];
+              strongFailures: number;
+              weakFailures: number;
+              cells: Array<{ family: string; successfulCommits: number; failedCommits: number; successRate: number }>;
+            };
+            constants: Record<string, number>;
+          };
+          const lines = [
+            "MUTATION POLICY — the loop's learned transform prior (10/10 #6)",
+            `verdict: ${r.verdict}`,
+            `trained: ${r.trainedAt.replace("T", ".").replace(/\.\d+Z$/, "Z")}`,
+            "",
+            `OWN TIER (this loop's gate history — ${r.own.totalDefinitive} definitive outcome(s)):`,
+          ];
+          if (r.own.cells.length === 0) {
+            lines.push("  (no definitive outcomes recorded yet — the corpus rebuilds as the loop runs)");
+          } else {
+            for (const c of r.own.cells) {
+              lines.push(
+                c.deferred
+                  ? `  ${c.family.padEnd(14)} deferred (N=${c.attempts} < ${r.constants.minOwnAttempts}) — no rate reported`
+                  : `  ${c.family.padEnd(14)} ${(c.passRate * 100).toFixed(0)}% pass over ${c.attempts} attempt(s) (${c.passes} enhanced)`
+              );
+            }
+          }
+          lines.push("");
+          lines.push(
+            `WILD TIER (harvested fleet archive — ${r.wild.successfulCommits} successful / ${r.wild.failedCommits} failed commits, ${r.wild.repos.length} repo(s)):`
+          );
+          if (r.wild.cells.length === 0) {
+            lines.push("  (no archive found under memory/ — push one via GitHistory Sync)");
+          } else {
+            for (const c of r.wild.cells.slice(0, 8)) {
+              lines.push(
+                `  ${c.family.padEnd(14)} ${(c.successRate * 100).toFixed(0)}% success over ${c.successfulCommits + c.failedCommits} commit(s)`
+              );
+            }
+            lines.push(
+              `  failure evidence: ${r.wild.strongFailures} strong (reverted/CI-failed) + ${r.wild.weakFailures} weak (regex-match @ ${r.constants.regexFailWeight} weight)`
+            );
+          }
+          lines.push("");
+          lines.push(
+            `Injected into refactor prompts: ${r.own.active ? "OWN tier" : r.wild.cells.length > 0 ? "WILD prior (own tier deferred)" : "nothing (both tiers silent)"} · block budget ${r.constants.blockBudget} chars`
+          );
+          return lines;
+        } catch (err) {
+          return [`policy error: ${err instanceof Error ? err.message : String(err)}`];
         }
       }
 

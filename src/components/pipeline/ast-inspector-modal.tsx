@@ -99,7 +99,7 @@ export function AstInspectorModal() {
               </div>
               <div className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="inline-flex items-center gap-1">
-                  <GitCommit className="h-3 w-3" /> proof {report.proofCommitHash ?? 'N/A'}
+                  <GitCommit className="h-3 w-3" /> proof {report.proofCommitHash || 'N/A'}
                 </span>
                 <span className="text-slate-300">AST {ast.astScore}/100</span>
                 <span className="inline-flex items-center gap-1">

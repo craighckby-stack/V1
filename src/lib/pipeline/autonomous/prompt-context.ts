@@ -71,6 +71,7 @@ import {
 } from "./mutation-corpus";
 import { buildArchContext } from "./arch-context";
 import { buildProvenanceDigestForPrompt } from "./provenance-digest";
+import { buildMutationPolicyBlock } from "./mutation-policy";
 
 export interface EnhanceContext {
   /** Ordered system-prompt blocks (fail-soft, empties filtered). The
@@ -239,11 +240,30 @@ export async function buildEnhanceContext(
     /* best-effort */
   }
 
+  // ── 3.75 MUTATION POLICY (learned transform-family prior) ────────
+  // Refactor mode only — it steers WHAT KIND of change to make
+  // (which transform families historically pass the gates); the
+  // visual-polish and schema transforms are fixed by their mode, so a
+  // strategy prior is noise there. Two-tier + honesty rules: see
+  // mutation-policy.ts. Positioned AFTER provenance (history) and
+  // BEFORE rejected (the exhausted space): policy says what TO do,
+  // rejected says what NOT to do.
+  let policyBlock = "";
+  if (mode === "refactor") {
+    try {
+      policyBlock = await buildMutationPolicyBlock();
+    } catch (error) {
+      console.error(`Failed to build mutation policy block for ${relPath}:`, error);
+      /* the policy is a prior, not a gate */
+    }
+  }
+
   // ── ASSEMBLE THE ORDERED BLOCKS ────────────────────────────────
   // The documented prompt structure (self-enhance-loop.ts comments):
   //   1. operating constraints (promoted procedures, always-on)
   //   2. postmortem (the active per-file constraint)
   //   3. provenance (the loop's wider history)
+  //   3.5 mutation policy (learned transform prior) — refactor only
   //   4. rejected transforms (the exhausted space)
   //   5. ancestral (cross-file wisdom)
   //   6. priorArt (fleet corpus) — refactor only
@@ -251,6 +271,7 @@ export async function buildEnhanceContext(
   if (operatingBlock) systemBlocks.push(operatingBlock);
   if (postmortemBlock) systemBlocks.push(postmortemBlock);
   if (provenanceBlock) systemBlocks.push(provenanceBlock);
+  if (policyBlock) systemBlocks.push(policyBlock);
   if (rejectedBlock) systemBlocks.push(rejectedBlock);
   if (ancestralBlock) systemBlocks.push(ancestralBlock);
   if (priorArtBlock) systemBlocks.push(priorArtBlock);

@@ -224,6 +224,28 @@ export function __resetCorpusCacheForTests(): void {
   cacheAttempted = false;
 }
 
+/** The commit-level view of the archive, for the mutation policy's WILD
+ *  tier (mutation-policy.ts trains on harvested success/failure evidence
+ *  from the fleet). Read-only, backed by the same process-lifetime cache
+ *  as searchEngines — no extra file reads. The returned objects are the
+ *  internal cache rows (callers must treat them as immutable). */
+export interface WildCommit {
+  sha: string;
+  repo: string;
+  date: string;
+  footprint: string;
+  source?: string;
+}
+
+export function getWildCommits(): { successful: WildCommit[]; failed: WildCommit[]; generatedAt: string | null } {
+  const corpus = loadCorpus();
+  return {
+    successful: corpus.successful,
+    failed: corpus.failed,
+    generatedAt: corpus.generatedAt,
+  };
+}
+
 export interface EngineHit {
   engine: GitHistoryEngine;
   score: number;
