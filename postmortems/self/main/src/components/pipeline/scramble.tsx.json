@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/scramble.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "55c1a5c6a874984ba7181f2dd64d61040208a673ddcdf34df3b48124563b8b4f",
   "hash": "f702f968f5c6ac0fd07dd7da7e1f85cf3eb8ffdfa4a10fc827c08840177bcc95",
   "lastAttemptAt": "2026-11-22T03:06:28.364Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T04:49:28.102Z",
   "createdAt": "2026-11-22T02:44:42.587Z",
-  "updatedAt": "2026-11-22T03:06:28.364Z",
+  "updatedAt": "2026-11-22T04:49:28.102Z",
   "schema": 2
 }

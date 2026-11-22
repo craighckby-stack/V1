@@ -68,7 +68,13 @@ let warnedKeyMissing = false;
 function ensureKey(): Buffer | null {
   try {
     if (existsSync(KEY_FILE)) {
-      const hex = readFileSync(KEY_FILE, "utf-8")?.trim();
+      let hex: string;
+      try {
+        hex = readFileSync(KEY_FILE, "utf-8").trim();
+      } catch (e) {
+        // Failed to read file content
+        return null;
+      }
       if (!hex || !/^[0-9a-f]{64}$/i.test(hex)) {
         if (!warnedKeyMissing) {
           warnedKeyMissing = true;
