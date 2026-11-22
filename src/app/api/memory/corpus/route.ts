@@ -25,10 +25,10 @@ export async function GET(request: Request) {
   try {
     // Extract and validate keyword from query parameters
     const { searchParams } = new URL(request.url);
-    const keyword = searchParams.get("keyword") || "orchestrator agent loop";
+    const keyword = searchParams.get("keyword");
     
     if (typeof keyword !== "string" || keyword.trim() === "") {
-      throw new Error("Invalid search keyword provided");
+      throw new Error("Missing or empty 'keyword' query parameter.");
     }
     
     // Run status and digest retrieval in parallel
@@ -39,22 +39,23 @@ export async function GET(request: Request) {
 
     // Run search with a timeout
     const searchPromise = searchEngines(keyword, 3);
+    const timeoutError = new Error("Search operation timed out after 5000ms.");
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("Search timed out")), 5000)
+      setTimeout(() => reject(timeoutError), 5000)
     );
 
     const sample = await Promise.race([searchPromise, timeoutPromise]);
       
     // Validate search results before mapping
     if (!Array.isArray(sample)) {
-      throw new Error("Invalid search results format");
+      throw new Error(`Search returned invalid data format: expected array, got ${typeof sample}.`);
     }
     
     // Map results only after successful retrieval
     const mappedSample = sample.map((h: { engine: { id: string; role: string }; score: number; matchedTerms: string[] }) => {
       if (!h.engine || typeof h.engine.id !== "string" || typeof h.engine.role !== "string" || 
           typeof h.score !== "number" || !Array.isArray(h.matchedTerms)) {
-        throw new Error("Invalid search result item format");
+        throw new Error("Invalid search result item format detected in corpus data.");
       }
       
       return {
@@ -67,7 +68,7 @@ export async function GET(request: Request) {
     
     return NextResponse.json({ ok: true, status, digest, sampleHits: mappedSample });
   } catch (e) {
-    const error = e instanceof Error ? e : new Error("Unknown corpus read failure");
+    const error = e instanceof Error ? e : new Error("Unknown corpus read failure during request processing.");
     
     // Determine status code based on error context
     const statusCode = error.message.includes("timed out") ? 504 : 500;
