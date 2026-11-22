@@ -35,9 +35,16 @@ async function main() {
     console.log(`  ${isMut ? "Y" : "."}  ${String(f.size).padStart(8)}  ${f.path}`);
 
     // Safely extract extension
-    const parts = f.path.split(".");
-    const ext = parts.length > 1 ? parts.pop()! : "(no-ext)";
-    exts.set(ext, (exts.get(ext) ?? 0) + 1);
+    if (f.path.includes('.')) {
+      const parts = f.path.split(".");
+      // If parts.length > 1, parts.pop() is safe and returns the last segment.
+      // If the path is like ".gitignore", parts[0] is "" and parts.pop() is "gitignore".
+      // If the path is "file.", parts.pop() is "".
+      const ext = parts.pop()!;
+      exts.set(ext, (exts.get(ext) ?? 0) + 1);
+    } else {
+      exts.set("(no-ext)", (exts.get("(no-ext)") ?? 0) + 1);
+    }
   }
 
   console.log(`\nmutable+size-ok files: ${mutable} / ${files.length}`);
