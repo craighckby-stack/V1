@@ -55,54 +55,33 @@ export async function POST(req: Request) {
   let body: { force?: boolean } | null = null;
 
   try {
-    const bodyText = await req.text();
-    
-    if (bodyText.length === 0) {
-        // Handle empty body gracefully without trying to parse
-        body = {};
-    } else {
-        try {
-          body = JSON.parse(bodyText);
-        } catch (jsonError) {
-          // Re-throw as a specific error type to be caught below for 400 response
-          throw new SyntaxError(`Invalid JSON in request body: ${(jsonError instanceof Error ? jsonError.message : 'Malformed JSON')}`);
-        }
-    }
-
-    // Validate body is an object
-    if (typeof body !== 'object' || body === null) {
-      throw new Error("Request body must be a non-null object.");
-    }
-
-    // Validate force parameter if present
-    if ('force' in body) {
-      if (typeof body.force !== 'boolean') {
-        throw new Error("Force parameter must be a boolean.");
-      }
-      force = body.force;
-    }
+    // Use req.json() for idiomatic Next.js API route body parsing
+    body = await req.json();
   } catch (e) {
-    // Handle JSON parsing errors specifically (SyntaxError)
-    if (e instanceof SyntaxError) {
-      return NextResponse.json(
-        { error: `Invalid JSON in request body: ${e.message}` },
-        { status: 400 }
-      );
-    }
-
-    // Handle other validation/runtime errors (Error instances)
-    if (e instanceof Error) {
-      return NextResponse.json(
-        { error: `Invalid request body: ${e.message}` },
-        { status: 400 }
-      );
-    }
-
-    // Fallback for unknown error types during parsing/validation
+    // Handles JSON parsing errors (e.g., invalid JSON, non-JSON body)
     return NextResponse.json(
-      { error: "Invalid request body: Unknown error during parsing or validation." },
+      { error: "Invalid request body: Body must be valid JSON." },
       { status: 400 }
     );
+  }
+
+  // Validate body is an object (req.json() ensures it's not null if successful, but check type)
+  if (typeof body !== 'object' || body === null) {
+    return NextResponse.json(
+      { error: "Request body must be a non-null object." },
+      { status: 400 }
+    );
+  }
+
+  // Validate force parameter if present
+  if ('force' in body) {
+    if (typeof body.force !== 'boolean') {
+      return NextResponse.json(
+        { error: "Force parameter must be a boolean." },
+        { status: 400 }
+      );
+    }
+    force = body.force;
   }
 
   if (force) {
