@@ -32,6 +32,7 @@ export async function GET() {
     if (err instanceof Error) {
         error = err;
     } else {
+        // If it's not an Error instance, wrap it with context
         error = new Error("An unknown error occurred during memory retrieval from RAG store.");
     }
     
@@ -41,11 +42,12 @@ export async function GET() {
     let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
     let statusCode = 500;
 
-    // Provide more specific error messages based on error type
-    if (error.message.includes("connection") || error.message.includes("timeout")) {
+    // Provide more specific error messages based on error type/message content
+    const message = error.message.toLowerCase();
+    if (message.includes("connection") || message.includes("timeout")) {
         errorMessage = "The memory store service is temporarily unavailable due to a connection issue. Please retry later.";
         statusCode = 503;
-    } else if (error.message.includes("not found") || error.message.includes("missing")) {
+    } else if (message.includes("not found") || message.includes("missing")) {
         errorMessage = "Required memory data is missing. The service may need to be reinitialized.";
         statusCode = 404;
     }
