@@ -372,14 +372,27 @@ async function main() {
   // integrity (tests / tsc / lint), which matters MOST in a frozen
   // system: if anything ever breaks the locked state (a stray edit, a
   // disk fault, a bad actor), the trend must show it. This timer keeps
-  // the snapshot stream alive regardless of loop state. ~3-4s of child
-  // processes every 15 minutes; first snapshot 90s after boot so a
-  // fresh worker reports promptly without racing the boot hydration.
+  // the snapshot stream alive regardless of loop state.
+  //
+  // ASYNC MODE (mandatory here): the checks run via the non-blocking
+  // runner (mode:"async") — a ~20s snapshot window must never block
+  // this process's HTTP loop. The first rollout used the sync capture:
+  // /health went unresponsive for the snapshot's duration, the server's
+  // respawn logic misread it as a dead worker, and respawn attempts
+  // piled up on the port conflict (harmless but noisy, and a genuinely
+  // dead worker would have been masked by the noise).
+  //
+  // Cost: ~3-20s of child processes every 15 minutes; first snapshot 90s
+  // after boot so a fresh worker reports promptly without racing the
+  // boot hydration.
   const HEALTH_MONITOR_INTERVAL_MS = 15 * 60 * 1000;
   const runHealthSnapshot = async (why: string) => {
     try {
       const cycleNumber = loop.getStats().cyclesCompleted;
-      const snapshot = await healthMetrics.captureAndPersistHealthSnapshot(cycleNumber);
+      const snapshot = await healthMetrics.captureAndPersistHealthSnapshot(
+        cycleNumber,
+        { mode: "async" }
+      );
       if (!snapshot.ok) {
         console.warn(
           `[LOOP-WORKER] health snapshot (${why}) captured with errors:`,
@@ -402,7 +415,7 @@ async function main() {
   }, HEALTH_MONITOR_INTERVAL_MS);
   healthTimer.unref?.();
   console.log(
-    `[LOOP-WORKER] baseline health monitor armed — snapshot every ${HEALTH_MONITOR_INTERVAL_MS / 60000}min (tests/tsc/lint), independent of loop state`
+    `[LOOP-WORKER] baseline health monitor armed — async snapshot every ${HEALTH_MONITOR_INTERVAL_MS / 60000}min (tests/tsc/lint), independent of loop state`
   );
 }
 

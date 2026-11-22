@@ -1481,6 +1481,16 @@ export default function Home() {
         try {
           const res = await fetch("/api/self-enhance/start", { method: "POST" });
           const data = await res.json();
+          // Honest refusal path — the route returns started:false with a
+          // reason (e.g. the 423 MUTATION FREEZE refusal, or the worker
+          // being unreachable). Printing "LOOP STARTED" here would be a
+          // lie the operator could act on.
+          if (data.started === false) {
+            return [
+              "LOOP DID NOT START — the request was refused:",
+              `  ${data.error ?? data.message ?? `HTTP ${res.status}`}`,
+            ];
+          }
           // Immediately fetch fresh status + queue so the user sees the
           // system's live state the moment it starts — not just "Started".
           const [sres, qres] = await Promise.all([
@@ -1542,6 +1552,12 @@ export default function Home() {
         try {
           const res = await fetch("/api/self-enhance/trigger", { method: "POST" });
           const data = await res.json();
+          // Honest refusal path — a 423 (mutation freeze) or any other
+          // server-side refusal carries filesScanned:0 + an error. Say
+          // WHY instead of "Cycle complete: scanned 0, enhanced 0".
+          if (data.error) {
+            return [`Cycle REFUSED — ${data.error}`];
+          }
           return [
             `Cycle complete: scanned ${data.filesScanned ?? 0}, enhanced ${data.filesEnhanced ?? 0}`,
           ];

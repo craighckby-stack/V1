@@ -33,7 +33,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { spawnSync } from "child_process";
 import { db } from "@/lib/db";
-
+import { isMutationFrozen } from "./mutation-freeze";
 import { PROJECT_ROOT } from "../core/paths";
 import { withTreeLock } from "../core/tree-lock";
 export const LESSONS_MD_PATH = `${PROJECT_ROOT}/memory/lessons.md`;
@@ -94,6 +94,17 @@ function renderEntry(row: {
 
 /** Full export: query all lessons, render, write-if-changed, commit. */
 export async function exportLessonsMarkdown(): Promise<boolean> {
+  // Operator mutation freeze — by construction, not by dormancy: while
+  // frozen, NO file write and NO local commit from this path (the freeze
+  // contract: code, commits, and pushes refuse everywhere). Today every
+  // caller is loop-cycle-side (distill/noteOutcome/seed — all dormant
+  // while frozen), but a future route could reach a distiller; the guard
+  // keeps the repo state locked regardless. The Lesson DB table remains
+  // the source of truth; the markdown mirror catches up on the next
+  // export after an unfreeze.
+  if (isMutationFrozen()) {
+    return false;
+  }
   const l = lessons();
   if (!l) return false;
   try {

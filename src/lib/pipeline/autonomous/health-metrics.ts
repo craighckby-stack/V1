@@ -55,6 +55,10 @@ import { spawnSync } from "node:child_process";
 import { db } from "@/lib/db";
 import { PROJECT_ROOT } from "../core/paths";
 import { PROTECTED_FILES } from "./protected-files";
+// Async runner — the non-blocking twin of runSync below. Reused from
+// core/async-spawn (the same primitive the verify path uses) so the
+// worker's baseline health monitor never blocks its HTTP event loop.
+import { runChildAsync } from "../core/async-spawn";
 
 /** The snapshot shape — one row in CodebaseHealth. */
 export interface HealthSnapshot {
@@ -151,15 +155,30 @@ function runSync(cmd: string, args: string[], timeoutMs: number): {
   }
 }
 
-/**
- * Capture one health snapshot by running the cheap aggregate signals.
- * Returns the snapshot (ok=false + error if any step failed critically).
- * Never throws — callers can use this in a fire-and-forget cycle hook.
- *
- * Cost: ~3-4s wall-clock (test ~1.6s + tsc ~2s + eslint ~0.3s). Called
- * every N cycles, so amortized ~0.3-0.4s per cycle. Acceptable.
- */
-export function captureHealthSnapshotSync(cycleNumber: number): HealthSnapshot {
+/** Async twin of runSync — same command, same cwd, same timeout
+ *  semantics (kill → status null), but the caller's event loop keeps
+ *  serving requests while the child runs. Never rejects. */
+async function runAsync(
+  cmd: string,
+  args: string[],
+  timeoutMs: number
+): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  const r = await runChildAsync(cmd, args, {
+    cwd: PROJECT_ROOT,
+    timeoutMs,
+  });
+  return { stdout: r.stdout, stderr: r.stderr, exitCode: r.status };
+}
+
+/** Shared assembly — turns the three raw run results into a snapshot.
+ *  Identical parsing for the sync and async capture paths so the two
+ *  can never drift. */
+function assembleSnapshot(
+  cycleNumber: number,
+  test: { stdout: string; stderr: string; exitCode: number | null },
+  tsc: { stdout: string; stderr: string; exitCode: number | null },
+  lint: { stdout: string; stderr: string; exitCode: number | null }
+): HealthSnapshot {
   const base: HealthSnapshot = {
     cycleNumber,
     testCount: 0,
@@ -172,8 +191,6 @@ export function captureHealthSnapshotSync(cycleNumber: number): HealthSnapshot {
 
   let firstError: string | undefined;
 
-  // Tests (timeout 30s — the suite is ~1.6s, 30s is generous)
-  const test = runSync("bun", ["test"], 30_000);
   const parsed = parseTestOutput(test.stdout + "\n" + test.stderr);
   if (parsed) {
     base.testCount = parsed.testCount;
@@ -185,15 +202,11 @@ export function captureHealthSnapshotSync(cycleNumber: number): HealthSnapshot {
     if (!firstError) firstError = `test exit ${test.exitCode}, output unparsable`;
   }
 
-  // tsc (timeout 60s — full project typecheck)
-  const tsc = runSync("bun", ["x", "tsc", "--noEmit"], 60_000);
   base.tscErrors = countTscErrors(tsc.stdout + "\n" + tsc.stderr);
   if (tsc.exitCode === null && !firstError) {
     firstError = `tsc timed out or crashed`;
   }
 
-  // eslint (timeout 60s)
-  const lint = runSync("bun", ["x", "eslint", "."], 60_000);
   base.lintErrors = countLintErrors(lint.stdout + "\n" + lint.stderr);
   if (lint.exitCode === null && !firstError) {
     firstError = `eslint timed out or crashed`;
@@ -207,13 +220,59 @@ export function captureHealthSnapshotSync(cycleNumber: number): HealthSnapshot {
   return base;
 }
 
-/** Async wrapper — persists the snapshot to the CodebaseHealth table.
+/**
+ * Capture one health snapshot by running the cheap aggregate signals.
+ * Returns the snapshot (ok=false + error if any step failed critically).
+ * Never throws — callers can use this in a fire-and-forget cycle hook.
+ *
+ * Cost: ~3-4s wall-clock (test ~1.6s + tsc ~2s + eslint ~0.3s). Called
+ * every N cycles, so amortized ~0.3-0.4s per cycle. Acceptable.
+ *
+ * BLOCKING: spawns children via spawnSync — safe in the loop's cycle
+ * context (nothing else runs between cycle phases) but NEVER call this
+ * from an HTTP-serving process; use captureHealthSnapshotAsync there.
+ */
+export function captureHealthSnapshotSync(cycleNumber: number): HealthSnapshot {
+  // Tests (timeout 30s — the suite is ~1.6s, 30s is generous)
+  const test = runSync("bun", ["test"], 30_000);
+  // tsc (timeout 60s — full project typecheck)
+  const tsc = runSync("bun", ["x", "tsc", "--noEmit"], 60_000);
+  // eslint (timeout 60s)
+  const lint = runSync("bun", ["x", "eslint", "."], 60_000);
+  return assembleSnapshot(cycleNumber, test, tsc, lint);
+}
+
+/**
+ * Non-blocking capture — same children, same parsing, same snapshot,
+ * but the caller's event loop keeps serving requests while the checks
+ * run (see runAsync). This is the variant for HTTP-serving processes:
+ * the loop-worker's baseline health monitor uses it so a ~20s snapshot
+ * window can never make /health unresponsive (which the server's
+ * respawn logic would misread as a dead worker — the respawn-storm
+ * postmortem from the freeze rollout).
+ */
+export async function captureHealthSnapshotAsync(
+  cycleNumber: number
+): Promise<HealthSnapshot> {
+  const test = await runAsync("bun", ["test"], 30_000);
+  const tsc = await runAsync("bun", ["x", "tsc", "--noEmit"], 60_000);
+  const lint = await runAsync("bun", ["x", "eslint", "."], 60_000);
+  return assembleSnapshot(cycleNumber, test, tsc, lint);
+}
+
+/** Persisting wrapper — persists the snapshot to the CodebaseHealth table.
  *  Best-effort: if the DB is unavailable, returns the snapshot anyway
- *  (the caller can still log it). */
+ *  (the caller can still log it).
+ *  `mode: "async"` runs the checks via the non-blocking runner (for
+ *  HTTP-serving processes); the default matches the loop's cycle path. */
 export async function captureAndPersistHealthSnapshot(
   cycleNumber: number,
+  opts?: { mode?: "sync" | "async" }
 ): Promise<HealthSnapshot> {
-  const snapshot = captureHealthSnapshotSync(cycleNumber);
+  const snapshot =
+    opts?.mode === "async"
+      ? await captureHealthSnapshotAsync(cycleNumber)
+      : captureHealthSnapshotSync(cycleNumber);
   try {
     await db.codebaseHealth.create({
       data: {

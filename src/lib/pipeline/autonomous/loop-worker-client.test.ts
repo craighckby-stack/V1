@@ -1,5 +1,48 @@
-import { describe, test, expect } from "bun:test";
-import { workerFetch, ensureWorkerRunning, healWorkerInBackground, type WorkerResult } from "./loop-worker-client";
+import { describe, test, expect, beforeAll } from "bun:test";
+
+/**
+ * loop-worker-client unit tests — PURE, no production side effects.
+ *
+ * WHY THIS FILE LOOKS LIKE THIS
+ * ──────────────────────────────
+ * The first version of these tests called the LIVE worker (port 3004):
+ * `workerFetch("/health")` against production, and worse,
+ * `ensureWorkerRunning()` / `healWorkerInBackground()` — which RESPAWN
+ * the production worker process when the probe fails. A test run that
+ * races a busy worker (e.g. one mid-snapshot) then spawns duplicate
+ * workers that die on the port conflict — the exact pollution class
+ * that once wrote "armed by test-run" into the production intent tier.
+ *
+ * The rules now:
+ *   1. LOOP_WORKER_URL is pinned to a dead port BEFORE the module is
+ *      imported (dynamic import — ESM import statements hoist above
+ *      plain statements, so a static import would read the real URL).
+ *      127.0.0.1:1 fails with ECONNREFUSED instantly — deterministic,
+ *      no timeout waiting, no production traffic.
+ *   2. workerFetch is safe to exercise on a dead URL: it never spawns
+ *      anything — the transport-failure → null contract IS the unit
+ *      under test.
+ *   3. ensureWorkerRunning / healWorkerInBackground are NOT exercised
+ *      live: on any dead URL they would spawn a real worker process
+ *      (the spawn is unconditional once the probe fails). Only their
+ *      export contracts are pinned, with this comment as the reason.
+ *      Production exercises them on every status poll — the live path
+ *      has more coverage than any test could add.
+ */
+
+// Pin to a dead port BEFORE the module reads process.env at import time.
+process.env.LOOP_WORKER_URL = "http://127.0.0.1:1";
+
+let workerFetch: typeof import("./loop-worker-client").workerFetch;
+let ensureWorkerRunning: typeof import("./loop-worker-client").ensureWorkerRunning;
+let healWorkerInBackground: typeof import("./loop-worker-client").healWorkerInBackground;
+
+beforeAll(async () => {
+  const mod = await import("./loop-worker-client");
+  workerFetch = mod.workerFetch;
+  ensureWorkerRunning = mod.ensureWorkerRunning;
+  healWorkerInBackground = mod.healWorkerInBackground;
+});
 
 describe("loop-worker-client", () => {
   describe("workerFetch", () => {
@@ -23,92 +66,55 @@ describe("loop-worker-client", () => {
       expect(result).toBe(null);
     });
 
-    test("uses default timeout when not specified", async () => {
-      // This test verifies the default timeout is applied
-      // We can't directly test the timeout value, but we can verify the function
-      // doesn't hang indefinitely by checking it returns a result
+    test("returns null fast on transport failure (dead port, default timeout)", async () => {
+      // ECONNREFUSED on a dead port is immediate — this pins BOTH the
+      // null-on-failure contract AND that no default-timeout wait occurs
+      // on an actively refused connection.
+      const started = Date.now();
       const result = await workerFetch("/health", { method: "GET" });
-      // The result could be null (if worker is down) or a WorkerResult
-      // We just verify it's one of these valid return types
-      expect(result === null || (result && typeof result === "object")).toBe(true);
+      const elapsed = Date.now() - started;
+      expect(result).toBe(null);
+      expect(elapsed).toBeLessThan(2500);
     });
 
-    test("uses custom timeout when specified", async () => {
-      // This test verifies the custom timeout is respected
-      // We can't directly test the timeout value, but we can verify the function
-      // doesn't hang indefinitely by checking it returns a result
+    test("returns null on transport failure with a custom timeout", async () => {
       const result = await workerFetch("/health", { method: "GET", timeoutMs: 1000 });
-      // The result could be null (if worker is down) or a WorkerResult
-      // We just verify it's one of these valid return types
-      expect(result === null || (result && typeof result === "object")).toBe(true);
+      expect(result).toBe(null);
     });
 
-    test("returns structured result for successful fetch", async () => {
-      // This test verifies the structure of a successful response
-      // We can't actually connect to a worker, but we can verify the structure
-      // of what would be returned if the fetch succeeded
-      const mockResult: WorkerResult = { ok: true, status: 200, data: { success: true } };
-      expect(mockResult).toEqual({ ok: true, status: 200, data: { success: true } });
-    });
-
-    test("returns structured result for failed fetch", async () => {
-      // This test verifies the structure of a failed response
-      // We can't actually connect to a worker, but we can verify the structure
-      // of what would be returned if the fetch failed
-      const mockResult: WorkerResult = { ok: false, status: 500, data: null };
-      expect(mockResult).toEqual({ ok: false, status: 500, data: null });
+    test("returns null for a deep pathname on a dead port", async () => {
+      // Pathnames with multiple segments still hit the same dead URL —
+      // no partial-URL assembly bug can turn this into a live request.
+      const result = await workerFetch("/some/deep/path?with=query", { method: "POST" });
+      expect(result).toBe(null);
     });
   });
 
-  describe("ensureWorkerRunning", () => {
-    test("returns boolean as per contract", async () => {
-      // The function always returns a boolean, never throws
-      const result = await ensureWorkerRunning();
-      expect(typeof result).toBe("boolean");
-    });
-
-    test("does not throw on any error", async () => {
-      // The function should never throw, even if everything fails
-      let threw = false;
-      try {
-        await ensureWorkerRunning();
-      } catch {
-        threw = true;
-      }
-      expect(threw).toBe(false);
-    });
-  });
-
-  describe("healWorkerInBackground", () => {
-    test("does not block execution", () => {
-      // This function should fire and forget, not blocking the caller
-      const before = Date.now();
-      healWorkerInBackground();
-      const after = Date.now();
-      // The function should complete very quickly (fire and forget)
-      expect(after - before).toBeLessThan(100);
-    });
-
-    test("does not return anything", () => {
-      // The function returns void
-      expect(healWorkerInBackground()).toBeUndefined();
+  describe("ensureWorkerRunning / healWorkerInBackground", () => {
+    // NOT exercised live — see the file docblock: on a dead URL both
+    // would SPAWN a production worker process from a test run. Only the
+    // export contracts are pinned here.
+    test("exports functions with the documented signatures", () => {
+      expect(typeof ensureWorkerRunning).toBe("function");
+      expect(typeof healWorkerInBackground).toBe("function");
+      expect(ensureWorkerRunning.length).toBe(0); // () => Promise<boolean>
+      expect(healWorkerInBackground.length).toBe(0); // () => void
     });
   });
 
   describe("WorkerResult interface", () => {
     test("has correct structure", () => {
-      // This test verifies the interface structure
-      // We can't directly import interfaces, but we can verify the structure
-      // of objects that would conform to this interface
-      const validResult: WorkerResult = {
+      // Pin the interface shape consumers rely on (the type itself is
+      // compile-time only; this pins the runtime contract).
+      const validResult: import("./loop-worker-client").WorkerResult = {
         ok: true,
         status: 200,
-        data: null
+        data: null,
       };
       expect(validResult).toEqual({
         ok: true,
         status: 200,
-        data: null
+        data: null,
       });
     });
   });
