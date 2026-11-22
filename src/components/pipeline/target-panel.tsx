@@ -87,9 +87,10 @@ export function TargetPanel({ open, onClose }: Props) {
     timeoutRef.current = setTimeout(() => {
         if (signal.aborted) return;
         abortControllerRef.current?.abort();
-        console.error("Pipeline history request timed out");
+        console.error("Pipeline history request timed out after 10s.");
         setRuns([]);
         setLoading(false);
+        timeoutRef.current = null;
     }, 10000); // 10 second timeout
 
     try {
@@ -159,10 +160,7 @@ export function TargetPanel({ open, onClose }: Props) {
         timeoutRef.current = null;
       }
     };
-  }, [open, loadHistory]); // loadHistory is stable (useCallback []), so this
-  // runs only when `open` flips — no unnecessary reloads. Kept in the deps
-  // array per eslint/react-hooks/exhaustive-deps to avoid a stale-closure
-  // if loadHistory's deps ever change.
+  }, [open, loadHistory]);
 
   if (!open) return null;
 
