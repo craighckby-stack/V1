@@ -28,7 +28,13 @@ export function RecentCycles() {
       if (!res.ok) {
         throw new Error(`Failed to fetch recent cycles: HTTP status ${res.status} ${res.statusText}`);
       }
-      const data = await res.json();
+      
+      let data;
+      try {
+        data = await res.json();
+      } catch (e) {
+        throw new Error("Failed to parse API response as JSON.");
+      }
       
       // Improved validation: ensure data conforms strictly to the expected structure.
       if (typeof data !== 'object' || data === null || !('cycles' in data) || !Array.isArray((data as { cycles?: unknown }).cycles)) {
