@@ -31,16 +31,16 @@ const STATUS_STYLES: Record<string, { label: string; variant: "default" | "secon
 
 export function OracleTaskFeedPanel() {
   const [tasks, setTasks] = useState<SelfTask[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [isLoadingInitial, setIsLoadingInitial] = useState(true); // Renamed for clarity: true only on first load
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchTasks = useCallback(async (isInitialLoad: boolean = false) => {
     if (isRefreshing) return; // Prevent concurrent refreshes
     
     if (isInitialLoad) {
-        setLoading(true);
+        setIsLoadingInitial(true);
         setError(null); // Clear previous errors on fresh start
     } else {
         setIsRefreshing(true);
@@ -80,7 +80,7 @@ export function OracleTaskFeedPanel() {
     } finally {
       setIsRefreshing(false);
       if (isInitialLoad) {
-        setLoading(false);
+        setIsLoadingInitial(false);
       }
     }
   }, [isRefreshing]);
@@ -91,7 +91,10 @@ export function OracleTaskFeedPanel() {
     
     // Poll every 30s to reduce latency while still managing API load.
     intervalRef.current = setInterval(() => {
-        fetchTasks(false);
+        // Only attempt refresh if not currently refreshing
+        if (!isRefreshing) {
+            fetchTasks(false);
+        }
     }, 30_000);
     
     return () => {
@@ -100,13 +103,13 @@ export function OracleTaskFeedPanel() {
         intervalRef.current = null;
       }
     };
-  }, [fetchTasks]);
+  }, [fetchTasks, isRefreshing]);
 
   // Memoize status styles to avoid unnecessary re-renders
   const statusStyles = useMemo(() => STATUS_STYLES, []);
 
-  // Show loading if we are still loading initially, regardless of tasks.length or error state
-  if (loading) {
+  // Show loading only if we are still loading initially
+  if (isLoadingInitial) {
     return (
       <Card className="w-full">
         <CardHeader>
@@ -151,7 +154,7 @@ export function OracleTaskFeedPanel() {
             {error}
           </p>
         )}
-        {tasks.length === 0 && !loading ? (
+        {tasks.length === 0 && !error && !isRefreshing ? (
           <p className="text-sm text-gray-500 p-4 bg-gray-50 rounded-lg">
             No failed prophecies feeding tasks. The oracle&apos;s predictions are
             either unjudged, fulfilled, or not yet past their deadline.
