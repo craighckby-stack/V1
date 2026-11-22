@@ -131,11 +131,24 @@ function respawnDevServer(): boolean {
     log(`log rotation failed (continuing): ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // V8 heap cap for the respawned dev server. The two OOM kills
+  // (04:46, 05:09) both hit next-server at 1.26-1.55GB RSS when its
+  // heap growth coincided with a transient gate child-process (eslint
+  // ~500MB / tsc ~1GB). Capping the heap at 896MB makes V8 GC harder
+  // instead of growing — worst case the dashboard lags, never dies.
+  // Existing NODE_OPTIONS (if any) are preserved, not clobbered.
+  const existingNodeOptions = process.env.NODE_OPTIONS ?? "";
+  const nodeOptions = existingNodeOptions
+    .split(/\s+/)
+    .filter((f) => f && f !== "--max-old-space-size=896")
+    .concat("--max-old-space-size=896")
+    .join(" ");
+
   const child = spawn("bun", ["run", "dev"], {
     cwd: PROJECT_ROOT,
     detached: true,
     stdio: "ignore",
-    env: { ...process.env },
+    env: { ...process.env, NODE_OPTIONS: nodeOptions },
   });
   child.unref();
 
@@ -186,21 +199,36 @@ async function probeCycle(): Promise<void> {
 
 // Boot message + first probe after a short settle delay (lets this
 // service's own HTTP server bind before the first log line matters).
-setTimeout(() => {
+//
+// HOT-RELOAD TIMER GUARD: `bun --hot` re-runs this module on edit but
+// does NOT clear the previous module's setInterval — the first edit
+// left TWO probe loops running in one process (duplicate FAILED lines
+// 1.2s apart, a phantom "recovered", and a double-spawn risk). The
+// globalThis timer slot below is the same pattern as
+// oracle-scheduler.ts: exactly one interval per process, ever.
+const g = globalThis as unknown as {
+  __devWatchdogTimer?: ReturnType<typeof setInterval> | null;
+  __devWatchdogSettleTimer?: ReturnType<typeof setTimeout> | null;
+};
+if (g.__devWatchdogTimer) clearInterval(g.__devWatchdogTimer);
+if (g.__devWatchdogSettleTimer) clearTimeout(g.__devWatchdogSettleTimer);
+
+g.__devWatchdogSettleTimer = setTimeout(() => {
   log(
     `watching ${PROBE_URL} every ${PROBE_INTERVAL_MS / 1000}s ` +
       `(2-strike respawn, ${GRACE_MS_AFTER_SPAWN / 1000}s grace, ${MAX_SPAWNS_PER_HOUR}/hour budget)`,
   );
   void probeCycle();
-}, 2_000).unref?.();
+}, 2_000);
+g.__devWatchdogSettleTimer.unref?.();
 
-const probeTimer = setInterval(() => {
+g.__devWatchdogTimer = setInterval(() => {
   probeCycle().catch((err) => {
     // A watchdog that dies with its watchee is worthless — swallow.
     log(`probe cycle error (watchdog continues): ${err instanceof Error ? err.message : String(err)}`);
   });
 }, PROBE_INTERVAL_MS);
-probeTimer.unref?.();
+g.__devWatchdogTimer.unref?.();
 
 // ── HTTP surface: GET /health (port 3005) ─────────────────────────────
 Bun.serve({

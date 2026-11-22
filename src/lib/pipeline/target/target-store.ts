@@ -85,7 +85,7 @@ export async function getTargetConfig(): Promise<TargetRepoConfig | null> {
     if (!row || !row.value) return null;
     const parsed = JSON.parse(row.value) as TargetRepoConfig;
     if (!parsed || !parsed.repo || !validTargetRepoFormat(parsed.repo)) {
-      console.error(`Target config found but invalid format for repo: ${parsed?.repo || 'Unknown'}`);
+      console.error(`Target config found but invalid format for repo key ${CONFIG_KEY}. Parsed data:`, parsed);
       return null;
     }
     return parsed;
