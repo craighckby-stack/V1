@@ -22,6 +22,19 @@ export const runtime = "nodejs";
 export async function GET() {
   try {
     const files: Array<{ path: string; protectedFile: boolean }> = [];
+    // Must mirror the loop's scanFiles() skip list (self-enhance-loop.ts):
+    // without it the mini-services scopes (v6) drag their entire
+    // node_modules dependency trees into the inventory — hundreds of
+    // third-party .d.ts files the loop would never touch but the UI
+    // would list as "enhanceable".
+    const SKIP_DIRS = new Set([
+      "node_modules",
+      ".git",
+      ".next",
+      "dist",
+      "build",
+      "coverage",
+    ]);
 
     const scan = (dir: string, extensions: string[]) => {
       let entries: import("fs").Dirent[];
@@ -33,6 +46,7 @@ export async function GET() {
       for (const entry of entries) {
         const fullPath = join(dir, entry.name);
         if (entry.isDirectory()) {
+          if (SKIP_DIRS.has(entry.name)) continue;
           scan(fullPath, extensions);
         } else {
           const isTs = entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts");
