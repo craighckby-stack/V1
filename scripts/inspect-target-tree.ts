@@ -9,7 +9,7 @@ import { isMutableTargetPath, MAX_TARGET_FILE_BYTES } from "@/lib/pipeline/targe
 async function main() {
   const cfg = await getTargetConfig();
   if (!cfg) {
-    console.log("no target configured");
+    console.error("No target configured.");
     process.exitCode = 1;
     return;
   }
@@ -17,7 +17,7 @@ async function main() {
   const ref = cfg.branch ?? "main";
   const res = await listTargetTree(cfg.repo, ref, token);
   if (!res.ok) {
-    console.log("tree fetch failed:", res.error);
+    console.error(`Tree fetch failed for ${cfg.repo} @ ${ref}:`, res.error);
     process.exitCode = 1;
     return;
   }
@@ -35,12 +35,18 @@ async function main() {
     console.log(`  ${isMut ? "Y" : "."}  ${String(f.size).padStart(8)}  ${f.path}`);
 
     // Safely extract extension
-    if (f.path.includes('.')) {
-      const parts = f.path.split(".");
-      // If parts.length > 1, parts.pop() is safe and returns the last segment.
-      // If the path is like ".gitignore", parts[0] is "" and parts.pop() is "gitignore".
-      // If the path is "file.", parts.pop() is "".
-      const ext = parts.pop()!;
+    const lastDotIndex = f.path.lastIndexOf('.');
+    if (lastDotIndex > 0) { // lastDotIndex > 0 ensures it's not a leading dot like in .gitignore
+      const ext = f.path.substring(lastDotIndex + 1);
+      exts.set(ext, (exts.get(ext) ?? 0) + 1);
+    } else if (lastDotIndex === 0 && f.path.length > 1) {
+      // Handle dotfiles like .gitignore where the dot is the first character, but it has content after.
+      // We treat the whole name (minus the leading dot) as the extension/identifier for counting purposes,
+      // or more simply, group them under a specific dotfile category if no further dot exists.
+      // For consistency with the original logic's intent (grouping by segment after dot),
+      // if there's only one segment after the leading dot, we use that.
+      const parts = f.path.substring(1).split(".");
+      const ext = parts.length === 1 ? parts[0] : parts.pop()!;
       exts.set(ext, (exts.get(ext) ?? 0) + 1);
     } else {
       exts.set("(no-ext)", (exts.get("(no-ext)") ?? 0) + 1);
@@ -52,4 +58,4 @@ async function main() {
   [...exts.entries()].sort((a, b) => b[1] - a[1]).forEach(([e, n]) => console.log(`  ${n}  .${e}`));
 }
 
-main().catch((e) => { console.error("FATAL:", e); process.exitCode = 2; });
+main().catch((e) => { console.error("FATAL: Failed to inspect target tree.", e); process.exitCode = 2; });
