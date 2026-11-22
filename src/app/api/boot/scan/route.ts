@@ -61,25 +61,24 @@ async function diskScarCount(): Promise<number> {
   }
   const root = join(PROJECT_ROOT, "postmortems");
 
-  async function countFilesInDirectory(dirPath: string): Promise<number> {
+  // Iterative DFS using a stack to prevent stack overflow on deep directories
+  const stack: string[] = [root];
+  let count = 0;
+
+  while (stack.length > 0) {
+    const dirPath = stack.pop()!;
     try {
       const entries = await readdir(dirPath, { withFileTypes: true });
 
-      // Use Promise.all to process directory entries concurrently for performance
-      const entryPromises = entries.map(async (entry) => {
+      for (const entry of entries) {
         const fullPath = join(dirPath, entry.name);
-        
+
         if (entry.isDirectory()) {
-          return countFilesInDirectory(fullPath);
+          stack.push(fullPath); // Push directory onto stack for later processing
         } else if (entry.isFile() && fullPath.endsWith(".json")) {
-          return 1;
+          count += 1;
         }
-        return 0;
-      });
-
-      const results = await Promise.all(entryPromises);
-      return results.reduce((sum, current) => sum + current, 0);
-
+      }
     } catch (e) {
       // Catch errors during directory read (e.g., directory doesn't exist or permissions denied)
       if (e instanceof Error) {
@@ -87,11 +86,11 @@ async function diskScarCount(): Promise<number> {
       } else {
         console.error(`Unknown error reading directory ${dirPath}:`, e);
       }
-      return 0; // Return 0 on failure as per honesty rule
+      // Continue to next entry/directory on failure, adhering to Honesty rule (don't crash the whole scan)
     }
   }
 
-  return countFilesInDirectory(root);
+  return count;
 }
 
 /** GET /user with the vault-opened PAT. The auto-connect moment. */
@@ -266,7 +265,7 @@ export async function GET() {
   const corpus = results[0].status === 'fulfilled' ? results[0].value : null;
   const passRate = results[1].status === 'fulfilled' ? results[1].value : null;
   // Scars must be a number (0 on failure) as per Honesty rule.
-  const scarsResult = results[2].status === 'fulfilled' ? results[2].value : 0; 
+  const scarsResult = results[2].status === 'fulfilled' ? results[2].value : 0;
   const hotSwap = results[3].status === 'fulfilled' ? results[3].value : null;
   const autonomy = results[4].status === 'fulfilled' ? results[4].value : null;
   const zai = results[5].status === 'fulfilled' ? results[5].value : null;
