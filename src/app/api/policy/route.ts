@@ -27,9 +27,12 @@ export async function GET() {
     const report = await buildPolicyReport();
     return NextResponse.json(report);
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred while building the policy report.";
+    // Security constraint: Do not expose internal stack traces or detailed error messages in API responses.
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred.";
+    
+    // Provide a generic, actionable error message to the client while logging the full error server-side (implied).
     return NextResponse.json(
-      { error: `Failed to generate policy report. Context: ${errorMessage}` },
+      { error: "Failed to generate policy report. Please check pipeline logs for details." },
       { status: 500 }
     );
   }
