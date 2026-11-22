@@ -48,8 +48,8 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
       const solvedPrefix = text.slice(0, solved);
 
       // Build the scrambled tail efficiently
-      // Optimized tail construction: use pre-allocated array for better performance
-      const scrambledTail = Array(unsolvedLength).fill(0).map(() => 
+      // Optimized tail construction: use Array.from for cleaner generation
+      const scrambledTail = Array.from({ length: unsolvedLength }, () => 
         GLYPHS[Math.floor(Math.random() * GLYPHS.length)]
       ).join("");
 

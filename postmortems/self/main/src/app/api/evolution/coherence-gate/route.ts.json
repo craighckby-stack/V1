@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/evolution/coherence-gate/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "3bdc27bbfcc772828b05ea4b0eaa44d9741c64f51c2d373bcba45ae90faf255c",
   "hash": "8248e8a575a5b433c16f60d67c8c63b99c164ca9efbdab18c4b417aa4baef415",
   "lastAttemptAt": "2026-11-22T03:05:51.727Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T04:48:45.991Z",
   "createdAt": "2026-11-22T02:44:42.628Z",
-  "updatedAt": "2026-11-22T03:05:51.727Z",
+  "updatedAt": "2026-11-22T04:48:45.991Z",
   "schema": 2
 }
