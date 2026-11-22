@@ -364,6 +364,7 @@ Rules:
 - Test the EXPORTED functions/classes with realistic inputs, including edge cases (empty strings, boundary numbers, null/undefined only where the signature allows them)
 - Assert CONCRETE expected values derived from reading the implementation — compute the expected output yourself from the logic, do not call the function to obtain it
 - EVERY test() callback MUST contain at least one expect() call. A test with no assertions is rejected. Do not write skeleton tests like \`test('does X', () => {})\` — always assert.
+- LINT HYGIENE: the file must be ESLint-clean under this project's config. Import ONLY names the tests actually use; if a variable, parameter, or catch binding is intentionally unused, prefix it with \`_\` (e.g. \`catch (_e)\`, \`function f(_keyword: string)\`). Never declare a mock/scaffold variable a test never references — either use it or omit it. Do not use \`any\` — use \`unknown\` and narrow.
 - NO tautological tests: never expect(f(x)).toBe(f(x)), never expect(x).toBe(x), never assertions that always pass
 - Do NOT re-implement the module's logic inside the test to compute the expected value
 - If an export's behavior depends on external state (DB, network, filesystem, env), test only the pure logic; skip integration-heavy paths

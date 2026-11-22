@@ -60,10 +60,8 @@ export function OracleTaskFeedPanel() {
         throw new Error("API response validation failed: Expected an object containing a 'tasks' array.");
       }
       
-      const allTasks: any[] = data.tasks; // Use 'any' temporarily for robust runtime check before filtering
-      
       // Validate each task has required fields and conforms to SelfTask structure minimally
-      const validatedTasks: SelfTask[] = allTasks.filter(t => 
+      const validatedTasks: SelfTask[] = (data.tasks as unknown[]).filter(t =>
         t && 
         typeof t === 'object' && 
         'id' in t && typeof t.id === 'string' &&

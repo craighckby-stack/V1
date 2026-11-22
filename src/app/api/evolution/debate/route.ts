@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   let body: DebateRequest;
   try {
     body = await req.json() as DebateRequest;
-  } catch (e) {
+  } catch {
     // Provide a specific 400 error for JSON parsing failure without leaking internal details.
     return NextResponse.json(
       { error: "Invalid JSON format in request body." },

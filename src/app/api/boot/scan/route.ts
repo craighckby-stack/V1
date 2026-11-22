@@ -64,8 +64,7 @@ async function diskScarCount(): Promise<number> {
   async function countFilesInDirectory(dirPath: string): Promise<number> {
     try {
       const entries = await readdir(dirPath, { withFileTypes: true });
-      let count = 0;
-      
+
       // Use Promise.all to process directory entries concurrently for performance
       const entryPromises = entries.map(async (entry) => {
         const fullPath = join(dirPath, entry.name);

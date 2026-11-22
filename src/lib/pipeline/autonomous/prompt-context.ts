@@ -89,7 +89,7 @@ export interface EnhanceContext {
  *  template (refactor / visual-polish / schema) to splice into.
  *
  *  `mode` controls which blocks are included:
- *    - "refactor": all blocks (operating, postmortem, provenance,
+ *    - "refactor": all blocks (operoting, postmortem, provenance,
  *      rejected, ancestral, priorArt, lessons; archContext in user).
  *    - "visual-polish": all EXCEPT priorArt + archContext (the engine
  *      corpus is backend logic; arch context is less relevant for
@@ -102,6 +102,17 @@ export async function buildEnhanceContext(
   relPath: string,
   mode: "refactor" | "visual-polish" | "schema",
 ): Promise<EnhanceContext> {
+  // Validate input parameters
+  if (!filePath || typeof filePath !== "string") {
+    throw new Error("filePath must be a non-empty string");
+  }
+  if (!relPath || typeof relPath !== "string") {
+    throw new Error("relPath must be a non-empty string");
+  }
+  if (!["refactor", "visual-polish", "schema"].includes(mode)) {
+    throw new Error(`Invalid mode: ${mode}. Must be "refactor", "visual-polish", or "schema"`);
+  }
+
   const systemBlocks: string[] = [];
   const userBlocks: string[] = [];
   let lessonIds: string[] = [];
@@ -120,7 +131,8 @@ export async function buildEnhanceContext(
     postmortemActive = postmortem.hasActivePostmortem;
     postmortemBlock = postmortemActive ? `\n${postmortem.promptBlock}\n` : "";
     postmortemSymptom = postmortem.symptom ?? "";
-  } catch {
+  } catch (error) {
+    console.error(`Failed to retrieve postmortem constraints for ${relPath}:`, error);
     /* best-effort */
   }
 
@@ -133,9 +145,9 @@ export async function buildEnhanceContext(
   let ancestralBlock = "";
   if (mode !== "schema") {
     try {
-      const ancestralKeyword =
-        (postmortemSymptom ? postmortemSymptom + " " : "") +
-        relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
+      // Construct keyword once to avoid repeated string operations
+      const pathKeyword = relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
+      const ancestralKeyword = postmortemSymptom ? `${postmortemSymptom} ${pathKeyword}` : pathKeyword;
       const ancestral = await queryRelevantPostmortems({
         keyword: ancestralKeyword,
         excludeFilePath: relPath,
@@ -143,7 +155,8 @@ export async function buildEnhanceContext(
         limit: 5,
       });
       ancestralBlock = formatAncestralPromptBlock(ancestral);
-    } catch {
+    } catch (error) {
+      console.error(`Failed to retrieve ancestral RAG for ${relPath}:`, error);
       /* best-effort */
     }
   }
@@ -155,12 +168,13 @@ export async function buildEnhanceContext(
   let priorArtBlock = "";
   if (mode === "refactor") {
     try {
-      const ancestralKeyword =
-        (postmortemSymptom ? postmortemSymptom + " " : "") +
-        relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
+      // Reuse the already constructed keyword from above
+      const pathKeyword = relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
+      const ancestralKeyword = postmortemSymptom ? `${postmortemSymptom} ${pathKeyword}` : pathKeyword;
       const engineHits = searchEngines(ancestralKeyword, 3);
       priorArtBlock = formatPriorArtBlock(engineHits);
-    } catch {
+    } catch (error) {
+      console.error(`Failed to retrieve prior art for ${relPath}:`, error);
       /* best-effort */
     }
   }
@@ -179,9 +193,13 @@ export async function buildEnhanceContext(
       lessonIds = all.map((x) => x.id);
       operatingBlock = formatOperatingConstraintsBlock(promoted);
       lessonsBlock = formatLessonsBlock(ls);
-      await markInjected(lessonIds);
+      // Only mark lessons as injected if we actually have lesson IDs
+      if (lessonIds.length > 0) {
+        await markInjected(lessonIds);
+      }
     }
-  } catch {
+  } catch (error) {
+    console.error(`Failed to retrieve lessons for ${relPath}:`, error);
     /* lessons are an amplifier, not a gate */
   }
 
@@ -190,7 +208,8 @@ export async function buildEnhanceContext(
   try {
     const rejected = await getRejectedTransformsForFile(relPath);
     rejectedBlock = formatRejectedTransformsBlock(rejected);
-  } catch {
+  } catch (error) {
+    console.error(`Failed to retrieve rejected transforms for ${relPath}:`, error);
     /* best-effort */
   }
 
@@ -204,7 +223,8 @@ export async function buildEnhanceContext(
       if (arch.summary.length > 0) {
         archContextBlock = `\n--- ARCHITECTURE CONTEXT (2-hop neighborhood, ${arch.fileCount} files parsed, hop=${arch.hopCount}) ---\n${arch.summary}\n--- END ARCHITECTURE CONTEXT ---\n`;
       }
-    } catch {
+    } catch (error) {
+      console.error(`Failed to build arch context for ${filePath}:`, error);
       /* arch context is a vision amplifier, not a gate */
     }
   }
@@ -214,7 +234,8 @@ export async function buildEnhanceContext(
   let provenanceBlock = "";
   try {
     provenanceBlock = await buildProvenanceDigestForPrompt(relPath);
-  } catch {
+  } catch (error) {
+    console.error(`Failed to build provenance digest for ${relPath}:`, error);
     /* best-effort */
   }
 
