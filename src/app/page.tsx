@@ -2167,7 +2167,12 @@ export default function Home() {
           }
           const data = (await res.json()) as {
             file: string;
-            summary: { total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number> };
+            summary: {
+              total: number; shown: number;
+              byActor: Record<string, number>; byKind: Record<string, number>;
+              gitCommits: number; loopMutations: number; postmortems: number;
+              pipelineRuns: number; activeLessons: number;
+            };
             timeline: Array<{
               at: string; kind: string; actor: string; title: string;
               details: Record<string, unknown>;
