@@ -13,14 +13,18 @@
 import { peekNextTask } from "../src/lib/pipeline/autonomous/self-task-generator";
 
 async function main() {
-  const next = await peekNextTask();
+  // Run independent reads in parallel to reduce latency
+  const [next, det] = await Promise.all([
+    peekNextTask(),
+    peekNextTask(true),
+  ]);
+
   console.log(
     "peekNextTask (full queue):",
     next
       ? `[${next.kind}] ${next.filePath}:${next.line} deferred=${next.deferred} priority=${next.priority}`
       : "NONE"
   );
-  const det = await peekNextTask(true);
   console.log(
     "peekNextTask (deterministic-only, LLM-rate-limited mode):",
     det
@@ -29,6 +33,7 @@ async function main() {
   );
 }
 main().catch((e) => {
-  console.error((e as Error).message);
+  // Log full error stack for better debugging context
+  console.error("Error during task claim peek:", (e as Error).stack || (e as Error).message);
   process.exit(1);
 });
