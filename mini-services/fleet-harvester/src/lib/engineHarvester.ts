@@ -53,7 +53,9 @@ export function scoreEngineFilePath(filePath: string, size?: number): number {
   const lang = detectEngineLanguage(clean);
   if (!lang) return 0;
 
-  if (typeof size === 'number' && (size <= 40 || size > MAX_ENGINE_FILE_BYTES)) {
+  const numericSize = typeof size === 'number' && size >= 0 ? size : undefined;
+
+  if (numericSize !== undefined && (numericSize <= 40 || numericSize > MAX_ENGINE_FILE_BYTES)) {
     return 0;
   }
 
@@ -70,7 +72,7 @@ export function scoreEngineFilePath(filePath: string, size?: number): number {
   }
 
   let score = 0;
-  const pathMatches = clean.match(new RegExp(HIGH_VALUE_ENGINE_KEYWORDS.source, 'gi'));
+  const pathMatches = clean.match(HIGH_VALUE_ENGINE_KEYWORDS);
   if (pathMatches) {
     score += pathMatches.length * 30;
   }
@@ -84,9 +86,9 @@ export function scoreEngineFilePath(filePath: string, size?: number): number {
   }
 
   // Prefer substantive files (> 1.5KB) over tiny helpers
-  if (typeof size === 'number') {
-    if (size >= 2000 && size <= 120_000) score += 18;
-    else if (size >= 600) score += 8;
+  if (numericSize !== undefined) {
+    if (numericSize >= 2000 && numericSize <= 120_000) score += 18;
+    else if (numericSize >= 600) score += 8;
   }
 
   // Slightly prefer shallower canonical modules over deeply nested leaves
