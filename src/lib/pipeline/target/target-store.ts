@@ -194,6 +194,16 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
     throw new Error(`Invalid status '${rec.status}' — must be one of: ${validStatuses.join(', ')}`);
   }
   
+  // Validate optional 'file' field if present
+  if (rec.file !== undefined && (typeof rec.file !== 'string' || rec.file.trim().length === 0)) {
+    throw new Error("Target run record 'file' must be a non-empty string if provided");
+  }
+  
+  // Validate optional 'branch' field if present
+  if (rec.branch !== undefined && !validTargetBranchFormat(rec.branch)) {
+    throw new Error(`Invalid branch format in record: ${rec.branch} — must be a valid git branch name`);
+  }
+  
   try {
     await db.systemFlag.upsert({
       where: { key: LAST_RUN_KEY },
