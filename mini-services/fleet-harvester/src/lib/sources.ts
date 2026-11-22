@@ -60,6 +60,7 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
 
   for (let token of tokens) {
     // Strip trailing .git or URL prefixes using a single regex for efficiency
+    // Matches: https://...github.com/owner/repo.git or just owner/repo.git
     let cleanToken = token.replace(/^(https?:\/\/(www\.)?github\.com\/|)\S*\.git$/i, '');
     cleanToken = cleanToken.replace(/^\/+|\/+$/g, '');
     
@@ -122,18 +123,18 @@ export function validateDestination(repo: string, branch: string, filePath: stri
   const trimmedBranch = branch.trim();
   const trimmedPath = filePath.trim();
 
-  if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(trimmedRepo)) {
-    throw new Error('Repository must look like "owner/repository" (for example craighckby-stack/V1).');
+  if (!/^[A-Za-z0-9._-]+[A-Za-z0-9._-]+$/.test(trimmedRepo)) {
+    throw new Error(`Invalid repository format: "${repo}". Repository must look like "owner/repository" (e.g., craighckby-stack/V1).`);
   }
   if (!trimmedBranch || /\s/.test(trimmedBranch)) {
-    throw new Error('Branch name cannot be empty or contain spaces.');
+    throw new Error(`Invalid branch name: "${branch}". Branch name cannot be empty or contain spaces.`);
   }
   if (!trimmedPath || trimmedPath.startsWith('/') || trimmedPath.endsWith('/')) {
-    throw new Error(`File path must point to a relative file (for example ${DEFAULT_BASE_PATH}).`);
+    throw new Error(`Invalid file path: "${filePath}". File path must point to a relative file (e.g., ${DEFAULT_BASE_PATH}).`);
   }
   for (const seg of trimmedPath.split('/').filter(Boolean)) {
     if (seg === '.' || seg === '..') {
-      throw new Error(`Invalid path segment "${seg}".`);
+      throw new Error(`Invalid path segment in "${filePath}": segment "${seg}" is forbidden.`);
     }
   }
 }
