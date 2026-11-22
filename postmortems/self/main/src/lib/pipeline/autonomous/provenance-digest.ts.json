@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/autonomous/provenance-digest.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "REVIEW_REJECTED",
   "symptom": "Debate rejected the refactor: Debate rejected (REQUIRES_REWRITE): Both reviewers endorse the existing code's robustness and adherence to design goals. The proposed fix is identified by the Architecture Reviewer as redundant low-value churn, as the preceding guard already prevents the runtime error. Therefore, the change should be reverted to avoid unnecessary modification, aligning with the principle that no change beats churn.",
@@ -12,8 +12,8 @@
   "parentHash": "bd2df3201e00ded10f94241a8781b2f22e87a9fa5cd882092fbab75b35b7fc0d",
   "hash": "ac2a864b334b22d422efddbe8bade0a72becd3a7b7daaeda6959781279ed37fa",
   "lastAttemptAt": "2026-11-22T05:12:39.024Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T05:50:24.460Z",
   "createdAt": "2026-11-22T02:44:42.681Z",
-  "updatedAt": "2026-11-22T05:12:39.024Z",
+  "updatedAt": "2026-11-22T05:50:24.460Z",
   "schema": 2
 }

@@ -119,18 +119,20 @@ export async function oracleSchedulerTick(): Promise<{
     return { ran: false, reason: "failed to list due prophecies" };
   }
 
-  // Update tick time and count only after successful listing
-  s.lastTickAt = Date.now();
-  s.ticks += 1;
-
   if (due.length === 0) {
+    // Update tick time and count even if no prophecies are due, to maintain timing accuracy
+    s.lastTickAt = Date.now();
+    s.ticks += 1;
     return { ran: true, judged: 0, skipped: 0 };
   }
 
+  // Update tick time and count only after successful listing and before evaluation
+  s.lastTickAt = Date.now();
+  s.ticks += 1;
   s.running = true;
 
   try {
-    // Run evaluation concurrently with state updates if possible, but here we await the result
+    // Run evaluation
     const result = await evaluateDueProphecies();
     
     // Validate the result structure. CONTRACT: evaluateDueProphecies()
