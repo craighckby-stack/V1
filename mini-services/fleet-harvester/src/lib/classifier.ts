@@ -24,8 +24,8 @@ export function compileRegexSafe(
   try {
     return { regex: new RegExp(trimmed, 'i') };
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Invalid regular expression';
-    return { regex: new RegExp(fallback, 'i'), error: message };
+    const message = err instanceof Error ? err.message : 'Unknown error during regex compilation';
+    return { regex: new RegExp(fallback, 'i'), error: `Failed to compile regex "${trimmed}": ${message}` };
   }
 }
 
@@ -42,14 +42,17 @@ export function detectRevertedShas(commits: RawCommit[]): Set<string> {
   for (const commit of commits) {
     const lowerSha = commit.sha.toLowerCase();
     const prefix7 = lowerSha.slice(0, 7);
-    const shaList = prefixToShas.get(prefix7) ?? [];
-    shaList.push(lowerSha);
-    prefixToShas.set(prefix7, shaList);
+
+    // Efficiently update prefixToShas
+    const existingPrefixShas = prefixToShas.get(prefix7) || [];
+    existingPrefixShas.push(lowerSha);
+    prefixToShas.set(prefix7, existingPrefixShas);
 
     const subject = commit.message.split('\n')[0].trim().toLowerCase();
-    const list = subjectToShas.get(subject) ?? [];
-    list.push(lowerSha);
-    subjectToShas.set(subject, list);
+    // Efficiently update subjectToShas
+    const existingSubjectShas = subjectToShas.get(subject) || [];
+    existingSubjectShas.push(lowerSha);
+    subjectToShas.set(subject, existingSubjectShas);
   }
 
   const revertLineRx = /This reverts commit ([0-9a-f]{7,40})/gi;
