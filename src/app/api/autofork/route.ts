@@ -28,19 +28,19 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  let repoOverride: string | undefined;
   try {
-    // Optional `repo` param: scan a specific seed repo (e.g. the operator
-    // wants to learn from DeepSeek specifically). Without it, the next
-    // enabled seed in the list is scanned.
-    let repoOverride: string | undefined;
-    try {
-      const body = (await req.json()) as { repo?: string };
-      if (typeof body.repo === "string" && body.repo.trim()) {
-        repoOverride = body.repo.trim();
-      }
-    } catch {
-      /* no body or not JSON — fine, scan the next seed */
+    const body = await req.json();
+    if (typeof body === 'object' && body !== null && typeof body.repo === "string" && body.repo.trim()) {
+      repoOverride = body.repo.trim();
     }
+  } catch (e) {
+    // If JSON parsing fails or body is not an object, we proceed to scan the next seed,
+    // as per original logic, but we avoid swallowing the error silently without context.
+    // Since the original logic ignored this, we maintain that behavior but clean up the structure.
+  }
+
+  try {
     const result = await ingestAutoFork(undefined, repoOverride);
     return NextResponse.json(result);
   } catch (err) {

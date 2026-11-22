@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/boot/scan/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/page.tsx(2187,71): error TS2339: Property 'gitCommits' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.; src/app/page.tsx(2187,97): error TS2339: Property 'loopMutations' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.; src/app/page.tsx(2187,122): error TS2339: Property 'postmortems' does not exist on type '{ total: number; shown: number; byActor: Record<string, number>; byKind: Record<string, number>; }'.",
@@ -12,8 +12,8 @@
   "parentHash": "f284321fb175806506d3910259c3277a643a2644b887ef974961f5639b472cab",
   "hash": "0cfca00ba52250f39e0c09357bb7e8acd619a489a8219d970bf3f16626fe448d",
   "lastAttemptAt": "2026-11-21T22:59:23.946Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T04:52:22.829Z",
   "createdAt": "2026-11-21T19:05:54.395Z",
-  "updatedAt": "2026-11-21T22:59:23.946Z",
+  "updatedAt": "2026-11-22T04:52:22.829Z",
   "schema": 2
 }
