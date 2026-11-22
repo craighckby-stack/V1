@@ -20,15 +20,19 @@ const MAX_AUTO_WAIT_MS = 120_000;
  * Computes pacing and rate-limit recovery cooldowns for GitHub REST API requests.
  */
 export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision {
+  if (!input) {
+    throw new Error("GitHubRateInput cannot be null or undefined.");
+  }
+
   const now = input.nowMs ?? Date.now();
   const remaining =
-    input.remainingHeader !== null && input.remainingHeader !== ''
+    input.remainingHeader && input.remainingHeader.trim() !== ''
       ? Number(input.remainingHeader)
       : null;
   const resetEpochSec =
-    input.resetHeader !== null && input.resetHeader !== '' ? Number(input.resetHeader) : null;
+    input.resetHeader && input.resetHeader.trim() !== '' ? Number(input.resetHeader) : null;
   const retryAfterSec =
-    input.retryAfterHeader !== null && input.retryAfterHeader !== ''
+    input.retryAfterHeader && input.retryAfterHeader.trim() !== ''
       ? Number(input.retryAfterHeader)
       : null;
 
@@ -178,5 +182,6 @@ export async function fetchWithTimeout(
   } finally {
     clearTimeout(timer);
     callerSignal?.removeEventListener('abort', onCallerAbort);
+    controller.abort(); // Ensure controller is cleaned up even if fetch succeeded or failed early
   }
 }
