@@ -1,31 +1,3 @@
-/**
- * One-off: record the postmortem for the bare-UUID commit that landed on
- * `main` (commit e5d2b7a, message "dc951e0f-8247-4972-be3f-17ca5c301b75").
- *
- * Investigation (parent session) concluded the commit was created by the
- * host restore orchestrator on machine restart — OUTSIDE LOOP's commit
- * path. This script runs ONCE to write the failure memory so the
- * autonomous loop's RAG surfaces it on future related failures (e.g. an
- * operator looking at commit-archaeology.ts output and wondering why a
- * SHA returned a UUID).
- *
- * Mirrors the system-event recording pattern in core/duress.ts (L386-399):
- *   - repo="self", branch="main", filePath="system:commit-message-guard"
- *   - observed=false (system event, not an observation of a real file —
- *     matches the duress/hot-swap convention so this record can't upgrade
- *     a CANDIDATE to VERIFIED on a different file's row)
- *   - failureType="OTHER"
- *
- * Idempotent — running it twice INCREMENTS attempts on the same row (the
- * (targetRepo, branch, filePath) tuple is the unique key in
- * postmortem-store). Safe to re-run after a DB wipe; the disk mirror at
- * postmortems/self/main/system:commit-message-guard.json is the source
- * of truth and survives the wipe (postmortem-repo.ts writes it
- * atomically alongside the DB row, same pattern as system:duress.json).
- *
- * Usage: bun run scripts/record-uuid-postmortem.ts
- */
-
 import { postmortemStore } from "@/lib/pipeline/postmortem/postmortem-store";
 
 async function main() {
@@ -120,10 +92,8 @@ async function main() {
   console.log("  verified? :", record.verificationStatus);
   console.log("  hash      :", record.hash);
   console.log("  disk mirror: postmortems/self/main/system:commit-message-guard.json");
-  process.exit(0);
 }
 
 main().catch((err) => {
-  console.error("FAILED to record postmortem:", err instanceof Error ? err.message : String(err));
-  process.exit(1);
+  console.error("FAILED to record postmortem:", err instanceof Error ? err.stack || err.message : String(err));
 });
