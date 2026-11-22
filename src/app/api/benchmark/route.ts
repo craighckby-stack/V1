@@ -28,9 +28,20 @@ export async function GET() {
     }
     return NextResponse.json(report);
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during benchmark report generation.";
+    let errorMessage = "An unknown error occurred during benchmark report generation.";
+    let errorName = "UnknownError";
+
+    if (err instanceof Error) {
+      errorMessage = err.message;
+      errorName = err.name;
+    } else if (typeof err === 'object' && err !== null && 'message' in err) {
+      // Handle cases where err is an object but not an Error instance (e.g., { message: '...' })
+      errorMessage = (err as { message: string }).message;
+      errorName = 'ObjectError';
+    }
+
     return NextResponse.json(
-      { error: `benchmark failed: ${errorMessage}` },
+      { error: `benchmark failed (${errorName}): ${errorMessage}` },
       { status: 500 },
     );
   }
