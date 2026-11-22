@@ -278,10 +278,15 @@ export async function evaluateDueProphecies(): Promise<{
         // carrying the claim + criterion as evidence. The task-executor
         // gets a focused instruction to investigate the stall. Fail-
         // soft: a DB error loses the task, never fails the verdict.
+        // AUDIT 9: the result is three-way. Only a REAL db-error is
+        // narrated as one — "not-actionable" is a by-design refusal
+        // (general-domain / broken-snapshot prophecies never feed
+        // tasks) and stays silent, so the operator console can trust
+        // that every "(DB error)" line is a genuine DB fault.
         const fed = await queueTaskForFailedProphecy(prophecy);
-        if (!fed) {
+        if (fed.status === "db-error") {
           emitOracleEvent(
-            `Oracle: failed to queue SelfTask for failed self-prophecy "${prophecy.claim.slice(0, 60)}" — verdict stands, task feed lost (DB error, fail-soft)`,
+            `Oracle: DB error while queuing SelfTask for failed self-prophecy "${prophecy.claim.slice(0, 60)}" — verdict stands, task feed lost (${fed.error})`,
             "error",
             "auto-adjudicator",
           );

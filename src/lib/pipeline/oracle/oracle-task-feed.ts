@@ -119,47 +119,101 @@ function buildEvidence(prophecy: Prophecy): string {
   return `Oracle self-prophecy FAILED by deadline. Claim: "${claim}". Confidence when made: ${confidenceStr}. Made at ${createdAtStr}, deadline ${evaluateByStr}. Criterion: ${criterion}`;
 }
 
+/** Discriminated result for queueTaskForFailedProphecy.
+ *
+ *  AUDIT 9 (2026-11-22, the lying-error fix): this function used to
+ *  return a bare boolean, and the evaluator narrated EVERY false as
+ *  "(DB error, fail-soft)". That was a lie in two of three cases: a
+ *  general-domain prophecy or an unparseable snapshot returns false
+ *  BY DESIGN (BOUNDED above) with no DB access at all — yet the
+ *  operator console showed "task feed lost (DB error)" for them,
+ *  sending the operator hunting for a DB fault that never happened.
+ *  (Observed live: the only "DB error" lines in the freeze-era spam
+ *  wave belonged to the two not-actionable test claims.) The result
+ *  is now three-way so each caller narrates exactly what happened:
+ *
+ *  - "queued"          — the SelfTask landed (or the upsert refreshed it).
+ *  - "not-actionable"  — by-design refusal (see BOUNDED / the reason
+ *                        codes); NOT an error, callers stay silent.
+ *  - "db-error"        — a real DB failure; the verdict still stands
+ *                        (fail-soft), the task feed is genuinely lost.
+ */
+export type TaskFeedResult =
+  | { status: "queued" }
+  | {
+      status: "not-actionable";
+      reason:
+        | "null-prophecy"
+        | "invalid-id"
+        | "not-self-prediction"
+        | "unparseable-snapshot"
+        | "missing-filePath"
+        | "kind-unregistered";
+    }
+  | { status: "db-error"; error: string };
+
 /** Queue a SelfTask for a failed self-prophecy. Idempotent: the
  *  unique constraint [kind, filePath, line] means a second call for
  *  the same prophecy is an upsert that just refreshes the evidence.
- *  Returns true on success, false on DB error (fail-soft — the
- *  evaluator's verdict still stands; we just lose the task feed).
+ *  Returns a TaskFeedResult — see the type for the full contract.
+ *  Fail-soft: a DB error loses the task, never the caller's verdict.
  *
  *  Called from prophecy-evaluator.ts at the FAILED-by-deadline branch.
  *  Never throws. */
-export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined | null): Promise<boolean> {
+export async function queueTaskForFailedProphecy(
+  prophecy: Prophecy | undefined | null
+): Promise<TaskFeedResult> {
   if (!prophecy) {
     // Input validation: Prophecy must exist to proceed.
     console.error("[OracleTaskFeed] queueTaskForFailedProphecy called with null or undefined prophecy.");
-    return false;
+    return { status: "not-actionable", reason: "null-prophecy" };
   }
 
   if (typeof prophecy.id !== 'string' || !prophecy.id) {
     console.error(`[OracleTaskFeed] Prophecy ID is missing or invalid for prophecy: ${JSON.stringify(prophecy)}`);
-    return false;
+    return { status: "not-actionable", reason: "invalid-id" };
   }
 
   const filePath = filePathFromSelfProphecy(prophecy);
-  if (!filePath) return false; // not a self-prophecy — not actionable
-
-  let line: number;
-  try {
-    line = hashProphecyIdToLine(prophecy.id);
-  } catch (e) {
-    const errorMessage = e instanceof Error ? e.message : String(e);
-    console.error(`[OracleTaskFeed] Failed to hash prophecy ID ${prophecy.id} for task creation: ${errorMessage}`);
-    return false;
+  if (!filePath) {
+    // Not a self-prophecy, or its snapshot is unparseable/incomplete —
+    // a by-design refusal (BOUNDED above), not an error. Unparseable
+    // snapshots are already console.error'd inside
+    // filePathFromSelfProphecy with the prophecy ID for debugging.
+    // Classify honestly for the caller: does the snapshot fail to
+    // PARSE (unparseable-snapshot), or does it parse but lack the
+    // filePath field (missing-filePath)? The distinction matters —
+    // the first is a data-integrity signal, the second is a
+    // generation-path gap.
+    if (prophecy.domain === "self-prediction") {
+      let unparseable = false;
+      if (prophecy.historySnapshot) {
+        try {
+          JSON.parse(prophecy.historySnapshot);
+        } catch {
+          unparseable = true;
+        }
+      }
+      return {
+        status: "not-actionable",
+        reason: unparseable ? "unparseable-snapshot" : "missing-filePath",
+      };
+    }
+    return { status: "not-actionable", reason: "not-self-prediction" };
   }
 
   const taskKind = TASK_KINDS[ORACLE_FAILED_PROPHECY_KIND];
   if (!taskKind) {
     console.error(`[OracleTaskFeed] Task kind ${ORACLE_FAILED_PROPHECY_KIND} is not registered in TASK_KINDS. Cannot queue task.`);
-    return false;
+    return { status: "not-actionable", reason: "kind-unregistered" };
   }
   
   // Use priority from taskKind if available, otherwise default to 7 as per original logic intent
   const priority = taskKind.priority ?? 7;
 
+  // hashProphecyIdToLine is a pure FNV-1a over a validated non-empty
+  // string — it cannot throw. (The old try/catch here was dead armor.)
+  const line = hashProphecyIdToLine(prophecy.id);
   const evidence = buildEvidence(prophecy);
 
   try {
@@ -183,13 +237,13 @@ export async function queueTaskForFailedProphecy(prophecy: Prophecy | undefined 
         priority,
       },
     });
-    return true;
+    return { status: "queued" };
   } catch (error) {
     // Fail-soft: the evaluator's verdict still landed in the Prophecy
     // table. Losing the task feed is a lost opportunity, not a fault.
-    // Log the error context for debugging, but return false as required by fail-soft contract.
+    // Log the error context for debugging, and surface it honestly.
     const dbError = error instanceof Error ? error : new Error("Unknown database error during task queuing.");
     console.error(`[OracleTaskFeed] Database error while queuing oracle-failed-prophecy task for file ${filePath} (ID: ${prophecy.id}, Line: ${line}). Task Kind: ${ORACLE_FAILED_PROPHECY_KIND}. Error details: ${dbError.message}`);
-    return false;
+    return { status: "db-error", error: dbError.message };
   }
 }
