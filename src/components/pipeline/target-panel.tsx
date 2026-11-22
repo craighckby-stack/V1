@@ -81,6 +81,7 @@ export function TargetPanel({ open, onClose }: Props) {
     const signal = abortControllerRef.current.signal;
     
     setLoading(true);
+    setRuns([]); // Reset runs immediately upon starting load
     
     // Set up timeout and request concurrently for better latency
     timeoutRef.current = setTimeout(() => {
@@ -105,7 +106,8 @@ export function TargetPanel({ open, onClose }: Props) {
       if (!res.ok) {
         const errorText = await res.text();
         console.error(`Failed to load pipeline history: HTTP status ${res.status}. Details: ${errorText.substring(0, 100)}`);
-        setRuns([]); // Ensure runs is empty on API failure
+        setRuns([]);
+        setLoading(false);
         return;
       }
       
@@ -114,25 +116,31 @@ export function TargetPanel({ open, onClose }: Props) {
       // Validate response structure
       if (!data || !Array.isArray(data.runs)) {
         console.error("Unexpected response structure from pipeline history API");
-        setRuns([]); // Handle case where response is OK but structure is unexpected
+        setRuns([]);
+        setLoading(false);
         return;
       }
       
       setRuns(data.runs);
+      setLoading(false);
     } catch (error) {
       // Ignore abort errors
       if (error instanceof Error && error.name === 'AbortError') {
         return;
       }
       
-      // History is a convenience strip — log error but never block the panel on it.
+      // Network or parsing error: log error but ensure loading state is resolved.
       console.error("Network or parsing error fetching pipeline history:", error instanceof Error ? error.message : "Unknown error");
-      setRuns([]); // Ensure runs is empty on network/parsing failure
+      setRuns([]);
+      setLoading(false);
     } finally {
-      // Only set loading to false if the request wasn't aborted by the timeout handler
-      if (!signal.aborted) {
-        setLoading(false);
+      // Ensure cleanup of timeout reference if it wasn't cleared in try block
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
+      // Note: setLoading(false) is now handled explicitly in success/error paths above
+      // to correctly manage the state based on request outcome vs. abort.
     }
   }, []);
 

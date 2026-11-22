@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { GET, POST, dynamic, runtime } from "./route";
+import { dynamic, runtime } from "./route";
 
 // Mock dependencies to isolate the HTTP handler logic
 // In a real scenario, these mocks would be set up before the tests run.
@@ -37,7 +37,7 @@ describe("GET handler", () => {
 describe("POST handler", () => {
   test("returns 400 if answer is neither 'yes' nor 'no'", async () => {
     // Simulate a request body where answer is invalid
-    const mockReq = {
+    const _mockReq = {
       json: async () => ({ answer: "maybe" }),
     } as unknown as Request;
     // Expected response structure for invalid answer
@@ -48,7 +48,7 @@ describe("POST handler", () => {
 
   test("returns 404 if no pending questions exist and id is omitted", async () => {
     // Simulate a request body without ID, and getPendingQuestions returning []
-    const mockReq = {
+    const _mockReq = {
       json: async () => ({ answer: "yes" }),
     } as unknown as Request;
     // Expected response structure for no pending questions
@@ -58,7 +58,7 @@ describe("POST handler", () => {
 
   test("returns the result from recordAnswer when ID is provided and valid", async () => {
     // Simulate a request body with ID, and recordAnswer succeeding
-    const mockReq = {
+    const _mockReq = {
       json: async () => ({ answer: "yes", id: "q123", note: "Good" }),
     } as unknown as Request;
     // Expected success structure from recordAnswer (based on implementation return type)
