@@ -97,7 +97,28 @@ export const TARGET_FILES: string[] = [];
  *  Everything the system IS now lives inside its own reach: the loop
  *  can enhance the routes that serve it, the display that renders it,
  *  and the pipeline logic that drives it. It can no longer touch
- *  vendored components. */
+ *  vendored components.
+ *
+ *  v6 (operator-directed, 2026-11-22): EXPANDED BEYOND src/ — the loop
+ *  can now enhance the mini-services that make up the rest of the
+ *  running system: its own worker-process wrapper (loop-worker), the
+ *  browser socket relay (loop-ws-service), and the fleet harvester.
+ *  Two deliberate exclusions:
+ *    - dev-watchdog is NOT in scope and is prefix-protected in
+ *      protected-files.ts: it is the resurrection layer for the dev
+ *      server (2-strike respawn); a bad mutation there could orphan
+ *      the entire supervision chain while appearing healthy.
+ *    - each service's package.json / tsconfig.json remain blocked by
+ *      the mutation-guard's SCAFFOLDING_PROTECTED_PATHS (basename
+ *      match, any directory).
+ *  Typecheck coverage: mini-services files are NOT in the root
+ *  tsconfig program (deliberately excluded there), so
+ *  in-memory-typecheck.ts builds them a SCOPED program (mutated file
+ *  + bun-types + the root @types set) — see that file for why
+ *  bun-types can't join the full src program. Deploy semantics differ
+ *  per service: loop-worker has NO --hot (mutations inert until the
+ *  next worker restart — a deliberate crash-safety property);
+ *  loop-ws-service runs --hot (mutations go live on save). */
 export const SCAN_SCOPES: Array<{ dir: string; extensions: string[] }> = [
   { dir: "src/lib/pipeline", extensions: [".ts"] },
   { dir: "src/app", extensions: [".ts", ".tsx"] },
@@ -109,6 +130,11 @@ export const SCAN_SCOPES: Array<{ dir: string; extensions: string[] }> = [
   // convergent-move guard are the two friction layers that make this
   // safe to re-expand (see the v5 note above).
   { dir: "src/components/pipeline", extensions: [".tsx"] },
+  // v6 (2026-11-22): the out-of-src expansion — see the v6 note above.
+  // dev-watchdog is deliberately absent (protected-files.ts).
+  { dir: "mini-services/loop-worker", extensions: [".ts"] },
+  { dir: "mini-services/loop-ws-service", extensions: [".ts"] },
+  { dir: "mini-services/fleet-harvester", extensions: [".ts"] },
 ];
 
 /** The Prisma schema — handled as a special single-file scope. Not a

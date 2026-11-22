@@ -29,7 +29,6 @@ import { readFileSync, existsSync } from "fs";
 import { llmComplete } from "../llm/agent-llm";
 import { listDueProphecies, judgeProphecy } from "./prophecy-store";
 import { emitOracleEvent } from "./oracle-events";
-import { queueTaskForFailedProphecy } from "./oracle-task-feed";
 import { db } from "@/lib/db";
 import type { Prophecy } from "@prisma/client";
 import { scrubSectionMarkers } from "../core/prompt-scrub";
@@ -229,6 +228,84 @@ function parseJsonFromResponse(content: string): RawVerdict | null {
   return null;
 }
 
+/** ── RETROACTIVE SELF-PROPHECY SETTLEMENT (operator fix, 2026-11-22) ─
+ *
+ * A self-prediction reaching its deadline used to be auto-failed as
+ * "no attempt occurred" — but with the worker split, the attempt it
+ * predicted may have HAPPENED without the in-worker auto-adjudicator
+ * running (worker crash mid-attempt, DB hiccup between attempt and
+ * adjudication, or simply a legacy pre-fix prophecy). Failing those by
+ * deadline would mislabel real outcomes and poison the calibration
+ * curve.
+ *
+ * This helper checks the MutationCorpus (one row per attempt, written
+ * by the worker): if the predicted attempt — or any attempt on the
+ * same file after the prophecy was made (legacy "next attempt"
+ * semantics) — actually occurred, settle by its recorded gateOutcome
+ * instead. Returns null when no attempt is on record, in which case
+ * the honest verdict is deadline-failure. NO LLM — the corpus IS the
+ * ground truth. Fail-soft on DB errors (return null → deadline path). */
+async function retroactiveSelfProphecyVerdict(
+  prophecy: Prophecy,
+): Promise<{ verdict: "fulfilled" | "failed"; evaluation: string } | null> {
+  let meta: {
+    selfProphecy?: boolean;
+    sameAttempt?: boolean;
+    filePath?: string;
+    cycleNumber?: number;
+    mode?: string;
+  } | null = null;
+  try {
+    if (prophecy.historySnapshot) {
+      meta = JSON.parse(prophecy.historySnapshot);
+    }
+  } catch {
+    return null; // unparseable snapshot — not actionable here
+  }
+  if (!meta?.selfProphecy || typeof meta.filePath !== "string") return null;
+
+  try {
+    // Primary (sameAttempt prophecies, 2026-11-22+): the exact
+    // predicted attempt — filePath + cycleNumber both recorded in the
+    // corpus row by the worker at attempt time.
+    let attempt: { cycleNumber: number; gateOutcome: string; originalSha: string } | null =
+      null;
+    if (meta.sameAttempt === true && typeof meta.cycleNumber === "number") {
+      attempt = await db.mutationCorpus.findFirst({
+        where: { filePath: meta.filePath, cycleNumber: meta.cycleNumber },
+        orderBy: { createdAt: "desc" },
+        select: { cycleNumber: true, gateOutcome: true, originalSha: true },
+      });
+    }
+    // Fallback (legacy "next attempt" prophecies): any recorded
+    // attempt on the file after the prophecy was made.
+    if (!attempt) {
+      attempt = await db.mutationCorpus.findFirst({
+        where: { filePath: meta.filePath, createdAt: { gte: prophecy.createdAt } },
+        orderBy: { createdAt: "desc" },
+        select: { cycleNumber: true, gateOutcome: true, originalSha: true },
+      });
+    }
+    if (!attempt) return null; // genuinely no attempt on record
+
+    const passed = attempt.gateOutcome === "enhanced";
+    const sha = attempt.originalSha ? attempt.originalSha.slice(0, 10) : "?";
+    return {
+      verdict: passed ? "fulfilled" : "failed",
+      evaluation:
+        `Retroactive settlement (no LLM): the ${meta.mode ?? "refactor"} attempt on ` +
+        `${meta.filePath} at cycle ${attempt.cycleNumber} DID occur — recorded in ` +
+        `the MutationCorpus with gateOutcome="${attempt.gateOutcome}" ` +
+        `(originalSha ${sha}). The in-worker auto-adjudicator never ran for it ` +
+        `(worker restart or DB hiccup between attempt and adjudication), so the ` +
+        `deadline evaluator settled it from the corpus instead of mislabeling it ` +
+        `a timeout. (Confidence when made: ${prophecy.confidence.toFixed(2)}.)`,
+    };
+  } catch {
+    return null; // DB hiccup — let the deadline path handle it
+  }
+}
+
 /** Evaluate ALL due prophecies. Returns the per-prophecy outcomes.
  *  Used by the API route's "judge all pending" endpoint and by any
  *  background loop that periodically triggers evaluation.
@@ -259,38 +336,56 @@ export async function evaluateDueProphecies(): Promise<{
     // self-prediction (quota waste + verdicts conflicting with the
     // deterministic judge).
     if (prophecy.domain === "self-prediction") {
+      // ── RETROACTIVE CHECK FIRST (2026-11-22): the predicted attempt
+      // may have happened without the adjudicator running — settle
+      // from the corpus instead of mislabeling a real outcome as a
+      // timeout. See retroactiveSelfProphecyVerdict above.
+      const retro = await retroactiveSelfProphecyVerdict(prophecy);
+      if (retro) {
+        const retroUpdated = await judgeProphecy(prophecy.id, retro.verdict, retro.evaluation);
+        if (retroUpdated) {
+          emitOracleEvent(
+            `Oracle self-prophecy ${retro.verdict.toUpperCase()} (retroactive, from MutationCorpus): "${prophecy.claim.slice(0, 80)}"`,
+            retro.verdict === "fulfilled" ? "success" : "warn",
+            "auto-adjudicator",
+          );
+          judged.push({ id: prophecy.id, claim: prophecy.claim, verdict: retro.verdict });
+        } else {
+          skipped.push({
+            id: prophecy.id,
+            claim: prophecy.claim,
+            reason: "store-failed",
+            error: "DB update failed",
+          });
+        }
+        continue;
+      }
       const evaluation =
         `Deterministic deadline verdict (no LLM): this self-prediction claimed the ` +
-        `next attempt on its file would pass all gates. No such attempt occurred ` +
-        `before the evaluateBy deadline, so the predicted event did not happen. ` +
+        `attempt on its file would pass all gates. No such attempt is on record ` +
+        `in the MutationCorpus before the evaluateBy deadline, so the predicted ` +
+        `event did not happen (worker crash mid-attempt or the file was never ` +
+        `attempted). ` +
         `(Confidence when made: ${prophecy.confidence.toFixed(2)}. ` +
         `Made at ${prophecy.createdAt.toISOString()}, deadline ${prophecy.evaluateBy.toISOString()}.)`;
       const updated = await judgeProphecy(prophecy.id, "failed", evaluation);
       if (updated) {
         emitOracleEvent(
-          `Oracle self-prophecy FAILED (deadline passed, no re-attempt): "${prophecy.claim.slice(0, 80)}"`,
+          `Oracle self-prophecy FAILED (deadline passed, no attempt on record): "${prophecy.claim.slice(0, 80)}"`,
           "warn",
           "auto-adjudicator",
         );
-        // AUDIT 8 — close the loop. A failed prophecy used to be a 5-min
-        // heartbreak channel: judged, logged, and forgotten. Now it
-        // feeds a SelfTask on the same file the prophecy was about,
-        // carrying the claim + criterion as evidence. The task-executor
-        // gets a focused instruction to investigate the stall. Fail-
-        // soft: a DB error loses the task, never fails the verdict.
-        // AUDIT 9: the result is three-way. Only a REAL db-error is
-        // narrated as one — "not-actionable" is a by-design refusal
-        // (general-domain / broken-snapshot prophecies never feed
-        // tasks) and stays silent, so the operator console can trust
-        // that every "(DB error)" line is a genuine DB fault.
-        const fed = await queueTaskForFailedProphecy(prophecy);
-        if (fed.status === "db-error") {
-          emitOracleEvent(
-            `Oracle: DB error while queuing SelfTask for failed self-prophecy "${prophecy.claim.slice(0, 60)}" — verdict stands, task feed lost (${fed.error})`,
-            "error",
-            "auto-adjudicator",
-          );
-        }
+        // NOTE (2026-11-22): no SelfTask spawn here anymore. Under the
+        // old "next attempt" wording, a timeout meant "the rotation
+        // never came back to this file" — a scheduling outcome, not a
+        // code defect — yet each one queued a priority-7 LLM task that
+        // almost always resolved as a no-op skip (91 pending + 113
+        // skipped accumulated, zero completions). With same-attempt
+        // settlement + the retroactive corpus check above, a prophecy
+        // reaching THIS branch means no attempt record exists at all —
+        // a worker crash or DB gap, which the crash-budget and
+        // postmortem subsystems already own. Verdict stands; the noise
+        // channel is retired.
         judged.push({ id: prophecy.id, claim: prophecy.claim, verdict: "failed" });
       } else {
         emitOracleEvent(
@@ -416,16 +511,29 @@ export async function evaluateProphecyById(id: string): Promise<{
   }
 
   // AUDIT 7: self-predictions are never LLM-judged (the deterministic
-  // auto-adjudicator owns them). A manual trigger on one judges it
-  // directly: FAILED if its horizon passed without the predicted
-  // re-attempt, otherwise left pending (the adjudicator will settle it
-  // on the file's next verdict).
+  // auto-adjudicator owns them). A manual trigger on one first tries
+  // the retroactive corpus settlement (2026-11-22 — the predicted
+  // attempt may have happened without the adjudicator running), then
+  // falls back to FAILED if its horizon passed with no attempt on
+  // record; before the horizon it stays pending (the adjudicator will
+  // settle it on the file's next verdict).
   if (prophecy.domain === "self-prediction") {
     if (prophecy.evaluateBy.getTime() > Date.now()) {
       return {
         ok: false,
         error: "Self-prediction not yet due — the deterministic adjudicator settles it on the file's next verdict",
       };
+    }
+    const retro = await retroactiveSelfProphecyVerdict(prophecy);
+    if (retro) {
+      const retroUpdated = await judgeProphecy(prophecy.id, retro.verdict, retro.evaluation);
+      if (!retroUpdated) return { ok: false, error: "DB update failed" };
+      emitOracleEvent(
+        `Oracle self-prophecy ${retro.verdict.toUpperCase()} (manual trigger, retroactive from corpus): "${prophecy.claim.slice(0, 80)}"`,
+        retro.verdict === "fulfilled" ? "success" : "warn",
+        "auto-adjudicator",
+      );
+      return { ok: true, verdict: retro.verdict };
     }
     const evaluation =
       `Deterministic deadline verdict (manual trigger, no LLM): no re-attempt on the ` +
@@ -434,7 +542,7 @@ export async function evaluateProphecyById(id: string): Promise<{
     const updated = await judgeProphecy(prophecy.id, "failed", evaluation);
     if (!updated) return { ok: false, error: "DB update failed" };
     emitOracleEvent(
-      `Oracle self-prophecy FAILED (manual deadline trigger): "${prophecy.claim.slice(0, 80)}"`,
+      `Oracle self-prophecy FAILED (manual deadline trigger, no attempt on record): "${prophecy.claim.slice(0, 80)}"`,
       "warn",
       "auto-adjudicator",
     );

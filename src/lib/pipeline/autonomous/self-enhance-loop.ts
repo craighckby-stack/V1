@@ -828,6 +828,19 @@ class SelfEnhanceLoop {
     const focus = TARGET_FILES.length > 0;
     const allowSet = new Set(TARGET_FILES);
     const files: string[] = [];
+    // Directory names never scanned, at any depth. Irrelevant for the
+    // src/ scopes (they contain none of these), ESSENTIAL for the
+    // mini-services scopes (v6, 2026-11-22): every service carries its
+    // own node_modules from `bun install`, and recursing into it would
+    // feed thousands of dependency .ts files to the mutation scanner.
+    const SKIP_DIRS = new Set([
+      "node_modules",
+      ".git",
+      ".next",
+      "dist",
+      "build",
+      "coverage",
+    ]);
     const scan = (dir: string, extensions: string[]) => {
       let entries: import("fs").Dirent[];
       try {
@@ -838,6 +851,7 @@ class SelfEnhanceLoop {
       for (const entry of entries) {
         const fullPath = join(dir, entry.name);
         if (entry.isDirectory()) {
+          if (SKIP_DIRS.has(entry.name)) continue;
           scan(fullPath, extensions);
         } else {
           const isTs = entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts");
@@ -3206,22 +3220,23 @@ ${schemaSystemTail}`;
         // verdict IS the next attempt's outcome. This floods the Oracle
         // with adjudicable, continuous-confidence prophecies (vs the
         // sparse LLM-generated kind), giving a real calibration curve
-        // within hours. Fire-and-forget; fail-soft.
+        // within hours. AWAITED, not fire-and-forget (same-attempt
+        // settlement, 2026-11-22): the row must exist on disk before
+        // enhanceFile returns, or the adjudicator below would run before
+        // the prophecy it is supposed to settle. Still fail-soft.
         if (predId !== null) {
-          void (async () => {
-            try {
-              const pc = await predictConfidence(relPath, "refactor");
-              await recordSelfProphecy({
-                filePath: relPath,
-                confidence: pc.confidence,
-                reason: pc.reason,
-                mode: "refactor",
-                cycleNumber: this.stats.cyclesCompleted + 1,
-              });
-            } catch {
-              /* fail-soft */
-            }
-          })();
+          try {
+            const pc = await predictConfidence(relPath, "refactor");
+            await recordSelfProphecy({
+              filePath: relPath,
+              confidence: pc.confidence,
+              reason: pc.reason,
+              mode: "refactor",
+              cycleNumber: this.stats.cyclesCompleted + 1,
+            });
+          } catch {
+            /* fail-soft */
+          }
         }
 
         const result = await this.enhanceFile(file);
@@ -3254,10 +3269,11 @@ ${schemaSystemTail}`;
           this.log(`resolveSelfPrediction failed for ${relPath}: ${(e as Error)?.message ?? String(e)}`, "warn");
         });
         // ── ORACLE SELF-PROPHECY ADJUDICATION (audit 7) ──────────────
-        // Deterministically judge any pending self-prophecies for this
-        // file whose predicted cycle has passed. No LLM, no cooldown
-        // gate — the verdict IS this attempt's outcome. Closes the
-        // oracle's loop in one cycle.
+        // Deterministically judge the pending self-prophecy opened for
+        // THIS in-flight attempt (same-attempt settlement, 2026-11-22)
+        // plus any legacy stragglers for this file. No LLM, no cooldown
+        // gate — the verdict IS this attempt's outcome. ~100% settlement
+        // within the same cycle.
         void adjudicateSelfProphecies(
           relPath, result.enhanced, this.stats.cyclesCompleted + 1
         ).catch(() => {});

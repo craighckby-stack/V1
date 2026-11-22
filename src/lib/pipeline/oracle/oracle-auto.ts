@@ -37,13 +37,29 @@
  *
  * The self-prophecy fixes all three: every cycle, the self-model's
  * predictConfidence (continuous, LLM-free) becomes a Prophecy row with
- * a SHORT horizon (10 min = ~1-2 cycles) and a DETERMINISTIC
- * adjudicator. No LLM is used for generation OR adjudication — the
- * confidence IS the self-model speaking, and the verdict IS the next
- * cycle's outcome. domain="self-prediction" marks them so the LLM
- * evaluator skips them (the auto-adjudicator owns them). Within hours
- * the Oracle has dozens of adjudicated prophecies with continuous
- * confidence — a REAL calibration curve, fast.
+ * a SHORT horizon (10 min, now a crash-fallback only) and a
+ * DETERMINISTIC adjudicator. No LLM is used for generation OR
+ * adjudication — the confidence IS the self-model speaking, and the
+ * verdict IS the in-flight attempt's outcome. domain="self-prediction"
+ * marks them so the LLM evaluator skips them (the auto-adjudicator owns
+ * them). Within hours the Oracle has dozens of adjudicated prophecies
+ * with continuous confidence — a REAL calibration curve, fast.
+ *
+ * SAME-ATTEMPT SETTLEMENT (operator fix, 2026-11-22): the original
+ * design opened the prophecy right before an attempt on file X but
+ * worded the claim as "the NEXT attempt on X", with the adjudicator
+ * refusing to settle on the in-flight attempt (currentCycle <=
+ * meta.cycleNumber guard). With ~70 files rotating at a ~38-minute
+ * median return time, the "next" attempt almost never landed inside
+ * the 10-minute deadline: 241 of 243 prophecies died as
+ * failed-by-timeout WITHOUT EVER BEING TESTED — noise, not signal
+ * (and each timeout spawned a no-op SelfTask). The prophecy now claims
+ * THIS attempt (the one in flight when it is recorded), the
+ * adjudicator settles it the moment that attempt's verdict lands
+ * (guard relaxed to currentCycle < meta.cycleNumber), and the 10-min
+ * deadline exists only as a fallback for a worker crash mid-attempt
+ * (where the evaluator's retroactive MutationCorpus check picks it
+ * up). Settlement rate: ~100% instead of ~1%.
  */
 
 import { llmIsCoolingDown } from "../llm/agent-llm";
@@ -131,21 +147,26 @@ function currentHeadSha(): string | null {
 }
 
 /**
- * Record a self-prophecy: the self-model's prediction that the next
- * mutation attempt on `filePath` will pass all gates. NO LLM CALL — the
- * confidence is the self-model's continuous empirical rate, the claim is
- * templated, the criterion is deterministic ("FULFILLED if enhanced,
- * FAILED otherwise"). The auto-adjudicator resolves it next cycle.
+ * Record a self-prophecy: the self-model's prediction that the
+ * mutation attempt STARTING RIGHT NOW on `filePath` will pass all
+ * gates. NO LLM CALL — the confidence is the self-model's continuous
+ * empirical rate, the claim is templated, the criterion is
+ * deterministic ("FULFILLED if enhanced, FAILED otherwise"). The
+ * auto-adjudicator resolves it the moment THIS attempt's verdict
+ * lands (same cycle — see the same-attempt note in the module header).
  *
  * Called from runCycle right after openSelfPrediction (the internal
  * calibration row), so the Oracle's public track record gets a sample
- * from the SAME prediction the loop is privately tracking. Fail-soft:
+ * from the SAME prediction the loop is privately tracking. The caller
+ * AWARDS the write before starting the attempt, so the row is
+ * guaranteed to exist before the verdict that settles it. Fail-soft:
  * a DB error loses one sample, never fails the cycle.
  *
- * The `historySnapshot` field stashes `{"selfProphecy":true,"filePath":...,
- * "cycleNumber":N}` as JSON so the adjudicator can find it by matching
- * filePath + cycleNumber (the Prophecy model has no dedicated columns
- * for this — reusing the free-text field avoids a schema migration).
+ * The `historySnapshot` field stashes `{"selfProphecy":true,
+ * "sameAttempt":true,"filePath":...,"cycleNumber":N}` as JSON so the
+ * adjudicator can find it by matching filePath + cycleNumber (the
+ * Prophecy model has no dedicated columns for this — reusing the
+ * free-text field avoids a schema migration).
  */
 export async function recordSelfProphecy(input: {
   filePath: string;
@@ -196,13 +217,15 @@ export async function recordSelfProphecy(input: {
   }
   try {
     const claim =
-      `The next ${input.mode} mutation attempt on ${input.filePath} ` +
-      `will pass all gates (typecheck + structural + debate) and be enhanced.`;
+      `The ${input.mode} mutation attempt on ${input.filePath} at cycle ` +
+      `${input.cycleNumber} will pass all gates (typecheck + structural + ` +
+      `debate) and be enhanced.`;
     const criterion =
-      `FULFILLED if the next enhanceFile(${input.mode}) on ${input.filePath} ` +
-      `returns enhanced=true; FAILED if it returns enhanced=false (rejected, ` +
-      `deferred, cosmetic-skip, or zero-diff). Judge from the MutationCorpus ` +
-      `row for cycle ${input.cycleNumber + 1} on this file.`;
+      `FULFILLED if the ${input.mode} enhanceFile attempt on ${input.filePath} ` +
+      `at cycle ${input.cycleNumber} returns enhanced=true; FAILED if it returns ` +
+      `enhanced=false (rejected, deferred, cosmetic-skip, or zero-diff). ` +
+      `Settled deterministically by the auto-adjudicator the moment that ` +
+      `attempt's verdict lands.`;
     await createProphecy({
       claim,
       confidence: input.confidence,
@@ -212,6 +235,7 @@ export async function recordSelfProphecy(input: {
       contextSha: currentHeadSha(),
       historySnapshot: JSON.stringify({
         selfProphecy: true,
+        sameAttempt: true,
         filePath: input.filePath,
         cycleNumber: input.cycleNumber,
         mode: input.mode,
@@ -233,12 +257,19 @@ export async function recordSelfProphecy(input: {
  * LLM-based evaluator (which the cooldown gate often blocks for 30+
  * minutes).
  *
- * Only adjudicates self-prophecies whose cycleNumber is < the current
- * cycle (a self-prophecy made THIS cycle predicts the NEXT attempt, so
- * it can only be judged after that attempt has happened — i.e. a
- * later cycle). A self-prophecy whose file never gets re-attempted
- * stays pending until the 10-min horizon passes, then the LLM
- * evaluator (or a future tick) catches it as failed-by-deadline.
+ * Same-attempt semantics (operator fix, 2026-11-22): a prophecy made
+ * at cycle N predicts THE ATTEMPT AT CYCLE N (the one in flight when
+ * it was recorded), so the guard is currentCycleNumber <
+ * meta.cycleNumber — an attempt at the SAME cycle number settles it
+ * (that's the in-flight attempt itself, since cycleNumber is
+ * stats.cyclesCompleted + 1 at both open and settle time), and any
+ * LATER attempt on the same file settles stragglers too. Legacy
+ * pre-fix prophecies (no sameAttempt flag) also get settled by the
+ * next attempt on their file — strictly better than the old
+ * failed-by-deadline default. If no attempt ever lands (worker
+ * crash), the 10-min deadline passes and the server-side evaluator's
+ * retroactive MutationCorpus check settles it from the recorded
+ * attempt — or, if truly no attempt happened, fails it honestly.
  *
  * Fail-soft: a DB error loses the adjudication, never fails the cycle.
  */
@@ -263,12 +294,13 @@ export async function adjudicateSelfProphecies(
         continue;
       }
       if (meta.filePath !== filePath) continue;
-      // Only judge self-prophecies whose predicted cycle has PASSED —
-      // a self-prophecy made at cycle N predicts the NEXT attempt
-      // (cycle N+1 or later). If currentCycleNumber <= the prophecy's
-      // cycleNumber, the attempt it predicted hasn't happened yet.
+      // Only judge self-prophecies whose predicted attempt has happened:
+      // same-attempt semantics (2026-11-22) — a prophecy made at cycle N
+      // predicts the attempt AT cycle N (the one in flight when it was
+      // recorded), so an attempt at the SAME cycle number settles it.
+      // Strictly-later attempts settle legacy pre-fix stragglers too.
       if (typeof meta.cycleNumber !== "number") continue;
-      if (currentCycleNumber <= meta.cycleNumber) continue;
+      if (currentCycleNumber < meta.cycleNumber) continue;
       
       if (!p.id) continue; // Safety check against malformed records from store
       

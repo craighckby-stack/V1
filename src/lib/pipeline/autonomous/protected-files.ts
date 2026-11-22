@@ -282,6 +282,17 @@ export const PROTECTED_PREFIXES = [
   "src/lib/pipeline/emg/", // audit 3: the sanitizer/halt/RAG/debate layer
   "src/lib/pipeline/postmortem/", // audit 3: the scar memory
   "src/lib/pipeline/red-team/", // audit 3: the integrity chain
+  // ── v6 scope expansion (2026-11-22): the resurrection layer ─────
+  // The loop's scan scope now reaches into mini-services/ (saturation.ts
+  // v6). dev-watchdog is deliberately excluded from the scopes AND
+  // prefix-protected here: it is the dev server's 2-strike respawn
+  // supervisor — the only process nothing else revives. A broken
+  // mutation of its own supervisor would leave the system LOOKING
+  // healthy while silently losing its ability to recover from a dev
+  // server crash. Defense in depth: even if a future scope widening
+  // adds the whole mini-services/ dir, this prefix keeps the watchdog
+  // out of reach.
+  "mini-services/dev-watchdog/",
 ];
 
 /** Normalize a possibly-sloppy relative path to the canonical POSIX form

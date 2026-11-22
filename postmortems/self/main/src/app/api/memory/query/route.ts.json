@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/memory/query/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/api/memory/query/route.ts(45,11): error TS2451: Cannot redeclare block-scoped variable 'queryResultSequential'.; src/app/api/memory/query/route.ts(52,11): error TS2451: Cannot redeclare block-scoped variable 'queryResultSequential'.",
@@ -12,8 +12,8 @@
   "parentHash": "21a6276c9d34876c9189a35c53b6d91d76c445c9b5a78eb4aef84c9a5c55601c",
   "hash": "fe1c666c0885db98aa96f556ba97f658b7a8c484cb046c25ea084d341e949275",
   "lastAttemptAt": "2026-11-22T05:22:18.206Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T05:58:30.353Z",
   "createdAt": "2026-11-22T02:44:42.610Z",
-  "updatedAt": "2026-11-22T05:22:18.206Z",
+  "updatedAt": "2026-11-22T05:58:30.353Z",
   "schema": 2
 }
