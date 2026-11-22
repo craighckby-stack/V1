@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/memory/corpus/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "94e0c1625e638f155609b9a14733583b731cede2387c181d96c1e5c2393f9c30",
   "hash": "4d682608eece652a18fecbfebab5966392217a7c1d871c108618676888e722fe",
   "lastAttemptAt": "2026-11-22T05:08:02.901Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T05:47:56.197Z",
   "createdAt": "2026-11-22T02:44:42.609Z",
-  "updatedAt": "2026-11-22T05:08:02.901Z",
+  "updatedAt": "2026-11-22T05:47:56.197Z",
   "schema": 2
 }

@@ -98,9 +98,15 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     // (failure-only) and rejected (failure-only) blocks don't give.
     if (attempts.length > 0) {
       const enhanced = attempts.filter((a) => a.gateOutcome === "enhanced").length;
-      const rejected = attempts.filter(
-        (a) => a.gateOutcome !== "enhanced" && a.gateOutcome !== "deferred" && a.gateOutcome !== "no-change" && a.gateOutcome !== "cosmetic",
-      ).length;
+      
+      const rejectionTypes = new Map<string, number>();
+      for (const a of attempts) {
+        if (a.gateOutcome !== "enhanced" && a.gateOutcome !== "deferred" && a.gateOutcome !== "no-change" && a.gateOutcome !== "cosmetic") {
+          rejectionTypes.set(a.gateOutcome, (rejectionTypes.get(a.gateOutcome) ?? 0) + 1);
+        }
+      }
+      const rejected = rejectionTypes.size > 0 ? Array.from(rejectionTypes.values()).reduce((sum, count) => sum + count, 0) : 0;
+      
       const last = attempts[0]; // newest-first
       const lastTransform = last.transformSummary?.slice(0, 100) ?? "(no summary)";
       lines.push(
@@ -113,12 +119,6 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
       // the rejected block's job (block #10). This is the "you keep
       // failing the same gate" signal.
       if (rejected > 0) {
-        const rejectionTypes = new Map<string, number>();
-        for (const a of attempts) {
-          if (a.gateOutcome !== "enhanced" && a.gateOutcome !== "deferred" && a.gateOutcome !== "no-change" && a.gateOutcome !== "cosmetic") {
-            rejectionTypes.set(a.gateOutcome, (rejectionTypes.get(a.gateOutcome) ?? 0) + 1);
-          }
-        }
         const pattern = [...rejectionTypes.entries()]
           .sort((a, b) => b[1] - a[1])
           .map(([outcome, count]) => `${outcome} (${count}×)`)
