@@ -123,8 +123,9 @@ export function DebateChamber() {
       <CardContent>
         <div className="space-y-4">
           <AnimatePresence>
-            {verdict.arguments && verdict.arguments.length > 0 ? (
+            {verdict.arguments?.length > 0 ? (
               verdict.arguments.map((arg, idx) => {
+                // Safely calculate friction percentage, defaulting to 0 if not a valid number
                 const frictionValue = (typeof arg.cognitiveFriction === 'number' && !isNaN(arg.cognitiveFriction)) 
                   ? arg.cognitiveFriction * 100 
                   : 0;
