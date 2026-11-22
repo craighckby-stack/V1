@@ -34,10 +34,6 @@ export async function GET() {
     const cycle = autonomousLoopRuntime.getState().stats.totalRuns;
 
     // Run expiry sweep and fetch questions concurrently to reduce latency.
-    // Promise.allSettled returns {status, value/reason} objects — extract
-    // the resolved array so the response is { pending: [...] }, not the
-    // settled-result wrapper (which would break the `answer` command's
-    // `data.pending.length` / `for (const q of data.pending)` access).
     const [expiryResult, pendingSettled] = await Promise.allSettled([
       expireOldQuestions(cycle),
       getPendingQuestions(),
@@ -70,6 +66,14 @@ export async function POST(req: Request) {
       );
     }
     const body = await req.json();
+    
+    if (typeof body !== 'object' || body === null) {
+        return NextResponse.json(
+            { error: "Request body must be a valid JSON object." },
+            { status: 400 }
+        );
+    }
+
     const parsedBody = body as {
       answer?: string;
       id?: string;
