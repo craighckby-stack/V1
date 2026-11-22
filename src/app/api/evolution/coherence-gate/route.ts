@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   let body: unknown;
   try {
     body = await req.json();
-  } catch {
+  } catch (e) {
     // Provide actionable error context on JSON parsing failure.
     return NextResponse.json(
         { error: "Failed to parse request body. Ensure the request content type is application/json and the body is valid JSON." },
@@ -52,14 +52,6 @@ export async function POST(req: Request) {
     );
   }
 
-  if (typedBody.originalCode.trim() === "" && typedBody.proposedCode.trim() === "") {
-    // Both empty, ratio is 0, which is < 0.7, so this is coherent.
-    // We allow this case to proceed to calculation, but if we strictly enforce non-empty,
-    // we should return 400. Based on existing logic, we only reject if *either* is empty,
-    // but the check below handles individual emptiness. Let's stick to the original intent:
-    // reject if *either* is empty string after trim.
-  }
-
   if (typedBody.originalCode.trim() === "" || typedBody.proposedCode.trim() === "") {
     return NextResponse.json(
       { error: "originalCode and proposedCode must be non-empty strings" },
@@ -70,22 +62,13 @@ export async function POST(req: Request) {
   const origLen = typedBody.originalCode.length;
   const propLen = typedBody.proposedCode.length;
   
-  let structuralDriftRatio: number;
-
-  // Guard against division by zero if original code is empty.
-  // Since we validated against empty strings above, origLen > 0 is guaranteed here.
-  // However, if the validation was bypassed or if we consider length 0 possible despite trim check:
-  if (origLen === 0) {
-    // This path should be unreachable due to the guard clause above, but for safety:
-    structuralDriftRatio = propLen === 0 ? 0 : Infinity;
-  } else {
-    structuralDriftRatio = Math.abs(propLen - origLen) / origLen;
-  }
+  // Since we validated against empty strings above, origLen > 0 is guaranteed.
+  const structuralDriftRatio = Math.abs(propLen - origLen) / origLen;
       
   const passed = structuralDriftRatio < 0.7;
   
-  // Calculate saturationScore: 0 if drift is Infinity, otherwise max(0, 1 - ratio)
-  const saturationScore = structuralDriftRatio === Infinity ? 0 : Math.max(0, 1 - structuralDriftRatio);
+  // Calculate saturationScore: 0 if drift is Infinity (though unreachable here), otherwise max(0, 1 - ratio)
+  const saturationScore = Math.max(0, 1 - structuralDriftRatio);
   
   const status: CoherenceStatus = passed ? "COHERENT" : "EXCESSIVE_DRIFT";
 
