@@ -29,15 +29,24 @@ export async function GET() {
 
 export async function POST(req: Request) {
   let repoOverride: string | undefined;
+  
   try {
     const body = await req.json();
     if (typeof body === 'object' && body !== null && typeof body.repo === "string" && body.repo.trim()) {
       repoOverride = body.repo.trim();
+    } else {
+      // Input validation failed: missing or invalid 'repo' field.
+      return NextResponse.json(
+        { error: "Invalid request body: 'repo' must be a non-empty string." },
+        { status: 400 },
+      );
     }
-  } catch {
-    // If JSON parsing fails or body is not an object, we proceed to scan the next seed,
-    // as per original logic, but we avoid swallowing the error silently without context.
-    // Since the original logic ignored this, we maintain that behavior but clean up the structure.
+  } catch (e) {
+    // JSON parsing failed (e.g., malformed body)
+    return NextResponse.json(
+      { error: "Failed to parse request body: must be valid JSON." },
+      { status: 400 },
+    );
   }
 
   try {
