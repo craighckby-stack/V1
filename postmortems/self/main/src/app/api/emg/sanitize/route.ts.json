@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/emg/sanitize/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "ad96531e03e17470284ec4eabaefb1f67d9a36f2779e3338b421b49c5368fcf0",
   "hash": "edb835c6ff6277f38b10143f0287f772eea460529d900eef0895c96d7a33664a",
   "lastAttemptAt": "2026-11-21T22:49:45.460Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T05:07:23.155Z",
   "createdAt": "2026-11-21T19:05:54.398Z",
-  "updatedAt": "2026-11-21T22:49:45.460Z",
+  "updatedAt": "2026-11-22T05:07:23.155Z",
   "schema": 2
 }

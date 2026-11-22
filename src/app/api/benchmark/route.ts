@@ -28,8 +28,9 @@ export async function GET() {
     }
     return NextResponse.json(report);
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during benchmark report generation.";
     return NextResponse.json(
-      { error: `benchmark failed: ${(err as Error).message}` },
+      { error: `benchmark failed: ${errorMessage}` },
       { status: 500 },
     );
   }
