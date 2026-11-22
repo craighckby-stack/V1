@@ -130,6 +130,10 @@ export function classifyHeuristic(
     throw new Error('Invalid commit: missing required fields (sha, message)');
   }
 
+  if (!options || !options.failRx || !options.okRx) {
+    throw new Error('Invalid options: missing failRx or okRx');
+  }
+
   const shaLower = commit.sha.toLowerCase();
 
   if (options.revertedShas.has(shaLower)) {
@@ -209,6 +213,10 @@ export function reconcileDualVerdicts(
 ): ReconcileResult {
   if (!commit || !commit.sha || !commit.message) {
     throw new Error('Invalid commit: missing required fields (sha, message)');
+  }
+
+  if (!strategy) {
+    throw new Error('Invalid strategy: must be one of "consensus" or "specialist"');
   }
 
   if (!heuristic.needsAi) {
