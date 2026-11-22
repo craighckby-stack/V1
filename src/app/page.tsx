@@ -70,6 +70,13 @@ interface SelfEnhanceStatus {
    *  for the full rationale. Optional for backward compat with older
    *  worker payloads (defaults to false). */
   masterUnlocked?: boolean;
+  /** Operator mutation freeze — true while the system is locked in its
+   *  current state (no code mutation, no commits, no pushes anywhere).
+   *  The dashboard shows a FROZEN chip + a [FREEZE]/[UNFREEZE] control.
+   *  Optional for backward compat with older payloads. */
+  mutationFrozen?: boolean;
+  /** When frozen: who locked it, when, and why (for the chip tooltip). */
+  freezeState?: { at: string; by: string; reason?: string } | null;
 }
 
 interface PushTargetInfo {
@@ -887,15 +894,93 @@ export default function Home() {
       // Refresh status immediately so the button label + ENHANCING/IDLE flip
       const sres = await fetch("/api/self-enhance/status");
       if (sres.ok) setStatus(await sres.json());
-      emitOutput([
-        running
-          ? `[LOOP] Stopped — ${data.message ?? "self-enhancement halted"}`
-          : `[LOOP] Started — ${data.message ?? "continuous self-enhancement running"}`,
-      ]);
+      // Surface the server's own error verbatim when a start was refused
+      // (e.g. the 423 mutation-freeze refusal) — the message explains WHY.
+      if (!res.ok || data.started === false || data.stopped === false) {
+        emitOutput([
+          `[LOOP] Refused — ${data.error ?? data.message ?? `HTTP ${res.status}`}`,
+        ]);
+      } else {
+        emitOutput([
+          running
+            ? `[LOOP] Stopped — ${data.message ?? "self-enhancement halted"}`
+            : `[LOOP] Started — ${data.message ?? "continuous self-enhancement running"}`,
+        ]);
+      }
     } catch (e) {
       emitOutput([`[LOOP] Error: ${(e as Error).message}`]);
     } finally {
       setLoopBusy(false);
+    }
+  }
+
+  /** Toggle the operator mutation freeze from the header [FREEZE]/[UNFREEZE]
+   *  button.
+   *
+   *  FREEZE (safe direction, no PIN): locks the system in its current
+   *  state — every code-mutation surface (loop cycles, SelfTasks, chat
+   *  code-writes, merge-backs, commits, pushes) refuses everywhere, in
+   *  both the server and the worker, and the lock survives restarts
+   *  (.git/info wipe-proof tier). Operations continue: dashboard, ingest,
+   *  oracle feed, health monitoring.
+   *
+   *  UNFREEZE (PIN required): re-enabling self-mutation proves operator
+   *  presence — the operator PIN (documented mid-README) or the master
+   *  PIN. Collected via a blocking prompt (user-initiated, so it never
+   *  fights the 2s status poll). */
+  const [freezeBusy, setFreezeBusy] = useState(false);
+  async function toggleFreeze() {
+    if (freezeBusy) return;
+    const wantFrozen = !frozen;
+    let pin: string | undefined;
+    let reason: string | undefined;
+    if (wantFrozen) {
+      // Optional note for the lock record — Cancel aborts the freeze;
+      // OK with empty text freezes without a note.
+      const note = window.prompt(
+        "Freeze self-mutation? The system locks in its current state (code, commits, pushes all refused; dashboard + ingest + health keep running).\n\nOptional note for the lock record:"
+      );
+      if (note === null) {
+        emitOutput(["[FREEZE] Freeze cancelled — the system is unchanged."]);
+        return;
+      }
+      reason = note.trim() || undefined;
+    } else {
+      pin = window.prompt(
+        "Operator PIN required to unfreeze — re-enabling self-mutation proves operator presence (operator PIN from the README, or the master PIN):"
+      ) ?? "";
+      if (!pin.trim()) {
+        emitOutput(["[FREEZE] Unfreeze cancelled — no PIN entered. The system stays locked."]);
+        return;
+      }
+    }
+    setFreezeBusy(true);
+    try {
+      const res = await fetch("/api/self-enhance/freeze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          frozen: wantFrozen,
+          ...(pin ? { pin } : {}),
+          ...(reason ? { reason } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({ ok: false, error: "non-JSON response" }));
+      const sres = await fetch("/api/self-enhance/status");
+      if (sres.ok) setStatus(await sres.json());
+      if (data.ok) {
+        emitOutput([
+          wantFrozen
+            ? `[FREEZE] ENGAGED — ${data.message ?? "system locked in current state"}`
+            : `[FREEZE] LIFTED — ${data.message ?? "self-mutation re-enabled"}`,
+        ]);
+      } else {
+        emitOutput([`[FREEZE] Refused — ${data.error ?? `HTTP ${res.status}`}`]);
+      }
+    } catch (e) {
+      emitOutput([`[FREEZE] Error: ${(e as Error).message}`]);
+    } finally {
+      setFreezeBusy(false);
     }
   }
 
@@ -2615,6 +2700,10 @@ export default function Home() {
   }
 
   const running = status?.running ?? false;
+  // Operator mutation freeze — true while the system is locked in its
+  // current state. Drives the header FROZEN chip, the [FREEZE]/[UNFREEZE]
+  // control, and the [START] disabled state.
+  const frozen = status?.mutationFrozen === true;
 
   return (
     <div
@@ -2661,6 +2750,36 @@ export default function Home() {
           >
             {running ? "●" : "○"}
           </span>
+          {/* Operator mutation-freeze chip — the "stop evolving, hold this
+              state" lock. Amber (same family as the LLM-cooldown warning,
+              but static — a lock, not a countdown) with the lock glyph so
+              it reads as a STATE, not an activity. The tooltip carries the
+              full who/when/why from the freeze tier. */}
+          {frozen && (
+            <span
+              aria-label="Mutation freeze active — system locked in current state"
+              title={
+                status?.freezeState
+                  ? `MUTATION FREEZE — locked ${status.freezeState.at.replace("T", " ").slice(0, 19)} UTC by ${status.freezeState.by}${status.freezeState.reason ? `: "${status.freezeState.reason}"` : ""}. Code, commits, and pushes are refused everywhere; dashboard, ingest, and health monitoring keep operating. [UNFREEZE] requires the operator PIN.`
+                  : "MUTATION FREEZE active — the system is locked in its current state. [UNFREEZE] requires the operator PIN."
+              }
+              style={{
+                color: WARN_COLOR,
+                fontSize: "12px",
+                fontFamily: "inherit",
+                letterSpacing: "0.5px",
+                whiteSpace: "nowrap",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                border: `1px solid ${WARN_COLOR}`,
+                padding: "2px 6px",
+              }}
+            >
+              <span aria-hidden>▮</span>
+              FROZEN
+            </span>
+          )}
           {/* LLM rate-limit countdown — visible whenever the shared gate is
               active. Ticks down every second (anchored on the server's
               endsAtMs); "RESUMING…" shows in the final sub-poll window after
@@ -2851,15 +2970,41 @@ export default function Home() {
               fallback, so an LLM key is NOT strictly required — but the tooltip
               guides the operator to add one for a second quota. This stops the
               "start a half-configured loop" scenario the operator flagged. */}
+          {/* [FREEZE] — the operator's "stop evolving, hold this state"
+              lock. While unfrozen the button offers the lock (no PIN —
+              locking down is the safe direction); while frozen it offers
+              the unlock (operator PIN required — re-enabling self-mutation
+              proves operator presence). Styled as a danger-family button
+              when it ARMS a lock (destructive-to-evolution) and standard
+              while it releases one. */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFreeze();
+            }}
+            disabled={freezeBusy}
+            title={
+              frozen
+                ? "UNFREEZE — re-enable self-mutation (operator PIN required). The loop then starts only via an explicit [START]."
+                : "FREEZE — lock the system in its current state: all code mutation, commits, and pushes refuse everywhere (survives restarts). Dashboard, ingest, and health monitoring keep operating."
+            }
+            aria-label={frozen ? "Unfreeze self-mutation (operator PIN required)" : "Freeze self-mutation — lock the current state"}
+            className={frozen ? "lbtn" : "lbtn lbtn--danger"}
+          >
+            [{freezeBusy ? "···" : frozen ? "UNFREEZE" : "FREEZE"}]
+          </button>
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               toggleLoop();
             }}
-            disabled={loopBusy || (pushTarget?.configured !== true && !running)}
+            disabled={loopBusy || frozen || (pushTarget?.configured !== true && !running)}
             title={
-              pushTarget?.configured !== true
+              frozen
+                ? "MUTATION FREEZE active — [START] is refused while the system is locked. Press [UNFREEZE] (operator PIN) first."
+                : pushTarget?.configured !== true
                 ? "Onboarding: 1. [CONFIG] — paste a Git token + repo → 2. [NVIDIA] or [GEMINI] — paste an LLM key (optional, Z.AI is the fallback) → 3. [START]"
                 : llmConfig?.configured !== true && llmConfig?.nvidiaConfigured !== true
                   ? "Ready. Z.AI is the fallback LLM — add an NVIDIA or Gemini key for a second quota."

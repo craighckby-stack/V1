@@ -3,6 +3,7 @@ import { workerFetch, healWorkerInBackground } from "@/lib/pipeline/autonomous/l
 import { llmGateInfo } from "@/lib/pipeline/llm/agent-llm";
 import { getLessonOutcomes } from "@/lib/pipeline/autonomous/lesson-store";
 import { getHealthTrend } from "@/lib/pipeline/autonomous/health-metrics";
+import { readMutationFreezeState } from "@/lib/pipeline/autonomous/mutation-freeze";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -44,12 +45,19 @@ export async function GET() {
   // model — the Next.js dev server caches the Prisma Client on
   // globalThis; a mid-session db:push doesn't invalidate it.
   const healthTrend = await getHealthTrend().catch(() => null);
+  // Operator mutation-freeze state — read from the shared wipe-proof file
+  // SERVER-SIDE (authoritative; the worker reports the same file, but an
+  // older worker binary may lack the field, and the worker-down fallback
+  // below needs it regardless). The lock must be visible on the dashboard
+  // even when the mutation machinery is fully stood down.
+  const freezeState = readMutationFreezeState();
+  const mutationFrozen = freezeState?.frozen === true;
   if (r?.ok && r.data) {
     // Cripple-check F8: surface worker reachability explicitly. Without
     // this flag, "loop stopped" and "worker process dead/respawning"
     // were indistinguishable to the UI — both rendered the same idle
     // panel while the actual cause was invisible.
-    return NextResponse.json({ ...r.data, workerReachable: true, lessonOutcomes, healthTrend });
+    return NextResponse.json({ ...r.data, mutationFrozen, freezeState: mutationFrozen ? freezeState : null, workerReachable: true, lessonOutcomes, healthTrend });
   }
 
   // Worker down — self-heal in the background (never block the poll; the
@@ -66,6 +74,10 @@ export async function GET() {
     currentFile: null,
     llmGate: llmGateInfo(),
     saturation: {},
+    // Operator mutation freeze — honest even (especially) with the worker
+    // down: the lock lives in the shared file tier, not the worker.
+    mutationFrozen,
+    freezeState: mutationFrozen ? freezeState : null,
     // Shape parity with the worker's /status payload — null when the worker
     // (which owns the retention cache) is down, so the dashboard's branch
     // counter renders "unknown" rather than undefined.

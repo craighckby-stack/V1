@@ -2,11 +2,27 @@ import { NextResponse } from "next/server";
 import { workerFetch, ensureWorkerRunning } from "@/lib/pipeline/autonomous/loop-worker-client";
 import { markSelfEnhanceArmed } from "@/lib/pipeline/autonomous/self-enhance-armed-state";
 import { markOperatorTouch } from "@/lib/pipeline/autonomous/operator-touch";
+import { isMutationFrozen, mutationFreezeNotice } from "@/lib/pipeline/autonomous/mutation-freeze";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST() {
+  // Operator mutation freeze — checked BEFORE the armed tier is written:
+  // a frozen system must not accumulate a stale armed:true that a later
+  // unfreeze + reboot would act on unexpectedly. [START] is refused with
+  // the uniform notice; the operator unfreezes first (PIN).
+  if (isMutationFrozen()) {
+    return NextResponse.json(
+      {
+        started: false,
+        frozen: true,
+        error: mutationFreezeNotice(),
+      },
+      { status: 423 }
+    );
+  }
+
   // Persist the armed intent FIRST (server-owned tier, unchanged semantics):
   // this is what makes [START] a ONE-TIME ritual — every subsequent process
   // boot re-arms from disk. Best-effort, never throws.

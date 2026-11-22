@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { workerFetch, ensureWorkerRunning } from "@/lib/pipeline/autonomous/loop-worker-client";
 import { markOperatorTouch } from "@/lib/pipeline/autonomous/operator-touch";
+import { isMutationFrozen, mutationFreezeNotice } from "@/lib/pipeline/autonomous/mutation-freeze";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -36,6 +37,16 @@ export const runtime = "nodejs";
  */
 export async function POST() {
   try {
+    // Operator mutation freeze: a reboot is a mutation-machinery start
+    // gesture — refused while locked (the worker refuses its /reboot
+    // too; this edge check keeps the error message clean and skips the
+    // dead-man's-switch refresh a frozen system doesn't need).
+    if (isMutationFrozen()) {
+      return NextResponse.json(
+        { rebooted: false, frozen: true, error: mutationFreezeNotice() },
+        { status: 423 }
+      );
+    }
     // 1: refresh the dead-man's switch — a reboot is an operator gesture.
     markOperatorTouch("reboot-now");
 

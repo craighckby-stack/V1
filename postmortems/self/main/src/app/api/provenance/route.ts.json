@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/provenance/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "eea88d51821b791585cc90045a550ea32327f135efbffe0cb8f1d589c2f541af",
   "hash": "9b021fddd2e5597eecb27252baf44ca81eac802de556c77c24739504f31329e0",
   "lastAttemptAt": "2026-11-22T02:57:33.236Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T03:20:05.818Z",
   "createdAt": "2026-11-22T02:44:42.620Z",
-  "updatedAt": "2026-11-22T02:57:33.236Z",
+  "updatedAt": "2026-11-22T03:20:05.818Z",
   "schema": 2
 }

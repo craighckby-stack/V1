@@ -169,6 +169,20 @@ async function main() {
         // Mirror of POST /api/self-enhance/start (armed write stays on the
         // server; this only drives the runtime).
         if (url === "/start") {
+          // Operator mutation freeze: refuse to launch the continuous
+          // loop. The edge route already refused (and never wrote
+          // armed:true), but this port is reachable via the gateway's
+          // XTransformPort pattern — the freeze must hold here too.
+          if (freeze.isMutationFrozen()) {
+            return json(
+              {
+                started: false,
+                frozen: true,
+                error: freeze.mutationFreezeNotice(),
+              },
+              423
+            );
+          }
           if (loop.isContinuous()) {
             return json({
               started: true,
@@ -192,6 +206,16 @@ async function main() {
         // Mirror of POST /api/self-enhance/reboot: stop → (armed already
         // re-written server-side) → fresh runContinuous.
         if (url === "/reboot") {
+          if (freeze.isMutationFrozen()) {
+            return json(
+              {
+                rebooted: false,
+                frozen: true,
+                error: freeze.mutationFreezeNotice(),
+              },
+              423
+            );
+          }
           const wasRunning = loop.isContinuous();
           if (wasRunning) loop.stop();
           loop.runContinuous().catch((err) => {
@@ -211,6 +235,18 @@ async function main() {
         // Mirror of POST /api/self-enhance/trigger (cooldown is enforced
         // at the server route — the edge is the right place for it).
         if (url === "/trigger") {
+          if (freeze.isMutationFrozen()) {
+            return json(
+              {
+                filesScanned: 0,
+                filesEnhanced: 0,
+                results: [],
+                frozen: true,
+                error: freeze.mutationFreezeNotice(),
+              },
+              423
+            );
+          }
           const result = await loop.runCycle();
           return json(result);
         }
@@ -328,6 +364,46 @@ async function main() {
 
   console.log(`[LOOP-WORKER] listening on 0.0.0.0:${PORT} (pid ${process.pid})`);
   console.log("[LOOP-WORKER] self-enhance loop loaded; armed tier governs auto-start");
+
+  // ── BASELINE HEALTH MONITOR (operator freeze companion) ──────────────
+  // The loop's own cycle hook (captureAndPersistHealthSnapshot every N
+  // cycles) stops firing when the loop is stopped or frozen — but the
+  // dashboard's health trend is the operator's window into codebase
+  // integrity (tests / tsc / lint), which matters MOST in a frozen
+  // system: if anything ever breaks the locked state (a stray edit, a
+  // disk fault, a bad actor), the trend must show it. This timer keeps
+  // the snapshot stream alive regardless of loop state. ~3-4s of child
+  // processes every 15 minutes; first snapshot 90s after boot so a
+  // fresh worker reports promptly without racing the boot hydration.
+  const HEALTH_MONITOR_INTERVAL_MS = 15 * 60 * 1000;
+  const runHealthSnapshot = async (why: string) => {
+    try {
+      const cycleNumber = loop.getStats().cyclesCompleted;
+      const snapshot = await healthMetrics.captureAndPersistHealthSnapshot(cycleNumber);
+      if (!snapshot.ok) {
+        console.warn(
+          `[LOOP-WORKER] health snapshot (${why}) captured with errors:`,
+          snapshot.error ?? "unknown"
+        );
+      }
+    } catch (err) {
+      // Best-effort by contract — a failed snapshot never kills the worker.
+      console.error(
+        "[LOOP-WORKER] health snapshot failed (monitor continues):",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  };
+  setTimeout(() => {
+    void runHealthSnapshot("boot");
+  }, 90_000).unref?.();
+  const healthTimer = setInterval(() => {
+    void runHealthSnapshot("interval");
+  }, HEALTH_MONITOR_INTERVAL_MS);
+  healthTimer.unref?.();
+  console.log(
+    `[LOOP-WORKER] baseline health monitor armed — snapshot every ${HEALTH_MONITOR_INTERVAL_MS / 60000}min (tests/tsc/lint), independent of loop state`
+  );
 }
 
 // A telemetry/worker process must stay alive: log and continue, never let
