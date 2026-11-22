@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/target-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "d3b5e8c0ec3bef29b051ce819b507d7c7e83480f8cb8d76d1435a98918561665",
   "hash": "a82401d558e7ea10cdf95cca465274914f0315a8b95e6535696abddc0768a1f1",
   "lastAttemptAt": "2026-11-22T02:55:09.387Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-22T05:18:14.088Z",
   "createdAt": "2026-11-22T02:44:42.582Z",
-  "updatedAt": "2026-11-22T02:55:09.387Z",
+  "updatedAt": "2026-11-22T05:18:14.088Z",
   "schema": 2
 }

@@ -8,44 +8,26 @@ import { usePipelineStore } from "@/lib/pipeline-store";
 import { cn } from "@/lib/utils";
 
 // Memoize consensus display functions to prevent unnecessary re-computations
-const getConsensusDisplay = (() => {
-  const consensusMap: Record<string, string> = {};
-  return (consensus: string) => {
-    if (!consensusMap[consensus]) {
-      let display: string;
-      if (consensus === "APPROVED") {
-        display = "APR";
-      } else if (consensus === "CONDITIONAL_APPROVAL") {
-        display = "COND";
-      } else if (consensus === "REQUIRES_REWRITE") {
-        display = "REJ";
-      } else {
-        display = consensus;
-      }
-      consensusMap[consensus] = display;
-    }
-    return consensusMap[consensus];
-  };
-})();
+const consensusMap: Record<string, string> = {
+  "APPROVED": "APR",
+  "CONDITIONAL_APPROVAL": "COND",
+  "REQUIRES_REWRITE": "REJ",
+};
 
-const getConsensusClass = (() => {
-  const consensusClassMap: Record<string, string> = {};
-  return (consensus: string) => {
-    if (!consensusClassMap[consensus]) {
-      let classes: string;
-      if (consensus === "APPROVED") {
-        classes = "bg-emerald-500/15 text-emerald-300 border-emerald-500/40";
-      } else if (consensus === "CONDITIONAL_APPROVAL") {
-        classes = "bg-amber-500/15 text-amber-300 border-amber-500/40";
-      } else {
-        // Covers REQUIRES_REWRITE and any other unexpected string
-        classes = "bg-rose-500/15 text-rose-300 border-rose-500/40";
-      }
-      consensusClassMap[consensus] = classes;
-    }
-    return consensusClassMap[consensus];
-  };
-})();
+const getConsensusDisplay = (consensus: string): string => {
+  return consensusMap[consensus] || consensus;
+};
+
+const consensusClassMap: Record<string, string> = {
+  "APPROVED": "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
+  "CONDITIONAL_APPROVAL": "bg-amber-500/15 text-amber-300 border-amber-500/40",
+  "REQUIRES_REWRITE": "bg-rose-500/15 text-rose-300 border-rose-500/40",
+};
+
+const getConsensusClass = (consensus: string): string => {
+  // Covers REQUIRES_REWRITE and any other unexpected string via default
+  return consensusClassMap[consensus] || "bg-rose-500/15 text-rose-300 border-rose-500/40";
+};
 
 export function CurrentCycle() {
   const cycle = usePipelineStore((s) => s.loopState?.currentCycle) ?? null;
@@ -129,7 +111,7 @@ export function CurrentCycle() {
         <div className="text-xs text-slate-500 font-mono mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-800/60 pt-3">
           <span className="inline-flex items-center gap-1">
             <GitBranch className="h-3 w-3 text-slate-500" aria-hidden="true" />
-            {cycle.targetRepo}:{cycle.branch}
+            {cycle.targetRepo ?? 'N/A'}:{cycle.branch ?? 'N/A'}
           </span >
           <span aria-label={`Started at ${cycle.startedAt ? new Date(cycle.startedAt).toLocaleTimeString() : 'unknown time'}`}>
             started: {cycle.startedAt ? new Date(cycle.startedAt).toLocaleTimeString() : 'unknown'}
