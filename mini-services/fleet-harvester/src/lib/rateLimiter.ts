@@ -151,6 +151,10 @@ export async function fetchWithTimeout(
   init: RequestInit = {},
   timeoutMs = 30_000
 ): Promise<Response> {
+  if (timeoutMs <= 0) {
+    throw new Error('timeoutMs must be a positive number');
+  }
+
   const controller = new AbortController();
   let timedOut = false;
   const callerSignal = init.signal ?? undefined;
@@ -186,7 +190,7 @@ export async function fetchWithTimeout(
     callerSignal?.removeEventListener('abort', onCallerAbort);
     // Only abort controller if it hasn't already been aborted by timeout or caller signal
     if (!controller.signal.aborted) {
-        controller.abort();
+      controller.abort();
     }
   }
 }
