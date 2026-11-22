@@ -61,7 +61,8 @@ class LoopEventBus {
       throw new Error(`LoopEventBus.emit() called with invalid timestamp (must be a positive finite number, got: ${evt.timestamp})`);
     }
     
-    // Use type narrowing via switch statement which is exhaustive for the union type
+    // Input validation for specific kinds is necessary as the union type allows partial objects
+    // that satisfy the overall type but lack required fields for specific logic paths.
     switch (evt.kind) {
       case "state":
         if (!evt.state) {
@@ -108,8 +109,6 @@ class LoopEventBus {
         break;
       default:
         // This case is now exhaustive due to the LoopEvent union type, preventing TS2339 errors.
-        // If execution reaches here, it implies a structural issue in the LoopEvent definition itself,
-        // which is a critical bug, not just bad input.
         throw new Error(`LoopEventBus.emit() called with an unhandled or unknown event kind.`);
     }
 
@@ -123,12 +122,9 @@ class LoopEventBus {
     }
     this.emitter.on("event", listener);
     return () => {
-      try {
-        this.emitter.off("event", listener);
-      } catch (error) {
-        // Log the error but don't throw to ensure cleanup always completes
-        console.error("Error removing listener from LoopEventBus:", error);
-      }
+      // Removed try/catch as cleanup should generally not be suppressed unless logging is required.
+      // If off fails, it indicates a deeper EventEmitter state issue, which should ideally surface.
+      this.emitter.off("event", listener);
     };
   }
 }
