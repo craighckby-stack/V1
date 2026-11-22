@@ -41,19 +41,20 @@ const MAX_LOG_ENTRIES = 100; // Prevent unbounded memory growth
 
 const LogEntryComponent = memo(({ entry }: { entry: LogEntry }) => {
   // Safely access type with guard
-  const typeKey = entry.type && entry.type in TYPE_ICON ? entry.type : 'info';
+  const typeKey = entry.type && (entry.type in TYPE_ICON ? entry.type : 'info');
   const Icon = TYPE_ICON[typeKey as keyof typeof TYPE_ICON] || Info;
   const color = TYPE_COLOR[typeKey as keyof typeof TYPE_COLOR] || "text-slate-400";
   
   // Safely access source with guard
-  const sourceKey = entry.source && entry.source in SOURCE_COLOR ? entry.source : 'pipeline';
+  const sourceKey = entry.source && (entry.source in SOURCE_COLOR ? entry.source : 'pipeline');
   const sourceColor = SOURCE_COLOR[sourceKey as keyof typeof SOURCE_COLOR] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
   
   // Validate timestamp and provide fallback
   const timestamp = entry.timestamp || 'N/A';
   
   // Use a stable identifier. Prioritize a unique ID if present.
-  const key = entry.id || `${timestamp}-${entry.source}-${entry.message?.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '') || 'no-message'}`;
+  // Fallback key generation is made safer by ensuring all parts are strings/defined before concatenation.
+  const key = entry.id || `${timestamp}-${entry.source}-${entry.message ? entry.message.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '') : 'no-message'}`;
   
   return (
     <motion.div
