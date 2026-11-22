@@ -29,7 +29,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  let body: { repo?: string; branch?: string } | undefined;
+  let body: { repo?: string; branch?: string };
   let repoName: string | undefined;
 
   try {
@@ -39,6 +39,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "repo is required (owner/name)" }, { status: 400 });
     }
     
+    repoName = body.repo;
+
     // Validate repo format (should be in owner/name format)
     if (!body.repo.includes("/")) {
       return NextResponse.json({ 
@@ -47,8 +49,6 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
     
-    repoName = body.repo;
-
     // Validate branch parameter if provided
     if (body.branch !== undefined && typeof body.branch !== "string") {
       return NextResponse.json({ ok: false, error: "branch must be a string if provided" }, { status: 400 });
@@ -103,7 +103,7 @@ export async function POST(req: Request) {
   }
 }
 
-export async function DELETE() : Promise<NextResponse<{ ok: boolean; had: boolean; }>> {
+export async function DELETE(): Promise<NextResponse<{ ok: boolean; had: boolean; }>> {
   const had = await clearTargetConfig();
   return NextResponse.json({ ok: true, had });
 }
