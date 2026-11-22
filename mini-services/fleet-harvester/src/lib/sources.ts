@@ -59,13 +59,13 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   const results: ParsedSource[] = [];
 
   for (let token of tokens) {
-    // Strip trailing .git or URL prefixes
-    token = token.replace(/^https?:\/\/(www\.)?github\.com\//i, '');
-    token = token.replace(/\.git$/i, '');
-    token = token.replace(/^\/+|\/+$/g, '');
-    if (!token) continue;
+    // Strip trailing .git or URL prefixes using a single regex for efficiency
+    let cleanToken = token.replace(/^(https?:\/\/(www\.)?github\.com\/|)\S*\.git$/i, '');
+    cleanToken = cleanToken.replace(/^\/+|\/+$/g, '');
+    
+    if (!cleanToken) continue;
 
-    const parts = token.split('/').filter(Boolean);
+    const parts = cleanToken.split('/').filter(Boolean);
     if (parts.length >= 2) {
       const owner = parts[0];
       const repo = parts[1];
@@ -94,9 +94,10 @@ export function appendPresetToSources(existing: string | null | undefined, addit
   if (typeof existing !== 'string') {
     existing = '';
   }
+  
   const current = parseSources(existing);
   const existingKeys = new Set(current.map((c) => c.raw.toLowerCase()));
-  const merged = current.map((c) => c.raw);
+  const merged = [...current.map((c) => c.raw)];
 
   for (const add of additions) {
     const parsed = parseSources(add);
@@ -170,10 +171,13 @@ export function deriveLogPaths(
  * Filters repositories by comma-separated substring patterns.
  */
 export function matchesRepoFilter(fullName: string, filterText: string): boolean {
+  if (typeof filterText !== 'string' || !filterText.trim()) return true;
+  
   const tokens = filterText
     .split(/[\n,]+/)
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
+  
   if (tokens.length === 0) return true;
   const target = fullName.toLowerCase();
   return tokens.some((tok) => target.includes(tok));
