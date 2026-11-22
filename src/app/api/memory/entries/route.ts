@@ -29,19 +29,21 @@ export async function GET() {
     return NextResponse.json({ entries: entriesResult || [] });
   } catch (err: unknown) {
     let error: Error;
+    let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
+    let statusCode = 500;
+
     if (err instanceof Error) {
         error = err;
     } else {
-        // If it's not an Error instance, wrap it with context
+        // If it's not an Error instance, wrap it with context and use a generic message
         error = new Error("An unknown error occurred during memory retrieval from RAG store.");
+        // Log the full unknown error object for better debugging context
+        console.error("Unknown error object during memory retrieval:", JSON.stringify(err));
     }
     
     // Log the actual error for debugging purposes before sending a generic response
     console.error("Error retrieving memory entries from RAG store:", error.message, error.stack ? error.stack : "No stack trace available");
     
-    let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
-    let statusCode = 500;
-
     // Provide more specific error messages based on error type/message content
     const message = error.message.toLowerCase();
     if (message.includes("connection") || message.includes("timeout")) {
