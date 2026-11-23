@@ -60,7 +60,7 @@ async function main(): Promise<void> {
     let meta: ProphecyMeta = {};
     try {
       meta = p.historySnapshot ? (JSON.parse(p.historySnapshot) as ProphecyMeta) : {};
-    } catch {
+    } catch (e) {
       skippedUnparseable++;
       continue;
     }
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
         });
       }
     } catch (e) {
-      console.error(`  DB error looking up corpus for ${meta.filePath}: ${(e as Error).message}`);
+      console.error(`  DB error looking up corpus for prophecy ID ${p.id} (${meta.filePath}): ${(e as Error).message}`);
       leftAsIs++;
       continue;
     }
@@ -114,6 +114,10 @@ async function main(): Promise<void> {
     const verdict: "fulfilled" | "failed" =
       attempt.gateOutcome === "enhanced" ? "fulfilled" : "failed";
     const modeDisplay = meta.mode ?? "refactor"; // Handle missing mode safely
+    
+    // Input validation for confidence before using it in string formatting
+    const confidenceValue = typeof p.confidence === 'number' ? p.confidence.toFixed(2) : 'N/A';
+
     const evaluation =
       `Retroactive repair (operator, 2026-11-22): the pre-fix evaluator failed this ` +
       `prophecy at its deadline claiming "no attempt occurred", but the MutationCorpus ` +
@@ -121,7 +125,7 @@ async function main(): Promise<void> {
       `cycle ${attempt.cycleNumber} DID run — recorded gateOutcome="${attempt.gateOutcome}". ` +
       `Re-adjudicated deterministically from the corpus (no LLM): the claim "will pass all ` +
       `gates and be enhanced" is ${verdict === "fulfilled" ? "FULFILLED" : "FAILED"} by that ` +
-      `attempt's recorded outcome. (Confidence when made: ${p.confidence.toFixed(2)}.)`;
+      `attempt's recorded outcome. (Confidence when made: ${confidenceValue}.)`;
 
     if (apply) {
       await db.prophecy.update({
