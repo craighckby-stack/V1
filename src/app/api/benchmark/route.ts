@@ -21,6 +21,7 @@ export async function GET() {
   try {
     const report = await buildBenchmarkReport();
     if (!report) {
+      // Explicitly 503 if the report generation logic returns falsy, indicating data unavailability.
       return NextResponse.json(
         { error: "benchmark unavailable — corpus read failed" },
         { status: 503 },
@@ -35,13 +36,18 @@ export async function GET() {
     if (err instanceof Error) {
       errorMessage = err.message;
       errorName = err.name;
+      // If the underlying library signals a resource issue (e.g., connection timeout),
+      // we might downgrade from 500 to 503, but sticking to 500 for unexpected throws is safer default.
     } else if (typeof err === 'object' && err !== null && 'message' in err) {
-      // Handle cases where err is an object but not an Error instance (e.g., { message: '...' })
+      // Handle non-Error objects with a message property
       errorMessage = (err as { message: string }).message;
       errorName = 'ObjectError';
     }
 
-    // If buildBenchmarkReport throws, it's a 500 server error, as 503 is handled when report is falsy.
+    // Log the full error context server-side for debugging, but return a sanitized message to the client.
+    console.error("Benchmark Report Generation Failed:", err);
+
+    // Return 500 for unexpected runtime exceptions during report generation.
     return NextResponse.json(
       { error: `benchmark failed (${errorName}): ${errorMessage}` },
       { status: statusCode },
