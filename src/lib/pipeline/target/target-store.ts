@@ -131,20 +131,22 @@ export async function setTargetConfig(
     branch: branchValue,
     updatedAt: new Date().toISOString(),
   };
+  const now = new Date().toISOString();
+
   await db.systemFlag.upsert({
     where: { key: CONFIG_KEY },
     update: {
       value: JSON.stringify(config),
       setBy: "target-mode",
       reason: "operator set target repository",
-      updatedAt: new Date().toISOString(), // Added missing updatedAt for consistency
+      updatedAt: now,
     },
     create: {
       key: CONFIG_KEY,
       value: JSON.stringify(config),
       setBy: "target-mode",
       reason: "operator set target repository",
-      updatedAt: new Date().toISOString(), // Added missing updatedAt for consistency
+      updatedAt: now,
     },
   });
   return config;
@@ -202,20 +204,21 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
   }
   
   try {
+    const now = new Date().toISOString();
     await db.systemFlag.upsert({
       where: { key: LAST_RUN_KEY },
       update: {
         value: JSON.stringify(rec),
         setBy: "target-mode",
         reason: `run ${rec.status}`,
-        updatedAt: new Date().toISOString(), // Added missing updatedAt
+        updatedAt: now,
       },
       create: {
         key: LAST_RUN_KEY,
         value: JSON.stringify(rec),
         setBy: "target-mode",
         reason: `run ${rec.status}`,
-        updatedAt: new Date().toISOString(), // Added missing updatedAt
+        updatedAt: now,
       },
     });
   } catch (error) {
