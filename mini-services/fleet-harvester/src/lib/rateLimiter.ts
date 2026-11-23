@@ -136,7 +136,7 @@ export async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<
     }, ms);
     const onAbort = () => {
       clearTimeout(timer);
-      reject(new Error('Operation cancelled.'));
+      reject(new Error('Operation cancelled during sleep'));
     };
     signal?.addEventListener('abort', onAbort, { once: true });
   });
@@ -182,7 +182,7 @@ export async function fetchWithTimeout(
       throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
     }
     if (callerSignal?.aborted) {
-      throw new Error('Operation cancelled.');
+      throw new Error('Operation cancelled by caller');
     }
     throw err;
   } finally {
