@@ -44,7 +44,7 @@ export async function GET() {
     console.error("Error retrieving memory entries from RAG store:", error.message, error.stack ? error.stack : "No stack trace available");
     
     // Provide more specific error messages based on error type/message content
-    const message = error.message.toLowerCase();
+    const message = error.message;
     if (message.includes("connection") || message.includes("timeout")) {
         errorMessage = "The memory store service is temporarily unavailable due to a connection issue. Please retry later.";
         statusCode = 503;
