@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "scripts/test-target-dry.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 8 → evolved 10), no behavioral signal, 15 changed lines — mutations must change observable behavior, not add guards to code that already works",
@@ -12,8 +12,8 @@
   "parentHash": "a563a15e9ce2e2fe4f65307b5badf85956278b2e84c9f4e83731a031938a3164",
   "hash": "27d8549964c5876223eb9b486e18c3e27d56ab9e114b1f5953eed5c0f85280dc",
   "lastAttemptAt": "2026-11-23T22:09:24.301Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-23T22:19:27.466Z",
   "createdAt": "2026-11-23T03:29:46.531Z",
-  "updatedAt": "2026-11-23T22:09:24.301Z",
+  "updatedAt": "2026-11-23T22:19:27.466Z",
   "schema": 2
 }

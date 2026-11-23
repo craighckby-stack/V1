@@ -94,15 +94,13 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
           reason: `GitHub quota reached 0 — cooling down ${Math.ceil(waitMs / 1000)}s until reset.`,
         };
       }
-    }
-    if (remaining < 20) {
+    } else if (remaining < 20) {
       return {
         waitMs: 1500,
         shouldRetry: false,
         reason: `GitHub quota low (${remaining} remaining) — slowing pace to 1.5s/request.`,
       };
-    }
-    if (remaining < 100) {
+    } else if (remaining < 100) {
       return { waitMs: 450, shouldRetry: false };
     }
   }
@@ -199,9 +197,11 @@ export async function fetchWithTimeout(
       if (err.name === 'AbortError') {
         if (timedOut) {
           throw new Error(`Request to ${url} timed out after ${Math.round(timeoutMs / 1000)}s`);
+        } else if (callerSignal?.aborted) {
+          throw new Error(`Operation cancelled by caller during request to ${url}`);
+        } else {
+          throw new Error(`Request to ${url} was aborted for an unknown reason`);
         }
-        // If AbortError but not due to timeout, it must be caller-initiated
-        throw new Error(`Operation cancelled by caller during request to ${url}`);
       }
       // General network/fetch error
       throw new Error(`Request to ${url} failed: ${err.message}`);
