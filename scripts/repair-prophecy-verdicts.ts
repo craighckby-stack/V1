@@ -73,13 +73,26 @@ async function main(): Promise<void> {
     let attempt: { cycleNumber: number; gateOutcome: string } | null = null;
     try {
       if (meta.sameAttempt === true && typeof meta.cycleNumber === "number") {
-        attempt = await db.mutationCorpus.findFirst({
+        const sameAttemptPromise = db.mutationCorpus.findFirst({
           where: { filePath: meta.filePath, cycleNumber: meta.cycleNumber },
           orderBy: { createdAt: "desc" },
           select: { cycleNumber: true, gateOutcome: true },
         });
-      }
-      if (!attempt) {
+
+        const generalAttemptPromise = db.mutationCorpus.findFirst({
+          where: { filePath: meta.filePath, createdAt: { gte: p.createdAt } },
+          orderBy: { createdAt: "asc" },
+          select: { cycleNumber: true, gateOutcome: true },
+        });
+
+        const [sameAttemptResult, generalAttemptResult] = await Promise.all([
+          sameAttemptPromise,
+          generalAttemptPromise,
+        ]);
+
+        attempt = sameAttemptResult || generalAttemptResult;
+      } else {
+        // If sameAttempt is false or cycleNumber is missing, fall back to general search
         attempt = await db.mutationCorpus.findFirst({
           where: { filePath: meta.filePath, createdAt: { gte: p.createdAt } },
           orderBy: { createdAt: "asc" },
@@ -100,10 +113,11 @@ async function main(): Promise<void> {
 
     const verdict: "fulfilled" | "failed" =
       attempt.gateOutcome === "enhanced" ? "fulfilled" : "failed";
+    const modeDisplay = meta.mode ?? "refactor"; // Handle missing mode safely
     const evaluation =
       `Retroactive repair (operator, 2026-11-22): the pre-fix evaluator failed this ` +
       `prophecy at its deadline claiming "no attempt occurred", but the MutationCorpus ` +
-      `proves the predicted ${meta.mode ?? "refactor"} attempt on ${meta.filePath} at ` +
+      `proves the predicted ${modeDisplay} attempt on ${meta.filePath} at ` +
       `cycle ${attempt.cycleNumber} DID run — recorded gateOutcome="${attempt.gateOutcome}". ` +
       `Re-adjudicated deterministically from the corpus (no LLM): the claim "will pass all ` +
       `gates and be enhanced" is ${verdict === "fulfilled" ? "FULFILLED" : "FAILED"} by that ` +
