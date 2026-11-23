@@ -23,7 +23,18 @@ let lastLlmTestAt = 0;
 const LLM_TEST_COOLDOWN_MS = 60_000;
 
 const server = createServer(async (req, res) => {
-  const url = new URL(req.url || "/", `http://localhost:${PORT}`);
+  // Safely determine URL, defaulting to root if req.url is missing
+  const urlString = req.url || "/";
+  let url: URL;
+  try {
+    url = new URL(urlString, `http://localhost:${PORT}`);
+  } catch (e) {
+    // Handle malformed URL path gracefully
+    res.writeHead(400, { "content-type": "text/plain" });
+    res.end("Bad Request: Invalid URL path");
+    return;
+  }
+
   if (url.pathname === "/api/health") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(
@@ -60,6 +71,7 @@ const server = createServer(async (req, res) => {
     }
     lastLlmTestAt = now;
     try {
+      // Dynamic import is necessary here but we ensure the await structure is correct.
       const { testLlmConnection } = await import("./src/lib/aiOrchestrator");
       const result = await testLlmConnection();
       res.writeHead(200, { "content-type": "application/json" });
