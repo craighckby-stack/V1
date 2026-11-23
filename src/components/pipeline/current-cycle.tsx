@@ -51,8 +51,8 @@ export function CurrentCycle() {
   }
 
   // Validate cycle status to handle unexpected values
-  const status = cycle.status === "running" || cycle.status === "completed" || 
-                 cycle.status === "halted" ? cycle.status : "unknown";
+  const validStatuses = new Set(["running", "completed", "halted"]);
+  const status = validStatuses.has(cycle.status) ? cycle.status : "unknown";
 
   const fileResults = cycle.fileResults || [];
   const totalFiles = fileResults.length;
@@ -60,6 +60,7 @@ export function CurrentCycle() {
   // Calculate pushedFiles efficiently
   const pushedFiles = fileResults.reduce((count, r) => count + (r.pushed ? 1 : 0), 0);
   
+  // Safely determine firstProofHash only if files exist
   const firstProofHash = totalFiles > 0 ? fileResults[0]?.proofHash : undefined;
 
   let cardBgClass = "bg-rose-950/30 border-rose-800/50";
