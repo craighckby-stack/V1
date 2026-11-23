@@ -53,8 +53,8 @@ const LogEntryComponent = memo(({ entry }: { entry: LogEntry }) => {
   const timestamp = entry.timestamp || 'N/A';
   
   // Use a stable identifier. Prioritize a unique ID if present.
-  // Fallback key generation is simplified and relies on stable properties.
-  const key = entry.id || `${timestamp}-${entry.source}-${entry.message ? entry.message.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '') : 'no-message'}`;
+  // Fallback key generation uses timestamp and source as they are more stable than message content.
+  const key = entry.id || `${timestamp}-${entry.source}`;
   
   return (
     <motion.div
