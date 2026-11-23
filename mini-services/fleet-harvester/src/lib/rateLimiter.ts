@@ -20,6 +20,7 @@ const MAX_AUTO_WAIT_MS = 120_000;
  * Computes pacing and rate-limit recovery cooldowns for GitHub REST API requests.
  */
 export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision {
+  // Input validation is necessary for runtime safety even if TypeScript defines the shape.
   if (!input) {
     throw new Error("GitHubRateInput cannot be null or undefined.");
   }
@@ -50,7 +51,7 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
       return {
         waitMs: 0,
         shouldRetry: false,
-        fatalError: `GitHub rate limit cooldown (${Math.ceil(waitMs / 1000)}s) exceeds 120s auto-wait limit.`,
+        fatalError: `GitHub rate limit cooldown (${Math.ceil(waitMs / 1000)}s) exceeds 120s auto-wait limit. Cannot proceed automatically.`,
       };
     }
 
@@ -67,7 +68,7 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
       return {
         waitMs: 0,
         shouldRetry: false,
-        fatalError: `GitHub API rate limit exhausted until ${resetTime}. Add a personal access token or retry after reset.`,
+        fatalError: `GitHub API rate limit exhausted until ${resetTime}. Action required: Add a personal access token or retry after reset.`,
       };
     }
 
@@ -194,23 +195,18 @@ export async function fetchWithTimeout(
     });
     return response;
   } catch (err) {
-    if (timedOut) {
-      throw new Error(`Request to ${url} timed out after ${Math.round(timeoutMs / 1000)}s`);
-    }
-    if (callerSignal?.aborted) {
-      throw new Error(`Operation cancelled by caller during request to ${url}`);
-    }
     if (err instanceof Error) {
-      // Check if the error is specifically an abort error from the controller (timeout or caller)
       if (err.name === 'AbortError') {
         if (timedOut) {
           throw new Error(`Request to ${url} timed out after ${Math.round(timeoutMs / 1000)}s`);
         }
-        // If it's an AbortError but not due to timeout, it must be caller-initiated
+        // If AbortError but not due to timeout, it must be caller-initiated
         throw new Error(`Operation cancelled by caller during request to ${url}`);
       }
+      // General network/fetch error
       throw new Error(`Request to ${url} failed: ${err.message}`);
     }
+    // Unknown error type
     throw new Error(`Request to ${url} failed with unknown error`);
   } finally {
     clearTimeout(timer);
