@@ -20,10 +20,10 @@ export const runtime = "nodejs";
 export async function GET() {
   try {
     const report = await buildBenchmarkReport();
-    if (report === null || report === undefined) {
-      // Explicitly 503 if the report generation logic returns null/undefined, indicating data unavailability.
+    if (report === null) {
+      // Explicitly 503 if the report generation logic returns null, indicating data unavailability.
       return NextResponse.json(
-        { error: "benchmark unavailable — corpus read failed or report generation returned null/undefined" },
+        { error: "benchmark unavailable — corpus read failed or report generation returned null" },
         { status: 503 },
       );
     }
@@ -36,8 +36,6 @@ export async function GET() {
     if (err instanceof Error) {
       errorMessage = err.message;
       errorName = err.name;
-      // If the underlying library signals a resource issue (e.g., connection timeout),
-      // we might downgrade from 500 to 503, but sticking to 500 for unexpected throws is safer default.
     } else if (typeof err === 'object' && err !== null && 'message' in err) {
       // Handle non-Error objects with a message property
       errorMessage = (err as { message: string }).message;
