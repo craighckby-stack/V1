@@ -18,7 +18,9 @@ interface DebateRequest {
  * returned honestly as a 500.
  */
 export async function POST(req: Request) {
-  let body: DebateRequest;
+  let body: DebateRequest | undefined;
+  let filePath: string | undefined;
+
   try {
     const json = await req.json();
     
@@ -27,6 +29,7 @@ export async function POST(req: Request) {
         throw new Error("Request body structure is invalid or missing required fields.");
     }
     body = json as DebateRequest;
+    filePath = body.filePath; // Capture filePath early for error context
 
   } catch (e) {
     // Provide a specific 400 error for JSON parsing failure or structural mismatch
@@ -37,14 +40,14 @@ export async function POST(req: Request) {
   }
 
   // Consolidated validation for required fields
-  if (typeof body.filePath !== "string" || body.filePath.trim().length === 0) {
+  if (typeof body?.filePath !== "string" || body.filePath.trim().length === 0) {
     return NextResponse.json(
       { error: "filePath is required and must be a non-empty string." },
       { status: 400 }
     );
   }
 
-  if (typeof body.candidateCode !== "string" || body.candidateCode.trim().length === 0) {
+  if (typeof body?.candidateCode !== "string" || body.candidateCode.trim().length === 0) {
     return NextResponse.json(
       { error: "candidateCode is required and must be a non-empty string." },
       { status: 400 }
@@ -63,7 +66,8 @@ export async function POST(req: Request) {
     // Use nullish coalescing for cleaner fallback logic
     const effectiveTopic = body.topic ?? `Code Review for ${body.filePath}`;
     
-    // Execute LLM debate
+    // Execute LLM debate concurrently (assuming conductLlmDebate internally handles parallel Security/Architecture calls)
+    // If conductLlmDebate is sequential, this structure allows for future refactoring to parallelize its internal steps.
     const result = await conductLlmDebate(
       effectiveTopic,
       body.candidateCode,
