@@ -196,14 +196,15 @@ function bootOracleScheduler(): void {
   const oldTimer2 = s.timer;
   
   // Clear old timers atomically
+  g.__oracleSchedulerTimer = null;
+  s.timer = null;
+  
   if (oldTimer1) {
     clearInterval(oldTimer1);
-    g.__oracleSchedulerTimer = null;
   }
   
   if (oldTimer2) {
     clearInterval(oldTimer2);
-    s.timer = null;
   }
   
   s.booted = true;
