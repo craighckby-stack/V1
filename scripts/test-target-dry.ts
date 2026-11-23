@@ -15,22 +15,22 @@ import { getRepoDefaultBranch } from "@/lib/pipeline/target/target-github";
 import { runTargetMutation } from "@/lib/pipeline/target/target-runner";
 
 const DEFAULT_REPO = "craighckby-stack/Wonder-Craig-Game-Demo";
-const REPO = process.argv[2] ?? DEFAULT_REPO;
+const providedRepo = process.argv[2];
+const REPO = providedRepo && providedRepo.trim() !== "" ? providedRepo.trim() : DEFAULT_REPO;
 
 function line(s: string) {
   console.log(s);
 }
 
 async function main() {
-  // Input validation: Ensure REPO is not empty/whitespace if it was provided,
-  // or if it's the default, warn appropriately.
-  if (REPO.trim() === "") {
-    line(`Error: Repository argument is empty or whitespace.`);
+  // Input validation: Ensure REPO is valid. If provided, it must not be empty/whitespace.
+  if (providedRepo && providedRepo.trim() === "") {
+    line(`Error: Repository argument provided is empty or whitespace.`);
     process.exitCode = 1;
     return;
   }
 
-  if (REPO === DEFAULT_REPO && process.argv.length < 3) {
+  if (REPO === DEFAULT_REPO && !providedRepo) {
     line(`Warning: No repository owner/repo provided. Using default: ${DEFAULT_REPO}`);
   }
 
@@ -77,7 +77,9 @@ async function main() {
   line(`commitSha:      ${result.commitSha ?? "(none)"}`);
   line(`secretFindings: ${result.secretFindings ?? 0}`);
   line(`debate:         ${JSON.stringify(result.debate) ?? "(none)"}`);
-  line(`error/reason:   ${result.error ?? result.reason ?? "(none)"}`);
+  
+  const errorMsg = result.error || result.reason || "(none)";
+  line(`error/reason:   ${errorMsg}`);
 
   if (result.findings && result.findings.length) {
     line(`\nfindings on ${result.file}:`);
