@@ -135,7 +135,7 @@ async function main() {
   log(`Push to V1: ${pushToV1 ? v1DestRepo + "@" + v1DestBranch : "(disabled)"}`);
   log(`LLM: ${args.dryRun ? "disabled (--dry-run)" : "z-ai-web-dev-sdk"}`);
   log(`Format: ${args.format}`);
-  let reposArray: string[] | undefined = undefined;
+  let reposArray: string[] = [];
   if (args.repos) {
     reposArray = args.repos.split(",").map((s) => s.trim()).filter(Boolean);
     if (reposArray.length === 0) {
@@ -145,7 +145,7 @@ async function main() {
     log(`Smoke-test repos: ${reposArray.length} (${reposArray.join(", ")})`);
   }
 
-  if (!reposArray) {
+  if (reposArray.length === 0) {
     console.error("ERROR: --repos= argument is required for a harvest run.");
     process.exit(2);
   }
@@ -157,7 +157,7 @@ async function main() {
     loopMemoryDir,
     pushToV1,
     maxLlmCommitsPerHarvest: maxLlm,
-    reposOverride: reposArray ? { repos: reposArray } : undefined,
+    reposOverride: { repos: reposArray },
     onLog: (msg, level) => console.log(`[${level ?? "info"}] ${msg}`),
   });
 
