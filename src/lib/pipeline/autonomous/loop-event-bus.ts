@@ -43,6 +43,13 @@ type LoopEventListener = (evt: LoopEvent) => void;
 
 class LoopEventBus {
   private emitter: EventEmitter;
+  private readonly validOutcomes: string[] = [
+    "committed", 
+    "toctou_conflict", 
+    "toctou_healed", 
+    "skipped_remote_changed", 
+    "failed"
+  ];
 
   constructor() {
     try {
@@ -88,9 +95,8 @@ class LoopEventBus {
         throw new Error(`LoopEventBus.emit() for kind 'push' requires a non-empty string filePath.`);
       }
       
-      const validOutcomes = ["committed", "toctou_conflict", "toctou_healed", "skipped_remote_changed", "failed"];
-      if (typeof evt.outcome !== 'string' || !validOutcomes.includes(evt.outcome)) {
-        throw new Error(`LoopEventBus.emit() for kind 'push' has invalid or missing outcome: ${evt.outcome}. Valid outcomes are: ${validOutcomes.join(', ')}`);
+      if (typeof evt.outcome !== 'string' || !this.validOutcomes.includes(evt.outcome)) {
+        throw new Error(`LoopEventBus.emit() for kind 'push' has invalid or missing outcome: ${evt.outcome}. Valid outcomes are: ${this.validOutcomes.join(', ')}`);
       }
 
       if (evt.attempt !== undefined) {
@@ -103,17 +109,37 @@ class LoopEventBus {
       }
     }
 
-    // EventEmitter.emit returns boolean | null. We return true if it didn't return null, false otherwise.
-    return this.emitter.emit("event", evt) !== null;
+    try {
+      // EventEmitter.emit returns boolean | null. We return true if it didn't return null, false otherwise.
+      return this.emitter.emit("event", evt) !== null;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`LoopEventBus.emit() failed while emitting event: ${errorMessage}`);
+    }
   }
 
   public on(listener: LoopEventListener): () => void {
     if (typeof listener !== "function") {
       throw new Error("LoopEventBus.on() called with non-function listener");
     }
-    this.emitter.on("event", listener);
+    
+    let cleanupError: Error | null = null;
+    try {
+      this.emitter.on("event", listener);
+    } catch (error) {
+      cleanupError = error instanceof Error ? error : new Error(String(error));
+    }
+
     return () => {
-      this.emitter.off("event", listener);
+      try {
+        this.emitter.off("event", listener);
+      } catch (error) {
+        // If both initial add and removal fail, prioritize the removal error
+        if (cleanupError) {
+          throw new Error(`Failed to remove listener: ${error instanceof Error ? error.message : String(error)}. Original error during add: ${cleanupError.message}`);
+        }
+        throw error;
+      }
     };
   }
 }
