@@ -76,7 +76,7 @@ const ATTEMPTS_TAKE = 10;
  *  uses for `filePath` and the same form `git log --follow` expects. */
 export async function buildProvenanceDigestForPrompt(filePath: string): Promise<string> {
   if (!filePath || typeof filePath !== 'string') {
-    console.error("[ProvenanceDigest] Invalid filePath provided. Must be a non-empty string.");
+    console.error(`[ProvenanceDigest] Invalid filePath provided. Must be a non-empty string.`);
     return "";
   }
 
