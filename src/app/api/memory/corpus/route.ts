@@ -28,7 +28,10 @@ export async function GET(request: Request) {
     const keyword = searchParams.get("keyword");
     
     if (typeof keyword !== "string" || keyword.trim() === "") {
-      throw new Error("Missing or empty 'keyword' query parameter. Please provide a valid 'keyword'.");
+      return NextResponse.json(
+        { ok: false, error: "Missing or empty 'keyword' query parameter. Please provide a valid 'keyword'." },
+        { status: 400 }
+      );
     }
     
     // Run status, digest, and search in parallel to reduce latency
@@ -69,11 +72,17 @@ export async function GET(request: Request) {
     const error = e instanceof Error ? e : new Error("Unknown corpus read failure during request processing.");
     
     // Determine status code based on error context
-    const statusCode = error.message.includes("timed out") ? 504 : 500;
+    if (error.message.includes("timed out")) {
+        return NextResponse.json(
+          { ok: false, error: "Search operation timed out." },
+          { status: 504 }
+        );
+    }
     
+    // For all other errors (validation, data format, internal library errors), return 500
     return NextResponse.json(
-      { ok: false, error: `Corpus API Error: ${error.message}` },
-      { status: statusCode }
+      { ok: false, error: "Internal server error while accessing corpus data." },
+      { status: 500 }
     );
   }
 }
