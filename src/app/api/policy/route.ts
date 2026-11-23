@@ -29,7 +29,8 @@ export async function GET() {
   } catch (error) {
     // Log the actual error internally for debugging pipeline health,
     // but return a generic message to the client for security.
-    console.error("Error generating policy report:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error generating policy report:", errorMessage);
     return NextResponse.json(
       { error: "Failed to generate policy report. Please check pipeline logs for details." },
       { status: 500 }
