@@ -164,8 +164,8 @@ export function deriveLogPaths(
     csv: 'csv',
   };
   const ext = extMap[format];
-  // Use DEFAULT_BASE_PATH if basePath is empty or null/undefined after trimming
-  const clean = (basePath?.trim() || DEFAULT_BASE_PATH).replace(/^\/+/, '');
+  // Use DEFAULT_BASE_PATH if basePath is null/undefined or empty after trimming
+  const clean = (basePath ? basePath.trim() : DEFAULT_BASE_PATH).replace(/^\/+/, '');
   const lastSlash = clean.lastIndexOf('/');
   const dir = lastSlash >= 0 ? clean.slice(0, lastSlash + 1) : '';
   const file = lastSlash >= 0 ? clean.slice(lastSlash + 1) : clean;
