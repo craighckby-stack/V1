@@ -164,10 +164,19 @@ async function pollNextJsState() {
     nextJsReachable = true;
     const newState = await res.json();
     const newJson = JSON.stringify(newState);
+    
+    // Guard against incomplete/malformed state data before comparison/emission
+    if (typeof newState !== 'object' || newState === null) {
+        console.error("[LOOP-WS] Received non-object state from Next.js API. Skipping update.");
+        return;
+    }
+
     if (newJson !== cachedStateJson) {
       cachedState = newState;
       cachedStateJson = newJson;
       io.emit("state", newState);
+      
+      // Use optional chaining defensively, though the structure is expected
       const summary = `status=${newState?.status} mode=${newState?.config?.mode} totalRuns=${newState?.stats?.totalRuns}`;
       console.log(`[LOOP-WS] state changed -> ${summary}`);
     }
@@ -204,14 +213,16 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`[LOOP-WS] Polling ${NEXTJS_STATUS_URL} every ${POLL_INTERVAL_MS}ms`);
   
   // Run initial poll and set up interval in parallel to reduce startup latency
-  pollNextJsState().catch((err) => {
-    console.error("[LOOP-WS] Initial poll failed:", err);
-  });
-  setInterval(() => {
+  Promise.all([
     pollNextJsState().catch((err) => {
-      console.error("[LOOP-WS] Poll interval error:", err);
-    });
-  }, POLL_INTERVAL_MS);
+      console.error("[LOOP-WS] Initial poll failed:", err);
+    }),
+    setInterval(() => {
+      pollNextJsState().catch((err) => {
+        console.error("[LOOP-WS] Poll interval error:", err);
+      });
+    }, POLL_INTERVAL_MS)
+  ]);
 });
 
 process.on("SIGTERM", () => {
