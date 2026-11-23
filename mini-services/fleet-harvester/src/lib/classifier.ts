@@ -34,7 +34,7 @@ export function compileRegexSafe(
  * is flagged as reverted later.
  */
 export function detectRevertedShas(commits: RawCommit[]): Set<string> {
-  if (!commits) {
+  if (!commits || !Array.isArray(commits)) {
     return new Set<string>();
   }
 
@@ -106,6 +106,10 @@ export function detectRevertedShas(commits: RawCommit[]): Set<string> {
       }
     }
   }
+
+  // Clean up regex lastIndex to prevent potential memory leaks
+  revertLineRx.lastIndex = 0;
+  revertHeaderRx.lastIndex = 0;
 
   return reverted;
 }
@@ -216,7 +220,7 @@ export function reconcileDualVerdicts(
     throw new Error('Invalid commit: missing required fields (sha, message)');
   }
 
-  if (!strategy) {
+  if (!strategy || !['consensus', 'specialist'].includes(strategy)) {
     throw new Error('Invalid strategy: must be one of "consensus" or "specialist"');
   }
 
@@ -350,21 +354,31 @@ export function reconcileDualVerdicts(
   };
 }
 
+// Cache regex patterns for summarizeFootprint to avoid repeated compilation
+const FOOTPRINT_PATTERNS = {
+  conventional: /^([a-zA-Z0-9_-]+)(\([^)]+\))?:\s*(.+)$/,
+  fix: /fix|bug|patch|hotfix|race/i,
+  feat: /feat|add|implement|support/i,
+  refactor: /refactor|clean|rename|format/i,
+  doc: /doc|readme|comment/i,
+  test: /test|spec|ci|workflow/i,
+};
+
 export function summarizeFootprint(message: string): string {
   if (!message) {
     return 'chore';
   }
 
   const firstLine = message.split('\n')[0].trim();
-  const match = /^([a-zA-Z0-9_-]+)(\([^)]+\))?:\s*(.+)$/.exec(firstLine);
+  const match = FOOTPRINT_PATTERNS.conventional.exec(firstLine);
   if (match) {
     const scope = match[2] ? ` ${match[2]}` : '';
     return `${match[1].toLowerCase()}${scope}`;
   }
-  if (/fix|bug|patch|hotfix|race/i.test(firstLine)) return 'bugfix';
-  if (/feat|add|implement|support/i.test(firstLine)) return 'feature';
-  if (/refactor|clean|rename|format/i.test(firstLine)) return 'refactor';
-  if (/doc|readme|comment/i.test(firstLine)) return 'docs';
-  if (/test|spec|ci|workflow/i.test(firstLine)) return 'ci-test';
+  if (FOOTPRINT_PATTERNS.fix.test(firstLine)) return 'bugfix';
+  if (FOOTPRINT_PATTERNS.feat.test(firstLine)) return 'feature';
+  if (FOOTPRINT_PATTERNS.refactor.test(firstLine)) return 'refactor';
+  if (FOOTPRINT_PATTERNS.doc.test(firstLine)) return 'docs';
+  if (FOOTPRINT_PATTERNS.test.test(firstLine)) return 'ci-test';
   return 'chore';
 }
