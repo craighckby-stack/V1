@@ -33,7 +33,7 @@ export function compileRegexSafe(
  * Detects SHAs (full or 7+ char prefixes) referenced in revert commits so the original commit
  * is flagged as reverted later.
  */
-export function detectRevertedShas(commits: RawCommit[]): Set<string> {
+export function detectRevertedShas(commits: RawCommit[] | null | undefined): Set<string> {
   if (!commits || !Array.isArray(commits)) {
     return new Set<string>();
   }
