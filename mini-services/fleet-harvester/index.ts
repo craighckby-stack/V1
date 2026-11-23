@@ -23,8 +23,8 @@ let lastLlmTestAt = 0;
 const LLM_TEST_COOLDOWN_MS = 60_000;
 
 const server = createServer(async (req, res) => {
-  // Safely determine URL, defaulting to root if req.url is missing
-  const urlString = req.url || "/";
+  // Safely determine URL, defaulting to root if req.url is missing or not a string
+  const urlString = typeof req.url === 'string' ? req.url : "/";
   let url: URL;
   try {
     url = new URL(urlString, `http://localhost:${PORT}`);
@@ -105,12 +105,23 @@ server.listen(PORT, () => {
 // Enhanced process exit handling to ensure server is properly closed
 const gracefulShutdown = (signal: string) => {
   console.log(`[fleet-harvester] received ${signal}, shutting down gracefully...`);
-  server.close(() => {
-    console.log("[fleet-harvester] server closed");
+  
+  const closeServer = () => new Promise<void>((resolve) => {
+    server.close(() => {
+      console.log("[fleet-harvester] server closed");
+      resolve();
+    });
+  });
+
+  closeServer().then(() => {
     process.exit(0);
+  }).catch(() => {
+    // If server.close fails unexpectedly, proceed to force exit
+    console.error("[fleet-harvester] Error during server close, forcing exit.");
+    process.exit(1);
   });
   
-  // Force exit after 10 seconds if server doesn't close cleanly
+  // Force exit after 10 seconds if server doesn't close cleanly (only needed if promise above hangs)
   setTimeout(() => {
     console.log("[fleet-harvester] force exiting after timeout");
     process.exit(1);
