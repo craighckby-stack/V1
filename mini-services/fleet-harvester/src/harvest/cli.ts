@@ -129,7 +129,7 @@ async function main() {
   };
 
   // Push to V1 requires no --no-push, no --dry-run, AND a non-empty targetRepo.
-  const pushToV1 = !args.noPush && !args.dryRun && v1DestRepo.trim().length > 0;
+  const pushToV1 = !args.noPush && !args.dryRun && v1DestRepo.length > 0;
 
   log(`Loop memory dir: ${loopMemoryDir} (exists: ${loopMemoryDirExists(loopMemoryDir)})`);
   log(`Push to V1: ${pushToV1 ? v1DestRepo + "@" + v1DestBranch : "(disabled)"}`);
