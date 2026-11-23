@@ -1,8 +1,9 @@
 import { db } from "@/lib/db";
 async function main() {
   const row = await db.llmConfig.findUnique({ where: { id: "singleton" } });
-  console.log("configured:", !!row);
+  
   if (row) {
+    console.log("configured:", true);
     console.log("model:", row.geminiModel, "hasKey:", !!row.geminiApiKey, "lastError:", row.lastError);
   } else {
     console.warn("LLM configuration record with id 'singleton' not found in the database.");
