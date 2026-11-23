@@ -58,14 +58,14 @@ export function RecentCycles() {
   
   // 1. Process store cycles first (WS data, highest priority)
   cyclesFromStore.forEach(c => {
-    if (c?.id) { // Guard against malformed store entries
+    if (c && c.id) { // Guard against null/undefined cycle object AND missing ID
       seen.set(c.id, c);
     }
   });
 
   // 2. Process fetched cycles, only adding if ID is not already seen (API data is secondary)
   fetched.forEach(c => {
-    if (c?.id && !seen.has(c.id)) {
+    if (c && c.id && !seen.has(c.id)) { // Guard against null/undefined cycle object AND missing ID
       seen.set(c.id, c);
     }
   });
