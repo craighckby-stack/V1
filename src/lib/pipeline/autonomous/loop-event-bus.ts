@@ -63,53 +63,44 @@ class LoopEventBus {
     
     // Input validation for specific kinds is necessary as the union type allows partial objects
     // that satisfy the overall type but lack required fields for specific logic paths.
-    switch (evt.kind) {
-      case "state":
-        if (!evt.state) {
-          throw new Error("LoopEventBus.emit() for kind 'state' requires a defined state object.");
-        }
-        break;
-      case "log":
-        if (!evt.log) {
-          throw new Error("LoopEventBus.emit() for kind 'log' requires a defined log entry.");
-        }
-        break;
-      case "stage":
-        if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0) {
-          throw new Error(`LoopEventBus.emit() for kind 'stage' requires a non-empty string cycleId.`);
-        }
-        if (!evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
-          throw new Error(`LoopEventBus.emit() for kind 'stage' requires a non-empty string filePath.`);
-        }
-        if (!evt.stage) {
-          throw new Error("LoopEventBus.emit() for kind 'stage' requires a defined stage object.");
-        }
-        break;
-      case "push":
-        if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0) {
-          throw new Error(`LoopEventBus.emit() for kind 'push' requires a non-empty string cycleId.`);
-        }
-        if (!evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
-          throw new Error(`LoopEventBus.emit() for kind 'push' requires a non-empty string filePath.`);
-        }
-        
-        const validOutcomes = ["committed", "toctou_conflict", "toctou_healed", "skipped_remote_changed", "failed"];
-        if (typeof evt.outcome !== 'string' || !validOutcomes.includes(evt.outcome)) {
-          throw new Error(`LoopEventBus.emit() for kind 'push' has invalid or missing outcome: ${evt.outcome}. Valid outcomes are: ${validOutcomes.join(', ')}`);
-        }
+    if (evt.kind === "state" && !evt.state) {
+      throw new Error("LoopEventBus.emit() for kind 'state' requires a defined state object.");
+    }
+    if (evt.kind === "log" && !evt.log) {
+      throw new Error("LoopEventBus.emit() for kind 'log' requires a defined log entry.");
+    }
+    if (evt.kind === "stage") {
+      if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0) {
+        throw new Error(`LoopEventBus.emit() for kind 'stage' requires a non-empty string cycleId.`);
+      }
+      if (!evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
+        throw new Error(`LoopEventBus.emit() for kind 'stage' requires a non-empty string filePath.`);
+      }
+      if (!evt.stage) {
+        throw new Error("LoopEventBus.emit() for kind 'stage' requires a defined stage object.");
+      }
+    }
+    if (evt.kind === "push") {
+      if (!evt.cycleId || typeof evt.cycleId !== "string" || evt.cycleId.length === 0) {
+        throw new Error(`LoopEventBus.emit() for kind 'push' requires a non-empty string cycleId.`);
+      }
+      if (!evt.filePath || typeof evt.filePath !== "string" || evt.filePath.length === 0) {
+        throw new Error(`LoopEventBus.emit() for kind 'push' requires a non-empty string filePath.`);
+      }
+      
+      const validOutcomes = ["committed", "toctou_conflict", "toctou_healed", "skipped_remote_changed", "failed"];
+      if (typeof evt.outcome !== 'string' || !validOutcomes.includes(evt.outcome)) {
+        throw new Error(`LoopEventBus.emit() for kind 'push' has invalid or missing outcome: ${evt.outcome}. Valid outcomes are: ${validOutcomes.join(', ')}`);
+      }
 
-        if (evt.attempt !== undefined) {
-          if (typeof evt.attempt !== "number" || !Number.isInteger(evt.attempt) || evt.attempt < 0) {
-            throw new Error(`LoopEventBus.emit() for kind 'push' has invalid attempt: ${evt.attempt}. Must be a non-negative integer.`);
-          }
+      if (evt.attempt !== undefined) {
+        if (typeof evt.attempt !== "number" || !Number.isInteger(evt.attempt) || evt.attempt < 0) {
+          throw new Error(`LoopEventBus.emit() for kind 'push' has invalid attempt: ${evt.attempt}. Must be a non-negative integer.`);
         }
-        if (evt.sha !== undefined && typeof evt.sha !== 'string') {
-          throw new Error(`LoopEventBus.emit() for kind 'push' has invalid sha: ${evt.sha}. Must be a string if provided.`);
-        }
-        break;
-      default:
-        // This case is now exhaustive due to the LoopEvent union type, preventing TS2339 errors.
-        throw new Error(`LoopEventBus.emit() called with an unhandled or unknown event kind.`);
+      }
+      if (evt.sha !== undefined && typeof evt.sha !== 'string') {
+        throw new Error(`LoopEventBus.emit() for kind 'push' has invalid sha: ${evt.sha}. Must be a string if provided.`);
+      }
     }
 
     // EventEmitter.emit returns boolean | null. We return true if it didn't return null, false otherwise.
@@ -122,12 +113,7 @@ class LoopEventBus {
     }
     this.emitter.on("event", listener);
     return () => {
-      try {
-        this.emitter.off("event", listener);
-      } catch (error) {
-        // Log the error but don't throw to allow cleanup to continue
-        console.error("Error removing listener from LoopEventBus:", error);
-      }
+      this.emitter.off("event", listener);
     };
   }
 }
