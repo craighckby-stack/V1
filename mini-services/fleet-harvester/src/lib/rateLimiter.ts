@@ -87,10 +87,9 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
     if (remaining === 0 && resetEpochSec !== null && !Number.isNaN(resetEpochSec)) {
       const waitMs = Math.max(1000, resetEpochSec * 1000 - now + 500);
       if (waitMs <= MAX_AUTO_WAIT_MS) {
-        // FIX: If quota is 0 and reset time is known, we should signal a wait, not just return false.
         return {
           waitMs,
-          shouldRetry: true, // Changed from false to true to allow retry after calculated wait
+          shouldRetry: true,
           reason: `GitHub quota reached 0 — cooling down ${Math.ceil(waitMs / 1000)}s until reset.`,
         };
       }
@@ -121,9 +120,14 @@ export function computeAiBatchCooldownMs(attempt = 0, retryAfterSec?: number | n
   if (attempt === 0) {
     return 1200; // Decent 1.2s cooldown between consecutive LLM batches
   }
-  if (retryAfterSec && retryAfterSec > 0) {
+  
+  if (retryAfterSec !== undefined && retryAfterSec !== null) {
+    if (retryAfterSec <= 0) {
+      throw new Error(`retryAfterSec must be a positive number, got ${retryAfterSec}`);
+    }
     return Math.min(30_000, Math.ceil(retryAfterSec * 1000) + 300);
   }
+  
   return Math.min(20_000, 2500 * Math.pow(2, attempt - 1));
 }
 
