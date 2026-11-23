@@ -82,5 +82,6 @@ async function main() {
 
 main().catch((err) => {
   const errorMessage = err instanceof Error ? err.stack || err.message : String(err);
-  console.error("FAILED to record postmortem. Check postmortemStore connection/permissions. Error details:", errorMessage);
+  const errorType = err instanceof Error ? err.name : 'UnknownError';
+  console.error(`FAILED to record postmortem (Type: ${errorType}). Check postmortemStore connection/permissions. Error details: ${errorMessage}`);
 });
