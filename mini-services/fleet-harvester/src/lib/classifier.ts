@@ -91,6 +91,7 @@ export function detectRevertedShas(commits: RawCommit[]): Set<string> {
     }
 
     // Check revert header format
+    revertHeaderRx.lastIndex = 0;
     const headerMatch = revertHeaderRx.exec(commit.message);
     if (headerMatch) {
       const revertedSubject = headerMatch[1].trim().toLowerCase();
@@ -130,8 +131,8 @@ export function classifyHeuristic(
     throw new Error('Invalid commit: missing required fields (sha, message)');
   }
 
-  if (!options?.failRx || !options?.okRx) {
-    throw new Error('Invalid options: missing failRx or okRx');
+  if (!options?.revertedShas || !options?.failRx || !options?.okRx) {
+    throw new Error('Invalid options: must include revertedShas, failRx, and okRx');
   }
 
   const shaLower = commit.sha.toLowerCase();
