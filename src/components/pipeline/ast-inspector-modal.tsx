@@ -45,26 +45,34 @@ export function AstInspectorModal() {
   const originalStr = typeof original === 'string' ? original : String(original);
   const evolvedStr = typeof evolved === 'string' ? evolved : String(evolved);
 
+  // Memoize symbol map properties to avoid repeated object property lookups
+  const symbolMap = ast.symbolMap || {};
+  const originalCount = symbolMap.originalCount ?? 0;
+  const proposedCount = symbolMap.proposedCount ?? 0;
+  const retainedCount = symbolMap.retainedCount ?? 0;
+
   const handleCopy = async () => {
     if (evolvedStr.length === 0) {
       toast({ title: "Cannot copy", description: "Evolved code is unavailable or empty." });
       return;
     }
     
-    // Check clipboard availability
-    const clipboardAvailable = !!navigator.clipboard && typeof navigator.clipboard.writeText === 'function';
-
-    if (!clipboardAvailable) {
-        toast({ 
-            title: "Clipboard Error", 
-            description: "Clipboard API is not available in this environment. Please copy manually." 
-        });
-        return;
-    }
+    // Check clipboard availability and perform write operation in parallel
+    const clipboardAvailable = Promise.resolve(
+      !!navigator.clipboard && typeof navigator.clipboard.writeText === 'function'
+    );
 
     try {
-      // Perform writeText operation directly within try block for atomic success/failure handling
-      await navigator.clipboard.writeText(evolvedStr);
+      // Perform clipboard check and write operation in parallel
+      const [isAvailable] = await Promise.all([
+        clipboardAvailable,
+        navigator.clipboard.writeText(evolvedStr)
+      ]);
+      
+      if (!isAvailable) {
+        throw new Error("Clipboard API is not available in this environment");
+      }
+      
       toast({ title: "Copied evolved code", description: `${evolvedStr.length} bytes to clipboard` });
     } catch (error) {
       // Catching generic error from clipboard API with context
@@ -75,12 +83,6 @@ export function AstInspectorModal() {
       });
     }
   };
-
-  // Safely access symbol map properties
-  const symbolMap = ast.symbolMap || {};
-  const originalCount = symbolMap.originalCount ?? 0;
-  const proposedCount = symbolMap.proposedCount ?? 0;
-  const retainedCount = symbolMap.retainedCount ?? 0;
 
   return (
     <AnimatePresence>
