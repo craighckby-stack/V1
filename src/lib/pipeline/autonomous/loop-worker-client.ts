@@ -82,16 +82,22 @@ export async function workerFetch<T = unknown>(
 
     let data: T | null = null;
 
-    // Only attempt JSON parsing if the response status indicates success (2xx)
-    if (res.ok) {
-      try {
-        data = (await res.json()) as T;
-      } catch (e) {
-        // Non-JSON body on success status (shouldn't happen if worker is correct)
-        console.error(`Failed to parse JSON response from ${WORKER_URL}${pathname} (Status: ${res.status}):`, e);
-      }
+    // Parse whenever the body is JSON — INCLUDING non-2xx statuses. The
+    // worker always answers JSON (its json() helper), and its error
+    // bodies carry actionable payloads (e.g. the 423 MUTATION FREEZE
+    // notice) that routes forward to the UI. The old `if (res.ok)` guard
+    // silently dropped them, which turned a worker-side freeze refusal
+    // into "Worker unreachable mid-cycle" (502) at the app edge — the
+    // stop route's `(r.data as { error?: string })?.error` cast was
+    // already written to consume bodies the guard never delivered.
+    try {
+      data = (await res.json()) as T;
+    } catch (e) {
+      // Non-JSON body on this status (shouldn't happen if worker is correct)
+      console.error(`Failed to parse JSON response from ${WORKER_URL}${pathname} (Status: ${res.status}):`, e);
     }
-    // If res.ok is false, data remains null, and the caller uses res.status/res.ok.
+    // Callers use res.ok / res.status for decisions; data now carries the
+    // worker's payload on BOTH success and refusal.
 
     return { ok: res.ok, status: res.status, data };
   } catch (error) {
