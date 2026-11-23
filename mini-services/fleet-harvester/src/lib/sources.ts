@@ -58,15 +58,28 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   const seen = new Set<string>();
   const results: ParsedSource[] = [];
 
+  // Regex to match common GitHub URLs/suffixes: https://...github.com/owner/repo.git or just owner/repo.git
+  // This is more robust than sequential replacements.
+  const githubUrlRegex = /^(https?:\/\/(www\.)?github\.com\/|)([^/]+)\/(.+?)(?:\.git)?$/i;
+
   for (const token of tokens) {
-    // Strip trailing .git or URL prefixes using a single regex for efficiency
-    // Matches: https://...github.com/owner/repo.git or just owner/repo.git
-    let cleanToken = token.replace(/^(https?:\/\/(www\.)?github\.com\/|)\S*\.git$/i, '');
+    let cleanToken = token;
+    let match = cleanToken.match(githubUrlRegex);
+
+    if (match) {
+      // Matched a full URL pattern: group 3 is owner, group 4 is repo
+      cleanToken = `${match[3]}/${match[4]}`;
+    } else {
+      // Strip trailing .git if not matched by URL regex
+      cleanToken = cleanToken.replace(/\.git$/i, '');
+    }
+    
     cleanToken = cleanToken.replace(/^\/+|\/+$/g, '');
     
     if (!cleanToken) continue;
 
     const parts = cleanToken.split('/').filter(Boolean);
+    
     if (parts.length >= 2) {
       const owner = parts[0];
       const repo = parts[1];
@@ -92,17 +105,15 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
  * Appends new preset tokens to an existing sources string without duplicating entries.
  */
 export function appendPresetToSources(existing: string | null | undefined, additions: string[]): string {
-  if (typeof existing !== 'string') {
-    existing = '';
-  }
+  const existingString = existing ?? '';
   
-  const current = parseSources(existing);
+  const current = parseSources(existingString);
   const existingKeys = new Set(current.map((c) => c.raw.toLowerCase()));
   const merged = [...current.map((c) => c.raw)];
 
   for (const add of additions) {
-    const parsed = parseSources(add);
-    for (const item of parsed) {
+    const parsedAdditions = parseSources(add);
+    for (const item of parsedAdditions) {
       const key = item.raw.toLowerCase();
       if (!existingKeys.has(key)) {
         existingKeys.add(key);
@@ -152,6 +163,7 @@ export function deriveLogPaths(
     csv: 'csv',
   };
   const ext = extMap[format];
+  // Use DEFAULT_BASE_PATH if basePath is empty or null/undefined after trimming
   const clean = (basePath.trim() || DEFAULT_BASE_PATH).replace(/^\/+/, '');
   const lastSlash = clean.lastIndexOf('/');
   const dir = lastSlash >= 0 ? clean.slice(0, lastSlash + 1) : '';

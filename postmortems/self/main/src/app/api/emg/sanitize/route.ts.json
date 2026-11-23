@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/emg/sanitize/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 3 → evolved 5), no behavioral signal, 13 changed lines — mutations must change observable behavior, not add guards to code that already works",
@@ -12,8 +12,8 @@
   "parentHash": "cd40944b1968e0b7ca028a19172b3215c5cd1c0c839b811e4d4d7b4c81147984",
   "hash": "c44ac4a8991910d4508b00cf749646da23eb5673965fda7cb58a2dc1f1113954",
   "lastAttemptAt": "2026-11-23T12:18:02.690Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-23T13:08:15.007Z",
   "createdAt": "2026-11-23T03:29:46.357Z",
-  "updatedAt": "2026-11-23T12:18:02.690Z",
+  "updatedAt": "2026-11-23T13:08:15.007Z",
   "schema": 2
 }
