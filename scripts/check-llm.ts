@@ -4,7 +4,8 @@ async function main() {
   
   if (row) {
     console.log("configured:", true);
-    console.log("model:", row.geminiModel, "hasKey:", !!row.geminiApiKey, "lastError:", row.lastError);
+    // Narrowed payload to essential configuration details
+    console.log("model:", row.geminiModel, "hasKey:", !!row.geminiApiKey, "lastError:", row.lastError || "N/A");
   } else {
     console.warn("LLM configuration record with id 'singleton' not found in the database.");
   }
