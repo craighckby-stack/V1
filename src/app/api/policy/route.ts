@@ -27,12 +27,12 @@ export async function GET() {
     const report = await buildPolicyReport();
     return NextResponse.json(report);
   } catch (error) {
-    // Log the actual error internally for debugging pipeline health,
-    // including the request path for better context.
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`Error generating policy report for /api/policy: ${errorMessage}`);
+    
+    // Return a standardized 500 error response to the client
     return NextResponse.json(
-      { error: "Failed to generate policy report. Please check pipeline logs for details." },
+      { error: "Failed to generate policy report. Check pipeline logs for detailed error context." },
       { status: 500 }
     );
   }
