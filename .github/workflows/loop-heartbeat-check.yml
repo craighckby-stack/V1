@@ -1,0 +1,165 @@
+# loop-heartbeat-check.yml — the extinction detector (operator, 2026-11-23).
+#
+# WHY THIS FILE EXISTS
+# ─────────────────────
+# A dead scheduler looks the same as a healthy-but-bored scheduler: no
+# new loop-NN branches. The only signal that the batch is actually
+# running is the heartbeat file (loop-state/last-run.json) that
+# run-batch.ts writes on every run. This workflow reads that file daily
+# and alerts if it's stale — the difference between "the system is
+# quiet because it's doing fine" and "the system is quiet because it's
+# dead."
+#
+# STALENESS THRESHOLD: 8 hours. The batch runs every 4 hours, so a
+# heartbeat older than 8 hours means two consecutive runs missed. The
+# check fails the job (which sends an email to the repo owner) and
+# opens an issue with the diagnostic.
+#
+# This workflow is separate from loop.yml on purpose: if loop-batch
+# breaks (the extinction event), this workflow keeps running and tells
+# you. A self-checking scheduler is a scheduler that can't detect its
+# own death.
+
+name: loop-heartbeat-check
+
+on:
+  schedule:
+    # Daily at 09:00 UTC — once a day is enough; the batch runs 6×/day.
+    - cron: "0 9 * * *"
+  workflow_dispatch:   # manual trigger for testing
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Fetch loop-state branch
+        run: |
+          git fetch origin loop-state 2>/dev/null || true
+          if git rev-parse --verify origin/loop-state >/dev/null 2>&1; then
+            git checkout origin/loop-state -- loop-state/
+          else
+            echo "No loop-state branch — the batch has never run. If this is expected during setup, ignore."
+            echo "NO_STATE_BRANCH=true" >> $GITHUB_ENV
+          fi
+
+      - name: Check heartbeat freshness
+        id: check
+        run: |
+          if [ ! -f loop-state/last-run.json ]; then
+            echo "stale=true" >> $GITHUB_OUTPUT
+            echo "reason=No heartbeat file (loop-state/last-run.json). The batch has never completed a run." >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Parse the timestamp from the heartbeat
+          HEARTBEAT_AT=$(bun -e "console.log(JSON.parse(require('fs').readFileSync('loop-state/last-run.json','utf8')).at)" 2>/dev/null || echo "")
+          if [ -z "$HEARTBEAT_AT" ]; then
+            echo "stale=true" >> $GITHUB_OUTPUT
+            echo "reason=Heartbeat file exists but .at timestamp is missing or unparseable." >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Compute age in hours (requires GNU date — available on ubuntu-latest)
+          HEARTBEAT_EPOCH=$(date -u -d "$HEARTBEAT_AT" +%s 2>/dev/null || echo 0)
+          NOW_EPOCH=$(date -u +%s)
+          AGE_HOURS=$(( (NOW_EPOCH - HEARTBEAT_EPOCH) / 3600 ))
+
+          echo "heartbeat_at=$HEARTBEAT_AT" >> $GITHUB_OUTPUT
+          echo "age_hours=$AGE_HOURS" >> $GITHUB_OUTPUT
+
+          if [ "$AGE_HOURS" -gt 8 ]; then
+            echo "stale=true" >> $GITHUB_OUTPUT
+            echo "reason=Heartbeat is $AGE_HOURS hours old (threshold: 8h). Two or more consecutive batches missed." >> $GITHUB_OUTPUT
+          else
+            echo "stale=false" >> $GITHUB_OUTPUT
+            echo "Heartbeat is fresh ($AGE_HOURS hours old)." 
+          fi
+
+      - name: Open issue if stale
+        if: steps.check.outputs.stale == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const reason = '${{ steps.check.outputs.reason }}';
+            const age = '${{ steps.check.outputs.age_hours }}';
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'loop-extinction',
+              per_page: 1
+            });
+            if (existing.data.length > 0) {
+              // Update the existing issue instead of stacking new ones
+              const issue = existing.data[0];
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Daily check ${new Date().toISOString()}: still stale.\n\n${reason}\n\nAge: ${age} hours.\n\n[View workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
+              });
+              core.info(`Updated existing issue #${issue.number}`);
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: 'LOOP extinction alert: batch scheduler appears dead',
+                body: `## The loop-batch scheduler may be dead\n\n${reason}\n\n### Diagnostic\n- Heartbeat age: ${age} hours (threshold: 8h)\n- Last heartbeat: ${{ steps.check.outputs.heartbeat_at }}\n- Check run: ${context.runId}\n\n### What to check\n1. Is the \`loop-batch\` workflow still enabled? (Actions tab → loop-batch → ...)\n2. Are the repository secrets still set? (Settings → Secrets)\n3. Did the last batch run fail? (Actions tab → recent runs)\n4. Is the system frozen? (check loop-state/last-run.json \`frozen\` field)\n\nThis issue stays open until the heartbeat goes fresh again.`,
+                labels: ['loop-extinction', 'operator-action-required']
+              });
+              core.info('Opened new extinction issue');
+            }
+
+      - name: Close issue if fresh
+        if: steps.check.outputs.stale == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'loop-extinction',
+              per_page: 5
+            });
+            for (const issue of existing.data) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: ['resolved']
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+                state_reason: 'completed'
+              });
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Heartbeat is fresh again (${{ steps.check.outputs.age_hours }} hours old). Scheduler recovered.`
+              });
+              core.info(`Closed resolved issue #${issue.number}`);
+            }
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Heartbeat Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Stale: ${{ steps.check.outputs.stale }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Age: ${{ steps.check.outputs.age_hours || 'n/a' }} hours" >> $GITHUB_STEP_SUMMARY
+          echo "- Reason: ${{ steps.check.outputs.reason || 'fresh' }}" >> $GITHUB_STEP_SUMMARY

@@ -242,6 +242,27 @@ export const PROTECTED_FILES = new Set([
   // being recovered must not rewrite its own recovery path. Same class
   // as seal-push-token.ts (the .git/info tier writer).
   "scripts/loop-db-tier.ts", // the DB wipe-proof tier (recovery instrument)
+  // ── 10-week episodic observation window (operator, 2026-11-23): the
+  // batch runner + state export/import that let the system run on a
+  // scheduler (GitHub Actions) without a live device. These are the
+  // EXTINCTION-LEVEL surface — if the loop mutated its own boot path,
+  // the next scheduled run would fail to start and the system would die
+  // silently (no live machine to notice). The heartbeat-check workflow
+  // detects death; these files prevent the mutation that would cause
+  // it. Same class as .zscripts/ (the launch chain) and
+  // mini-services/loop-worker (the control surface) — the loop can
+  // never rewrite the thing that boots it.
+  "scripts/run-batch.ts", // the episodic batch runner (boot path)
+  "scripts/loop-state.ts", // the learning-state export/import (state format)
+  // ── Scheduler infra: the GitHub Actions workflows that own the
+  // 10-week cadence + the extinction detector. The loop's scan scope is
+  // .ts files; .yml is not in the extension list, so these are
+  // defense-in-depth against a future scope widening (same pattern as
+  // the .py daemon entry). If the loop could rewrite its own cron, it
+  // could disable the scheduler by editing the file — the registry
+  // prevents that even before the extension list matters.
+  ".github/workflows/loop.yml", // the batch scheduler (extinction surface)
+  ".github/workflows/loop-heartbeat-check.yml", // the extinction detector
   // ── Worker control surface (operator, 2026-11-23): the loop-worker's
   // entry hosts the API-key gate (fail-closed), the mutation-freeze
   // refusals on /start /reboot /trigger, and the unlock PIN tiers —

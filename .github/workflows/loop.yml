@@ -1,0 +1,141 @@
+# loop.yml — the 10-week episodic observation window (operator, 2026-11-23).
+#
+# WHY THIS FILE EXISTS
+# ─────────────────────
+# The system can run without a live device if a scheduler wakes it, runs
+# a bounded batch, saves state, and dies cleanly. GitHub Actions is the
+# scheduler. This workflow is what the scheduler runs.
+#
+# CADENCE: every 4 hours. Each run restores the learning state from the
+# `loop-state` branch, runs up to 15 cycles (or 20 minutes), exports the
+# updated state, and pushes it back. Over 10 weeks at 6 runs/day that's
+# ~2,400 cycles — enough to see whether the learning loop actually
+# closes, without turning the observation into a blur.
+#
+# SECRETS (configure in repo Settings → Secrets and variables → Actions):
+#   LLM_API_KEY       — the Z.AI / Gemini / NVIDIA key the loop uses
+#   LOOP_API_KEY      — the mutating-API key (x-loop-key header)
+#   LOOP_PUSH_TOKEN   — the GitHub PAT for pushing loop-NN branches
+#   LOOP_PUSH_REPO    — "owner/name" of the target repo
+#   LOOP_UNLOCK_PIN   — the operator unlock PIN (optional; defaults to 691)
+#
+# The first run will find the system FROZEN and write a heartbeat saying
+# so. To start the 10-week run: unfreeze the system (operator PIN via
+# the dashboard or the /api/self-enhance/freeze route), then re-trigger.
+#
+# EXTINCTION DEFENSE: this file + scripts/run-batch.ts + scripts/loop-state.ts
+# are all in the protected-files registry — the loop can never mutate its
+# own boot path. The heartbeat-check workflow (loop-heartbeat-check.yml)
+# detects a dead scheduler by checking this file's last-run.json freshness.
+#
+# PROTECTION: add this file to protected-files.ts BEFORE the first
+# unfrozen run. Same rule as the freeze, the watchdog, and the DB tier.
+
+name: loop-batch
+
+on:
+  schedule:
+    # Every 4 hours (UTC). GitHub Actions cron is best-effort — delays of
+    # 5-15 min are normal during peak load. The concurrency guard below
+    # prevents overlap if a run runs long.
+    - cron: "0 */4 * * *"
+  # Manual trigger — for the operator to test the pipeline before the
+  # 10-week run, or to run an extra batch on demand.
+  workflow_dispatch:
+    inputs:
+      cycles:
+        description: "Max cycles per run"
+        default: "15"
+      minutes:
+        description: "Max minutes per run"
+        default: "20"
+
+# Prevent overlapping runs — the worker's port would conflict if two
+# batches ran at once. cancel-in-progress: false lets the queued run
+# wait for the current one; the concurrency group key is the workflow name.
+concurrency:
+  group: loop-batch
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # push to loop-state branch
+  actions: read     # read workflow history for staleness check
+
+jobs:
+  batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history for branch operations
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bun run db:generate
+
+      - name: Create fresh DB
+        run: bun run db:push
+        env:
+          DATABASE_URL: "file:./db/custom.db"
+
+      - name: Restore learning state from loop-state branch
+        run: |
+          git fetch origin loop-state 2>/dev/null || true
+          if git rev-parse --verify origin/loop-state >/dev/null 2>&1; then
+            git checkout origin/loop-state -- loop-state/
+            echo "Restored learning state from loop-state branch"
+            ls -la loop-state/db/ 2>/dev/null || echo "  (db/ subdir absent — first run)"
+          else
+            echo "No loop-state branch yet — first run (fresh state)"
+            mkdir -p loop-state/db
+          fi
+
+      - name: Run batch
+        run: bun scripts/run-batch.ts --cycles=${{ github.event.inputs.cycles || '15' }} --minutes=${{ github.event.inputs.minutes || '20' }}
+        env:
+          DATABASE_URL: "file:./db/custom.db"
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LOOP_API_KEY: ${{ secrets.LOOP_API_KEY }}
+          LOOP_PUSH_TOKEN: ${{ secrets.LOOP_PUSH_TOKEN }}
+          LOOP_PUSH_REPO: ${{ secrets.LOOP_PUSH_REPO }}
+          LOOP_UNLOCK_PIN: ${{ secrets.LOOP_UNLOCK_PIN }}
+
+      - name: Save learning state to loop-state branch
+        run: |
+          git config user.name "loop-batch"
+          git config user.email "loop-batch@noreply.githubusers.com"
+          # Save the state files to a temp location, then create a clean
+          # orphan branch with ONLY the loop-state/ contents and push.
+          cp -r loop-state /tmp/loop-state-save
+          git checkout --orphan loop-state-tmp
+          git reset --hard   # clean the index (orphan has no HEAD)
+          git clean -fdx     # remove everything in the working tree
+          cp -r /tmp/loop-state-save loop-state
+          git add loop-state/
+          git commit -m "loop-state: $(date -u +%Y-%m-%dT%H:%M:%SZ) — run ${{ github.run_id }}"
+          git push origin loop-state-tmp:loop-state --force
+          rm -rf /tmp/loop-state-save
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Loop Batch Run ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f loop-state/last-run.json ]; then
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat loop-state/last-run.json >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No heartbeat written — check logs for failure." >> $GITHUB_STEP_SUMMARY
+          fi

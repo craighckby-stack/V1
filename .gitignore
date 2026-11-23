@@ -38,3 +38,15 @@ mini-services/loop-worker/worker.log
 
 # ws-service runtime log (same policy as dev.log — audit 2)
 dev-ws.log
+
+# loop-state working directory — the learning-state JSON exports. The
+# durable copy lives on the `loop-state` BRANCH (pushed by the batch
+# workflow); the working-tree copy is a local artifact restored by
+# `bun scripts/loop-state.ts import` and must never be committed to
+# main (it would pollute the code branch with state diffs).
+loop-state/
+
+# forensic DB snapshots (within-machine only; the durable tier is
+# .git/info/loop-db-backup/ which is untracked by design)
+db/*.db.pre-push-snapshot
+db/*.db.evidence-*
