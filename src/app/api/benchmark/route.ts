@@ -28,7 +28,7 @@ export async function GET() {
       );
     }
     return NextResponse.json(report);
-  } catch (err) {
+  } catch (err: unknown) {
     let errorMessage = "An unknown error occurred during benchmark report generation.";
     let errorName = "UnknownError";
     let statusCode = 500;
@@ -36,7 +36,7 @@ export async function GET() {
     if (err instanceof Error) {
       errorMessage = err.message;
       errorName = err.name;
-    } else if (typeof err === 'object' && err !== null && 'message' in err) {
+    } else if (typeof err === 'object' && err !== null && 'message' in err && typeof (err as { message: string }).message === 'string') {
       // Handle non-Error objects with a message property
       errorMessage = (err as { message: string }).message;
       errorName = 'ObjectError';
