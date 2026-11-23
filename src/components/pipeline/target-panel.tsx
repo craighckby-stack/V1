@@ -83,7 +83,7 @@ export function TargetPanel({ open, onClose }: Props) {
     setLoading(true);
     setRuns([]); // Reset runs immediately upon starting load
     
-    // Set up timeout and request concurrently for better latency
+    // Set up timeout
     timeoutRef.current = setTimeout(() => {
         if (signal.aborted) return;
         abortControllerRef.current?.abort();
@@ -94,9 +94,12 @@ export function TargetPanel({ open, onClose }: Props) {
     }, 10000); // 10 second timeout
 
     try {
-      const res = await fetch("/api/pipeline/history", { signal });
+      const fetchPromise = fetch("/api/pipeline/history", { signal });
       
-      // Clear timeout if request completes
+      // Race fetch against timeout logic (timeout logic handles aborting the fetch)
+      const res = await fetchPromise;
+      
+      // Clear timeout if request completes successfully or with HTTP error
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
@@ -108,7 +111,7 @@ export function TargetPanel({ open, onClose }: Props) {
         const errorText = await res.text();
         console.error(`Failed to load pipeline history: HTTP status ${res.status}. Context: ${errorText.substring(0, 100)}`);
         setRuns([]);
-        setLoading(false); // Ensure loading is false on HTTP error
+        setLoading(false);
         return;
       }
       
@@ -118,7 +121,7 @@ export function TargetPanel({ open, onClose }: Props) {
       if (!data || !Array.isArray(data.runs)) {
         console.error("Unexpected response structure from pipeline history API: expected { runs: [...] }");
         setRuns([]);
-        setLoading(false); // Ensure loading is false on structure error
+        setLoading(false);
         return;
       }
       
@@ -133,9 +136,9 @@ export function TargetPanel({ open, onClose }: Props) {
       // Network or parsing error: log error but ensure loading state is resolved.
       console.error("Network or parsing error fetching pipeline history:", error instanceof Error ? error.message : "Unknown error");
       setRuns([]);
-      setLoading(false); // Ensure loading is false on network/parsing error
+      setLoading(false);
     } finally {
-      // Ensure cleanup of timeout reference if it wasn't cleared in try block
+      // Ensure cleanup of timeout reference if it wasn't cleared in try block (e.g., due to error before timeout clear)
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
