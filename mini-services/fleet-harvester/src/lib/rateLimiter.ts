@@ -127,19 +127,30 @@ export function computeAiBatchCooldownMs(attempt = 0, retryAfterSec?: number | n
 }
 
 export async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms < 0) {
+    throw new Error(`Sleep duration must be non-negative, got ${ms}ms`);
+  }
   if (ms <= 0) return;
   if (signal?.aborted) throw new Error('Operation cancelled.');
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(new Error('Operation cancelled during sleep'));
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
+  
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new Error('Operation cancelled during sleep'));
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('Operation cancelled')) {
+      throw err;
+    }
+    throw new Error(`Sleep operation failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /**
@@ -152,7 +163,7 @@ export async function fetchWithTimeout(
   timeoutMs = 30_000
 ): Promise<Response> {
   if (timeoutMs <= 0) {
-    throw new Error('timeoutMs must be a positive number');
+    throw new Error(`timeoutMs must be a positive number, got ${timeoutMs}`);
   }
 
   const controller = new AbortController();
@@ -160,7 +171,7 @@ export async function fetchWithTimeout(
   const callerSignal = init.signal ?? undefined;
 
   if (callerSignal?.aborted) {
-    throw new Error('Operation cancelled.');
+    throw new Error('Operation cancelled by caller before request started.');
   }
 
   const onCallerAbort = () => controller.abort();
@@ -179,15 +190,21 @@ export async function fetchWithTimeout(
     return response;
   } catch (err) {
     if (timedOut) {
-      throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
+      throw new Error(`Request to ${url} timed out after ${Math.round(timeoutMs / 1000)}s`);
     }
     if (callerSignal?.aborted) {
-      throw new Error('Operation cancelled by caller');
+      throw new Error('Operation cancelled by caller during request');
     }
-    throw err;
+    if (err instanceof Error) {
+      throw new Error(`Request to ${url} failed: ${err.message}`);
+    }
+    throw new Error(`Request to ${url} failed with unknown error`);
   } finally {
     clearTimeout(timer);
     callerSignal?.removeEventListener('abort', onCallerAbort);
-    controller.abort();
+    // Ensure controller is aborted to clean up resources
+    if (!controller.signal.aborted) {
+      controller.abort();
+    }
   }
 }
