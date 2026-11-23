@@ -106,22 +106,29 @@ server.listen(PORT, () => {
 const gracefulShutdown = (signal: string) => {
   console.log(`[fleet-harvester] received ${signal}, shutting down gracefully...`);
   
-  const closeServer = () => new Promise<void>((resolve) => {
-    server.close(() => {
-      console.log("[fleet-harvester] server closed");
-      resolve();
+  const closeServer = () => new Promise<void>((resolve, reject) => {
+    server.close((err) => {
+      if (err) {
+        console.error("[fleet-harvester] error closing server:", err);
+        reject(err);
+      } else {
+        console.log("[fleet-harvester] server closed");
+        resolve();
+      }
     });
   });
 
-  closeServer().then(() => {
-    process.exit(0);
-  }).catch(() => {
-    // If server.close fails unexpectedly, proceed to force exit
-    console.error("[fleet-harvester] Error during server close, forcing exit.");
-    process.exit(1);
-  });
+  closeServer()
+    .then(() => {
+      process.exit(0);
+    })
+    .catch((err) => {
+      // If server.close fails, log error and force exit
+      console.error("[fleet-harvester] Error during server close:", err);
+      process.exit(1);
+    });
   
-  // Force exit after 10 seconds if server doesn't close cleanly (only needed if promise above hangs)
+  // Force exit after 10 seconds if server doesn't close cleanly
   setTimeout(() => {
     console.log("[fleet-harvester] force exiting after timeout");
     process.exit(1);
