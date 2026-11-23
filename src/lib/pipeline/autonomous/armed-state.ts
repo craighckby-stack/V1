@@ -134,7 +134,7 @@ export function readArmedState(): ArmedState | null {
   } catch (error) {
     // Catch all I/O errors (permissions, file not found, etc.)
     // If file not found, this is expected on first run, treated as not armed (null).
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+    if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null;
     }
     const errorMessage = error instanceof Error ? error.message : String(error);
