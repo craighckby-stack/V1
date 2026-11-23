@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "scripts/test-claim.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: scripts/test-claim.ts(39,16): error TS2345: Argument of type '{ id: string; filePath: string; status: string; createdAt: Date; evidence: string; attempts: number; updatedAt: Date; kind: string; line: number; priority: number; deferred: number; lastError: string | null; fixSummary: string | null; commitSha: string | null; doneAt: Date | null; } | null' is not assignable to parameter of type 'TaskDisplay | undefined'.\n  Type 'null' is not assignable to type 'TaskDisplay | undefined'.; scripts/test-claim.ts(43,16): error TS2345: Argument of type '{ id: string; filePath: string; status: string; createdAt: Date; evidence: string; attempts: number; updatedAt: Date; kind: string; line: number; priority: number; deferred: number; lastError: string | null; fixSummary: string | null; commitSha: string | null; doneAt: Date | null; } | null' is not assignable to parameter of type 'TaskDisplay | undefined'.\n  Type 'null' is not assignable to type 'TaskDisplay | undefined'.",
@@ -12,8 +12,8 @@
   "parentHash": "921af79b53f8d92c50fcca999b536273c106dffd98da806d137bef41f40b48ca",
   "hash": "bf09fc26b223c122bc333c5c9b0d821dcb5791d5fd99327aac40dd9bc87c4027",
   "lastAttemptAt": "2026-11-22T10:21:30.038Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-23T13:14:50.934Z",
   "createdAt": "2026-11-22T10:21:30.039Z",
-  "updatedAt": "2026-11-22T10:21:30.039Z",
+  "updatedAt": "2026-11-23T13:14:50.934Z",
   "schema": 2
 }
