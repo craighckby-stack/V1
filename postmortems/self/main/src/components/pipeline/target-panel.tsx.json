@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/target-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/target-panel.tsx(106,16): error TS2339: Property 'ok' does not exist on type 'void | Response'.\n  Property 'ok' does not exist on type 'void'.; src/components/pipeline/target-panel.tsx(107,37): error TS2339: Property 'text' does not exist on type 'void | Response'.\n  Property 'text' does not exist on type 'void'.; src/components/pipeline/target-panel.tsx(108,75): error TS2339: Property 'status' does not exist on type 'void | Response'.\n  Property 'status' does not exist on type 'void'.",
@@ -12,8 +12,8 @@
   "parentHash": "7139662d4b5724d46ae55c1859c35a95144d7215db1aa734475e9b2d8e014c28",
   "hash": "4d2ea662982b1008f991765fc20aa408a0262ae4ae09e5189aefdeb41c07c241",
   "lastAttemptAt": "2026-11-23T12:02:12.454Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-23T13:02:52.145Z",
   "createdAt": "2026-11-23T03:29:46.441Z",
-  "updatedAt": "2026-11-23T12:02:12.454Z",
+  "updatedAt": "2026-11-23T13:02:52.145Z",
   "schema": 2
 }

@@ -52,7 +52,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   let force = false;
-  let body: { force?: boolean } | null = null;
+  let body: { force?: boolean };
 
   try {
     // Use req.json() for idiomatic Next.js API route body parsing
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // Validate body is an object (req.json() ensures it's not null if successful, but check type)
+  // Validate body is an object (req.json() throws if not parsable, but we check structure)
   if (typeof body !== 'object' || body === null) {
     return NextResponse.json(
       { error: "Request body must be a non-null object." },
@@ -105,10 +105,6 @@ export async function POST(req: Request) {
     return NextResponse.json(summary);
   } catch (err) {
     const errorMessage = (err instanceof Error ? err.message : "An unknown error occurred while fetching self-model summary after POST operation.");
-    // Use standard JSON response for 500 errors unless the structure requires ERROR_RESPONSE_BASE
-    return NextResponse.json(
-      { error: `Failed to retrieve self-model summary after POST operation: ${errorMessage}` },
-      { status: 500 }
-    );
+    return createErrorResponse(`Failed to retrieve self-model summary after POST operation: ${errorMessage}`);
   }
 }
