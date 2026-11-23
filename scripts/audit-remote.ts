@@ -67,8 +67,9 @@ async function main() {
   console.log("BRANCHES_SAMPLE:", JSON.stringify(branchNames.slice(0, 5)), "...", JSON.stringify(branchNames.slice(-3)));
 
   // ── 3. Scan the remote tree of MAIN for secret-looking paths ────
+  const defaultBranch = repoData.default_branch || "main";
   const treeRes = await fetch(
-    `https://api.github.com/repos/${repo}/git/trees/${repoData.default_branch || "main"}?recursive=1`,
+    `https://api.github.com/repos/${repo}/git/trees/${defaultBranch}?recursive=1`,
     { headers }
   );
   if (!treeRes.ok) {
@@ -96,6 +97,8 @@ async function main() {
     .slice(0, 4000);
   let contentHits = 0;
   const hitPaths: string[] = [];
+  let tokenLeak = false;
+  const tokenLeakPaths: string[] = [];
   
   // Limit concurrent scans to prevent overwhelming the API
   const semaphore = { count: 0, max: 10 };
@@ -106,16 +109,24 @@ async function main() {
     semaphore.count++;
     try {
       const cRes = await fetch(
-        `https://raw.githubusercontent.com/${repo}/${repoData.default_branch || "main"}/${f.path}`,
+        `https://raw.githubusercontent.com/${repo}/${defaultBranch}/${f.path}`,
         { headers: { Authorization: `Bearer ${target.token}`, "User-Agent": "audit" } }
       );
       if (!cRes.ok) return;
       const body = await cRes.text();
+      
+      // Check for secret patterns
       for (const { name, re } of SECRET_PATTERNS) {
         if (re.test(body)) {
           contentHits++;
           hitPaths.push(`${f.path} (${name})`);
         }
+      }
+      
+      // Check for token leak (only if not already found)
+      if (!tokenLeak && target.token.length > 8 && body.includes(target.token)) {
+        tokenLeak = true;
+        tokenLeakPaths.push(f.path);
       }
     } catch (e) {
       /* skip file */
@@ -127,31 +138,6 @@ async function main() {
   await Promise.all(candidates.map(scanFile));
   console.log("CONTENT_FILES_SCANNED:", candidates.length);
   console.log("CONTENT_HITS:", contentHits === 0 ? "NONE" : JSON.stringify(hitPaths));
-
-  // ── 5. Does the PAT itself appear anywhere on main? ──────────────
-  // The one credential we KNOW exists — its value must not be in any
-  // remote file. Searched last; the token value never printed.
-  let tokenLeak = false;
-  const tokenLeakPaths: string[] = [];
-  
-  await Promise.all(candidates.map(async (f) => {
-    if (tokenLeak) return; // Early exit if already found
-    try {
-      const cRes = await fetch(
-        `https://raw.githubusercontent.com/${repo}/${repoData.default_branch || "main"}/${f.path}`,
-        { headers: { Authorization: `Bearer ${target.token}`, "User-Agent": "audit" } }
-      );
-      if (!cRes.ok) return;
-      const body = await cRes.text();
-      if (target.token.length > 8 && body.includes(target.token)) {
-        tokenLeak = true;
-        tokenLeakPaths.push(f.path);
-      }
-    } catch {
-      /* skip */
-    }
-  }));
-  
   console.log("PAT_VALUE_ON_MAIN:", tokenLeak ? JSON.stringify(tokenLeakPaths) : "NOT_FOUND (good)");
 
   process.exit(0);
