@@ -16,14 +16,14 @@ import { runTargetMutation } from "@/lib/pipeline/target/target-runner";
 
 const DEFAULT_REPO = "craighckby-stack/Wonder-Craig-Game-Demo";
 const providedRepo = process.argv[2];
-const REPO = providedRepo && providedRepo.trim() !== "" ? providedRepo.trim() : DEFAULT_REPO;
+const REPO = providedRepo ? providedRepo.trim() : DEFAULT_REPO;
 
 function line(s: string) {
   console.log(s);
 }
 
 async function main() {
-  // Input validation: Ensure REPO is valid. If provided, it must not be empty/whitespace.
+  // Input validation: If an argument was provided, it must not be empty/whitespace.
   if (providedRepo && providedRepo.trim() === "") {
     line(`Error: Repository argument provided is empty or whitespace.`);
     process.exitCode = 1;
@@ -41,11 +41,11 @@ async function main() {
 
   // STEP 1 — verify reachability using the operator's stored PAT (sealed),
   // which resolveTargetToken reuses server-side. Roll back if not reachable.
-  line("[2/3] verifying reachability with stored token...");
+  line("[1/3] verifying reachability with stored token...");
   const token = await resolveTargetToken();
   line(`      token resolved: ${token ? `yes (len ${token.length})` : "no — anonymous"}`);
   
-  // STEP 1 & 2 combined: Get branch, then set config if successful.
+  // STEP 2: Get branch.
   const defaultBranch = await getRepoDefaultBranch(REPO, token);
   line(`      default branch: ${defaultBranch ?? "(unreachable)"}`);
   
@@ -57,14 +57,14 @@ async function main() {
     return;
   }
   
-  // STEP 1 (Corrected): Set config only after successful reachability check.
-  line("[1/3] setting target config (validate + persist)...");
+  // STEP 3: Set config only after successful reachability check.
+  line("[2/3] setting target config (validate + persist)...");
   const saved = await setTargetConfig(REPO, defaultBranch);
   line(`      persisted repo: ${saved.repo}`);
   line(`      persisted branch: ${saved.branch}`);
 
 
-  // STEP 3 — DRY-RUN the full gated pipeline. No branch, no commit, no push.
+  // STEP 4 — DRY-RUN the full gated pipeline. No branch, no commit, no push.
   line("[3/3] running DRY-RUN mutation (full gate chain, no write-back)...\n");
   const result = await runTargetMutation({ dryRun: true });
 
