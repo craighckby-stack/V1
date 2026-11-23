@@ -19,13 +19,14 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+    // Handle other request reading errors (e.g., network issues during read)
     return NextResponse.json(
-      { error: "Failed to parse request body due to an unexpected error." },
+      { error: "Failed to read or parse request body due to an unexpected error." },
       { status: 500 }
     );
   }
 
-  // Check for required structure and type (Type assertion handles structure check implicitly if JSON parsing succeeded)
+  // Check for required structure and type
   if (typeof json.code !== "string") {
     return NextResponse.json(
       { error: "code (string) is required in the request body." },
