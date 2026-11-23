@@ -51,8 +51,8 @@ export function CurrentCycle() {
   }
 
   // Validate cycle status to handle unexpected values
-  const validStatuses = new Set(["running", "completed", "halted"]);
-  const status = validStatuses.has(cycle.status) ? cycle.status : "unknown";
+  const validStatuses = ["running", "completed", "halted"];
+  const status = validStatuses.includes(cycle.status) ? cycle.status : "unknown";
 
   const fileResults = cycle.fileResults || [];
   const totalFiles = fileResults.length;
