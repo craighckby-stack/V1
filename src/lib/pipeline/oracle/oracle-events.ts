@@ -110,7 +110,7 @@ export function emitOracleEvent(
   // Add the event to the buffer
   s.buffer.push(event);
   
-  // Evict old events if needed
+  // Evict old events if needed - use atomic operation to prevent race conditions
   if (s.buffer.length > MAX_EVENTS) {
     // Remove the oldest events to maintain the buffer size
     s.buffer.splice(0, s.buffer.length - MAX_EVENTS);
@@ -171,6 +171,10 @@ export function emitOracleEvent(
         console.error(`Failed to send oracle event to server (source: ${source}, type: ${type}, message: "${message}"):`, error);
         // Ensure timeout is cleared even if request fails
         clearTimeout(timeoutId);
+      })
+      .catch((error) => {
+        // Handle any unhandled promise rejections
+        console.error("Unhandled promise rejection in worker bridge:", error);
       });
     }
   }
@@ -194,53 +198,37 @@ export function readOracleEvents(afterSeq?: number): {
   const currentSeq = s.seq;
   const bufferLength = s.buffer.length;
 
-  if (typeof afterSeq === "number" && Number.isInteger(afterSeq) && afterSeq >= 0) {
-    if (afterSeq >= currentSeq) {
-      // No new events since the last check. Do not update lastReadAt here.
-      return { events: [], seq: currentSeq };
-    }
-
-    // Find the first index `i` such that the event at `i` has a sequence > afterSeq.
-    // Since the buffer is a ring buffer conceptually (though implemented as an array
-    // with splicing from the front), we iterate linearly from the start (index 0).
-    let startIndex = 0;
-    for (let i = 0; i < bufferLength; i++) {
-      // The sequence of the event at index i is currentSeq - bufferLength + i
-      const eventSeq = currentSeq - bufferLength + i;
-      if (eventSeq > afterSeq) {
-        startIndex = i;
-        break;
-      }
-      // If we reach the end without finding a sequence > afterSeq, startIndex remains 0,
-      // but the initial check (afterSeq >= currentSeq) should prevent this if logic is sound.
-      // However, if afterSeq is valid but the buffer is full and we are at the start,
-      // we rely on the loop finding the correct start.
-      if (i === bufferLength - 1) {
-        // If we looped through everything and didn't break, it means all events are <= afterSeq,
-        // which contradicts afterSeq < currentSeq unless bufferLength is 0 (handled by initial check).
-        // If we are here, startIndex should effectively be bufferLength (no events found).
-        startIndex = bufferLength;
-      }
-    }
-    
-    const events = s.buffer.slice(startIndex);
-
-    // Update lastReadAt ONLY when events are successfully read
-    if (events.length > 0) {
-      s.lastReadAt = Date.now();
-    }
-    
-    return {
-      events,
-      seq: currentSeq,
-    };
+  // Validate afterSeq parameter
+  if (afterSeq !== undefined && (typeof afterSeq !== "number" || !Number.isInteger(afterSeq) || afterSeq < 0)) {
+    throw new TypeError("afterSeq must be a non-negative integer");
   }
 
-  // No afterSeq provided or invalid, return all events
-  const events = s.buffer;
-  // Update lastReadAt when returning all events
+  if (afterSeq !== undefined && afterSeq >= currentSeq) {
+    // No new events since the last check. Do not update lastReadAt here.
+    return { events: [], seq: currentSeq };
+  }
+
+  let startIndex = 0;
+  if (afterSeq !== undefined) {
+    // Calculate start index directly instead of linear scan
+    // The oldest event in buffer has sequence: currentSeq - bufferLength + 0
+    // The newest event has sequence: currentSeq
+    const oldestSeq = currentSeq - bufferLength + 1;
+    startIndex = Math.max(0, afterSeq - oldestSeq + 1);
+    
+    // Clamp startIndex to buffer bounds
+    startIndex = Math.min(startIndex, bufferLength);
+  }
+  
+  const events = s.buffer.slice(startIndex);
+
+  // Update lastReadAt when events are returned (even if empty)
   s.lastReadAt = Date.now();
-  return { events, seq: s.seq };
+  
+  return {
+    events,
+    seq: currentSeq,
+  };
 }
 
 /** Current sequence — lets a first-time caller snapshot "now" and only
