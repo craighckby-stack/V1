@@ -36,8 +36,8 @@ export async function GET() {
     } else {
         // If it's not an Error instance, wrap it with context
         error = new Error("An unknown error occurred during memory retrieval from RAG store.");
-        // Log the full unknown error object for better debugging context
-        console.error("Unknown error object during memory retrieval:", JSON.stringify(err));
+        // Log the full unknown error object safely
+        console.error("Unknown error object during memory retrieval:", String(err));
     }
     
     // Log the actual error for debugging purposes before sending a generic response
