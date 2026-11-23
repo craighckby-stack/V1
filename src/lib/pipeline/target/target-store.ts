@@ -137,12 +137,14 @@ export async function setTargetConfig(
       value: JSON.stringify(config),
       setBy: "target-mode",
       reason: "operator set target repository",
+      updatedAt: new Date().toISOString(), // Added missing updatedAt for consistency
     },
     create: {
       key: CONFIG_KEY,
       value: JSON.stringify(config),
       setBy: "target-mode",
       reason: "operator set target repository",
+      updatedAt: new Date().toISOString(), // Added missing updatedAt for consistency
     },
   });
   return config;
@@ -206,13 +208,14 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
         value: JSON.stringify(rec),
         setBy: "target-mode",
         reason: `run ${rec.status}`,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(), // Added missing updatedAt
       },
       create: {
         key: LAST_RUN_KEY,
         value: JSON.stringify(rec),
         setBy: "target-mode",
         reason: `run ${rec.status}`,
+        updatedAt: new Date().toISOString(), // Added missing updatedAt
       },
     });
   } catch (error) {
