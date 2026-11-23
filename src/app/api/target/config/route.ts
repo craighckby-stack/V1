@@ -30,7 +30,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   let body: { repo?: string; branch?: string };
-  let repoName: string | undefined;
+  let contextRepo: string = 'unknown';
 
   try {
     body = (await req.json()) as { repo?: string; branch?: string };
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "repo is required (owner/name)" }, { status: 400 });
     }
     
-    repoName = body.repo;
+    contextRepo = body.repo;
 
     // Validate repo format (should be in owner/name format)
     if (!body.repo.includes("/")) {
@@ -95,7 +95,6 @@ export async function POST(req: Request) {
       // Differentiate between input validation errors (400) and internal system errors (500)
       // Input validation (missing repo) is handled above (400).
       // Errors from req.json() or store operations are typically internal system errors (500).
-      const contextRepo = repoName || 'unknown';
       return NextResponse.json({ ok: false, error: `Configuration update failed for repo ${contextRepo}: ${err.message}` }, { status: 500 });
     }
     // Handle non-Error objects gracefully
