@@ -204,6 +204,11 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
     throw new Error(`Invalid branch format in record: ${rec.branch} — must be a valid git branch name`);
   }
   
+  // Validate optional 'commitSha' field if present
+  if (rec.commitSha !== undefined && (typeof rec.commitSha !== 'string' || rec.commitSha.trim().length === 0)) {
+    throw new Error("Target run record 'commitSha' must be a non-empty string if provided");
+  }
+  
   try {
     await db.systemFlag.upsert({
       where: { key: LAST_RUN_KEY },
@@ -230,7 +235,13 @@ export async function getTargetLastRun(): Promise<TargetRunRecord | null> {
   try {
     const row = await db.systemFlag.findUnique({ where: { key: LAST_RUN_KEY } });
     if (!row || !row.value) return null;
-    return JSON.parse(row.value) as TargetRunRecord;
+    const parsed = JSON.parse(row.value) as TargetRunRecord;
+    // Validate parsed object structure
+    if (!parsed || typeof parsed !== 'object' || !parsed.at || !parsed.repo || !parsed.status) {
+      console.error(`Last run record found but invalid format for key ${LAST_RUN_KEY}. Parsed data:`, parsed);
+      return null;
+    }
+    return parsed;
   } catch (error) {
     if (error instanceof SyntaxError) {
       console.error(`Failed to parse last run record JSON for key ${LAST_RUN_KEY}:`, error);
