@@ -23,7 +23,7 @@ function line(s: string) {
 
 async function main() {
   if (!REPO || REPO.trim() === "") {
-    line("Error: Repository owner/repo must be provided as a command-line argument or use the default.");
+    line(`Error: Repository owner/repo must be provided as a command-line argument or use the default. Received: ${process.argv[2]}`);
     process.exitCode = 1;
     return;
   }
