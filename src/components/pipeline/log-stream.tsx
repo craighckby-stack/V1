@@ -39,22 +39,18 @@ const SOURCE_COLOR = {
 
 const MAX_LOG_ENTRIES = 100; // Prevent unbounded memory growth
 
-const LogEntryComponent = memo(({ entry }: { entry: LogEntry }) => {
-  // Safely access type with guard
-  const typeKey = entry.type && (entry.type in TYPE_ICON ? entry.type : 'info');
+const LogEntryComponent = memo(({ entry, key }: { entry: LogEntry; key: string }) => {
+  // Use type directly if it exists in the map, otherwise default to 'info' for safety
+  const typeKey = (entry.type in TYPE_ICON) ? entry.type : 'info';
   const Icon = TYPE_ICON[typeKey as keyof typeof TYPE_ICON] || Info;
   const color = TYPE_COLOR[typeKey as keyof typeof TYPE_COLOR] || "text-slate-400";
   
-  // Safely access source with guard
-  const sourceKey = entry.source && (entry.source in SOURCE_COLOR ? entry.source : 'pipeline');
+  // Use source directly if it exists in the map, otherwise default to 'pipeline'
+  const sourceKey = (entry.source in SOURCE_COLOR) ? entry.source : 'pipeline';
   const sourceColor = SOURCE_COLOR[sourceKey as keyof typeof SOURCE_COLOR] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
   
   // Validate timestamp and provide fallback
   const timestamp = entry.timestamp || 'N/A';
-  
-  // Use a stable identifier. Prioritize a unique ID if present.
-  // Fallback key generation uses timestamp and source as they are more stable than message content.
-  const key = entry.id || `${timestamp}-${entry.source}`;
   
   return (
     <motion.div
