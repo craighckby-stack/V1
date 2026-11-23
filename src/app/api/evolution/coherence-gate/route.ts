@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   let body: unknown;
   try {
     body = await req.json();
-  } catch {
+  } catch (e) {
     // Provide actionable error context on JSON parsing failure.
     return NextResponse.json(
         { error: "Failed to parse request body. Ensure the request content type is application/json and the body is valid JSON." },
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
       
   const passed = structuralDriftRatio < 0.7;
   
-  // Calculate saturationScore: 0 if drift is Infinity (though unreachable here), otherwise max(0, 1 - ratio)
+  // Calculate saturationScore: max(0, 1 - ratio)
   const saturationScore = Math.max(0, 1 - structuralDriftRatio);
   
   const status: CoherenceStatus = passed ? "COHERENT" : "EXCESSIVE_DRIFT";
