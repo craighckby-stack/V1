@@ -177,6 +177,8 @@ async function pollNextJsState() {
     
     if (err instanceof DOMException && err.name === 'AbortError') {
         console.warn(`[LOOP-WS] Poll request to ${NEXTJS_STATUS_URL} timed out after 3s.`);
+    } else if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('ENOTFOUND')) {
+        console.warn(`[LOOP-WS] Network error connecting to ${NEXTJS_STATUS_URL}: ${errorMessage}`);
     } else {
       pollFailureCount++;
       if (pollFailureCount % 10 === 0) {
