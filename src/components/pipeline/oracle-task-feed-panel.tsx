@@ -68,19 +68,22 @@ export function OracleTaskFeedPanel() {
         throw new Error("API response validation failed: Expected an object containing a 'tasks' array.");
       }
       
-      // Validate and filter tasks in parallel
-      const validatedTasks: SelfTask[] = (data.tasks as unknown[]).filter(t =>
-        t && 
-        typeof t === 'object' && 
-        'id' in t && typeof t.id === 'string' &&
-        'kind' in t && typeof t.kind === 'string' &&
-        'filePath' in t && typeof t.filePath === 'string' &&
-        'evidence' in t && typeof t.evidence === 'string' &&
-        'status' in t && (t.status === "pending" || t.status === "in_progress" || t.status === "done" || t.status === "failed" || t.status === "skipped")
-      ) as SelfTask[];
+      // Validate and filter tasks in a single pass for efficiency
+      const oracleTasks: SelfTask[] = (data.tasks as unknown[]).reduce((acc: SelfTask[], t: unknown) => {
+        if (t && 
+            typeof t === 'object' && 
+            'id' in t && typeof t.id === 'string' &&
+            'kind' in t && typeof t.kind === 'string' &&
+            'filePath' in t && typeof t.filePath === 'string' &&
+            'evidence' in t && typeof t.evidence === 'string' &&
+            'status' in t && (t.status === "pending" || t.status === "in_progress" || t.status === "done" || t.status === "failed" || t.status === "skipped") &&
+            t.kind === "oracle-failed-prophecy" // Filter oracle tasks during validation
+        ) {
+          acc.push(t as SelfTask);
+        }
+        return acc;
+      }, []);
       
-      // Filter oracle tasks
-      const oracleTasks = validatedTasks.filter((t) => t.kind === "oracle-failed-prophecy");
       setTasks(oracleTasks);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error during task fetch.";
