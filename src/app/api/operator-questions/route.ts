@@ -41,7 +41,7 @@ export async function GET() {
 
     if (expiryResult.status === 'rejected') {
       // Log expiry failure but do not fail the GET request, as fetching pending questions is primary.
-      console.error("Failed to run old question expiry sweep:", expiryResult.reason);
+      console.error("Failed to run old question expiry sweep:", expiryResult.reason instanceof Error ? expiryResult.reason.message : String(expiryResult.reason));
     }
 
     const pending = pendingSettled.status === "fulfilled" ? pendingSettled.value : [];
@@ -101,6 +101,7 @@ export async function POST(req: Request) {
     // If id is omitted, resolve to the most-recent pending question.
     let questionId = parsedBody.id;
     if (!questionId) {
+      // Fetch pending questions concurrently with other setup if possible, but here we need the result before proceeding.
       const pending = await getPendingQuestions();
       if (pending.length === 0) {
         return NextResponse.json(
@@ -114,14 +115,6 @@ export async function POST(req: Request) {
 
     const cycle = autonomousLoopRuntime.getState().stats.totalRuns;
     
-    // Ensure questionId is defined before calling recordAnswer. This check is now redundant due to logic above, but kept for safety against external state changes.
-    if (!questionId) {
-        return NextResponse.json(
-            { error: "Could not determine a valid question ID to record the answer against." },
-            { status: 500 }
-        );
-    }
-
     const result = await recordAnswer(questionId, answer, cycle, parsedBody.note);
     if (!result) {
       return NextResponse.json(
