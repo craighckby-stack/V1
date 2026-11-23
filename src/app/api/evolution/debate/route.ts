@@ -69,8 +69,7 @@ export async function POST(req: Request) {
     // Log the full error internally for pipeline observability before returning a sanitized response
     console.error("LLM Debate Execution Error:", err, { filePath: body.filePath });
 
-    let errorMessage = `Debate execution failed for ${body.filePath}. Please check the logs for details.`;
-    let detailedReason = '';
+    let detailedReason = 'An unknown error occurred during LLM debate.';
 
     if (err instanceof Error) {
       detailedReason = err.message;
@@ -81,13 +80,9 @@ export async function POST(req: Request) {
       detailedReason = (err as { message: string }).message;
     }
     
-    if (detailedReason) {
-        errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${detailedReason}. Check logs for full details.`;
-    }
-    
-    // Return a standardized 500 response
+    // Return a standardized 500 response with a clear, non-leaking message
     return NextResponse.json(
-      { error: errorMessage },
+      { error: `LLM debate failed for ${body.filePath}. Please check the logs for full details.` },
       { status: 500 }
     );
   }
