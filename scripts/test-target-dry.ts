@@ -22,8 +22,11 @@ function line(s: string) {
 }
 
 async function main() {
-  if (!REPO || REPO.trim() === "") {
-    line(`Error: Repository owner/repo must be provided as a command-line argument or use the default. Received: ${process.argv[2]}`);
+  if (process.argv.length < 3 && REPO === DEFAULT_REPO) {
+    line(`Warning: No repository owner/repo provided. Using default: ${DEFAULT_REPO}`);
+  } else if (process.argv.length >= 3 && !REPO.trim()) {
+    // This case should ideally not happen if REPO is derived from process.argv[2] ?? DEFAULT_REPO
+    line(`Error: Provided repository argument was empty or whitespace.`);
     process.exitCode = 1;
     return;
   }
