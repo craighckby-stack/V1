@@ -69,17 +69,6 @@ export async function POST(req: Request) {
     // Log the full error internally for pipeline observability before returning a sanitized response
     console.error("LLM Debate Execution Error:", err, { filePath: body.filePath });
 
-    let detailedReason = 'An unknown error occurred during LLM debate.';
-
-    if (err instanceof Error) {
-      detailedReason = err.message;
-    } else if (typeof err === 'string') {
-      detailedReason = err;
-    } else if (typeof err === 'object' && err !== null && 'message' in err) {
-      // Handle cases where err is an object but not an instance of Error (e.g., { message: "..." })
-      detailedReason = (err as { message: string }).message;
-    }
-    
     // Return a standardized 500 response with a clear, non-leaking message
     return NextResponse.json(
       { error: `LLM debate failed for ${body.filePath}. Please check the logs for full details.` },
