@@ -91,7 +91,7 @@ export async function getTargetConfig(): Promise<TargetRepoConfig | null> {
     return parsed;
   } catch (error) {
     if (error instanceof SyntaxError) {
-      console.error(`Failed to parse target config JSON for key ${CONFIG_KEY}:`, error);
+      console.error(`Failed to parse target config JSON for key ${CONFIG_KEY}. Check DB value integrity. Error:`, error);
     } else {
       console.error(`Database error while fetching target config ${CONFIG_KEY}:`, error);
     }
@@ -228,7 +228,7 @@ export async function getTargetLastRun(): Promise<TargetRunRecord | null> {
     return parsed;
   } catch (error) {
     if (error instanceof SyntaxError) {
-      console.error(`Failed to parse last run record JSON for key ${LAST_RUN_KEY}:`, error);
+      console.error(`Failed to parse last run record JSON for key ${LAST_RUN_KEY}. Check DB value integrity. Error:`, error);
     } else {
       console.error(`Database error while fetching last run record ${LAST_RUN_KEY}:`, error);
     }
