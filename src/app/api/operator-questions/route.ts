@@ -65,7 +65,16 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
-    const body = await req.json();
+    
+    let body;
+    try {
+        body = await req.json();
+    } catch (e) {
+        return NextResponse.json(
+            { error: "Failed to parse request body as JSON. Ensure content-type is application/json." },
+            { status: 400 }
+        );
+    }
     
     if (typeof body !== 'object' || body === null) {
         return NextResponse.json(
@@ -105,7 +114,7 @@ export async function POST(req: Request) {
 
     const cycle = autonomousLoopRuntime.getState().stats.totalRuns;
     
-    // Ensure questionId is defined before calling recordAnswer, although logic above should guarantee it.
+    // Ensure questionId is defined before calling recordAnswer. This check is now redundant due to logic above, but kept for safety against external state changes.
     if (!questionId) {
         return NextResponse.json(
             { error: "Could not determine a valid question ID to record the answer against." },
