@@ -59,7 +59,7 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   const results: ParsedSource[] = [];
 
   // Regex to match common GitHub URLs/suffixes: https://...github.com/owner/repo.git or just owner/repo.git
-  // Captures: 1: protocol/www, 2: owner, 3: repo (or path after owner)
+  // Captures: 1: protocol/www, 2: owner, 3: repo/path (everything after owner up to end or .git)
   const githubUrlRegex = /^(https?:\/\/(www\.)?github\.com\/)([^/]+)\/(.+?)(?:\.git)?$/i;
 
   for (const token of tokens) {
@@ -82,7 +82,8 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
     
     if (parts.length >= 2) {
       const owner = parts[0];
-      const repo = parts.slice(1).join('/'); // Handle paths like owner/repo/subpath
+      // Ensure repo captures the entire path after the owner
+      const repo = parts.slice(1).join('/'); 
       const key = `${owner.toLowerCase()}/${repo.toLowerCase()}`;
       if (!seen.has(key)) {
         seen.add(key);
@@ -111,14 +112,14 @@ export function appendPresetToSources(existing: string | null | undefined, addit
   const existingKeys = new Set(current.map((c) => c.raw.toLowerCase()));
   const merged = [...current.map((c) => c.raw)];
 
-  for (const add of additions) {
-    const parsedAdditions = parseSources(add);
-    for (const item of parsedAdditions) {
-      const key = item.raw.toLowerCase();
-      if (!existingKeys.has(key)) {
-        existingKeys.add(key);
-        merged.push(item.raw);
-      }
+  // Parse all additions once
+  const parsedAdditions = parseSources(additions.join(', '));
+
+  for (const item of parsedAdditions) {
+    const key = item.raw.toLowerCase();
+    if (!existingKeys.has(key)) {
+      existingKeys.add(key);
+      merged.push(item.raw);
     }
   }
 
