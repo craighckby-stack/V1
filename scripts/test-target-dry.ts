@@ -14,13 +14,20 @@ import {
 import { getRepoDefaultBranch } from "@/lib/pipeline/target/target-github";
 import { runTargetMutation } from "@/lib/pipeline/target/target-runner";
 
-const REPO = process.argv[2] ?? "craighckby-stack/Wonder-Craig-Game-Demo";
+const DEFAULT_REPO = "craighckby-stack/Wonder-Craig-Game-Demo";
+const REPO = process.argv[2] ?? DEFAULT_REPO;
 
 function line(s: string) {
   console.log(s);
 }
 
 async function main() {
+  if (!REPO || REPO.trim() === "") {
+    line("Error: Repository owner/repo must be provided as a command-line argument or use the default.");
+    process.exitCode = 1;
+    return;
+  }
+
   line(`\n================ TARGET DRY-RUN TEST ================`);
   line(`repo: ${REPO}`);
   line(`mode: DRY RUN (zero writes to target repo)`);
@@ -94,6 +101,7 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error("\nFATAL:", e);
+  console.error("\nFATAL: An unhandled error occurred during the dry-run test.");
+  console.error(e);
   process.exitCode = 2;
 });
