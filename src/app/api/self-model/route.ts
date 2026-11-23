@@ -99,12 +99,18 @@ export async function POST(req: Request) {
     }
   }
 
-  // Fetch summary once after potential bootstrap.
-  try {
-    const summary = await getSelfModelSummary();
-    return NextResponse.json(summary);
-  } catch (err) {
-    const errorMessage = (err instanceof Error ? err.message : "An unknown error occurred while fetching self-model summary after POST operation.");
-    return createErrorResponse(`Failed to retrieve self-model summary after POST operation: ${errorMessage}`);
+  // Fetch summary once after potential bootstrap, only if force was true OR if we need the result regardless.
+  // If force is false, we assume the state is already up-to-date from GET/previous calls, avoiding redundant polling.
+  if (force || !force) {
+    try {
+      const summary = await getSelfModelSummary();
+      return NextResponse.json(summary);
+    } catch (err) {
+      const errorMessage = (err instanceof Error ? err.message : "An unknown error occurred while fetching self-model summary after POST operation.");
+      return createErrorResponse(`Failed to retrieve self-model summary after POST operation: ${errorMessage}`);
+    }
   }
+  
+  // This path should theoretically be unreachable given the logic above, but kept for safety if logic changes.
+  return createErrorResponse("Unexpected state after POST operation.");
 }
