@@ -46,8 +46,9 @@ const server = createServer(async (req, res) => {
       return;
     }
     const now = Date.now();
-    if (now - lastLlmTestAt < LLM_TEST_COOLDOWN_MS) {
-      const retryIn = Math.ceil((LLM_TEST_COOLDOWN_MS - (now - lastLlmTestAt)) / 1000);
+    const timeSinceLastTest = now - lastLlmTestAt;
+    if (timeSinceLastTest < LLM_TEST_COOLDOWN_MS) {
+      const retryIn = Math.ceil((LLM_TEST_COOLDOWN_MS - timeSinceLastTest) / 1000);
       res.writeHead(429, { "content-type": "application/json" });
       res.end(
         JSON.stringify({
@@ -66,11 +67,11 @@ const server = createServer(async (req, res) => {
     } catch (err) {
       let msg: string;
       if (err instanceof Error) {
-        msg = err.message;
+        msg = `LLM connection failed: ${err.message}`;
       } else {
-        msg = String(err);
+        msg = `LLM connection failed due to unknown error: ${String(err)}`;
       }
-      // Provide full error context without arbitrary slicing, as the client should handle length.
+      // Provide actionable error context to the client.
       res.writeHead(502, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: false, error: msg }));
     }
