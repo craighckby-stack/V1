@@ -20,7 +20,7 @@ export function MemoryBank() {
   const setEntries = usePipelineStore((s) => s.setMemoryEntries);
   const hasFetchedRef = useRef(false);
   const isFetchingRef = useRef(false);
-  const [isMounted, setIsMounted] = useState(true);
+  const [isMounted, setIsMounted] = useState(false); // Start as false, set true in mount effect
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const isLoading = isFetchingRef.current && !hasFetchedRef.current;
@@ -38,8 +38,10 @@ export function MemoryBank() {
   }, []);
 
   useEffect(() => {
+    if (!isMounted) return;
+
     const fetchMemoryEntries = async () => {
-      if (hasFetchedRef.current || !isMounted) return;
+      if (hasFetchedRef.current || isFetchingRef.current) return;
       
       isFetchingRef.current = true;
       abortControllerRef.current = new AbortController();
@@ -67,10 +69,8 @@ export function MemoryBank() {
           throw new Error("Invalid API response structure: expected 'entries' array in response body.");
         }
         
-        if (isMounted) {
-          setEntries(data.entries);
-          hasFetchedRef.current = true; // Mark success only after state update
-        }
+        setEntries(data.entries);
+        hasFetchedRef.current = true; // Mark success only after state update
       } catch (error) {
         if (error instanceof Error && error.name !== 'AbortError') {
           console.error("Error loading memory entries from API:", { 
@@ -81,9 +81,7 @@ export function MemoryBank() {
         }
       } finally {
         clearTimeout(timeoutId);
-        if (isMounted) {
-          isFetchingRef.current = false;
-        }
+        isFetchingRef.current = false;
         abortControllerRef.current = null;
       }
     };
