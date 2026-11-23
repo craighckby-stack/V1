@@ -26,6 +26,23 @@ async function main() {
     internalCommitterInvariants,
   };
 
+  // Validate evidence object before stringifying
+  if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)) {
+    throw new Error("Invalid evidence object: must be a non-array object");
+  }
+
+  const requiredEvidenceFields = [
+    'commitSha', 'parentSha', 'message', 'committedAt', 
+    'parentCommittedAt', 'gapSeconds', 'machineRestartAt', 
+    'finding', 'blastRadius', 'internalCommitterInvariants'
+  ];
+  
+  for (const field of requiredEvidenceFields) {
+    if (!(field in evidence)) {
+      throw new Error(`Missing required evidence field: ${field}`);
+    }
+  }
+
   const record = await postmortemStore.recordFailure({
     repo: "self",
     branch: "main",
