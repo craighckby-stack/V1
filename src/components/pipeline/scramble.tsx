@@ -64,7 +64,9 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
       } else {
         // Ensure final state is exactly 'text' when animation completes, 
         // preventing potential floating point inaccuracies from leaving a partial scramble.
-        setOut(text);
+        if (out !== text) { // Performance optimization: only set if different
+            setOut(text);
+        }
       }
     };
 
@@ -74,7 +76,7 @@ export function Scramble({ text, start, ms, className }: { text: string; start: 
         cancelAnimationFrame(raf);
       }
     };
-  }, [start, text, ms, out]); // Added 'out' dependency to check for content change before setting state
+  }, [start, text, ms]); // Removed 'out' dependency
 
   if (text.length === 0) {
     return <span className={className}>{text}</span>;
