@@ -187,9 +187,24 @@ log_step_end "Health check"
 # ── WIPE-PROOF TIER REFRESH (operator, 2026-11-23) ────────────────────────
 # The server is up and the DB is warm — refresh the .git/info/ tier so a
 # machine restart always restores to AT LEAST this boot's state. The
-# 10-min backup loop (wipewatch) keeps it fresh between restarts. Best-
-# effort: a failure here never blocks the boot.
+# 10-min backup loop (db-tier-loop.sh, tracked + spawned below) keeps it
+# fresh between restarts. Best-effort: a failure here never blocks the
+# boot.
 bun "$PROJECT_DIR/scripts/loop-db-tier.ts" backup || echo "[DB-TIER] post-boot backup failed (non-fatal — the 10-min loop retries)"
+
+# ── RECURRING TIER REFRESH LOOP (operator, 2026-11-23) ────────────────────
+# Spawn the tracked 10-minute backup loop. The original claim ("10-min
+# backup loop running") pointed at an UNTRACKED script outside the repo
+# that died after one iteration with no respawn path — the loop is now
+# tracked in .zscripts/ (protected prefix) and re-armed at EVERY boot,
+# here. Single-instance guard inside the script makes re-runs of dev.sh
+# (watchdog prods) a no-op instead of stacking loops. Best-effort.
+if [ -x "$PROJECT_DIR/.zscripts/db-tier-loop.sh" ]; then
+    nohup "$PROJECT_DIR/.zscripts/db-tier-loop.sh" >/dev/null 2>&1 &
+    echo "[DB-TIER] refresh loop spawned (pid $!)"
+else
+    echo "[DB-TIER] WARNING: .zscripts/db-tier-loop.sh missing or not executable — tier will not refresh between boots"
+fi
 
 start_mini_services
 

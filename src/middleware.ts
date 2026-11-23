@@ -43,8 +43,12 @@ import { NextRequest, NextResponse } from "next/server";
  *     guesses are counted too (the old order returned 401 before any
  *     accounting — unlimited brute force on the API key).
  *
- * Runtime: Next 16 runs middleware on Node.js by default (dev + prod), so
- * process.env is the live server environment — no runtime config needed.
+ * Runtime: EDGE — middleware.ts compiles to the Edge Runtime in this
+ * setup (verified live 2026-11-23: a node:crypto import failed the Edge
+ * module check and 500'd every mutating route). Only Web APIs are
+ * available here — the constant-time compare below uses WebCrypto
+ * digests, NOT node:crypto. The worker (:3004) runs on Bun and uses
+ * node:crypto's timingSafeEqual for the same guarantee.
  */
 
 /** Verbs that mutate state — the only ones this middleware gates. */
@@ -74,7 +78,30 @@ function clientBucket(req: NextRequest): string {
   return "local";
 }
 
-export function middleware(req: NextRequest) {
+/** Constant-time key comparison (operator, 2026-11-23 round 3): the old
+ * `provided !== expected` string compare short-circuits on the first
+ * differing byte — a remote caller could statistically recover the key
+ * prefix byte-by-byte from response-time deltas. Hashing both sides to
+ * fixed-length SHA-256 digests (WebCrypto — the Edge Runtime has no
+ * node:crypto) makes the comparison length-independent, and the XOR
+ * accumulator never short-circuits. Digest comparison leaks nothing
+ * about the key itself. */
+async function keyMatches(provided: string | null, expected: string): Promise<boolean> {
+  if (!provided) return false;
+  const enc = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(provided)),
+    crypto.subtle.digest("SHA-256", enc.encode(expected)),
+  ]);
+  const va = new Uint8Array(a);
+  const vb = new Uint8Array(b);
+  if (va.length !== vb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < va.length; i++) diff |= va[i] ^ vb[i];
+  return diff === 0;
+}
+
+export async function middleware(req: NextRequest) {
   // ── 1. Read-only verbs pass through untouched (polling, health checks) ──
   if (!MUTATING_METHODS.has(req.method.toUpperCase())) {
     return NextResponse.next();
@@ -127,7 +154,7 @@ export function middleware(req: NextRequest) {
     );
   }
   const providedKey = req.headers.get("x-loop-key");
-  if (providedKey !== expectedKey) {
+  if (!(await keyMatches(providedKey, expectedKey))) {
     return NextResponse.json(
       {
         error:

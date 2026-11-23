@@ -228,6 +228,11 @@ export const PROTECTED_FILES = new Set([
   // benchmark has an independent, non-loop-owned execution path.
   "scripts/audit-remote.ts", // the operator's remote-audit tool (evidence instrument)
   "scripts/inspect-target-tree.ts", // target-tree inspector (evidence instrument)
+  // ── Round 3 (operator, 2026-11-23): the state probe used during the
+  // re-analysis — read-only DB health/parity evidence. Same instrument
+  // class as audit-remote: a mutated probe could fake the very counts
+  // the operator uses to verify the recovery tier is working.
+  "scripts/state-probe.ts", // read-only DB state/parity probe (evidence instrument)
   // ── Retention root-cause fix (operator, 2026-11-23): the DB wipe-proof
   // tier. loop-db-tier.ts is the RECOVERY instrument for the platform's
   // untracked-file wipe (the confirmed root cause of the retention

@@ -35,6 +35,7 @@
 
 import { readFileSync } from "fs";
 import { join } from "path";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 const PORT = 3004;
 /** mini-services/loop-worker → project root (two levels up). */
@@ -69,6 +70,18 @@ process.env.ORACLE_SCHEDULER_DISABLED = "1";
 
 // Fail-closed warning fires at most once per worker process.
 let warnedKeyMissing = false;
+
+/** Constant-time key comparison (operator, 2026-11-23 round 3): mirrors
+ * src/middleware.ts — the old direct string compare short-circuits on the
+ * first differing byte, leaking key-prefix information through response
+ * timing. Fixed-length sha256 digests make timingSafeEqual applicable
+ * for any key length and leak nothing. */
+function keyMatches(provided: string | null, expected: string): boolean {
+  if (!provided) return false;
+  const a = createHash("sha256").update(provided).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b);
+}
 
 async function main() {
   // Dynamic imports: the entire pipeline graph (Prisma client, z-ai SDK,
@@ -202,7 +215,7 @@ async function main() {
             503
           );
         }
-        if (req.headers.get("x-loop-key") !== expectedKey) {
+        if (!keyMatches(req.headers.get("x-loop-key"), expectedKey)) {
           return json(
             { error: "unauthorized — mutating worker endpoints require the x-loop-key header." },
             401

@@ -75,6 +75,27 @@ function rowCounts(p: string): string {
   }
 }
 
+/** REAL integrity gate (operator, 2026-11-23 round 3): the round-2
+ * commit message claimed "integrity-checked restore" but the code only
+ * verified the file OPENS — SQLite will happily open a file with a
+ * corrupt page tail. PRAGMA integrity_check walks the b-tree and is the
+ * actual guarantee. bun:sqlite returns the row shape
+ * { integrity_check: "ok" } (verified live 2026-11-23). */
+function integrityOk(p: string): boolean {
+  let db: Database | null = null;
+  try {
+    db = new Database(p, { readonly: true });
+    const row = db.query("PRAGMA integrity_check").get() as {
+      integrity_check?: string;
+    } | null;
+    return row?.integrity_check === "ok";
+  } catch {
+    return false;
+  } finally {
+    db?.close();
+  }
+}
+
 async function cmdBackup(): Promise<number> {
   if (!existsSync(LIVE_DB)) {
     console.error(`[db-tier] live DB missing (${LIVE_DB}) — nothing to back up.`);
@@ -109,7 +130,28 @@ async function cmdBackup(): Promise<number> {
   }
   live.close();
 
-  console.log(`[db-tier] backup ok: ${TIER_DB} (${fileStamp(TIER_DB)})`);
+  // Verify the fresh snapshot BEFORE declaring success — a "backup ok"
+  // line that a torn page could invalidate is the exact doc/reality
+  // drift class this round is closing. On failure: keep the previous
+  // generation as primary (rotate back) so the tier never regresses to
+  // a corrupt-but-newer file.
+  if (!integrityOk(TIER_DB)) {
+    console.error(`[db-tier] fresh snapshot FAILED integrity_check — keeping previous generation as primary`);
+    try {
+      if (existsSync(TIER_PREV)) {
+        copyFileSync(TIER_PREV, TIER_DB);
+        console.error(`[db-tier] rolled back to previous generation (${fileStamp(TIER_DB)})`);
+      } else {
+        unlinkSync(TIER_DB);
+        console.error(`[db-tier] no previous generation — primary slot left EMPTY rather than corrupt`);
+      }
+    } catch (rollbackErr) {
+      console.error(`[db-tier] rollback attempt failed: ${rollbackErr}`);
+    }
+    return 1;
+  }
+
+  console.log(`[db-tier] backup ok (integrity_check passed): ${TIER_DB} (${fileStamp(TIER_DB)})`);
   console.log(`[db-tier] prev generation: ${TIER_PREV} (${fileStamp(TIER_PREV)})`);
   console.log(`[db-tier] rows: ${rowCounts(TIER_DB)}`);
   return 0;
@@ -121,31 +163,34 @@ function cmdRestore(): number {
     console.log(`[db-tier] live DB already exists (${fileStamp(LIVE_DB)}) — no restore needed.`);
     return 2;
   }
-  const source = existsSync(TIER_DB)
-    ? TIER_DB
-    : existsSync(TIER_PREV)
-      ? TIER_PREV
-      : null;
-  if (!source) {
+  // Try candidates in order (newest first). A candidate that fails the
+  // real integrity_check falls through to the next generation instead of
+  // aborting the restore — the old code picked ONE source and gave up if
+  // it was corrupt, losing the still-good older generation with it.
+  const candidates = [TIER_DB, TIER_PREV].filter((c) => existsSync(c));
+  if (candidates.length === 0) {
     console.error(
       `[db-tier] no tier backup available (${TIER_DB}) — a fresh empty DB will be created by prisma.`
     );
     return 1;
   }
   mkdirSync(path.dirname(LIVE_DB), { recursive: true });
-  copyFileSync(source, LIVE_DB);
-  // Sanity: a corrupt restore is worse than none — verify it opens.
-  try {
-    const check = new Database(LIVE_DB, { readonly: true });
-    check.close();
-  } catch (err) {
-    console.error(`[db-tier] restored file failed integrity open — removing it: ${err}`);
+  for (const source of candidates) {
+    copyFileSync(source, LIVE_DB);
+    if (integrityOk(LIVE_DB)) {
+      console.log(`[db-tier] RESTORED ${LIVE_DB} from ${source} (integrity_check passed)`);
+      console.log(`[db-tier] restored state: ${fileStamp(LIVE_DB)} | ${rowCounts(LIVE_DB)}`);
+      return 0;
+    }
+    console.error(
+      `[db-tier] candidate ${source} failed integrity_check — trying next generation`
+    );
     unlinkSync(LIVE_DB);
-    return 1;
   }
-  console.log(`[db-tier] RESTORED ${LIVE_DB} from ${source}`);
-  console.log(`[db-tier] restored state: ${fileStamp(LIVE_DB)} | ${rowCounts(LIVE_DB)}`);
-  return 0;
+  console.error(
+    `[db-tier] ALL tier candidates failed integrity_check — leaving the hole for prisma (no corrupt restore).`
+  );
+  return 1;
 }
 
 function cmdStatus(): number {
