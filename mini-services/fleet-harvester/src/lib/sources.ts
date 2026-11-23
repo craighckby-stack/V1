@@ -59,6 +59,7 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   const results: ParsedSource[] = [];
 
   // Regex to match common GitHub URLs/suffixes: https://...github.com/owner/repo.git or just owner/repo.git
+  // Captures: 1: protocol/www, 2: owner, 3: repo (or path after owner)
   const githubUrlRegex = /^(https?:\/\/(www\.)?github\.com\/)([^/]+)\/(.+?)(?:\.git)?$/i;
 
   for (const token of tokens) {
@@ -66,8 +67,8 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
     let match = cleanToken.match(githubUrlRegex);
 
     if (match) {
-      // Matched a full URL pattern: group 3 is owner, group 4 is repo
-      cleanToken = `${match[3]}/${match[4]}`;
+      // Matched a full URL pattern: group 2 is owner, group 3 is repo/path
+      cleanToken = `${match[2]}/${match[3]}`;
     } else {
       // Strip trailing .git if not matched by URL regex
       cleanToken = cleanToken.replace(/\.git$/i, '');
@@ -95,6 +96,7 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
         results.push({ type: 'owner', owner, raw: owner });
       }
     }
+    // If parts.length === 0, it was filtered by !cleanToken check above.
   }
 
   return results;
