@@ -37,10 +37,8 @@ export async function GET(req: Request) {
   
   try {
     // Ensure seeding is complete and query runs in parallel to reduce latency
-    const [, queryResultSequential] = await Promise.all([
-      emgRagInstance.ensureSeeded(),
-      emgRagInstance.query(q)
-    ]);
+    await emgRagInstance.ensureSeeded();
+    const queryResultSequential = await emgRagInstance.query(q);
 
     if (!queryResultSequential) {
       return NextResponse.json(
@@ -88,7 +86,7 @@ export async function GET(req: Request) {
     
     return NextResponse.json(
       { 
-        error: `Failed to execute memory query for query "${q}". Ensure RAG service is running and seeded correctly. Details: ${errorMessage}`,
+        error: `Failed to execute memory query for query "${q}". Check RAG service logs for details.`,
         operation: "memory query"
       }, 
       { status: 500 }
