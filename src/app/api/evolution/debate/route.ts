@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   let body: DebateRequest;
   try {
     body = await req.json() as DebateRequest;
-  } catch {
+  } catch (e) {
     // Provide a specific 400 error for JSON parsing failure without leaking internal details.
     return NextResponse.json(
       { error: "Invalid JSON format in request body." },
@@ -70,15 +70,19 @@ export async function POST(req: Request) {
     console.error("LLM Debate Execution Error:", err, { filePath: body.filePath });
 
     let errorMessage = `Debate execution failed for ${body.filePath}. Please check the logs for details.`;
-    
-    // Provide a more concise and actionable error message based on error type
+    let detailedReason = '';
+
     if (err instanceof Error) {
-      errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${err.message}. Check logs for full details.`;
+      detailedReason = err.message;
     } else if (typeof err === 'string') {
-      errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${err}. Check logs for full details.`;
+      detailedReason = err;
     } else if (typeof err === 'object' && err !== null && 'message' in err) {
       // Handle cases where err is an object but not an instance of Error (e.g., { message: "..." })
-      errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${(err as { message: string }).message}. Check logs for full details.`;
+      detailedReason = (err as { message: string }).message;
+    }
+    
+    if (detailedReason) {
+        errorMessage = `LLM debate failed for ${body.filePath}. Reason: ${detailedReason}. Check logs for full details.`;
     }
     
     // Return a standardized 500 response
