@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "scripts/check-llm.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 1 → evolved 3), no behavioral signal, 4 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "evidence": "Original: 719 bytes, Refactored: 811 bytes. Errors: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 1 → evolved 3), no behavioral signal, 4 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "constraints": "The previous refactor of scripts/check-llm.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "2bcab9eefba95d3d083647b2e69760f1521d29b1fc615a177de1f93d3c94c3a0",
+  "hash": "d9fa5df46262a935fe951a641db9e20a623291d4c0d139493c3986331e9018fb",
+  "lastAttemptAt": "2026-11-23T20:41:26.450Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-23T20:41:26.451Z",
+  "updatedAt": "2026-11-23T20:41:26.451Z",
+  "schema": 2
+}

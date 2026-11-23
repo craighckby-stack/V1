@@ -51,7 +51,7 @@ export function AstInspectorModal() {
       return;
     }
     
-    // Check clipboard availability synchronously
+    // Check clipboard availability
     const clipboardAvailable = !!navigator.clipboard && typeof navigator.clipboard.writeText === 'function';
 
     if (!clipboardAvailable) {
@@ -74,6 +74,12 @@ export function AstInspectorModal() {
       });
     }
   };
+
+  // Safely access symbol map properties
+  const symbolMap = ast.symbolMap || {};
+  const originalCount = symbolMap.originalCount ?? 0;
+  const proposedCount = symbolMap.proposedCount ?? 0;
+  const retainedCount = symbolMap.retainedCount ?? 0;
 
   return (
     <AnimatePresence>
@@ -176,15 +182,15 @@ export function AstInspectorModal() {
               <div className="text-xs text-slate-300 font-mono space-y-1">
                 <div className="flex justify-between">
                   <span className="text-slate-300">Original:</span>
-                  <span className="text-amber-300 font-medium">{ast.symbolMap?.originalCount ?? 0}</span>
+                  <span className="text-amber-300 font-medium">{originalCount}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-300">Proposed:</span>
-                  <span className="text-cyan-300 font-medium">{ast.symbolMap?.proposedCount ?? 0}</span>
+                  <span className="text-cyan-300 font-medium">{proposedCount}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-300">Retained:</span>
-                  <span className="text-emerald-300 font-medium">{ast.symbolMap?.retainedCount ?? 0}</span>
+                  <span className="text-emerald-300 font-medium">{retainedCount}</span>
                 </div>
               </div>
               <div className="text-[10px] text-slate-500 pt-1">
