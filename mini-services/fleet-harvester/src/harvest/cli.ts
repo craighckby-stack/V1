@@ -39,7 +39,7 @@ function parseArgs(argv: string[]): CliArgs {
     if (arg.startsWith("--repos=")) {
       const reposValue = arg.slice("--repos=".length).trim();
       if (reposValue === "") {
-        console.error("ERROR: --repos= requires at least one repository name");
+        console.error("ERROR: --repos= requires at least one repository name, but received an empty value.");
         process.exit(2);
       }
       out.repos = reposValue;
@@ -139,7 +139,7 @@ async function main() {
   if (args.repos) {
     reposArray = args.repos.split(",").map((s) => s.trim()).filter(Boolean);
     if (reposArray.length === 0) {
-      console.error("ERROR: --repos= provided but resulted in no valid repository names after parsing.");
+      console.error("ERROR: --repos= provided but resulted in no valid repository names after parsing. Ensure names are comma-separated and non-empty.");
       process.exit(2);
     }
     log(`Smoke-test repos: ${reposArray.length} (${reposArray.join(", ")})`);
