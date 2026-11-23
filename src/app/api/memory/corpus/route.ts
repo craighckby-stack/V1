@@ -28,23 +28,21 @@ export async function GET(request: Request) {
     const keyword = searchParams.get("keyword");
     
     if (typeof keyword !== "string" || keyword.trim() === "") {
-      throw new Error("Missing or empty 'keyword' query parameter.");
+      throw new Error("Missing or empty 'keyword' query parameter. Please provide a valid 'keyword'.");
     }
     
-    // Run status and digest retrieval in parallel
-    const [status, digest] = await Promise.all([
-      getCorpusStatus(),
-      getFleetDigest()
-    ]);
-
-    // Run search with a timeout
+    // Run status, digest, and search in parallel to reduce latency
     const searchPromise = searchEngines(keyword, 3);
     const timeoutError = new Error("Search operation timed out after 5000ms.");
     const timeoutPromise = new Promise((_, reject) => 
       setTimeout(() => reject(timeoutError), 5000)
     );
 
-    const sample = await Promise.race([searchPromise, timeoutPromise]);
+    const [status, digest, sample] = await Promise.all([
+      getCorpusStatus(),
+      getFleetDigest(),
+      Promise.race([searchPromise, timeoutPromise])
+    ]);
       
     // Validate search results before mapping
     if (!Array.isArray(sample)) {
@@ -55,7 +53,7 @@ export async function GET(request: Request) {
     const mappedSample = sample.map((h: { engine: { id: string; role: string }; score: number; matchedTerms: string[] }) => {
       if (!h.engine || typeof h.engine.id !== "string" || typeof h.engine.role !== "string" || 
           typeof h.score !== "number" || !Array.isArray(h.matchedTerms)) {
-        throw new Error("Invalid search result item format detected in corpus data.");
+        throw new Error("Invalid search result item format detected in corpus data: missing required fields.");
       }
       
       return {
@@ -74,7 +72,7 @@ export async function GET(request: Request) {
     const statusCode = error.message.includes("timed out") ? 504 : 500;
     
     return NextResponse.json(
-      { ok: false, error: error.message },
+      { ok: false, error: `Corpus API Error: ${error.message}` },
       { status: statusCode }
     );
   }
