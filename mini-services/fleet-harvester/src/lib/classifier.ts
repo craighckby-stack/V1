@@ -66,6 +66,10 @@ export function detectRevertedShas(commits: RawCommit[]): Set<string> {
   const revertLineRx = /This reverts commit ([0-9a-f]{7,40})/gi;
   const revertHeaderRx = /^\s*Revert\s+"([^"]+)"/i;
 
+  // Reset regex state before the second pass
+  revertLineRx.lastIndex = 0;
+  revertHeaderRx.lastIndex = 0;
+
   // Second pass: Check for reverts
   for (const commit of commits) {
     if (!commit?.sha || !commit?.message) continue;
@@ -74,7 +78,6 @@ export function detectRevertedShas(commits: RawCommit[]): Set<string> {
     let match: RegExpExecArray | null;
 
     // Check revert line format
-    revertLineRx.lastIndex = 0;
     while ((match = revertLineRx.exec(commit.message)) !== null) {
       const refSha = match[1].toLowerCase();
       const refPrefix7 = refSha.slice(0, 7);
@@ -91,7 +94,6 @@ export function detectRevertedShas(commits: RawCommit[]): Set<string> {
     }
 
     // Check revert header format
-    revertHeaderRx.lastIndex = 0;
     const headerMatch = revertHeaderRx.exec(commit.message);
     if (headerMatch) {
       const revertedSubject = headerMatch[1].trim().toLowerCase();
@@ -107,9 +109,7 @@ export function detectRevertedShas(commits: RawCommit[]): Set<string> {
     }
   }
 
-  // Clean up regex lastIndex to prevent potential memory leaks
-  revertLineRx.lastIndex = 0;
-  revertHeaderRx.lastIndex = 0;
+  // Regex state is already reset before the loop, no need to reset again here.
 
   return reverted;
 }
