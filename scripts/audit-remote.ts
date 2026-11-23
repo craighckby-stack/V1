@@ -37,8 +37,18 @@ async function main() {
   };
   const repo = target.repo || "craighckby-stack/V1";
 
+  // Validate repo format to prevent malformed API requests
+  if (!/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo)) {
+    console.error("INVALID_REPO_FORMAT:", repo);
+    process.exit(4);
+  }
+
   // ── 1. Repo visibility ────────────────────────────────────────────
   const repoRes = await fetch(`https://api.github.com/repos/${repo}`, { headers });
+  if (!repoRes.ok) {
+    console.error("REPO_FETCH_FAILED:", repoRes.status, repoRes.statusText);
+    process.exit(5);
+  }
   const repoData = (await repoRes.json()) as Record<string, unknown>;
   console.log("REPO:", repo);
   console.log("VISIBILITY:", repoData.visibility, "| private:", repoData.private, "| default:", repoData.default_branch);
@@ -61,6 +71,10 @@ async function main() {
     `https://api.github.com/repos/${repo}/git/trees/${repoData.default_branch || "main"}?recursive=1`,
     { headers }
   );
+  if (!treeRes.ok) {
+    console.error("TREE_FETCH_FAILED:", treeRes.status, treeRes.statusText);
+    process.exit(6);
+  }
   const treeData = (await treeRes.json()) as {
     tree?: Array<{ path: string; type: string; size?: number }>;
     truncated?: boolean;
@@ -82,13 +96,20 @@ async function main() {
     .slice(0, 4000);
   let contentHits = 0;
   const hitPaths: string[] = [];
-  for (const f of candidates) {
+  
+  // Limit concurrent scans to prevent overwhelming the API
+  const semaphore = { count: 0, max: 10 };
+  const scanFile = async (f: { path: string; size?: number }) => {
+    if (semaphore.count >= semaphore.max) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    semaphore.count++;
     try {
       const cRes = await fetch(
         `https://raw.githubusercontent.com/${repo}/${repoData.default_branch || "main"}/${f.path}`,
         { headers: { Authorization: `Bearer ${target.token}`, "User-Agent": "audit" } }
       );
-      if (!cRes.ok) continue;
+      if (!cRes.ok) return;
       const body = await cRes.text();
       for (const { name, re } of SECRET_PATTERNS) {
         if (re.test(body)) {
@@ -96,10 +117,14 @@ async function main() {
           hitPaths.push(`${f.path} (${name})`);
         }
       }
-    } catch {
+    } catch (e) {
       /* skip file */
+    } finally {
+      semaphore.count--;
     }
-  }
+  };
+
+  await Promise.all(candidates.map(scanFile));
   console.log("CONTENT_FILES_SCANNED:", candidates.length);
   console.log("CONTENT_HITS:", contentHits === 0 ? "NONE" : JSON.stringify(hitPaths));
 
@@ -108,13 +133,15 @@ async function main() {
   // remote file. Searched last; the token value never printed.
   let tokenLeak = false;
   const tokenLeakPaths: string[] = [];
-  for (const f of candidates) {
+  
+  await Promise.all(candidates.map(async (f) => {
+    if (tokenLeak) return; // Early exit if already found
     try {
       const cRes = await fetch(
         `https://raw.githubusercontent.com/${repo}/${repoData.default_branch || "main"}/${f.path}`,
         { headers: { Authorization: `Bearer ${target.token}`, "User-Agent": "audit" } }
       );
-      if (!cRes.ok) continue;
+      if (!cRes.ok) return;
       const body = await cRes.text();
       if (target.token.length > 8 && body.includes(target.token)) {
         tokenLeak = true;
@@ -123,13 +150,14 @@ async function main() {
     } catch {
       /* skip */
     }
-  }
+  }));
+  
   console.log("PAT_VALUE_ON_MAIN:", tokenLeak ? JSON.stringify(tokenLeakPaths) : "NOT_FOUND (good)");
 
   process.exit(0);
 }
 
-main().catch((e) => {
-  console.error("AUDIT_ERROR:", e.message);
+main().catch((e: unknown) => {
+  console.error("AUDIT_ERROR:", e instanceof Error ? e.message : String(e));
   process.exit(3);
 });
