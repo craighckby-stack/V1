@@ -13,6 +13,19 @@ async function main() {
     "all LOOP commit sites route through pushCurrentState, which now also runs validateCommitMessage as a defense-in-depth check (rejects empty/whitespace-only and bare-UUID first lines before git add -A)",
   ];
 
+  const evidence = {
+    commitSha: "e5d2b7a",
+    parentSha: "3332392",
+    message: "dc951e0f-8247-4972-be3f-17ca5c301b75",
+    committedAt: "2026-11-04T04:49:57Z",
+    parentCommittedAt: "2026-11-04T01:39:53Z",
+    gapSeconds: 10804,
+    machineRestartAt: "2026-11-04T04:47:34Z",
+    finding,
+    blastRadius,
+    internalCommitterInvariants,
+  };
+
   const record = await postmortemStore.recordFailure({
     repo: "self",
     branch: "main",
@@ -20,20 +33,13 @@ async function main() {
     observed: false,
     failureType: "OTHER",
     symptom: "Bare-UUID commit message landed on main (commit e5d2b7a)",
-    evidence: JSON.stringify({
-      commitSha: "e5d2b7a",
-      parentSha: "3332392",
-      message: "dc951e0f-8247-4972-be3f-17ca5c301b75",
-      committedAt: "2026-11-04T04:49:57Z",
-      parentCommittedAt: "2026-11-04T01:39:53Z",
-      gapSeconds: 10804,
-      machineRestartAt: "2026-11-04T04:47:34Z",
-      finding,
-      blastRadius,
-      internalCommitterInvariants,
-    }),
+    evidence: JSON.stringify(evidence),
     constraints: `Two-layer defense against host-injected bare-UUID commits. (1) Internal guard: push-target.ts validateCommitMessage is called before every \`git add -A\` in pushCurrentState (both the fallback path ~L698 and the main path ~L778) and aborts with pushed:false + a clear reason if the message is empty/whitespace-only or matches the bare-UUID regex /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i on its first line. On the main path the reason is also recorded into lastPushError (matching how the secret-scan gate failure is handled) so an operator sees a clear cause in the push-target UI. This guarantees LOOP itself never produces a UUID-named commit. (2) Startup detector: self-enhance-loop.ts constructor runs validateCommitMessage against \`git log -1 --format=%B\` once at boot and console.warn's (does NOT block boot — the commit is already on disk by the time LOOP runs; blocking would brick the loop on a restore) if HEAD's message is empty or a bare UUID. The host restore orchestrator that injected commit e5d2b7a is OUTSIDE LOOP's reach: it runs before LOOP boots (machine restart at 04:47:34), so LOOP cannot prevent it directly — only defend (layer 1) + detect (layer 2). Operationally related to external audit finding 1 (test-gate crash recovery in push-target.ts): both findings are about commits landing on main through paths LOOP doesn't control (a crashed test gate leaving an unverified candidate live; a host restore orchestrator using a UUID placeholder), and both are addressed by running a check BEFORE git add -A so the bad commit never lands in the first place.`,
   });
+
+  if (!record) {
+    throw new Error("Failed to create postmortem record");
+  }
 
   console.log("POSTMORTEM RECORDED");
   console.log("  id        :", record.id);
@@ -49,5 +55,8 @@ async function main() {
 
 main().catch((err) => {
   const errorMessage = err instanceof Error ? err.message : String(err);
-  console.error(`ERROR: Failed to record postmortem for 'system:commit-message-guard'. Check postmortemStore connection, permissions, or required dependencies. Underlying error: ${errorMessage}`);
+  console.error(`ERROR: Failed to record postmortem for 'system:commit-message-guard'. 
+    Check postmortemStore connection, permissions, or required dependencies. 
+    Underlying error: ${errorMessage}`);
+  process.exit(1);
 });
