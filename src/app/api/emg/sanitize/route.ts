@@ -9,10 +9,9 @@ interface SanitizeRequest {
 }
 
 export async function POST(req: Request) {
-  let parsedBody: SanitizeRequest | undefined;
+  let json: SanitizeRequest;
   try {
-    const json = await req.json();
-    parsedBody = json as SanitizeRequest;
+    json = (await req.json()) as SanitizeRequest;
   } catch (e) {
     if (e instanceof SyntaxError) {
       return NextResponse.json(
@@ -26,8 +25,8 @@ export async function POST(req: Request) {
     );
   }
 
-  // Check for required structure and type
-  if (!parsedBody || typeof parsedBody.code !== "string") {
+  // Check for required structure and type (Type assertion handles structure check implicitly if JSON parsing succeeded)
+  if (typeof json.code !== "string") {
     return NextResponse.json(
       { error: "code (string) is required in the request body." },
       { status: 400 }
@@ -35,7 +34,7 @@ export async function POST(req: Request) {
   }
 
   // Additional validation for empty string code
-  if (parsedBody.code.trim() === "") {
+  if (json.code.trim() === "") {
     return NextResponse.json(
       { error: "code cannot be an empty string." },
       { status: 400 }
@@ -43,7 +42,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = sanitizeAndGovern(parsedBody.code);
+    const result = sanitizeAndGovern(json.code);
     return NextResponse.json({
       clean: result.clean,
       sanitizedCode: result.sanitizedCode,
@@ -54,7 +53,7 @@ export async function POST(req: Request) {
   } catch (err) {
     // Catch errors originating from sanitizeAndGovern, ensuring safe casting and context
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during sanitization.";
-    const inputSnippet = parsedBody.code.substring(0, 50);
+    const inputSnippet = json.code.substring(0, 50);
     
     return NextResponse.json(
       { error: `Sanitization failed for input code starting with: ${inputSnippet}... Error: ${errorMessage}` },
