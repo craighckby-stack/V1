@@ -58,24 +58,22 @@ interface TimelineEntry {
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const fileParam = url.searchParams.get("file") ?? "";
-    if (!fileParam.trim()) {
+    const fileParam = url.searchParams.get("file");
+    if (!fileParam || !fileParam.trim()) {
       return NextResponse.json(
         { error: "file query param is required (e.g. ?file=src/lib/retro-boot-audio.ts)" },
         { status: 400 }
       );
     }
-    // Normalize: strip leading ./ and the project root, collapse // .
+    
     let filePath = fileParam.trim();
+    // Normalize: strip leading ./ and the project root, collapse // .
     filePath = filePath.replace(/^\.?\//, "");
     const projectRoot = process.cwd().replace(/\/$/, "");
     if (filePath.startsWith(projectRoot + "/")) filePath = filePath.slice(projectRoot.length + 1);
 
     // ── Gather all sources in parallel ────────────────────────────
-    // PERF-3 fix: cap gitLogForFile at 200 (matching the timeline cap) so
-    // a heavily-mutated file (100+ commits) doesn't spawn a full-history git
-    // log only to truncate after sorting. The cap matches the timeline cap.
-    const [gitLog, mutations, postmortems, pipelineRuns, lessons] = await Promise.all([
+    const [gitLog, mutationsResult, postmortemsResult, pipelineRunsResult, lessonsResult] = await Promise.all([
       gitLogForFile(projectRoot, filePath, 200),
       // MutationCorpus is the SELF-loop only (no repo field) — these
       // are the autonomous loop's attempts on this file.
@@ -97,7 +95,7 @@ export async function GET(req: Request) {
           take: 100,
         })
         .catch((err) => {
-          console.error("Failed to fetch mutations:", err);
+          console.error(`[Provenance] Failed to fetch mutations for ${filePath}:`, err);
           return [];
         }),
       db.postmortem
@@ -120,7 +118,7 @@ export async function GET(req: Request) {
           take: 50,
         })
         .catch((err) => {
-          console.error("Failed to fetch postmortems:", err);
+          console.error(`[Provenance] Failed to fetch postmortems for ${filePath}:`, err);
           return [];
         }),
       db.pipelineRun
@@ -140,7 +138,7 @@ export async function GET(req: Request) {
           take: 50,
         })
         .catch((err) => {
-          console.error("Failed to fetch pipeline runs:", err);
+          console.error(`[Provenance] Failed to fetch pipeline runs for ${filePath}:`, err);
           return [];
         }),
       db.lesson
@@ -158,7 +156,7 @@ export async function GET(req: Request) {
           take: 20,
         })
         .catch((err) => {
-          console.error("Failed to fetch lessons:", err);
+          console.error(`[Provenance] Failed to fetch lessons for ${filePath}:`, err);
           return [];
         }),
     ]);
@@ -183,7 +181,7 @@ export async function GET(req: Request) {
     }
 
     // Mutation corpus (autonomous loop attempts).
-    for (const m of mutations as Array<{
+    for (const m of mutationsResult as Array<{
       cycleNumber: number; branchNumber: number | null; gateOutcome: string;
       failureType: string | null; originalSha: string; mutatedSha: string | null;
       transformSummary: string | null; lessonIdsInjected: string | null; createdAt: Date;
@@ -215,7 +213,7 @@ export async function GET(req: Request) {
     }
 
     // Postmortems (scars — actor from the source label).
-    for (const p of postmortems as Array<{
+    for (const p of postmortemsResult as Array<{
       targetRepo: string; branch: string; status: string; verificationStatus: string;
       failureType: string; symptom: string; attempts: number; source: string;
       createdAt: Date; updatedAt: Date; resolvedAt: Date | null;
@@ -247,7 +245,7 @@ export async function GET(req: Request) {
     }
 
     // Pipeline runs (gauntlet — actor from triggeredBy).
-    for (const r of pipelineRuns as Array<{
+    for (const r of pipelineRunsResult as Array<{
       targetRepo: string; targetBranch: string; status: string; astScore: number;
       consensus: string; proofHash: string; triggeredBy: string; createdAt: Date;
     }>) {
@@ -274,7 +272,7 @@ export async function GET(req: Request) {
     }
 
     // Lessons (active distilled rules — context, not per-file).
-    for (const l of lessons as Array<{
+    for (const l of lessonsResult as Array<{
       id: string; content: string; kind: string; sourceType: string; sourceCount: number; createdAt: Date;
     }>) {
       entries.push({
@@ -313,10 +311,10 @@ export async function GET(req: Request) {
         byActor,
         byKind,
         gitCommits: gitLog.length,
-        loopMutations: (mutations as unknown[]).length,
-        postmortems: (postmortems as unknown[]).length,
-        pipelineRuns: (pipelineRuns as unknown[]).length,
-        activeLessons: (lessons as unknown[]).length,
+        loopMutations: mutationsResult.length,
+        postmortems: postmortemsResult.length,
+        pipelineRuns: pipelineRunsResult.length,
+        activeLessons: lessonsResult.length,
       },
       timeline: capped,
     });
