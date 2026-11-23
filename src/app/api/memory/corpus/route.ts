@@ -37,23 +37,26 @@ export async function GET(request: Request) {
     // Run status, digest, and search in parallel to reduce latency
     const searchPromise = searchEngines(keyword, 3);
     const timeoutError = new Error("Search operation timed out after 5000ms.");
-    const timeoutPromise = new Promise((_, reject) => 
+    
+    // Wrap timeout in a promise that rejects after 5000ms
+    const timeoutPromise = new Promise<any>((_, reject) => 
       setTimeout(() => reject(timeoutError), 5000)
     );
 
-    const [status, digest, sample] = await Promise.all([
+    // Execute status, digest, and the race (search vs timeout) in parallel
+    const [status, digest, searchResult] = await Promise.all([
       getCorpusStatus(),
       getFleetDigest(),
       Promise.race([searchPromise, timeoutPromise])
     ]);
       
     // Validate search results before mapping
-    if (!Array.isArray(sample)) {
-      throw new Error(`Search returned invalid data format: expected array, got ${typeof sample}.`);
+    if (!Array.isArray(searchResult)) {
+      throw new Error(`Search returned invalid data format: expected array, got ${typeof searchResult}.`);
     }
     
     // Map results only after successful retrieval
-    const mappedSample = sample.map((h: { engine: { id: string; role: string }; score: number; matchedTerms: string[] }) => {
+    const mappedSample = searchResult.map((h: { engine: { id: string; role: string }; score: number; matchedTerms: string[] }) => {
       if (!h.engine || typeof h.engine.id !== "string" || typeof h.engine.role !== "string" || 
           typeof h.score !== "number" || !Array.isArray(h.matchedTerms)) {
         throw new Error("Invalid search result item format detected in corpus data: missing required fields.");
