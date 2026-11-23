@@ -161,34 +161,18 @@ export async function clearTargetConfig(): Promise<boolean> {
 
 /** Append-only audit trail: the outcome of the last run attempt. */
 export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
-  // Validate required fields
-  if (!rec || typeof rec !== 'object') {
-    throw new Error("Target run record must be a valid object");
-  }
-  
   // Validate 'at' field
-  if (!rec.at) {
-    throw new Error("Target run record must include 'at' field (ISO date string)");
-  }
   const date = new Date(rec.at);
   if (isNaN(date.getTime())) {
     throw new Error(`Invalid date format in 'at' field: ${rec.at} — must be ISO date string`);
   }
   
-  // Validate 'repo' field
-  if (!rec.repo) {
-    throw new Error("Target run record must include 'repo' field");
-  }
-  
-  // Validate 'repo' format
-  if (!validTargetRepoFormat(rec.repo)) {
-    throw new Error(`Invalid repo format in record: ${rec.repo} — expected owner/name`);
+  // Validate 'repo' field and format
+  if (!rec.repo || !validTargetRepoFormat(rec.repo)) {
+    throw new Error(`Target run record must include a valid 'repo' field (owner/name format expected)`);
   }
   
   // Validate 'status' field
-  if (!rec.status) {
-    throw new Error("Target run record must include 'status' field");
-  }
   const validStatuses: TargetRunStatus[] = ["pushed", "rejected", "no-work", "dry-run", "failed"];
   if (!validStatuses.includes(rec.status)) {
     throw new Error(`Invalid status '${rec.status}' — must be one of: ${validStatuses.join(', ')}`);

@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "mini-services/fleet-harvester/src/lib/rateLimiter.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "REVIEW_REJECTED",
+  "symptom": "Debate rejected the refactor: Debate rejected (REQUIRES_REWRITE): Both reviewers agree the change is redundant defensive hardening (low-value churn) and does not advance system goals (latency reduction, back-pressure, efficiency). Since the existing code is robust and the change adds unnecessary complexity without benefit, it should be rejected in favor of no change, per the value hierarchy rule against low-value churn.",
+  "evidence": "Change summary: ## Changes\n- Improved error handling in `computeGitHubCooldown` by ensuring `input` is checked against `null`/`undefined` at the start, although the existing check was sufficient, the guard clause is kept clean.\n- Optimized `fetchWithTimeout` cleanup: The final `controller.abort()` inside `finally` is redundant if the request succeeded or timed out (as the timer/fetch completion handles cleanup), but more importantly, the logic to check `!controller.signal.aborted` before aborting is slightly fl",
+  "constraints": "The previous refactor of mini-services/fleet-harvester/src/lib/rateLimiter.ts was rejected by the debate tribunal (REQUIRES_REWRITE). Address the review feedback before retrying.",
+  "attempts": 1,
+  "parentHash": "6b46fa76d32cb1c421ec01cd9a330cde27a5edcc838544978dfccf05e7e967e3",
+  "hash": "31df944dfc3c3822d2bd3ec90bfb9eb7442264d358493670c9347c3e4e010170",
+  "lastAttemptAt": "2026-11-23T12:31:36.911Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-23T12:31:36.912Z",
+  "updatedAt": "2026-11-23T12:31:36.912Z",
+  "schema": 2
+}
