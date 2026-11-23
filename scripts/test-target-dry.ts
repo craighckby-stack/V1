@@ -22,13 +22,16 @@ function line(s: string) {
 }
 
 async function main() {
-  if (process.argv.length < 3 && REPO === DEFAULT_REPO) {
-    line(`Warning: No repository owner/repo provided. Using default: ${DEFAULT_REPO}`);
-  } else if (process.argv.length >= 3 && !REPO.trim()) {
-    // This case should ideally not happen if REPO is derived from process.argv[2] ?? DEFAULT_REPO
-    line(`Error: Provided repository argument was empty or whitespace.`);
+  // Input validation: Ensure REPO is not empty/whitespace if it was provided,
+  // or if it's the default, warn appropriately.
+  if (REPO.trim() === "") {
+    line(`Error: Repository argument is empty or whitespace.`);
     process.exitCode = 1;
     return;
+  }
+
+  if (REPO === DEFAULT_REPO && process.argv.length < 3) {
+    line(`Warning: No repository owner/repo provided. Using default: ${DEFAULT_REPO}`);
   }
 
   line(`\n================ TARGET DRY-RUN TEST ================`);
