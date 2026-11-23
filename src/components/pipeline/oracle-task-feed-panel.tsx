@@ -31,17 +31,17 @@ const STATUS_STYLES: Record<string, { label: string; variant: "default" | "secon
 
 export function OracleTaskFeedPanel() {
   const [tasks, setTasks] = useState<SelfTask[]>([]);
-  const [isLoadingInitial, setIsLoadingInitial] = useState(true); // Renamed for clarity: true only on first load
+  const [isLoadingInitial, setIsLoadingInitial] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchTasks = useCallback(async (isInitialLoad: boolean = false) => {
-    if (isRefreshing) return; // Prevent concurrent refreshes
+    if (isRefreshing) return;
     
     if (isInitialLoad) {
         setIsLoadingInitial(true);
-        setError(null); // Clear previous errors on fresh start
+        setError(null);
     } else {
         setIsRefreshing(true);
         setError(null);
@@ -55,12 +55,10 @@ export function OracleTaskFeedPanel() {
       
       const data = await response.json();
       
-      // Validate and extract tasks with proper type checking
       if (!data || typeof data !== 'object' || !Array.isArray((data as any).tasks)) {
         throw new Error("API response validation failed: Expected an object containing a 'tasks' array.");
       }
       
-      // Validate each task has required fields and conforms to SelfTask structure minimally
       const validatedTasks: SelfTask[] = (data.tasks as unknown[]).filter(t =>
         t && 
         typeof t === 'object' && 
@@ -76,7 +74,6 @@ export function OracleTaskFeedPanel() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error during task fetch.";
       setError(`Last refresh failed for /api/self-enhance/tasks: ${msg}. Showing cached data.`);
-      // Keep existing tasks on error — don't wipe the list on a transient failure
     } finally {
       setIsRefreshing(false);
       if (isInitialLoad) {
@@ -86,15 +83,10 @@ export function OracleTaskFeedPanel() {
   }, [isRefreshing]);
 
   useEffect(() => {
-    // Initial fetch
     fetchTasks(true);
     
-    // Poll every 30s to reduce latency while still managing API load.
     intervalRef.current = setInterval(() => {
-        // Only attempt refresh if not currently refreshing
-        if (!isRefreshing) {
-            fetchTasks(false);
-        }
+        fetchTasks(false);
     }, 30_000);
     
     return () => {
@@ -103,12 +95,10 @@ export function OracleTaskFeedPanel() {
         intervalRef.current = null;
       }
     };
-  }, [fetchTasks, isRefreshing]); // Added isRefreshing dependency to ensure interval logic respects state changes
+  }, [fetchTasks]);
 
-  // Memoize status styles to avoid unnecessary re-renders
   const statusStyles = useMemo(() => STATUS_STYLES, []);
 
-  // Show loading only if we are still loading initially
   if (isLoadingInitial) {
     return (
       <Card className="w-full">
