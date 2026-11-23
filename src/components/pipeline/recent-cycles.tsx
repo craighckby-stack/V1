@@ -29,25 +29,20 @@ export function RecentCycles() {
         throw new Error(`Failed to fetch recent cycles: HTTP status ${res.status} ${res.statusText}`);
       }
       
-      let data;
-      try {
-        data = await res.json();
-      } catch (e) {
-        // Use specific error type for better context
-        throw new Error(`Failed to parse API response as JSON. Details: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      
-      // Improved validation: ensure data conforms strictly to the expected structure.
-      if (typeof data !== 'object' || data === null || !('cycles' in data) || !Array.isArray((data as { cycles?: unknown }).cycles)) {
+      const data = await res.json();
+
+      // Strict validation: ensure data is an object containing a 'cycles' array of the correct type.
+      if (typeof data !== 'object' || data === null || !('cycles' in data) || !Array.isArray(data.cycles)) {
         throw new Error("Invalid API response structure: expected object containing a 'cycles' array of AutonomousCycleSummary.");
       }
       
-      const apiResponse = data as { cycles: AutonomousCycleSummary[] };
-      setFetched(apiResponse.cycles);
+      const apiResponseCycles = data.cycles as AutonomousCycleSummary[];
+      setFetched(apiResponseCycles);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error during fetch or parsing.";
       console.error("Error refreshing recent cycles from API:", errorMessage);
-      setFetched([]);
+      // Keep fetched as is or set to empty if error occurred, depending on desired fallback. Setting to [] ensures UI reflects failure clearly.
+      setFetched([]); 
     } finally {
       setLoading(false);
     }
@@ -58,24 +53,24 @@ export function RecentCycles() {
   }, []);
 
   // Merge: in-memory recent from WS (most recent first) + DB fetch (dedup by id).
-  // Use Map for O(N) deduplication instead of Set iteration during filter.
+  // Use Map for O(N) deduplication. WS data (cyclesFromStore) takes precedence.
   const seen = new Map<string, AutonomousCycleSummary>();
   
-  // Process store cycles first (assuming they are the most up-to-date from WS)
+  // 1. Process store cycles first (WS data, highest priority)
   cyclesFromStore.forEach(c => {
     if (c?.id) { // Guard against malformed store entries
       seen.set(c.id, c);
     }
   });
 
-  // Process fetched cycles, only adding if ID is not already seen
+  // 2. Process fetched cycles, only adding if ID is not already seen (API data is secondary)
   fetched.forEach(c => {
     if (c?.id && !seen.has(c.id)) {
       seen.set(c.id, c);
     }
   });
 
-  // Convert map values back to array. Order preservation depends on insertion order (Map preserves insertion order).
+  // Convert map values back to array. Map preserves insertion order (WS first, then unique API additions).
   const merged = Array.from(seen.values());
 
   return (
