@@ -36,13 +36,23 @@ interface CliArgs {
 function parseArgs(argv: string[]): CliArgs {
   const out: CliArgs = { noPush: false, dryRun: false, format: "json" };
   for (const arg of argv.slice(2)) {
-    if (arg.startsWith("--repos=")) out.repos = arg.slice("--repos=".length);
-    else if (arg === "--no-push") out.noPush = true;
+    if (arg.startsWith("--repos=")) {
+      const reposValue = arg.slice("--repos=".length);
+      if (reposValue.trim() === "") {
+        console.error("ERROR: --repos= requires at least one repository name");
+        process.exit(2);
+      }
+      out.repos = reposValue;
+    } else if (arg === "--no-push") out.noPush = true;
     else if (arg === "--dry-run") out.dryRun = true;
     else if (arg.startsWith("--format=")) {
       const f = arg.slice("--format=".length) as ArchiveFormat;
-      if (f === "json" || f === "markdown" || f === "csv") out.format = f;
-      // If format is invalid, it retains the default "json"
+      if (f === "json" || f === "markdown" || f === "csv") {
+        out.format = f;
+      } else {
+        console.error(`ERROR: Invalid format "${f}". Supported formats: json, markdown, csv`);
+        process.exit(2);
+      }
     }
   }
   return out;
@@ -74,7 +84,7 @@ async function main() {
     process.exit(2);
   }
 
-  if (!githubToken) {
+  if (!githubToken && !args.dryRun) {
     log("ERROR: GITHUB_TOKEN is not set. Set it in the environment or .env.");
     log("  For a --dry-run (no GitHub access), the runner needs no token but cannot discover or push.");
     process.exit(2);
