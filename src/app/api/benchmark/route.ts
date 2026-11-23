@@ -20,10 +20,10 @@ export const runtime = "nodejs";
 export async function GET() {
   try {
     const report = await buildBenchmarkReport();
-    if (!report) {
-      // Explicitly 503 if the report generation logic returns falsy, indicating data unavailability.
+    if (report === null || report === undefined) {
+      // Explicitly 503 if the report generation logic returns null/undefined, indicating data unavailability.
       return NextResponse.json(
-        { error: "benchmark unavailable — corpus read failed" },
+        { error: "benchmark unavailable — corpus read failed or report generation returned null/undefined" },
         { status: 503 },
       );
     }
