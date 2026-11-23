@@ -369,7 +369,7 @@ const FOOTPRINT_PATTERNS = {
 };
 
 export function summarizeFootprint(message: string): string {
-  if (typeof message !== 'string' || !message) {
+  if (typeof message !== 'string' || !message.trim()) {
     return 'chore';
   }
 
