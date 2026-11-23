@@ -135,5 +135,7 @@ export function resetCrashBudget(): void {
     // If writeCrashBudget throws (which it shouldn't per its contract),
     // we still want to ensure the reset state is logged
     console.error("Failed to reset crash budget:", error);
+    // Also log the reset state for debugging
+    console.error("Reset state that failed to write:", resetState);
   }
 }
