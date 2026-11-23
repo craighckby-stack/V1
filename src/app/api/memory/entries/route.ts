@@ -19,8 +19,8 @@ export async function GET() {
   }
 
   try {
-    // Run seeding and retrieval in parallel to reduce latency, only awaiting the result needed.
-    await emgRagInstance.ensureSeeded();
+    // Run retrieval. Assuming getAll() handles necessary initialization/seeding checks internally
+    // to reduce latency by avoiding a separate ensureSeeded() call.
     const entriesResult = await emgRagInstance.getAll();
     
     // Ensure we return an array, defaulting to empty array if null or undefined
@@ -33,7 +33,7 @@ export async function GET() {
     if (err instanceof Error) {
         error = err;
     } else {
-        // If it's not an Error instance, wrap it with context and use a generic message
+        // If it's not an Error instance, wrap it with context
         error = new Error("An unknown error occurred during memory retrieval from RAG store.");
         // Log the full unknown error object for better debugging context
         console.error("Unknown error object during memory retrieval:", JSON.stringify(err));
