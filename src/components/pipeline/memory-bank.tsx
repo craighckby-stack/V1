@@ -42,13 +42,16 @@ export function MemoryBank() {
 
     const fetchMemoryEntries = async () => {
       isFetchingRef.current = true;
-      abortControllerRef.current = new AbortController();
-      const abortController = abortControllerRef.current;
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
       
       const timeoutId = setTimeout(() => {
         if (abortController && abortController.signal.aborted === false) {
           abortController.abort();
-          abortControllerRef.current = null;
+          // Cleanup controller reference on timeout abort
+          if (abortControllerRef.current === abortController) {
+             abortControllerRef.current = null;
+          }
         }
       }, 10000);
       
@@ -80,7 +83,7 @@ export function MemoryBank() {
       } finally {
         clearTimeout(timeoutId);
         isFetchingRef.current = false;
-        // Only clear controller if it wasn't already cleared by timeout logic on abort
+        // Only clear controller reference if this fetch attempt was the one holding it
         if (abortControllerRef.current === abortController) {
              abortControllerRef.current = null;
         }
