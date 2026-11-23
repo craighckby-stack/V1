@@ -40,7 +40,7 @@
  * to load from anywhere (loop-runtime, API routes, instrumentation).
  */
 
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { atomicWriteFileSync } from "../core/atomic-file";
 import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
@@ -98,6 +98,10 @@ export function markArmed(armed: boolean, by: string): void {
  *  a bad read. This is the dual-layer fail-closed contract: the boot
  *  auto-arm only proceeds when the disk EXPLICITLY says armed:true. */
 export function readArmedState(): ArmedState | null {
+  if (!existsSync(ARMED_STATE_FILE)) {
+    return null; // File absent, expected on first run, treated as not armed.
+  }
+
   try {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
 
@@ -132,13 +136,9 @@ export function readArmedState(): ArmedState | null {
 
     return state;
   } catch (error) {
-    // Catch all I/O errors (permissions, file not found, etc.)
-    // If file not found, this is expected on first run, treated as not armed (null).
-    if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return null;
-    }
+    // Catch I/O errors other than ENOENT (which is handled by existsSync check)
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`readArmedState: Failed to read armed state from ${ARMED_STATE_FILE}. Check file permissions or disk integrity. Error: ${errorMessage}`);
+    console.error(`readArmedState: Failed to read armed state from ${ARMED_STATE_FILE} despite existence. Check file permissions or disk integrity. Error: ${errorMessage}`);
     return null;
   }
 }
