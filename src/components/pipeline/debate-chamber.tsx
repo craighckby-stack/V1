@@ -64,6 +64,7 @@ export function DebateChamber() {
   const frictionPct = Math.round((verdict.cognitiveFriction ?? 0) * 100);
 
   const consensusStatus = verdict.consensus as string | undefined;
+  const finalConsensusStatus = consensusStatus || "DEFAULT";
   
   const statusMap: Record<string, string> = {
     "APPROVED": "bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/20",
@@ -72,7 +73,7 @@ export function DebateChamber() {
     "DEFAULT": "bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/20",
   };
 
-  const badgeClasses = statusMap[consensusStatus || "DEFAULT"] || statusMap["DEFAULT"];
+  const badgeClasses = statusMap[finalConsensusStatus] || statusMap["DEFAULT"];
 
   return (
     <Card className="bg-slate-950/60 border-slate-800/60 backdrop-blur transition-shadow hover:shadow-lg focus-visible:ring-2 focus-visible:ring-cyan-500/50 rounded-xl">
@@ -89,9 +90,9 @@ export function DebateChamber() {
                 "uppercase text-xs tracking-widest transition-colors duration-150",
                 badgeClasses
               )}
-              aria-label={`Consensus status: ${consensusStatus?.replace("_", " ") || "UNKNOWN"}`}
+              aria-label={`Consensus status: ${finalConsensusStatus.replace("_", " ")}`}
             >
-              {consensusStatus?.replace("_", " ") || "UNKNOWN"}
+              {finalConsensusStatus.replace("_", " ")}
             </Badge>
             <div className="text-right">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Consensus</div>
@@ -100,7 +101,7 @@ export function DebateChamber() {
               </div>
             </div>
           </div>
-        </div>
+        </div >
         <div className="space-y-3 mt-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
             <div className="text-[10px] text-slate-500 mb-1 sm:mb-0">Consensus Coefficient</div>
@@ -118,7 +119,7 @@ export function DebateChamber() {
             value={frictionPct}
             className="h-2 bg-slate-800/60 [&>div]:bg-amber-500 transition-all duration-300"
           />
-        </div>
+        </div >
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
@@ -155,7 +156,7 @@ export function DebateChamber() {
                       <span className="ml-auto text-sm text-slate-400 font-mono">
                         {frictionValue.toFixed(0)}%
                       </span>
-                    </div>
+                    </div >
                     <p className="text-sm text-slate-200 leading-relaxed">{arg.statement}</p>
                     {arg.citations && arg.citations.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
@@ -170,7 +171,7 @@ export function DebateChamber() {
                             {c}
                           </span>
                         ))}
-                      </div>
+                      </div >
                     )}
                   </motion.div>
                 );
@@ -179,7 +180,7 @@ export function DebateChamber() {
               <p className="text-sm text-slate-400 italic p-4">No arguments recorded for this review.</p>
             )}
           </AnimatePresence>
-        </div>
+        </div >
 
         <div className="mt-6 pt-4 border-t border-slate-800/60 space-y-3">
           <div className="flex items-start gap-3">
@@ -195,8 +196,8 @@ export function DebateChamber() {
                   <li className="pl-1 text-slate-400">No security findings reported.</li>
                 )}
               </ul>
-            </div>
-          </div>
+            </div >
+          </div >
           <div className="flex items-start gap-3">
             <GitGraph className="h-4 w-4 text-cyan-300 mt-0.5 shrink-0 flex-shrink-0" aria-hidden="true" />
             <div className="flex-1 min-w-0">
@@ -210,16 +211,16 @@ export function DebateChamber() {
                   <li className="pl-1 text-slate-400">No architecture findings reported.</li>
                 )}
               </ul>
-            </div>
-          </div>
+            </div >
+          </div >
           <div className="flex items-start gap-3">
             <CheckCircle2 className="h-4 w-4 text-emerald-300 mt-0.5 shrink-0 flex-shrink-0" aria-hidden="true" />
             <div className="flex-1 min-w-0">
               <div className="text-[10px] uppercase tracking-widest text-slate-500">Lead Verdict</div>
               <p className="text-sm text-slate-200 mt-1">{verdict.leadSummary || "No summary available"}</p>
-            </div>
-          </div>
-        </div>
+            </div >
+          </div >
+        </div >
       </CardContent>
     </Card>
   );
