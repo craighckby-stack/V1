@@ -27,9 +27,9 @@ export async function GET() {
     // Ensure we return an array, defaulting to empty array if null or undefined
     return NextResponse.json({ entries: entriesResult || [] });
   } catch (err: unknown) {
-    let error: Error;
     let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
     let statusCode = 500;
+    let error: Error;
 
     if (err instanceof Error) {
         error = err;
