@@ -136,12 +136,16 @@ export function LogStream() {
                 No telemetry yet. Start the loop or trigger a cycle to see live logs.
               </div>
             ) : (
-              processedLogs.map((entry) => (
-                <LogEntryComponent 
-                  key={entry.id || `${entry.timestamp}-${entry.source}`} 
-                  entry={entry} 
-                />
-              ))
+              processedLogs.map((entry) => {
+                // Robust key generation: prioritize stable ID, fallback to composite key
+                const key = entry.id || `${entry.timestamp}-${entry.source}`;
+                return (
+                  <LogEntryComponent 
+                    key={key} 
+                    entry={entry} 
+                  />
+                );
+              })
             )}
           </AnimatePresence>
         </ScrollArea>
