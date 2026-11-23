@@ -143,7 +143,7 @@ export function isDeadMansTripped(
     return true;
   }
 
-  // Determine the time reference once. Use provided 'now' if valid, otherwise use current time.
+  // Determine the time reference once. Use provided 'now' if it's a valid Date object, otherwise use current time.
   const nowTime = (now instanceof Date && !isNaN(now.getTime())) ? now.getTime() : Date.now();
 
   const state = readOperatorTouch();
@@ -151,6 +151,12 @@ export function isDeadMansTripped(
 
   // Since readOperatorTouch validated the timestamp, we can use it directly
   const lastTouchTime = Date.parse(state.at);
+
+  // Although readOperatorTouch validates this, re-check for safety in the final comparison logic
+  if (isNaN(lastTouchTime)) {
+    console.error(`isDeadMansTripped: State read but timestamp '${state.at}' is invalid. Treating as tripped.`);
+    return true;
+  }
 
   return nowTime - lastTouchTime > thresholdMs;
 }
