@@ -87,6 +87,12 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
       getRecentAttemptsForFile(filePath, ATTEMPTS_TAKE),
     ]);
 
+    // Ensure results are arrays before proceeding, although Promise.all should handle resolved values.
+    if (!Array.isArray(gitLog) || !Array.isArray(attempts)) {
+        console.error(`[ProvenanceDigest] Git log or attempts data was not an array for ${filePath}. Failing soft.`);
+        return "";
+    }
+
     // No data at all → no block (a fresh file the loop + git have never
     // touched). Same lifecycle as the lessons/rejected blocks: no data,
     // no block, no prompt cost.
