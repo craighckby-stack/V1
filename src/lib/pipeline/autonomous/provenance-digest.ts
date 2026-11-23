@@ -184,6 +184,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     if (result.length > PROVENANCE_BLOCK_BUDGET) {
       const footerIndex = result.lastIndexOf(footer);
       if (footerIndex !== -1) {
+        // Calculate max content length to ensure the total length is <= BUDGET
         const maxContentLength = PROVENANCE_BLOCK_BUDGET - footer.length;
         // Truncate content before the footer, respecting the budget.
         const truncatedResult = result.substring(0, footerIndex).slice(0, maxContentLength);
