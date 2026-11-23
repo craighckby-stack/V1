@@ -134,7 +134,6 @@ export async function setTargetConfig(
       value: JSON.stringify(config),
       setBy: "target-mode",
       reason: "operator set target repository",
-      updatedAt: new Date(),
     },
     create: {
       key: CONFIG_KEY,
@@ -179,8 +178,10 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
   }
   
   // Validate optional 'file' field if present
-  if (rec.file !== undefined && (typeof rec.file !== 'string' || rec.file.trim().length === 0)) {
-    throw new Error("Target run record 'file' must be a non-empty string if provided");
+  if (rec.file !== undefined) {
+    if (typeof rec.file !== 'string' || rec.file.trim().length === 0) {
+      throw new Error("Target run record 'file' must be a non-empty string if provided");
+    }
   }
   
   // Validate optional 'branch' field if present
@@ -189,8 +190,10 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
   }
   
   // Validate optional 'commitSha' field if present
-  if (rec.commitSha !== undefined && (typeof rec.commitSha !== 'string' || rec.commitSha.trim().length === 0)) {
-    throw new Error("Target run record 'commitSha' must be a non-empty string if provided");
+  if (rec.commitSha !== undefined) {
+    if (typeof rec.commitSha !== 'string' || rec.commitSha.trim().length === 0) {
+      throw new Error("Target run record 'commitSha' must be a non-empty string if provided");
+    }
   }
   
   try {
