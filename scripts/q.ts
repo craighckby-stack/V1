@@ -40,6 +40,10 @@ async function main() {
 }
 main().catch(e => {
   // Improved error logging to include context about the pipeline failure
-  console.error("Error executing main pipeline function. Check database connection or query logic.", e);
+  if (e instanceof Error) {
+    console.error(`Error executing main pipeline function: ${e.message}. Check database connection or query logic. Stack: ${e.stack}`);
+  } else {
+    console.error("Error executing main pipeline function: An unknown error occurred.", e);
+  }
   process.exit(1);
 });
