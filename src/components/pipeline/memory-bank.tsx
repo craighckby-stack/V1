@@ -46,7 +46,7 @@ export function MemoryBank() {
       const abortController = abortControllerRef.current;
       
       const timeoutId = setTimeout(() => {
-        if (abortController) {
+        if (abortController && abortController.signal.aborted === false) {
           abortController.abort();
           abortControllerRef.current = null;
         }
@@ -80,7 +80,10 @@ export function MemoryBank() {
       } finally {
         clearTimeout(timeoutId);
         isFetchingRef.current = false;
-        abortControllerRef.current = null;
+        // Only clear controller if it wasn't already cleared by timeout logic on abort
+        if (abortControllerRef.current === abortController) {
+             abortControllerRef.current = null;
+        }
       }
     };
 
