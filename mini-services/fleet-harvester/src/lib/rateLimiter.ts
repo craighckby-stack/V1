@@ -171,7 +171,7 @@ export async function fetchWithTimeout(
   const callerSignal = init.signal ?? undefined;
 
   if (callerSignal?.aborted) {
-    throw new Error('Operation cancelled by caller before request started.');
+    throw new Error(`Operation cancelled by caller before request started for ${url}.`);
   }
 
   const onCallerAbort = () => controller.abort();
@@ -193,7 +193,7 @@ export async function fetchWithTimeout(
       throw new Error(`Request to ${url} timed out after ${Math.round(timeoutMs / 1000)}s`);
     }
     if (callerSignal?.aborted) {
-      throw new Error('Operation cancelled by caller during request');
+      throw new Error(`Operation cancelled by caller during request to ${url}`);
     }
     if (err instanceof Error) {
       throw new Error(`Request to ${url} failed: ${err.message}`);
@@ -202,9 +202,6 @@ export async function fetchWithTimeout(
   } finally {
     clearTimeout(timer);
     callerSignal?.removeEventListener('abort', onCallerAbort);
-    // Ensure controller is aborted to clean up resources
-    if (!controller.signal.aborted) {
-      controller.abort();
-    }
+    // Removed redundant controller.abort() call here. Cleanup is handled by timeout/fetch completion.
   }
 }
