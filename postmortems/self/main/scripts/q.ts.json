@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "scripts/q.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "070879db2826a2c7aa34b7d5de1f9d21b43425ad9fd24ae7a50dc4dc5e6a983b",
   "hash": "c62fe442e03b6117dafdbcab49fe90f8f1d9ecff1585ffe830d01a5df7a5ad0f",
   "lastAttemptAt": "2026-11-22T10:20:37.075Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-23T21:02:48.314Z",
   "createdAt": "2026-11-22T10:20:37.075Z",
-  "updatedAt": "2026-11-22T10:20:37.075Z",
+  "updatedAt": "2026-11-23T21:02:48.314Z",
   "schema": 2
 }

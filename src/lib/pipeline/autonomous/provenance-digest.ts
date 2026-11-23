@@ -138,7 +138,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
       // ── 3. KNOWLEDGE TRAIL ──────────────────────────────────
       const lastWithLessons = attempts.find((a) => {
         try {
-          const ids = JSON.parse(a.lessonIdsInjected) as string[];
+          const ids = JSON.parse(a.lessonIdsInjected);
           return Array.isArray(ids) && ids.length > 0;
         } catch {
           return false;
@@ -153,7 +153,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
               `Knowledge applied: ${ids.length} lesson(s) injected on cycle ${lastWithLessons.cycleNumber} (${ids.map((id) => id.slice(-6)).join(", ")}).`,
             );
           }
-        } catch {
+        } catch (e) {
           /* malformed lessonIdsInjected — skip the trail line */
         }
       }
@@ -203,7 +203,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
   } catch (error) {
     // Fail-soft: any error → empty string. Log the error context for debugging
     // without crashing the pipeline.
-    console.error(`[ProvenanceDigest] Failed to build provenance digest for ${filePath}. Failing soft.`, error);
+    console.error(`[ProvenanceDigest] Failed to build provenance digest for ${filePath}. Failing soft.`, error instanceof Error ? error.message : String(error));
     return "";
   }
 }
