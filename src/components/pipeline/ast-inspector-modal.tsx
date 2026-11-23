@@ -63,6 +63,7 @@ export function AstInspectorModal() {
     }
 
     try {
+      // Perform writeText operation directly within try block for atomic success/failure handling
       await navigator.clipboard.writeText(evolvedStr);
       toast({ title: "Copied evolved code", description: `${evolvedStr.length} bytes to clipboard` });
     } catch (error) {
@@ -194,7 +195,7 @@ export function AstInspectorModal() {
                 </div>
               </div>
               <div className="text-[10px] text-slate-500 pt-1">
-                Drift ratio: <span className="font-mono text-amber-300">{(ast.structuralDriftRatio !== undefined && ast.structuralDriftRatio !== null ? (ast.structuralDriftRatio * 100).toFixed(0) : '0')}%</span>
+                Drift ratio: <span className="font-mono text-amber-300">{(ast.structuralDriftRatio !== null && ast.structuralDriftRatio !== undefined ? (ast.structuralDriftRatio * 100).toFixed(0) : '0')}%</span>
               </div>
             </div>
             <div className="space-y-3">
