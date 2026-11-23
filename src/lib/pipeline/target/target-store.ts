@@ -88,7 +88,7 @@ export async function getTargetConfig(): Promise<TargetRepoConfig | null> {
     
     // Validate parsed object structure and required fields
     if (!parsed || typeof parsed !== 'object' || !parsed.repo || !parsed.updatedAt || !validTargetRepoFormat(parsed.repo)) {
-      console.error(`Target config found but invalid format for repo key ${CONFIG_KEY}. Parsed data:`, parsed);
+      console.error(`Target config found but invalid format for repo key ${CONFIG_KEY}. Missing required fields or invalid repo format. Parsed data:`, parsed);
       return null;
     }
     return parsed;
@@ -228,7 +228,7 @@ export async function getTargetLastRun(): Promise<TargetRunRecord | null> {
     const parsed = JSON.parse(row.value) as TargetRunRecord;
     // Validate parsed object structure
     if (!parsed || typeof parsed !== 'object' || !parsed.at || !parsed.repo || !parsed.status) {
-      console.error(`Last run record found but invalid format for key ${LAST_RUN_KEY}. Parsed data:`, parsed);
+      console.error(`Last run record found but invalid format for key ${LAST_RUN_KEY}. Missing required fields (at, repo, status). Parsed data:`, parsed);
       return null;
     }
     return parsed;
