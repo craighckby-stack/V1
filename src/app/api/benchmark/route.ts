@@ -30,7 +30,7 @@ export async function GET() {
   } catch (err) {
     let errorMessage = "An unknown error occurred during benchmark report generation.";
     let errorName = "UnknownError";
-    const statusCode = 500;
+    let statusCode = 500;
 
     if (err instanceof Error) {
       errorMessage = err.message;
@@ -41,8 +41,7 @@ export async function GET() {
       errorName = 'ObjectError';
     }
 
-    // If buildBenchmarkReport fails unexpectedly (not just returning null), it's a 500.
-    // The 503 case is handled above when report is falsy.
+    // If buildBenchmarkReport throws, it's a 500 server error, as 503 is handled when report is falsy.
     return NextResponse.json(
       { error: `benchmark failed (${errorName}): ${errorMessage}` },
       { status: statusCode },
