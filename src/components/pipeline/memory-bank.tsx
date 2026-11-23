@@ -38,11 +38,9 @@ export function MemoryBank() {
   }, []);
 
   useEffect(() => {
-    if (!isMounted) return;
+    if (!isMounted || hasFetchedRef.current || isFetchingRef.current) return;
 
     const fetchMemoryEntries = async () => {
-      if (hasFetchedRef.current || isFetchingRef.current) return;
-      
       isFetchingRef.current = true;
       abortControllerRef.current = new AbortController();
       const abortController = abortControllerRef.current;
