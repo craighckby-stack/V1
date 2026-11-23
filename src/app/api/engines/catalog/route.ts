@@ -39,49 +39,47 @@ export async function GET() {
     return NextResponse.json({ sources: [] });
   }
 
-  const { validSources, invalidSources } = SIPHON_SOURCES.reduce(
-    (acc, source, i) => {
-      let isValid = true;
-      let reason = "";
+  const validSources: CatalogEntry[] = [];
+  const invalidSources: InvalidSource[] = [];
 
-      if (!source) {
+  SIPHON_SOURCES.forEach((source, i) => {
+    let isValid = true;
+    let reason = "";
+
+    if (!source) {
+      isValid = false;
+      reason = "Source element is null or undefined.";
+    } else if (!('patterns' in source) || !Array.isArray((source as any).patterns)) {
+      isValid = false;
+      reason = "Source is missing 'patterns' array or 'patterns' is not an array.";
+    } else {
+      const patterns = (source as any).patterns;
+      if (patterns.length === 0) {
         isValid = false;
-        reason = "Source element is null or undefined.";
-      } else if (!('patterns' in source) || !Array.isArray(source.patterns)) {
-        isValid = false;
-        reason = "Source is missing 'patterns' array or 'patterns' is not an array.";
+        reason = "Source patterns array is empty.";
       } else {
-        const patterns = source.patterns;
-        if (patterns.length === 0) {
+        // Check all patterns for validity
+        const firstInvalidIndex = patterns.findIndex((p: any): p is string => typeof p !== 'string');
+        if (firstInvalidIndex !== -1) {
           isValid = false;
-          reason = "Source patterns array is empty.";
-        } else {
-          // Check all patterns for validity
-          const allPatternsValid = patterns.every((p): p is string => typeof p === 'string');
-          if (!allPatternsValid) {
-            // Find the first invalid index for a specific reason
-            const firstInvalidIndex = patterns.findIndex((p): p is string => typeof p !== 'string');
-            isValid = false;
-            reason = `Pattern at index ${firstInvalidIndex} is not a string.`;
-          }
+          reason = `Pattern at index ${firstInvalidIndex} is not a string.`;
         }
       }
+    }
 
-      if (!isValid) {
-        acc.invalidSources.push({ index: i, reason: reason });
-      } else {
-        // Source is valid, construct CatalogEntry
-        acc.validSources.push({
-          source: source as SiphonSource,
-          count: source.patterns.length,
-          complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
-          status: "configured",
-        });
-      }
-      return acc;
-    },
-    { validSources: [] as CatalogEntry[], invalidSources: [] as InvalidSource[] }
-  );
+    if (!isValid) {
+      invalidSources.push({ index: i, reason: reason });
+    } else {
+      // Source is valid, construct CatalogEntry
+      // Since validation passed, we can safely cast/assume structure for CatalogEntry creation
+      validSources.push({
+        source: source as SiphonSource,
+        count: (source as any).patterns.length,
+        complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
+        status: "configured",
+      });
+    }
+  });
 
   if (invalidSources.length > 0) {
     return NextResponse.json(
