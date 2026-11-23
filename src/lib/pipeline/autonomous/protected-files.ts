@@ -219,6 +219,15 @@ export const PROTECTED_FILES = new Set([
   //     only, full stop.
   "scripts/push-now.ts", // the manual push path (sealed-PAT consumer)
   "scripts/seal-push-token.ts", // the PAT sealing path (credential writer)
+  // ── Evidence-phase protection (operator, 2026-11-23): audit and
+  // evidence tooling is part of the trust boundary. audit-remote.ts was
+  // self-enhanced by the loop at 2026-11-23 02:15 (out-of-src expansion
+  // reaching the operator's audit surface — caught in the third reviewer
+  // exchange). The instruments that measure the system must not be
+  // mutated by the system being measured. Revisit only when the survival
+  // benchmark has an independent, non-loop-owned execution path.
+  "scripts/audit-remote.ts", // the operator's remote-audit tool (evidence instrument)
+  "scripts/inspect-target-tree.ts", // target-tree inspector (evidence instrument)
   // The dev-server daemonizer (scripts/dev-daemon.py) — supervision
   // chain, same class as dev-watchdog. .py files aren't scanned today
   // (extensions: [".ts"] only); this entry pins intent so a future
@@ -303,6 +312,18 @@ export const PROTECTED_PREFIXES = [
   "src/lib/pipeline/emg/", // audit 3: the sanitizer/halt/RAG/debate layer
   "src/lib/pipeline/postmortem/", // audit 3: the scar memory
   "src/lib/pipeline/red-team/", // audit 3: the integrity chain
+  // ── Evidence-phase protection (operator, 2026-11-23, reversible): the
+  // oracle subtree — the system's measurement of its own predictions —
+  // is frozen out of mutation scope until (a) the prophecy-retention
+  // defect (table wiped twice on 2026-11-23, root cause under
+  // investigation) is attributed and fixed, and (b) a calibration scorer
+  // verified against durable outcomes. The loop self-enhanced
+  // oracle-scheduler.ts twice during the very window the retention
+  // defect was discovered (00:44, 03:10) — an evidence subsystem must
+  // not be rewritten by the system it is evidence FOR while its
+  // integrity is in question. Operator may remove this entry after the
+  // evidence phase closes.
+  "src/lib/pipeline/oracle/", // the prophecy/evidence machinery (evidence phase)
   // ── v6 scope expansion (2026-11-22): the resurrection layer ─────
   // The loop's scan scope now reaches into mini-services/ (saturation.ts
   // v6). dev-watchdog is deliberately excluded from the scopes AND

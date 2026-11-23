@@ -16,14 +16,25 @@ import { NextRequest, NextResponse } from "next/server";
  *     UI unlock panel (page.tsx patches fetch to attach the key from
  *     localStorage and listens for these 401s — see
  *     src/components/pipeline/api-unlock.tsx).
- *   - If LOOP_API_KEY is unset/empty the gate fails OPEN with a one-time
- *     console.warn — keeps the system bootable if env loading hiccups.
+ *   - FAIL-CLOSED (operator hardening 2026-11-23, reviewer Priority 1):
+ *     if LOOP_API_KEY is unset/empty, every mutating request is REJECTED
+ *     with 503. The old fail-open ("keeps the system bootable") left all
+ *     mutating routes unprotected whenever the key was forgotten — for a
+ *     system that mutates its own code, an unauthenticated POST is not a
+ *     boot-convenience issue, it is the whole threat model. A missing key
+ *     must lock the gate, not open it. One console.error per process so
+ *     the operator sees WHY the gate is closed.
  *     The env var is read per-request (not at module load) so a dev-server
  *     env reload is honored without recompiling.
  *
  * Rate limiting (mutations only):
  *   - In-memory sliding window per client IP: max 60 requests / 60s → 429.
- *     IP comes from the first x-forwarded-for segment, fallback "local".
+ *   - IP comes from the first x-forwarded-for segment ONLY when
+ *     TRUST_PROXY=1 (set it only if the fronting proxy is configured to
+ *     OVERWRITE client-supplied XFF). Without TRUST_PROXY every client
+ *     shares the single "local" bucket — an XFF-spoofing client cannot
+ *     rotate rate-limit identities, which is exactly the spoof the old
+ *     permissive XFF read enabled (reviewer finding, 2026-11-23).
  *   - The IP map is capped at ~1000 entries; when the cap is exceeded the
  *     OLDEST entries are evicted (the old wholesale clear() reset every
  *     IP's window — a spoofed-XFF flood rotating identities got a fresh
@@ -49,8 +60,19 @@ const RATE_LIMIT_MAX_IPS = 1000;
 /** ip → timestamps (ms) of accepted mutating requests still in the window. */
 const hitsByIp = new Map<string, number[]>();
 
-/** Fail-open warning fires at most once per server process. */
+/** Fail-closed warning fires at most once per server process. */
 let warnedUnconfigured = false;
+
+/** Trust x-forwarded-for ONLY when the operator explicitly opted in —
+ * the header is client-controlled unless the fronting proxy overwrites
+ * it, and a spoofed XFF rotates rate-limit identities. */
+function clientBucket(req: NextRequest): string {
+  if (process.env.TRUST_PROXY === "1") {
+    const xff = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
+    if (xff) return xff;
+  }
+  return "local";
+}
 
 export function middleware(req: NextRequest) {
   // ── 1. Read-only verbs pass through untouched (polling, health checks) ──
@@ -61,8 +83,7 @@ export function middleware(req: NextRequest) {
   // ── 2. Rate limit FIRST: sliding window per client IP, authed or not ───
   // (The old order ran auth before accounting, so 401 brute-force guesses
   // were never counted and the API key could be guessed unthrottled.)
-  const ip =
-    (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "local";
+  const ip = clientBucket(req);
   const now = Date.now();
   // Cap the tracked-IP map by evicting the OLDEST entries (Map preserves
   // insertion order). The old wholesale clear() reset every IP's window
@@ -88,23 +109,31 @@ export function middleware(req: NextRequest) {
   // Read per-request so an env reload (next dev watches .env files) is
   // picked up without touching this module.
   const expectedKey = process.env.LOOP_API_KEY;
-  if (expectedKey) {
-    const providedKey = req.headers.get("x-loop-key");
-    if (providedKey !== expectedKey) {
-      return NextResponse.json(
-        {
-          error:
-            "unauthorized — mutating API requires the x-loop-key header (enter the API key in the UI when prompted)",
-        },
-        { status: 401 }
+  if (!expectedKey) {
+    // FAIL-CLOSED: no key configured → the gate is LOCKED, not open.
+    if (!warnedUnconfigured) {
+      warnedUnconfigured = true;
+      console.error(
+        "[middleware] LOOP_API_KEY is not set — mutating API routes are LOCKED (fail-closed). " +
+          "Set LOOP_API_KEY in .env to enable mutations with the x-loop-key header."
       );
     }
-  } else if (!warnedUnconfigured) {
-    // Fail-open ONLY while unconfigured — keeps the system bootable.
-    warnedUnconfigured = true;
-    console.warn(
-      "[middleware] LOOP_API_KEY is not set — mutating API routes are UNPROTECTED (fail-open). " +
-        "Set LOOP_API_KEY in .env to lock them down."
+    return NextResponse.json(
+      {
+        error:
+          "mutation gate locked — LOOP_API_KEY is not configured on the server (fail-closed). Set it in .env, then send it as the x-loop-key header.",
+      },
+      { status: 503 }
+    );
+  }
+  const providedKey = req.headers.get("x-loop-key");
+  if (providedKey !== expectedKey) {
+    return NextResponse.json(
+      {
+        error:
+          "unauthorized — mutating API requires the x-loop-key header (enter the API key in the UI when prompted)",
+      },
+      { status: 401 }
     );
   }
 
