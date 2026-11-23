@@ -108,7 +108,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
   // Fast path: healthy (single ~ms localhost probe).
   try {
     const probe = await fetch(`${WORKER_URL}/health`, {
-      signal: AbortSignal.timeout(1000), // Reduced timeout for faster failure detection
+      signal: AbortSignal.timeout(500), // Reduced timeout for faster failure detection
     });
     if (probe.ok) return true;
   } catch {
@@ -157,7 +157,8 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     // If spawning fails, isSpawning will be reset in finally block.
     return false;
   } finally {
-    // Reset isSpawning flag to allow future spawn attempts
+    // Only reset isSpawning after spawn attempt completes
+    // Note: file descriptor leak remains if spawn succeeded but health check failed
     isSpawning = false;
   }
 
@@ -168,7 +169,7 @@ export async function ensureWorkerRunning(): Promise<boolean> {
     await new Promise((r) => setTimeout(r, 500));
     try {
       const probe = await fetch(`${WORKER_URL}/health`, {
-        signal: AbortSignal.timeout(1000),
+        signal: AbortSignal.timeout(500),
       });
       if (probe.ok) {
         healthCheckSuccessful = true;
