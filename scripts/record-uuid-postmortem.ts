@@ -48,7 +48,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  const errorType = err instanceof Error ? err.name : 'UnknownError';
   const errorMessage = err instanceof Error ? err.message : String(err);
-  console.error(`CRITICAL FAILURE: Failed to record postmortem for 'system:commit-message-guard' (Type: ${errorType}). Check postmortemStore connection, permissions, or required dependencies. Underlying error: ${errorMessage}`);
+  console.error(`CRITICAL FAILURE: Failed to record postmortem for 'system:commit-message-guard'. Check postmortemStore connection, permissions, or required dependencies. Underlying error: ${errorMessage}`);
 });
