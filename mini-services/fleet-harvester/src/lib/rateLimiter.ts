@@ -188,9 +188,6 @@ export async function fetchWithTimeout(
   } finally {
     clearTimeout(timer);
     callerSignal?.removeEventListener('abort', onCallerAbort);
-    // Only abort controller if it hasn't already been aborted by timeout or caller signal
-    if (!controller.signal.aborted) {
-      controller.abort();
-    }
+    controller.abort();
   }
 }
