@@ -21,12 +21,13 @@ export async function POST(req: Request) {
   let body: DebateRequest;
   try {
     const json = await req.json();
-    // Validate structure before casting to ensure type safety without relying solely on 'as'
-    if (typeof json === 'object' && json !== null && 'filePath' in json && 'candidateCode' in json) {
-        body = json as DebateRequest;
-    } else {
+    
+    // Validate structure and cast in one step
+    if (typeof json !== 'object' || json === null || !('filePath' in json) || !('candidateCode' in json)) {
         throw new Error("Request body structure is invalid or missing required fields.");
     }
+    body = json as DebateRequest;
+
   } catch (e) {
     // Provide a specific 400 error for JSON parsing failure or structural mismatch
     return NextResponse.json(
@@ -35,15 +36,15 @@ export async function POST(req: Request) {
     );
   }
 
-  // Validate required fields
-  if (!body.filePath || typeof body.filePath !== "string" || body.filePath.trim().length === 0) {
+  // Consolidated validation for required fields
+  if (typeof body.filePath !== "string" || body.filePath.trim().length === 0) {
     return NextResponse.json(
       { error: "filePath is required and must be a non-empty string." },
       { status: 400 }
     );
   }
 
-  if (!body.candidateCode || typeof body.candidateCode !== "string" || body.candidateCode.trim().length === 0) {
+  if (typeof body.candidateCode !== "string" || body.candidateCode.trim().length === 0) {
     return NextResponse.json(
       { error: "candidateCode is required and must be a non-empty string." },
       { status: 400 }
@@ -59,10 +60,10 @@ export async function POST(req: Request) {
   }
 
   try {
+    // Use nullish coalescing for cleaner fallback logic
     const effectiveTopic = body.topic ?? `Code Review for ${body.filePath}`;
     
-    // Assuming conductLlmDebate is refactored internally to leverage parallel execution 
-    // for Security and Architecture reviews to reduce latency, while maintaining the external API contract.
+    // Execute LLM debate
     const result = await conductLlmDebate(
       effectiveTopic,
       body.candidateCode,
