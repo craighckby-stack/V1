@@ -59,8 +59,7 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   const results: ParsedSource[] = [];
 
   // Regex to match common GitHub URLs/suffixes: https://...github.com/owner/repo.git or just owner/repo.git
-  // This is more robust than sequential replacements.
-  const githubUrlRegex = /^(https?:\/\/(www\.)?github\.com\/|)([^/]+)\/(.+?)(?:\.git)?$/i;
+  const githubUrlRegex = /^(https?:\/\/(www\.)?github\.com\/)([^/]+)\/(.+?)(?:\.git)?$/i;
 
   for (const token of tokens) {
     let cleanToken = token;
