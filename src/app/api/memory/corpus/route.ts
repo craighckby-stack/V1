@@ -72,7 +72,7 @@ export async function GET(request: Request) {
     const error = e instanceof Error ? e : new Error("Unknown corpus read failure during request processing.");
     
     // Determine status code based on error context
-    if (error.message.includes("timed out")) {
+    if (error.message === "Search operation timed out after 5000ms.") {
         return NextResponse.json(
           { ok: false, error: "Search operation timed out." },
           { status: 504 }
@@ -80,6 +80,8 @@ export async function GET(request: Request) {
     }
     
     // For all other errors (validation, data format, internal library errors), return 500
+    // Provide a more actionable internal error message context for debugging, while keeping client response generic.
+    console.error("Corpus API Error:", error.message, error.stack);
     return NextResponse.json(
       { ok: false, error: "Internal server error while accessing corpus data." },
       { status: 500 }
