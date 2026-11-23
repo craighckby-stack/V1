@@ -51,7 +51,12 @@ export function AstInspectorModal() {
       return;
     }
     
-    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+    // Check clipboard availability concurrently
+    const [clipboardAvailable] = await Promise.all([
+        Promise.resolve(!!navigator.clipboard && typeof navigator.clipboard.writeText === 'function')
+    ]);
+
+    if (!clipboardAvailable) {
         toast({ 
             title: "Clipboard Error", 
             description: "Clipboard API is not available in this environment. Please copy manually." 
@@ -64,10 +69,10 @@ export function AstInspectorModal() {
       toast({ title: "Copied evolved code", description: `${evolvedStr.length} bytes to clipboard` });
     } catch (error) {
       // Catching generic error from clipboard API with context
-      const errorMessage = error instanceof Error ? error.message : 'Unknown clipboard access error during writeText';
+      const errorMessage = error instanceof Error ? error.message : 'Unknown clipboard access error.';
       toast({ 
         title: "Failed to copy code", 
-        description: `Clipboard access denied or failed. Check permissions or try copying manually. Error: ${errorMessage}` 
+        description: `Clipboard access denied or failed. Check permissions or try copying manually. Details: ${errorMessage}` 
       });
     }
   };
