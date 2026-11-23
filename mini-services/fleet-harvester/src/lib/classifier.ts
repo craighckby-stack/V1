@@ -131,6 +131,10 @@ export function classifyHeuristic(
     okRx: RegExp;
   }
 ): HeuristicResult {
+  if (!commit || typeof commit !== 'object') {
+    throw new Error('Invalid commit: must be an object with sha and message properties');
+  }
+
   if (!commit?.sha || !commit?.message) {
     throw new Error('Invalid commit: missing required fields (sha, message)');
   }
@@ -216,12 +220,16 @@ export function reconcileDualVerdicts(
   strategy: AiStrategy,
   tieBreakerVerdict?: LlmVerdict
 ): ReconcileResult {
+  if (!commit || typeof commit !== 'object') {
+    throw new Error('Invalid commit: must be an object with sha and message properties');
+  }
+
   if (!commit?.sha || !commit?.message) {
     throw new Error('Invalid commit: missing required fields (sha, message)');
   }
 
   if (!strategy || !['consensus', 'specialist'].includes(strategy)) {
-    throw new Error('Invalid strategy: must be one of "consensus" or "specialist"');
+    throw new Error(`Invalid strategy: must be one of "consensus" or "specialist", got "${strategy}"`);
   }
 
   if (!heuristic.needsAi) {
@@ -365,7 +373,7 @@ const FOOTPRINT_PATTERNS = {
 };
 
 export function summarizeFootprint(message: string): string {
-  if (!message) {
+  if (!message || typeof message !== 'string') {
     return 'chore';
   }
 
