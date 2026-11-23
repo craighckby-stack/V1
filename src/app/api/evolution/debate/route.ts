@@ -20,11 +20,17 @@ interface DebateRequest {
 export async function POST(req: Request) {
   let body: DebateRequest;
   try {
-    body = await req.json() as DebateRequest;
+    const json = await req.json();
+    // Validate structure before casting to ensure type safety without relying solely on 'as'
+    if (typeof json === 'object' && json !== null && 'filePath' in json && 'candidateCode' in json) {
+        body = json as DebateRequest;
+    } else {
+        throw new Error("Request body structure is invalid or missing required fields.");
+    }
   } catch (e) {
-    // Provide a specific 400 error for JSON parsing failure without leaking internal details.
+    // Provide a specific 400 error for JSON parsing failure or structural mismatch
     return NextResponse.json(
-      { error: "Invalid JSON format in request body." },
+      { error: "Invalid JSON format or missing required fields (filePath, candidateCode) in request body." },
       { status: 400 }
     );
   }
