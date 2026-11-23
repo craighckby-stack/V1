@@ -58,17 +58,17 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   const seen = new Set<string>();
   const results: ParsedSource[] = [];
 
-  // Regex to match common GitHub URLs/suffixes: https://...github.com/owner/repo.git or just owner/repo.git
-  // Captures: 1: protocol/www, 2: owner, 3: repo/path (everything after owner up to end or .git)
-  const githubUrlRegex = /^(https?:\/\/(www\.)?github\.com\/)([^/]+)\/(.+?)(?:\.git)?$/i;
+  // Regex to match GitHub URLs and capture owner/repo
+  // Handles: https://github.com/owner/repo, github.com/owner/repo, owner/repo
+  const githubUrlRegex = /^(?:https?:\/\/(?:www\.)?github\.com\/)?([^/]+)\/([^/]+)(?:\.git)?$/i;
 
   for (const token of tokens) {
     let cleanToken = token;
     let match = cleanToken.match(githubUrlRegex);
 
     if (match) {
-      // Matched a full URL pattern: group 2 is owner, group 3 is repo/path
-      cleanToken = `${match[2]}/${match[3]}`;
+      // Extract owner and repo from match groups
+      cleanToken = `${match[1]}/${match[2]}`;
     } else {
       // Strip trailing .git if not matched by URL regex
       cleanToken = cleanToken.replace(/\.git$/i, '');
@@ -145,7 +145,7 @@ export function validateDestination(repo: string, branch: string, filePath: stri
     throw new Error(`Invalid file path: "${filePath}". File path must point to a relative file (e.g., ${DEFAULT_BASE_PATH}).`);
   }
   for (const seg of trimmedPath.split('/').filter(Boolean)) {
-    if (seg === '.' || seg === '..') {
+    if (seg === '.' || seg === '..' || seg.includes('..')) {
       throw new Error(`Invalid path segment in "${filePath}": segment "${seg}" is forbidden.`);
     }
   }
@@ -165,7 +165,7 @@ export function deriveLogPaths(
   };
   const ext = extMap[format];
   // Use DEFAULT_BASE_PATH if basePath is empty or null/undefined after trimming
-  const clean = (basePath.trim() || DEFAULT_BASE_PATH).replace(/^\/+/, '');
+  const clean = (basePath?.trim() || DEFAULT_BASE_PATH).replace(/^\/+/, '');
   const lastSlash = clean.lastIndexOf('/');
   const dir = lastSlash >= 0 ? clean.slice(0, lastSlash + 1) : '';
   const file = lastSlash >= 0 ? clean.slice(lastSlash + 1) : clean;

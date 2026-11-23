@@ -8,12 +8,12 @@
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
   "evidence": "Original: 9594 bytes, Refactored: 9576 bytes. Errors: Verifier produced no output",
   "constraints": "The previous refactor of src/lib/pipeline/autonomous/provenance-digest.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
-  "attempts": 17,
+  "attempts": 18,
   "parentHash": "f102770e59ca4e84bc354fa4d37ff91fc91a2e81f0209a1f5e7637af998d707a",
-  "hash": "012e5689d58a865b13fdd0307ab019c2a10890187c3b776b1eba2a9b55e4a89a",
-  "lastAttemptAt": "2026-11-23T21:57:05.559Z",
+  "hash": "7b118bdba1be39e949d40eeb8bf25e6af02ff8740090dcd314e08a2ce920f5ce",
+  "lastAttemptAt": "2026-11-23T22:10:26.978Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.231Z",
-  "updatedAt": "2026-11-23T21:57:05.559Z",
+  "updatedAt": "2026-11-23T22:10:26.978Z",
   "schema": 2
 }
