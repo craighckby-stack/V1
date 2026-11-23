@@ -98,11 +98,11 @@ export function markArmed(armed: boolean, by: string): void {
  *  a bad read. This is the dual-layer fail-closed contract: the boot
  *  auto-arm only proceeds when the disk EXPLICITLY says armed:true. */
 export function readArmedState(): ArmedState | null {
-  if (!existsSync(ARMED_STATE_FILE)) {
-    return null; // File absent, expected on first run, treated as not armed.
-  }
-
   try {
+    if (!existsSync(ARMED_STATE_FILE)) {
+      return null; // File absent, expected on first run, treated as not armed.
+    }
+
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
 
     let parsed: unknown;
