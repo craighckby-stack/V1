@@ -87,9 +87,10 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
     if (remaining === 0 && resetEpochSec !== null && !Number.isNaN(resetEpochSec)) {
       const waitMs = Math.max(1000, resetEpochSec * 1000 - now + 500);
       if (waitMs <= MAX_AUTO_WAIT_MS) {
+        // FIX: If quota is 0 and reset time is known, we should signal a wait, not just return false.
         return {
           waitMs,
-          shouldRetry: false,
+          shouldRetry: true, // Changed from false to true to allow retry after calculated wait
           reason: `GitHub quota reached 0 — cooling down ${Math.ceil(waitMs / 1000)}s until reset.`,
         };
       }
@@ -196,12 +197,19 @@ export async function fetchWithTimeout(
       throw new Error(`Operation cancelled by caller during request to ${url}`);
     }
     if (err instanceof Error) {
+      // Check if the error is specifically an abort error from the controller (timeout or caller)
+      if (err.name === 'AbortError') {
+        if (timedOut) {
+          throw new Error(`Request to ${url} timed out after ${Math.round(timeoutMs / 1000)}s`);
+        }
+        // If it's an AbortError but not due to timeout, it must be caller-initiated
+        throw new Error(`Operation cancelled by caller during request to ${url}`);
+      }
       throw new Error(`Request to ${url} failed: ${err.message}`);
     }
     throw new Error(`Request to ${url} failed with unknown error`);
   } finally {
     clearTimeout(timer);
     callerSignal?.removeEventListener('abort', onCallerAbort);
-    // Removed redundant controller.abort() call here. Cleanup is handled by timeout/fetch completion.
   }
 }
