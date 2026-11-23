@@ -36,6 +36,7 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { spawn as cpSpawn } from "node:child_process";
 
 const PORT = 3004;
 /** mini-services/loop-worker → project root (two levels up). */
@@ -472,6 +473,45 @@ async function main() {
   healthTimer.unref?.();
   console.log(
     `[LOOP-WORKER] baseline health monitor armed — async snapshot every ${HEALTH_MONITOR_INTERVAL_MS / 60000}min (tests/tsc/lint), independent of loop state`
+  );
+
+  // ── DB TIER-BACKUP CADENCE (operator, 2026-11-23 round 3) ────────────
+  // The wipe-proof tier (.git/info/loop-db-backup/) is the learning
+  // history's only machine-restart survivor. dev.sh refreshes it at boot,
+  // but between boots NOTHING did — the original "10-min backup loop"
+  // lived outside the repo, died after one iteration, and nothing
+  // respawned it (re-analysis finding, round 3). A shell loop spawned
+  // from a tool shell does not survive that shell's process-group
+  // cleanup in this sandbox; THIS process (long-lived, server-respawned)
+  // is the reliable cadence owner — same pattern as the health monitor
+  // above. scripts/loop-db-tier.ts is registry-protected AND this file
+  // is too: the system being recovered can never rewrite its own
+  // recovery cadence. dev.sh still spawns .zscripts/db-tier-loop.sh at
+  // boot (belt-and-braces for windows where the worker is down); the
+  // tier script's VACUUM-INTO slot handling makes overlap safe.
+  const TIER_BACKUP_INTERVAL_MS = 10 * 60 * 1000;
+  const runTierBackup = (why: string) => {
+    try {
+      const child = cpSpawn("bun", ["scripts/loop-db-tier.ts", "backup"], {
+        cwd: PROJECT_ROOT,
+        stdio: ["ignore", "inherit", "inherit"], // outcome lines land in the worker log
+      });
+      child.unref();
+      console.log(`[LOOP-WORKER] db-tier backup spawned (${why}, pid ${child.pid})`);
+    } catch (err) {
+      // Best-effort by contract — a failed spawn never kills the worker;
+      // the next interval retries.
+      console.error(
+        "[LOOP-WORKER] db-tier backup spawn failed (cadence continues):",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  };
+  setTimeout(() => runTierBackup("boot"), 60_000).unref?.();
+  const tierTimer = setInterval(() => runTierBackup("interval"), TIER_BACKUP_INTERVAL_MS);
+  tierTimer.unref?.();
+  console.log(
+    `[LOOP-WORKER] db-tier backup cadence armed — wipe-proof tier refresh every ${TIER_BACKUP_INTERVAL_MS / 60000}min, independent of loop state`
   );
 }
 
