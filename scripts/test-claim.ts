@@ -19,18 +19,23 @@ async function main() {
     peekNextTask(true),
   ]);
 
-  console.log(
-    "peekNextTask (full queue):",
-    next
-      ? `[${next.kind}] ${next.filePath}:${next.line} deferred=${next.deferred} priority=${next.priority}`
-      : "NONE"
-  );
-  console.log(
-    "peekNextTask (deterministic-only, LLM-rate-limited mode):",
-    det
-      ? `[${det.kind}] ${det.filePath}:${det.line} deferred=${det.deferred} priority=${det.priority}`
-      : "NONE"
-  );
+  if (next) {
+    console.log(
+      "peekNextTask (full queue):",
+      `[${next.kind}] ${next.filePath}:${next.line} deferred=${next.deferred} priority=${next.priority}`
+    );
+  } else {
+    console.log("peekNextTask (full queue): NONE");
+  }
+
+  if (det) {
+    console.log(
+      "peekNextTask (deterministic-only, LLM-rate-limited mode):",
+      `[${det.kind}] ${det.filePath}:${det.line} deferred=${det.deferred} priority=${det.priority}`
+    );
+  } else {
+    console.log("peekNextTask (deterministic-only, LLM-rate-limited mode): NONE");
+  }
 }
 main().catch((e) => {
   const errorMessage = e instanceof Error ? e.message : String(e);
