@@ -14,6 +14,14 @@ import { createServer } from "node:http";
 
 const PORT = 3010;
 
+// /api/llm-test fires a REAL LLM call (cortex ping) — through the
+// gateway's XTransformPort pattern this port is externally reachable,
+// so an unthrottled smoke route is a cost-abuse vector (unauthenticated
+// LLM invocation on demand). One call per 60s, in-process; the route is
+// a smoke test, never a load path. (operator, 2026-11-23)
+let lastLlmTestAt = 0;
+const LLM_TEST_COOLDOWN_MS = 60_000;
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://localhost:${PORT}`);
   if (url.pathname === "/api/health") {
@@ -32,6 +40,24 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (url.pathname === "/api/llm-test") {
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.writeHead(405, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+      return;
+    }
+    const now = Date.now();
+    if (now - lastLlmTestAt < LLM_TEST_COOLDOWN_MS) {
+      const retryIn = Math.ceil((LLM_TEST_COOLDOWN_MS - (now - lastLlmTestAt)) / 1000);
+      res.writeHead(429, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          ok: false,
+          error: `llm-test cooldown — retry in ${retryIn}s (one smoke call per 60s)`,
+        }),
+      );
+      return;
+    }
+    lastLlmTestAt = now;
     try {
       const { testLlmConnection } = await import("./src/lib/aiOrchestrator");
       const result = await testLlmConnection();

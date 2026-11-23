@@ -127,14 +127,45 @@ log_step_end "bun install"
 
 log_step_start "bun run db:push"
 echo "[BUN] Setting up database..."
-# EVIDENCE GUARD (operator, 2026-11-23): snapshot the DB BEFORE the push.
-# The 2026-11-23 03:29 full-table wipe coincided with this script's restart
-# path (platform sweep → db:push → dev boot). db:push is a no-op on a healthy
-# in-sync DB, but an interrupted schema-gate run or damaged file can turn it
-# destructive — and this script runs unconditionally on EVERY platform
-# restart. A one-file snapshot makes any recurrence recoverable.
+# ── WIPE-PROOF RESTORE (operator, 2026-11-23) ─────────────────────────────
+# ROOT CAUSE (confirmed): the sandbox platform DELETES untracked files on
+# every machine restart — db/custom.db among them (*.db is gitignored).
+# The next db:push then prints "SQLite database custom.db created" and the
+# whole learning history is gone (the 2026-11-23 02:06→03:04→03:11→03:29
+# "retention wipes"; push-target.ts:49 has documented this platform
+# behavior since the 2026-10-29 PAT loss). .git/info/ is the only
+# proven-surviving location, so scripts/loop-db-tier.ts keeps a backup
+# there and we RESTORE it before the push — db:push then reconciles the
+# schema instead of recreating an empty DB.
+RESTORE_HAPPENED=0
+if [ ! -f "$PROJECT_DIR/db/custom.db" ]; then
+        echo "[DB-TIER] live DB missing — machine restart wiped it. Attempting tier restore..."
+        if bun "$PROJECT_DIR/scripts/loop-db-tier.ts" restore; then
+                RESTORE_HAPPENED=1
+                echo "[DB-TIER] RESTORED learning history from the wipe-proof tier."
+        else
+                echo "[DB-TIER] no usable tier backup — continuing (prisma will create a fresh DB)."
+        fi
+fi
+# Keep a pre-push forensic snapshot too (within-machine window; *.db is
+# untracked and does NOT survive machine restarts — the tier above does).
 cp "$PROJECT_DIR/db/custom.db" "$PROJECT_DIR/db/custom.db.pre-push-snapshot" 2>/dev/null || true
-bun run db:push
+if ! bun run db:push; then
+        if [ "$RESTORE_HAPPENED" = "1" ]; then
+                # The restored backup conflicts with the current schema.
+                # Preserve the data as evidence, then continue with a fresh
+                # DB — a data conflict must not become a boot outage.
+                CONFLICT="$PROJECT_DIR/.git/info/loop-db-backup/restore-conflict-$(date -u +%Y%m%dT%H%M%S).db"
+                echo "[DB-TIER] db:push failed after restore — schema conflict. Preserving restored data at:"
+                echo "[DB-TIER]   $CONFLICT"
+                mv "$PROJECT_DIR/db/custom.db" "$CONFLICT"
+                bun run db:push
+        else
+                # No restore involved — a plain push failure is a real
+                # environment problem; abort (set -e semantics).
+                exit 1
+        fi
+fi
 log_step_end "bun run db:push"
 
 log_step_start "Starting Next.js dev server"
@@ -152,6 +183,13 @@ echo "[BUN] Performing health check..."
 curl -fsS localhost:3000 >/dev/null
 echo "[BUN] Health check passed"
 log_step_end "Health check"
+
+# ── WIPE-PROOF TIER REFRESH (operator, 2026-11-23) ────────────────────────
+# The server is up and the DB is warm — refresh the .git/info/ tier so a
+# machine restart always restores to AT LEAST this boot's state. The
+# 10-min backup loop (wipewatch) keeps it fresh between restarts. Best-
+# effort: a failure here never blocks the boot.
+bun "$PROJECT_DIR/scripts/loop-db-tier.ts" backup || echo "[DB-TIER] post-boot backup failed (non-fatal — the 10-min loop retries)"
 
 start_mini_services
 

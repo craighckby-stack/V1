@@ -58,11 +58,24 @@ export async function workerFetch<T = unknown>(
   };
   
   const timeoutMs = effectiveInit.timeoutMs ?? 5000;
-  
+
+  // ── API-key propagation (operator, 2026-11-23) ────────────────────────
+  // The worker gates its POST mirrors with the same x-loop-key contract
+  // as src/middleware.ts (fail-closed). The app routes that proxy to the
+  // worker are themselves middleware-gated, so by the time a request
+  // reaches this client it is authenticated — but the worker cannot see
+  // the caller's header, so we attach the SERVER's key here. Read from
+  // the live env (Next loads .env) per-call, same as the middleware.
+  const headers = new Headers(effectiveInit.headers);
+  const apiKey = process.env.LOOP_API_KEY;
+  if (apiKey && !headers.has("x-loop-key")) {
+    headers.set("x-loop-key", apiKey);
+  }
+
   try {
     const res = await fetch(`${WORKER_URL}${pathname}`, {
       method: effectiveInit.method,
-      headers: effectiveInit.headers,
+      headers,
       body: effectiveInit.body,
       signal: AbortSignal.timeout(timeoutMs),
     });

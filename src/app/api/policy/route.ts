@@ -26,14 +26,9 @@ export async function GET() {
   try {
     const report = await buildPolicyReport();
     return NextResponse.json(report);
-  } catch (err) {
-    // Security constraint: Do not expose internal stack traces or detailed error messages in API responses.
-    let errorMessage = "An unknown error occurred.";
-    if (err instanceof Error) {
-      errorMessage = err.message;
-    }
-    
-    // Provide a generic, actionable error message to the client while logging the full error server-side (implied).
+  } catch {
+    // Security constraint: Do not expose internal stack traces or detailed
+    // error messages in API responses — the client gets a generic message.
     return NextResponse.json(
       { error: "Failed to generate policy report. Please check pipeline logs for details." },
       { status: 500 }

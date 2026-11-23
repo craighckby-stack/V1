@@ -228,6 +228,25 @@ export const PROTECTED_FILES = new Set([
   // benchmark has an independent, non-loop-owned execution path.
   "scripts/audit-remote.ts", // the operator's remote-audit tool (evidence instrument)
   "scripts/inspect-target-tree.ts", // target-tree inspector (evidence instrument)
+  // ── Retention root-cause fix (operator, 2026-11-23): the DB wipe-proof
+  // tier. loop-db-tier.ts is the RECOVERY instrument for the platform's
+  // untracked-file wipe (the confirmed root cause of the retention
+  // "defect" — machine restarts deleted db/custom.db; see the script
+  // header). A mutated version could silently stop backing up, back up
+  // to a wiped-on-restart location, or corrupt the restore — the system
+  // being recovered must not rewrite its own recovery path. Same class
+  // as seal-push-token.ts (the .git/info tier writer).
+  "scripts/loop-db-tier.ts", // the DB wipe-proof tier (recovery instrument)
+  // ── Worker control surface (operator, 2026-11-23): the loop-worker's
+  // entry hosts the API-key gate (fail-closed), the mutation-freeze
+  // refusals on /start /reboot /trigger, and the unlock PIN tiers —
+  // mini-services/loop-worker is IN the loop's scan scope (saturation
+  // v6), so without this entry the loop could rewrite the very file
+  // that enforces its own locks: drop the key check, neuter
+  // isMutationFrozen(), or flip the PIN order. Same class as
+  // api/self-enhance/** ("the loop can never mutate its own OFF
+  // switch") — this is that switch's second home.
+  "mini-services/loop-worker/index.ts", // worker control surface (auth + freeze + PIN tiers)
   // The dev-server daemonizer (scripts/dev-daemon.py) — supervision
   // chain, same class as dev-watchdog. .py files aren't scanned today
   // (extensions: [".ts"] only); this entry pins intent so a future

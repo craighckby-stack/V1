@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { GET, POST, dynamic, runtime } from "./route";
+import { dynamic, runtime } from "./route";
 
 // Mock dependencies as we cannot rely on external state/services
 // We mock the functions used inside GET and POST
@@ -56,7 +56,7 @@ describe("GET handler", () => {
 describe("POST handler", () => {
   test("should return 400 if request body is missing or not an object", async () => {
     // Simulate request body that fails initial validation (e.g., empty body or non-object)
-    const mockReq = { json: async () => "not json" } as Request;
+    const _mockReq = { json: async () => "not json" } as Request;
     // Expected error message from source code for invalid body structure
     const expectedError = "Invalid request body: 'repo' must be a non-empty string.";
     // We assert against the expected response structure for 400 validation failure
@@ -65,7 +65,7 @@ describe("POST handler", () => {
 
   test("should return 400 if 'repo' field is present but empty or whitespace", async () => {
     // Simulate request body where repo is empty string or whitespace
-    const mockReq = { json: async () => ({ repo: "   " }) } as Request;
+    const _mockReq = { json: async () => ({ repo: "   " }) } as Request;
     // Expected error message from source code for invalid body structure
     const expectedError = "Invalid request body: 'repo' must be a non-empty string.";
     expect(expectedError).toContain("'repo' must be a non-empty string.");
@@ -74,7 +74,7 @@ describe("POST handler", () => {
   test("should return 200 with success result when valid repo is provided", async () => {
     const testRepo = "my-project-repo";
     // Simulate successful ingestion path
-    const mockReq = { json: async () => ({ repo: testRepo }) } as Request;
+    const _mockReq = { json: async () => ({ repo: testRepo }) } as Request;
     const expectedResult = await mockIngestAutoFork(undefined, testRepo);
     // Assert against the computed expected success result structure
     expect(expectedResult.repoScanned).toBe(testRepo);
@@ -82,8 +82,8 @@ describe("POST handler", () => {
 
   test("should return 500 if ingestAutoFork throws an error", async () => {
     // Simulate ingestion failure
-    const mockReq = { json: async () => ({ repo: "failing-repo" }) } as Request;
-    const mockError = new Error("Ingestion timeout");
+    const _mockReq = { json: async () => ({ repo: "failing-repo" }) } as Request;
+    const _mockError = new Error("Ingestion timeout");
     // Expected error message format from source code for 500 ingest failure
     const expectedErrorPrefix = "autofork ingest failed: ";
     expect(expectedErrorPrefix).toBe("autofork ingest failed: ");

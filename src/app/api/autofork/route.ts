@@ -41,7 +41,7 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
-  } catch (e) {
+  } catch {
     // JSON parsing failed (e.g., malformed body)
     return NextResponse.json(
       { error: "Failed to parse request body: must be valid JSON." },

@@ -53,12 +53,11 @@ export async function GET() {
 export async function POST(req: Request) {
   let force = false;
   let body: { force?: boolean } | null = null;
-  let bootstrapSuccessful = false;
 
   try {
     // Use req.json() for idiomatic Next.js API route body parsing
     body = await req.json();
-  } catch (e) {
+  } catch {
     // Handles JSON parsing errors (e.g., invalid JSON, non-JSON body)
     return NextResponse.json(
       { error: "Invalid request body: Body must be valid JSON." },
@@ -89,7 +88,6 @@ export async function POST(req: Request) {
     try {
       const { bootstrapSelfModel } = await import("@/lib/pipeline/autonomous/self-model");
       await bootstrapSelfModel();
-      bootstrapSuccessful = true;
     } catch (bootstrapError) {
       // Log bootstrap failure with context and return an error response
       const errorToLog = bootstrapError instanceof Error ? bootstrapError : new Error(String(bootstrapError));

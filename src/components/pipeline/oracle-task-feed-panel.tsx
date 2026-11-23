@@ -64,7 +64,7 @@ export function OracleTaskFeedPanel() {
       const data = await response.json();
       
       // Validate API response structure
-      if (!data || typeof data !== 'object' || !Array.isArray((data as any).tasks)) {
+      if (!data || typeof data !== 'object' || !Array.isArray((data as { tasks?: unknown }).tasks)) {
         throw new Error("API response validation failed: Expected an object containing a 'tasks' array.");
       }
       

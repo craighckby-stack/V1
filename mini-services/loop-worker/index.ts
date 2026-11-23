@@ -67,6 +67,9 @@ process.env.LOOP_WORKER = "1";
 // transitive import.
 process.env.ORACLE_SCHEDULER_DISABLED = "1";
 
+// Fail-closed warning fires at most once per worker process.
+let warnedKeyMissing = false;
+
 async function main() {
   // Dynamic imports: the entire pipeline graph (Prisma client, z-ai SDK,
   // TypeScript compiler) loads only after the env above is in place.
@@ -164,6 +167,46 @@ async function main() {
 
         if (req.method !== "POST") {
           return json({ error: "method not allowed" }, 405);
+        }
+
+        // ── API-KEY GATE, FAIL-CLOSED (operator, 2026-11-23) ────────────
+        // This port is reachable through the gateway's XTransformPort
+        // pattern — the /unlock PIN re-validation below exists for exactly
+        // that reason, and the freeze checks on /start /reboot /trigger
+        // have the same rationale. The same contract must hold for the
+        // API key: src/middleware.ts gates the app's mutating routes,
+        // but these POST mirrors are a SECOND mutating surface. Without
+        // this gate, the app-side hardening is bypassable by talking to
+        // :3004 directly (start/stop/reboot/trigger/skip/rescan with no
+        // auth at all). Semantics mirror the middleware exactly:
+        //   LOOP_API_KEY unset  → 503 fail-closed (the gate LOCKS, not opens)
+        //   wrong/missing key  → 401
+        // The worker loads the project .env at boot (see the ENV block
+        // above), so the key configured for the app is available here.
+        // GET /health and /status stay open — read-only, used by the
+        // server's respawn probe and the status proxy.
+        const expectedKey = process.env.LOOP_API_KEY;
+        if (!expectedKey) {
+          if (!warnedKeyMissing) {
+            warnedKeyMissing = true;
+            console.error(
+              "[LOOP-WORKER] LOOP_API_KEY is not set — mutating worker endpoints are LOCKED (fail-closed). " +
+                "Set LOOP_API_KEY in the project .env to enable them with the x-loop-key header."
+            );
+          }
+          return json(
+            {
+              error:
+                "mutation gate locked — LOOP_API_KEY is not configured on the worker (fail-closed). Set it in .env, then send it as the x-loop-key header.",
+            },
+            503
+          );
+        }
+        if (req.headers.get("x-loop-key") !== expectedKey) {
+          return json(
+            { error: "unauthorized — mutating worker endpoints require the x-loop-key header." },
+            401
+          );
         }
 
         // Mirror of POST /api/self-enhance/start (armed write stays on the

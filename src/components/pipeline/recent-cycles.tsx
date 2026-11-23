@@ -32,7 +32,7 @@ export function RecentCycles() {
       let data;
       try {
         data = await res.json();
-      } catch (e) {
+      } catch {
         throw new Error("Failed to parse API response as JSON.");
       }
       

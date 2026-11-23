@@ -30,7 +30,7 @@ export async function GET() {
   } catch (err) {
     let errorMessage = "An unknown error occurred during benchmark report generation.";
     let errorName = "UnknownError";
-    let statusCode = 500;
+    const statusCode = 500;
 
     if (err instanceof Error) {
       errorMessage = err.message;

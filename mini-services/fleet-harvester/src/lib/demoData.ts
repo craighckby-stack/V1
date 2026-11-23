@@ -139,7 +139,7 @@ export const DEMO_COMMITS: RawCommit[] = [
 
 const V1_COMMITS = DEMO_COMMITS.filter((c) => c.repo === 'craighckby-stack/V1');
 const RAGFLOW_COMMITS = DEMO_COMMITS.filter((c) => c.repo === 'infiniflow/ragflow');
-const NEXTJS_COMMITS = DEMO_COMMITS.filter((c) => c.repo === 'vercel/next.js');
+const _NEXTJS_COMMITS = DEMO_COMMITS.filter((c) => c.repo === 'vercel/next.js');
 
 
 const V1_LOOP_GATE_ENGINE_CODE = `import type { ClassifiedCommit, SiphonedEngine } from './types';

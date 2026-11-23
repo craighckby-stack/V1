@@ -18,14 +18,13 @@ export const runtime = "nodejs";
  *
  * It also exposes one config fact that is itself zero-subsystem:
  * `mutationGate.configured` — whether `process.env.LOOP_API_KEY` is
- * set. The middleware (src/middleware.ts) fails OPEN when that env
- * var is unset (mutations are NOT actually locked), so the UI's
- * "API KEY NOT SET — MUTATIONS LOCKED" hint in ApiUnlock would be a
- * lie in that case. ApiUnlock fetches this field on mount and only
- * renders the hint when `configured === true`. Reading an env var is
- * not a "subsystem" — the answer is a static fact about the server's
- * environment, so the healthz still answers when everything else is
- * degraded.
+ * set. When that env var is unset the middleware fails CLOSED
+ * (operator hardening 2026-11-23: every mutating request gets a 503,
+ * the gate locks rather than opens) — ApiUnlock fetches this field on
+ * mount to decide whether the "API KEY NOT SET — MUTATIONS LOCKED"
+ * hint is truthful. Reading an env var is not a "subsystem" — the
+ * answer is a static fact about the server's environment, so the
+ * healthz still answers when everything else is degraded.
  */
 export async function GET() {
   return NextResponse.json(

@@ -36,12 +36,14 @@ export function ApiUnlock() {
   const [hasKey, setHasKey] = useState<boolean | null>(null);
   // null until the healthz fetch lands, then whether the server's
   // middleware is actually configured to gate mutations (LOOP_API_KEY
-  // is set in .env). The middleware fails OPEN when the env var is
-  // unset — mutations are NOT actually locked in that case, so the
-  // "API KEY NOT SET — MUTATIONS LOCKED" hint would be a lie. We hide
-  // it until the server confirms it's gating. On fetch failure we
-  // leave this null (fail-safe: don't claim "locked" when we can't
-  // verify) — the unlock panel on 401 is independent and still fires.
+  // is set in .env). The middleware fails CLOSED when the env var is
+  // unset (operator hardening 2026-11-23) — mutations are rejected
+  // with 503 — but in that state every mutation gets a 503 rather than
+  // the 401 this panel listens for, so the hint is how the operator
+  // learns WHY. We only claim "locked" when the server confirms it has
+  // the key configured. On fetch failure we leave this null (fail-safe:
+  // don't claim "locked" when we can't verify) — the unlock panel on
+  // 401 is independent and still fires.
   const [mutationGateConfigured, setMutationGateConfigured] = useState<boolean | null>(null);
   const [value, setValue] = useState("");
 
@@ -207,10 +209,10 @@ export function ApiUnlock() {
 
   // ── Unlocked but keyless: a subtle hint that mutations are gated.
   // ONLY shown when the server CONFIRMS it has LOOP_API_KEY configured
-  // (the middleware fails open otherwise — mutations aren't actually
-  // locked, so the hint would be a lie). On fetch-failure or while the
-  // fetch is in flight, `mutationGateConfigured` is null and the hint
-  // stays hidden — we never claim "locked" when we can't verify it.
+  // (when the env var is unset the middleware fails CLOSED with 503 on
+  // every mutation — the hint would be redundant and the 503s already
+  // say why; when we can't verify, `mutationGateConfigured` is null and
+  // the hint stays hidden — we never claim "locked" without proof).
   // The unlock panel on 401 is independent and still fires if the
   // server ever rejects a mutation.
   if (hasKey === false && mutationGateConfigured === true) {

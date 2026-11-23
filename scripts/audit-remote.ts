@@ -128,7 +128,7 @@ async function main() {
         tokenLeak = true;
         tokenLeakPaths.push(f.path);
       }
-    } catch (e) {
+    } catch {
       /* skip file */
     } finally {
       semaphore.count--;

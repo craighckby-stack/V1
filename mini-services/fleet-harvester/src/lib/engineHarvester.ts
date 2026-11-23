@@ -199,7 +199,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
     let m: RegExpExecArray | null;
     try {
       while ((m = pyClassRx.exec(fullCode)) !== null) classes.push(m[1]);
-    } catch (e) {
+    } catch {
       // Ignore regex errors on malformed input
     }
 
@@ -207,7 +207,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
     let mFn: RegExpExecArray | null;
     try {
       while ((mFn = pyFnRx.exec(fullCode)) !== null) functions.push(mFn[1]);
-    } catch (e) {
+    } catch {
       // Ignore regex errors on malformed input
     }
 
@@ -215,7 +215,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
     let mImp: RegExpExecArray | null;
     try {
       while ((mImp = pyImpRx.exec(fullCode)) !== null) imports.push(mImp[1] || mImp[2]);
-    } catch (e) {
+    } catch {
       // Ignore regex errors on malformed input
     }
   } else if (language === 'Go') {
@@ -223,7 +223,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
     let m: RegExpExecArray | null;
     try {
       while ((m = goTypeRx.exec(fullCode)) !== null) classes.push(m[1]);
-    } catch (e) {
+    } catch {
       // Ignore regex errors on malformed input
     }
 
@@ -231,7 +231,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
     let mFn: RegExpExecArray | null;
     try {
       while ((mFn = goFnRx.exec(fullCode)) !== null) functions.push(mFn[1]);
-    } catch (e) {
+    } catch {
       // Ignore regex errors on malformed input
     }
 
@@ -242,7 +242,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
         let mImp: RegExpExecArray | null;
         try {
           while ((mImp = goImpRx.exec(blk)) !== null) imports.push(mImp[1]);
-        } catch (e) {
+        } catch {
           // Ignore regex errors on malformed input
         }
       }
@@ -252,7 +252,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
     let m: RegExpExecArray | null;
     try {
       while ((m = rsTypeRx.exec(fullCode)) !== null) classes.push(m[1]);
-    } catch (e) {
+    } catch {
       // Ignore regex errors on malformed input
     }
 
@@ -260,7 +260,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
     let mFn: RegExpExecArray | null;
     try {
       while ((mFn = rsFnRx.exec(fullCode)) !== null) functions.push(mFn[1]);
-    } catch (e) {
+    } catch {
       // Ignore regex errors on malformed input
     }
 
@@ -268,7 +268,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
     let mImp: RegExpExecArray | null;
     try {
       while ((mImp = rsUseRx.exec(fullCode)) !== null) imports.push(mImp[1]);
-    } catch (e) {
+    } catch {
       // Ignore regex errors on malformed input
     }
   } else {
@@ -277,7 +277,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
     let m: RegExpExecArray | null;
     try {
       while ((m = tsClassRx.exec(fullCode)) !== null) classes.push(m[1]);
-    } catch (e) {
+    } catch {
       // Ignore regex errors on malformed input
     }
 
@@ -286,7 +286,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
     let mFn: RegExpExecArray | null;
     try {
       while ((mFn = tsFnRx.exec(fullCode)) !== null) functions.push(mFn[1] || mFn[2]);
-    } catch (e) {
+    } catch {
       // Ignore regex errors on malformed input
     }
 
@@ -294,7 +294,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
     let mImp: RegExpExecArray | null;
     try {
       while ((mImp = tsImpRx.exec(fullCode)) !== null) imports.push(mImp[1]);
-    } catch (e) {
+    } catch {
       // Ignore regex errors on malformed input
     }
   }

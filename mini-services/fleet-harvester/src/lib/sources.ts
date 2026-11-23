@@ -58,7 +58,7 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   const seen = new Set<string>();
   const results: ParsedSource[] = [];
 
-  for (let token of tokens) {
+  for (const token of tokens) {
     // Strip trailing .git or URL prefixes using a single regex for efficiency
     // Matches: https://...github.com/owner/repo.git or just owner/repo.git
     let cleanToken = token.replace(/^(https?:\/\/(www\.)?github\.com\/|)\S*\.git$/i, '');
