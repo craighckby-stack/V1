@@ -51,10 +51,8 @@ export function AstInspectorModal() {
       return;
     }
     
-    // Check clipboard availability concurrently
-    const [clipboardAvailable] = await Promise.all([
-        Promise.resolve(!!navigator.clipboard && typeof navigator.clipboard.writeText === 'function')
-    ]);
+    // Check clipboard availability synchronously
+    const clipboardAvailable = !!navigator.clipboard && typeof navigator.clipboard.writeText === 'function';
 
     if (!clipboardAvailable) {
         toast({ 
