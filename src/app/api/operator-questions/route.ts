@@ -58,14 +58,6 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    // Input validation: Ensure req is a valid Request object before calling .json()
-    if (!(req instanceof Request)) {
-      return NextResponse.json(
-        { error: "Invalid request object provided to POST handler." },
-        { status: 400 },
-      );
-    }
-    
     let body;
     try {
         body = await req.json();
@@ -101,7 +93,7 @@ export async function POST(req: Request) {
     // If id is omitted, resolve to the most-recent pending question.
     let questionId = parsedBody.id;
     if (!questionId) {
-      // Fetch pending questions concurrently with other setup if possible, but here we need the result before proceeding.
+      // Fetch pending questions only when ID is not provided, optimizing for direct ID updates.
       const pending = await getPendingQuestions();
       if (pending.length === 0) {
         return NextResponse.json(
