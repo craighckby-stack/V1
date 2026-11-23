@@ -58,6 +58,7 @@ const server = createServer(async (req, res) => {
     }
     const now = Date.now();
     const timeSinceLastTest = now - lastLlmTestAt;
+
     if (timeSinceLastTest < LLM_TEST_COOLDOWN_MS) {
       const retryIn = Math.ceil((LLM_TEST_COOLDOWN_MS - timeSinceLastTest) / 1000);
       res.writeHead(429, { "content-type": "application/json" });
@@ -69,11 +70,15 @@ const server = createServer(async (req, res) => {
       );
       return;
     }
-    lastLlmTestAt = now;
+
     try {
       // Dynamic import is necessary here but we ensure the await structure is correct.
       const { testLlmConnection } = await import("./src/lib/aiOrchestrator");
       const result = await testLlmConnection();
+      
+      // Only update timestamp upon successful execution
+      lastLlmTestAt = Date.now(); 
+      
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true, ...result }));
     } catch (err) {
