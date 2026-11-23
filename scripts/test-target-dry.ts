@@ -33,18 +33,16 @@ async function main() {
   line(`mode: DRY RUN (zero writes to target repo)`);
   line(`====================================================\n`);
 
-  // STEP 1 — set config (normalize + format-validate + persist to DB).
-  line("[1/3] setting target config (validate + persist)...");
-  const cfg = await setTargetConfig(REPO, null);
-  line(`      saved repo: ${cfg.repo}`);
-
-  // STEP 2 — verify reachability using the operator's stored PAT (sealed),
+  // STEP 1 — verify reachability using the operator's stored PAT (sealed),
   // which resolveTargetToken reuses server-side. Roll back if not reachable.
   line("[2/3] verifying reachability with stored token...");
   const token = await resolveTargetToken();
   line(`      token resolved: ${token ? `yes (len ${token.length})` : "no — anonymous"}`);
-  const defaultBranch = await getRepoDefaultBranch(cfg.repo, token);
+  
+  // STEP 1 & 2 combined: Get branch, then set config if successful.
+  const defaultBranch = await getRepoDefaultBranch(REPO, token);
   line(`      default branch: ${defaultBranch ?? "(unreachable)"}`);
+  
   if (!defaultBranch) {
     line(`\n[!] REPO NOT REACHABLE — rolling back config. The repo may be`);
     line(`    private and no usable token is stored, or GitHub rate-limited.`);
@@ -52,8 +50,13 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  const saved = await setTargetConfig(cfg.repo, defaultBranch);
+  
+  // STEP 1 (Corrected): Set config only after successful reachability check.
+  line("[1/3] setting target config (validate + persist)...");
+  const saved = await setTargetConfig(REPO, defaultBranch);
+  line(`      persisted repo: ${saved.repo}`);
   line(`      persisted branch: ${saved.branch}`);
+
 
   // STEP 3 — DRY-RUN the full gated pipeline. No branch, no commit, no push.
   line("[3/3] running DRY-RUN mutation (full gate chain, no write-back)...\n");
@@ -92,7 +95,7 @@ async function main() {
   for (const l of result.log) line(`  ${l}`);
 
   line(`\n================ DONE ================`);
-  line(`Dry-run complete. ZERO writes were made to ${cfg.repo}.`);
+  line(`Dry-run complete. ZERO writes were made to ${REPO}.`);
   line(`Target config is left SET so a real run is one command away:`);
   line(`  • console: 'target run'   (creates branch loop-t-NN + 1 commit)`);
   line(`  • console: 'target off'    (disconnect the target)`);
