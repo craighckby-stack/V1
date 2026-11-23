@@ -9,10 +9,10 @@ interface SanitizeRequest {
 }
 
 export async function POST(req: Request) {
-  let body: SanitizeRequest | undefined;
+  let parsedBody: SanitizeRequest | undefined;
   try {
-    const parsedBody = await req.json();
-    body = parsedBody as SanitizeRequest;
+    const json = await req.json();
+    parsedBody = json as SanitizeRequest;
   } catch (e) {
     if (e instanceof SyntaxError) {
       return NextResponse.json(
@@ -20,7 +20,6 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    // Re-throw or handle other unexpected errors during parsing if necessary, but for API input, 400 is usually appropriate for malformed requests.
     return NextResponse.json(
       { error: "Failed to parse request body due to an unexpected error." },
       { status: 500 }
@@ -28,7 +27,7 @@ export async function POST(req: Request) {
   }
 
   // Check for required structure and type
-  if (!body || typeof body.code !== "string") {
+  if (!parsedBody || typeof parsedBody.code !== "string") {
     return NextResponse.json(
       { error: "code (string) is required in the request body." },
       { status: 400 }
@@ -36,7 +35,7 @@ export async function POST(req: Request) {
   }
 
   // Additional validation for empty string code
-  if (body.code.trim() === "") {
+  if (parsedBody.code.trim() === "") {
     return NextResponse.json(
       { error: "code cannot be an empty string." },
       { status: 400 }
@@ -44,7 +43,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = sanitizeAndGovern(body.code);
+    const result = sanitizeAndGovern(parsedBody.code);
     return NextResponse.json({
       clean: result.clean,
       sanitizedCode: result.sanitizedCode,
@@ -55,7 +54,7 @@ export async function POST(req: Request) {
   } catch (err) {
     // Catch errors originating from sanitizeAndGovern, ensuring safe casting and context
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during sanitization.";
-    const inputSnippet = body.code.substring(0, 50);
+    const inputSnippet = parsedBody.code.substring(0, 50);
     
     return NextResponse.json(
       { error: `Sanitization failed for input code starting with: ${inputSnippet}... Error: ${errorMessage}` },
