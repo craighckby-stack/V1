@@ -113,7 +113,7 @@ export function emitOracleEvent(
   // Evict old events if needed - use atomic operation to prevent race conditions
   if (s.buffer.length > MAX_EVENTS) {
     // Remove the oldest events to maintain the buffer size
-    s.buffer.splice(0, s.buffer.length - MAX_EVENTS);
+    s.buffer = s.buffer.slice(s.buffer.length - MAX_EVENTS);
   }
   
   s.seq += 1;
@@ -171,10 +171,6 @@ export function emitOracleEvent(
         console.error(`Failed to send oracle event to server (source: ${source}, type: ${type}, message: "${message}"):`, error);
         // Ensure timeout is cleared even if request fails
         clearTimeout(timeoutId);
-      })
-      .catch((error) => {
-        // Handle any unhandled promise rejections
-        console.error("Unhandled promise rejection in worker bridge:", error);
       });
     }
   }
@@ -211,7 +207,7 @@ export function readOracleEvents(afterSeq?: number): {
   let startIndex = 0;
   if (afterSeq !== undefined) {
     // Calculate start index directly instead of linear scan
-    // The oldest event in buffer has sequence: currentSeq - bufferLength + 0
+    // The oldest event in buffer has sequence: currentSeq - bufferLength + 1
     // The newest event has sequence: currentSeq
     const oldestSeq = currentSeq - bufferLength + 1;
     startIndex = Math.max(0, afterSeq - oldestSeq + 1);
