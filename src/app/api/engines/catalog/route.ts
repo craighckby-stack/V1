@@ -39,58 +39,68 @@ export async function GET() {
     return NextResponse.json({ sources: [] });
   }
 
-  const { validSources, invalidSources } = SIPHON_SOURCES.reduce(
-    (acc, source, i) => {
-      let isValid = true;
-      let reason = "";
-      let patterns: string[] | undefined = undefined;
+  const results = SIPHON_SOURCES.map((source, i) => {
+    let isValid = true;
+    let reason = "";
+    let patterns: string[] | undefined = undefined;
 
-      if (!source) {
+    if (!source) {
+      isValid = false;
+      reason = "Source element is null or undefined.";
+    } else {
+      // Type guard for SiphonSource structure
+      const sourceTyped = source as SiphonSource & { patterns?: string[] };
+      patterns = sourceTyped.patterns;
+
+      if (!patterns || !Array.isArray(patterns)) {
         isValid = false;
-        reason = "Source element is null or undefined.";
+        reason = "Source is missing 'patterns' array or 'patterns' is not an array.";
+      } else if (patterns.length === 0) {
+        isValid = false;
+        reason = "Source patterns array is empty.";
       } else {
-        // Type guard for SiphonSource structure
-        const sourceTyped = source as SiphonSource & { patterns?: string[] };
-        patterns = sourceTyped.patterns;
-
-        if (!patterns || !Array.isArray(patterns)) {
+        // Check all patterns for validity
+        const firstInvalidIndex = patterns.findIndex((p): p is string => typeof p === 'string');
+        if (firstInvalidIndex === -1) {
           isValid = false;
-          reason = "Source is missing 'patterns' array or 'patterns' is not an array.";
-        } else if (patterns.length === 0) {
-          isValid = false;
-          reason = "Source patterns array is empty.";
-        } else {
-          // Check all patterns for validity
-          const firstInvalidIndex = patterns.findIndex((p): p is string => typeof p === 'string');
-          if (firstInvalidIndex === -1) {
-            isValid = false;
-            reason = "One or more patterns in the source array are not strings.";
-          }
+          reason = "One or more patterns in the source array are not strings.";
         }
       }
+    }
 
-      if (isValid) {
-        // Source is valid, construct CatalogEntry
-        acc.validSources.push({
+    if (isValid) {
+      // Source is valid, construct CatalogEntry
+      return {
+        type: 'valid',
+        entry: {
           source: source as SiphonSource,
-          count: (patterns || []).length,
+          count: patterns ? patterns.length : 0,
           complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
           status: "configured",
-        });
-      } else {
-        acc.invalidSources.push({ index: i, reason: reason });
-      }
+        },
+      };
+    } else {
+      return {
+        type: 'invalid',
+        index: i,
+        reason: reason,
+      };
+    }
+  });
 
-      return acc;
-    },
-    { validSources: [] as CatalogEntry[], invalidSources: [] as InvalidSource[] }
-  );
+  const validSources = results
+    .filter((r): r is { type: 'valid', entry: CatalogEntry } => r.type === 'valid')
+    .map(r => r.entry);
+
+  const invalidSources = results
+    .filter((r): r is { type: 'invalid', index: number, reason: string } => r.type === 'invalid')
+    .map(r => ({ index: r.index, reason: r.reason }));
 
   if (invalidSources.length > 0) {
     return NextResponse.json(
       { 
         error: "Input validation failed: One or more siphon sources are invalid.", 
-        invalidSources: invalidSources.map(inv => ({ index: inv.index, reason: inv.reason }))
+        invalidSources: invalidSources
       },
       { status: 400 }
     );
