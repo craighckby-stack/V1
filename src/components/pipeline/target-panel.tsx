@@ -96,7 +96,6 @@ export function TargetPanel({ open, onClose }: Props) {
     try {
       const fetchPromise = fetch("/api/pipeline/history", { signal });
       
-      // Race fetch against timeout logic (timeout logic handles aborting the fetch)
       const res = await fetchPromise;
       
       // Clear timeout if request completes successfully or with HTTP error
@@ -109,6 +108,7 @@ export function TargetPanel({ open, onClose }: Props) {
       
       if (!res.ok) {
         const errorText = await res.text();
+        // Provide actionable error context including status and truncated body
         console.error(`Failed to load pipeline history: HTTP status ${res.status}. Context: ${errorText.substring(0, 100)}`);
         setRuns([]);
         setLoading(false);
@@ -133,12 +133,12 @@ export function TargetPanel({ open, onClose }: Props) {
         return;
       }
       
-      // Network or parsing error: log error but ensure loading state is resolved.
-      console.error("Network or parsing error fetching pipeline history:", error instanceof Error ? error.message : "Unknown error");
+      // Network or parsing error: log error with context but ensure loading state is resolved.
+      console.error("Network or parsing error fetching pipeline history:", error instanceof Error ? error.message : "Unknown error during fetch/parse");
       setRuns([]);
       setLoading(false);
     } finally {
-      // Ensure cleanup of timeout reference if it wasn't cleared in try block (e.g., due to error before timeout clear)
+      // Ensure cleanup of timeout reference
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
