@@ -82,7 +82,7 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
     
     if (parts.length >= 2) {
       const owner = parts[0];
-      const repo = parts[1];
+      const repo = parts.slice(1).join('/'); // Handle paths like owner/repo/subpath
       const key = `${owner.toLowerCase()}/${repo.toLowerCase()}`;
       if (!seen.has(key)) {
         seen.add(key);
@@ -96,7 +96,6 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
         results.push({ type: 'owner', owner, raw: owner });
       }
     }
-    // If parts.length === 0, it was filtered by !cleanToken check above.
   }
 
   return results;
