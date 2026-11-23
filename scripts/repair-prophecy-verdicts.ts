@@ -92,7 +92,7 @@ async function main(): Promise<void> {
 
         attempt = sameAttemptResult || generalAttemptResult;
       } else {
-        // If sameAttempt is false or cycleNumber is missing, fall back to general search
+        // If sameAttempt is false or cycleNumber is missing/invalid, fall back to general search
         attempt = await db.mutationCorpus.findFirst({
           where: { filePath: meta.filePath, createdAt: { gte: p.createdAt } },
           orderBy: { createdAt: "asc" },
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
         });
       }
     } catch (e) {
-      console.error(`  DB error looking up corpus for prophecy ID ${p.id} (${meta.filePath}): ${(e as Error).message}`);
+      console.error(`  DB error looking up corpus for prophecy ID ${p.id} (File: ${meta.filePath}): ${(e as Error).message}`);
       leftAsIs++;
       continue;
     }
