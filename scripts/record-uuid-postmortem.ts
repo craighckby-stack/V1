@@ -1,20 +1,10 @@
 import { postmortemStore } from "@/lib/pipeline/postmortem/postmortem-store";
 
 async function main() {
-  // The investigation's full conclusion — preserved verbatim in the
-  // postmortem so a future RAG retrieval surfaces the cause, not just
-  // the symptom.
   const finding = `The bare-UUID commit e5d2b7a (message dc951e0f-8247-4972-be3f-17ca5c301b75) was NOT created by any LOOP-internal committer. git reflog --date=iso shows a 3-hour gap (01:39:53 to 04:49:57) with no reflog entries — the commit bypassed the normal code path. The machine restarted at 04:47:34 (per .zscripts/dev.log); the UUID commit landed 2 minutes later at 04:49:57. The commit was created by the platform-level restore orchestrator that rehydrated the project directory from a snapshot on machine restart, using a bare UUID as a placeholder message. This is OUTSIDE LOOP's commit path — LOOP cannot prevent it directly, only defend internally (push-target validateCommitMessage guard) + detect on startup (self-enhance-loop constructor warn).`;
 
-  // What this kind of commit breaks downstream — the cost of NOT
-  // defending against it. Preserved so future readers (LLM or human)
-  // understand why the guard exists, not just that it does.
   const blastRadius = `UUID commits are unsearchable (no message-prefix to grep), break the message-prefix convention the rest of the loop relies on (commit-archaeology.ts expects 'Self-enhancement:', 'memory:', etc.), and make commit-archaeology.ts return a UUID where intent was expected — archaeology on that SHA is a dead-end.`;
 
-  // The 5 internal-committer invariants from the investigation. Each
-  // LOOP-internal commit site passes an explicit human-readable message
-  // — none can produce a bare UUID without a code change. This list is
-  // the proof that the UUID commit didn't come from inside LOOP.
   const internalCommitterInvariants = [
     "pushCurrentState fallback path (push-target.ts ~L698): opts?.message ?? 'Self-enhancement: current live state' — never empty, never a UUID",
     "pushCurrentState main path (push-target.ts ~L778): same fallback default — never empty, never a UUID",
@@ -23,14 +13,11 @@ async function main() {
     "all LOOP commit sites route through pushCurrentState, which now also runs validateCommitMessage as a defense-in-depth check (rejects empty/whitespace-only and bare-UUID first lines before git add -A)",
   ];
 
-  // recordFailure writes BOTH the SQLite row AND the disk mirror (via
-  // postmortem-repo.ts writePostmortemToDisk, called inside recordFailure).
-  // The disk write is the source of truth — survives a DB wipe.
   const record = await postmortemStore.recordFailure({
     repo: "self",
     branch: "main",
     filePath: "system:commit-message-guard",
-    observed: false, // system event, not an observation of a real file — matches duress/hot-swap convention
+    observed: false,
     failureType: "OTHER",
     symptom: "Bare-UUID commit message landed on main (commit e5d2b7a)",
     evidence: JSON.stringify({
@@ -81,7 +68,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  const errorMessage = err instanceof Error ? err.stack || err.message : String(err);
   const errorType = err instanceof Error ? err.name : 'UnknownError';
-  console.error(`FAILED to record postmortem (Type: ${errorType}). Check postmortemStore connection/permissions. Error details: ${errorMessage}`);
+  const errorMessage = err instanceof Error ? err.message : String(err);
+  console.error(`CRITICAL FAILURE: Failed to record postmortem for 'system:commit-message-guard' (Type: ${errorType}). Check postmortemStore connection, permissions, or required dependencies. Underlying error: ${errorMessage}`);
 });
