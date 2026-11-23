@@ -102,5 +102,31 @@ server.listen(PORT, () => {
   console.log(`[fleet-harvester] step-2 listening on :${PORT} (LLM: z-ai-web-dev-sdk)`);
 });
 
-process.on("SIGTERM", () => server.close(() => process.exit(0)));
-process.on("SIGINT", () => server.close(() => process.exit(0)));
+// Enhanced process exit handling to ensure server is properly closed
+const gracefulShutdown = (signal: string) => {
+  console.log(`[fleet-harvester] received ${signal}, shutting down gracefully...`);
+  server.close(() => {
+    console.log("[fleet-harvester] server closed");
+    process.exit(0);
+  });
+  
+  // Force exit after 10 seconds if server doesn't close cleanly
+  setTimeout(() => {
+    console.log("[fleet-harvester] force exiting after timeout");
+    process.exit(1);
+  }, 10000);
+};
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+// Handle uncaught exceptions and unhandled promise rejections
+process.on("uncaughtException", (err) => {
+  console.error("[fleet-harvester] uncaught exception:", err);
+  gracefulShutdown("uncaughtException");
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[fleet-harvester] unhandled rejection at:", promise, "reason:", reason);
+  gracefulShutdown("unhandledRejection");
+});
