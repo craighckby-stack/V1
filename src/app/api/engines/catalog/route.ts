@@ -47,20 +47,23 @@ export async function GET() {
       if (!source) {
         isValid = false;
         reason = "Source element is null or undefined.";
-      } else if (!('patterns' in source) || !Array.isArray((source as any).patterns)) {
-        isValid = false;
-        reason = "Source is missing 'patterns' array or 'patterns' is not an array.";
       } else {
-        const patterns = (source as any).patterns;
-        if (patterns.length === 0) {
+        // Type guard for SiphonSource structure
+        const sourceTyped = source as SiphonSource & { patterns?: string[] };
+        const patterns = sourceTyped.patterns;
+
+        if (!patterns || !Array.isArray(patterns)) {
+          isValid = false;
+          reason = "Source is missing 'patterns' array or 'patterns' is not an array.";
+        } else if (patterns.length === 0) {
           isValid = false;
           reason = "Source patterns array is empty.";
         } else {
           // Check all patterns for validity
-          const firstInvalidIndex = patterns.findIndex((p: any): p is string => typeof p !== 'string');
-          if (firstInvalidIndex !== -1) {
+          const firstInvalidIndex = patterns.findIndex((p): p is string => typeof p === 'string');
+          if (firstInvalidIndex === -1) {
             isValid = false;
-            reason = `Pattern at index ${firstInvalidIndex} is not a string.`;
+            reason = "One or more patterns in the source array are not strings.";
           }
         }
       }
@@ -71,7 +74,7 @@ export async function GET() {
         // Source is valid, construct CatalogEntry
         acc.validSources.push({
           source: source as SiphonSource,
-          count: (source as any).patterns.length,
+          count: (source as SiphonSource & { patterns: string[] }).patterns.length,
           complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
           status: "configured",
         });
