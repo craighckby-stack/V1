@@ -60,8 +60,12 @@ export function DebateChamber() {
     );
   }
 
-  const consensusPct = Math.round((verdict.consensusCoefficient ?? 0) * 100);
-  const frictionPct = Math.round((verdict.cognitiveFriction ?? 0) * 100);
+  // Ensure coefficients are treated as numbers before calculation
+  const consensusCoefficient = typeof verdict.consensusCoefficient === 'number' ? verdict.consensusCoefficient : 0;
+  const cognitiveFriction = typeof verdict.cognitiveFriction === 'number' ? verdict.cognitiveFriction : 0;
+
+  const consensusPct = Math.round(consensusCoefficient * 100);
+  const frictionPct = Math.round(cognitiveFriction * 100);
 
   const consensusStatus = verdict.consensus as string | undefined;
   const finalConsensusStatus = consensusStatus || "DEFAULT";
@@ -126,10 +130,11 @@ export function DebateChamber() {
           <AnimatePresence>
             {verdict.arguments?.length > 0 ? (
               verdict.arguments.map((arg, idx) => {
-                // Safely calculate friction percentage, defaulting to 0 if not a valid number
+                // Calculate friction percentage directly and safely
                 const frictionValue = (typeof arg.cognitiveFriction === 'number' && !isNaN(arg.cognitiveFriction)) 
                   ? arg.cognitiveFriction * 100 
                   : 0;
+                
                 return (
                   <motion.div
                     key={`${arg.speaker}-${idx}`}
