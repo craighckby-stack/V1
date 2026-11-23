@@ -108,11 +108,6 @@ export function readArmedState(): ArmedState | null {
   try {
     const raw = readFileSync(ARMED_STATE_FILE, "utf8");
 
-    if (raw.trim() === "") {
-      console.error(`readArmedState: Armed state file ${ARMED_STATE_FILE} is empty.`);
-      return null;
-    }
-    
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
