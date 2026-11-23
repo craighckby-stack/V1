@@ -32,8 +32,9 @@ export function RecentCycles() {
       let data;
       try {
         data = await res.json();
-      } catch {
-        throw new Error("Failed to parse API response as JSON.");
+      } catch (e) {
+        // Use specific error type for better context
+        throw new Error(`Failed to parse API response as JSON. Details: ${e instanceof Error ? e.message : String(e)}`);
       }
       
       // Improved validation: ensure data conforms strictly to the expected structure.
@@ -62,7 +63,7 @@ export function RecentCycles() {
   
   // Process store cycles first (assuming they are the most up-to-date from WS)
   cyclesFromStore.forEach(c => {
-    if (c?.id) {
+    if (c?.id) { // Guard against malformed store entries
       seen.set(c.id, c);
     }
   });
