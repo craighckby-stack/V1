@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/provenance/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "Test gate failed: test failed (sandboxed): src/app/api/provenance/route.test.ts — \nsrc/app/api/provenance/route.test.ts:\n(pass) Provenance Route Constants > dynamic constant must be 'force-dynamic' [0.09ms]\n(pass) Provenance Route Constants > runtime constant must be 'nodejs' [0.01",
@@ -12,8 +12,8 @@
   "parentHash": "3415b5f0b82bdfbfb70d1d687c9bba55f4bab1ade9985df9903e79786d617f00",
   "hash": "e061f3ec3c7758ef6732201469017f905d83e4cfb3bbab68c7dfb986d0682c45",
   "lastAttemptAt": "2026-11-23T03:23:00.948Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-23T12:04:17.314Z",
   "createdAt": "2026-11-23T03:02:40.856Z",
-  "updatedAt": "2026-11-23T03:23:00.948Z",
+  "updatedAt": "2026-11-23T12:04:17.314Z",
   "schema": 2
 }

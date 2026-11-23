@@ -37,8 +37,8 @@ function parseArgs(argv: string[]): CliArgs {
   const out: CliArgs = { noPush: false, dryRun: false, format: "json" };
   for (const arg of argv.slice(2)) {
     if (arg.startsWith("--repos=")) {
-      const reposValue = arg.slice("--repos=".length);
-      if (reposValue.trim() === "") {
+      const reposValue = arg.slice("--repos=".length).trim();
+      if (reposValue === "") {
         console.error("ERROR: --repos= requires at least one repository name");
         process.exit(2);
       }
@@ -46,7 +46,7 @@ function parseArgs(argv: string[]): CliArgs {
     } else if (arg === "--no-push") out.noPush = true;
     else if (arg === "--dry-run") out.dryRun = true;
     else if (arg.startsWith("--format=")) {
-      const f = arg.slice("--format=".length) as ArchiveFormat;
+      const f = arg.slice("--format=".length).trim() as ArchiveFormat;
       if (f === "json" || f === "markdown" || f === "csv") {
         out.format = f;
       } else {
@@ -138,6 +138,10 @@ async function main() {
   let reposArray: string[] | undefined = undefined;
   if (args.repos) {
     reposArray = args.repos.split(",").map((s) => s.trim()).filter(Boolean);
+    if (reposArray.length === 0) {
+      console.error("ERROR: --repos= provided but resulted in no valid repository names after parsing.");
+      process.exit(2);
+    }
     log(`Smoke-test repos: ${reposArray.length} (${reposArray.join(", ")})`);
   }
 
