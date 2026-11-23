@@ -75,6 +75,11 @@ const ATTEMPTS_TAKE = 10;
  *  "src/lib/retro-boot-audio.ts") — the same key the mutation corpus
  *  uses for `filePath` and the same form `git log --follow` expects. */
 export async function buildProvenanceDigestForPrompt(filePath: string): Promise<string> {
+  if (!filePath || typeof filePath !== 'string') {
+    console.error("[ProvenanceDigest] Invalid filePath provided. Must be a non-empty string.");
+    return "";
+  }
+
   try {
     // Gather both sources in parallel — neither blocks the other.
     const [gitLog, attempts] = await Promise.all([
@@ -92,10 +97,6 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     lines.push(`File: ${filePath}`);
 
     // ── 1. ATTEMPT FREQUENCY + LAST OUTCOME ──────────────────────
-    // "I've been here 15 times" tells the loop this is a churny file —
-    // be careful. "Last attempt: enhanced" tells it the file is in a
-    // good state; don't break it. This is the signal the postmortem
-    // (failure-only) and rejected (failure-only) blocks don't give.
     if (attempts.length > 0) {
       const rejectionTypes = new Map<string, number>();
       let enhanced = 0;
@@ -118,10 +119,6 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
       );
 
       // ── 2. RECENT REJECTION PATTERN ──────────────────────────
-      // If the last 10 attempts include rejections, surface the pattern
-      // (count by outcome). Don't list the specific transforms — that's
-      // the rejected block's job (block #10). This is the "you keep
-      // failing the same gate" signal.
       if (rejected > 0) {
         const pattern = [...rejectionTypes.entries()]
           .sort((a, b) => b[1] - a[1])
@@ -133,11 +130,6 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
       }
 
       // ── 3. KNOWLEDGE TRAIL ──────────────────────────────────
-      // "What lessons did I inject last time?" — the loop's borrowing
-      // trail. This connects the provenance surface to the lesson
-      // injection: the loop can see "I applied L-42 and L-7 here last
-      // time" and judge whether to lean on the same knowledge or try
-      // something different.
       const lastWithLessons = attempts.find((a) => {
         try {
           const ids = JSON.parse(a.lessonIdsInjected) as string[];
@@ -161,17 +153,10 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
       }
     } else {
       // The loop has never touched this file via the mutation corpus
-      // (or the corpus is empty). This is itself a signal: "fresh file."
       lines.push("Your attempts: 0 (this is a fresh file — no prior loop history).");
     }
 
     // ── 4. OPERATOR'S LAST CHANGE ──────────────────────────────
-    // The operator's most recent commit on this file — their "intent"
-    // signal. "fix(audit-3): dead-code purge" tells the loop the
-    // operator doesn't want prank code here; the loop shouldn't re-add
-    // it. This is the single most actionable provenance signal for
-    // taste alignment, and it's the one the loop has been completely
-    // blind to.
     const operatorCommits = gitLog.filter((c) => classifyCommitActor(c.message) === "operator");
     if (operatorCommits.length > 0) {
       const lastOp = operatorCommits[0]; // git log is newest-first
@@ -181,37 +166,26 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     }
 
     // ── 5. LOOP COMMIT COUNT (git history) ─────────────────────
-    // The git log gives the TRUE commit count (the mutation corpus
-    // only has post-DB-reset rows). "15 self-enhancement commits" tells
-    // the loop the file's real churn weight. Capped at GIT_LOG_TAKE,
-    // so this is a lower bound (>= N), not exact — honest about it.
     const loopCommits = gitLog.filter((c) => classifyCommitActor(c.message) === "loop");
     if (loopCommits.length > 0) {
-      // The "+" suffix means "at least this many, possibly more" — honest
-      // only when we hit the GIT_LOG_TAKE cap (we know there are more
-      // commits we didn't read). When loopCommits < GIT_LOG_TAKE, we read
-      // ALL the loop commits in the window, so the count is exact (no "+").
       const plus = loopCommits.length === GIT_LOG_TAKE ? "+" : "";
+      const operatorCount = operatorCommits.length;
       lines.push(
-        `Git history: ${loopCommits.length}${plus} self-enhancement commit(s) by you${operatorCommits.length > 0 ? ` + ${operatorCommits.length} by the operator` : ""} (in the last ${GIT_LOG_TAKE} commits).`,
+        `Git history: ${loopCommits.length}${plus} self-enhancement commit(s) by you${operatorCount > 0 ? ` + ${operatorCount} by the operator` : ""} (in the last ${GIT_LOG_TAKE} commits).`,
       );
     }
 
     lines.push("--- END PROVENANCE ---");
 
-    // Enforce the byte cap. If the digest is over budget (a file with
-    // many rejection types + a long operator message), truncate the
-    // least-essential lines from the bottom (the git history line is
-    // last; the attempt frequency is first and most essential).
+    // Enforce the byte cap.
     let result = lines.join("\n");
+    const footer = "\n--- END PROVENANCE ---";
+    
     if (result.length > PROVENANCE_BLOCK_BUDGET) {
-      // Hard cap: keep the header + first lines, drop the tail, ensuring the footer remains.
-      const footer = "\n--- END PROVENANCE ---";
-      const maxContentLength = PROVENANCE_BLOCK_BUDGET - footer.length;
-      
-      // Find the index of the footer and truncate just before it, respecting the budget.
       const footerIndex = result.lastIndexOf(footer);
       if (footerIndex !== -1) {
+        const maxContentLength = PROVENANCE_BLOCK_BUDGET - footer.length;
+        // Truncate content before the footer, respecting the budget.
         const truncatedResult = result.substring(0, footerIndex).slice(0, maxContentLength);
         return truncatedResult + footer;
       }
