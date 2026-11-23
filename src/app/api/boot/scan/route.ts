@@ -138,6 +138,7 @@ async function checkGitHubAuth(
     return { ok: false, error: "Unknown error during GitHub auth check" };
   } finally {
     clearTimeout(kill);
+    ac.abort(); // Ensure the abort controller is always aborted
   }
 }
 
