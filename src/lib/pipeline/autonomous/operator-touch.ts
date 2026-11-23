@@ -144,8 +144,7 @@ export function isDeadMansTripped(
   }
 
   // Determine the time reference once. Use provided 'now' if valid, otherwise use current time.
-  const checkNow = (now instanceof Date && !isNaN(now.getTime())) ? now : new Date();
-  const nowTime = checkNow.getTime();
+  const nowTime = (now instanceof Date && !isNaN(now.getTime())) ? now.getTime() : Date.now();
 
   const state = readOperatorTouch();
   if (!state) return true; // never touched, unreadable, or malformed → tripped

@@ -8,12 +8,12 @@
   "symptom": "Test gate failed: test failed (sandboxed): src/lib/pipeline/target/target-scan.test.ts — \nsrc/lib/pipeline/target/target-scan.test.ts:\n38 |     expect(kinds.has(\"any-usage\")).toBe(true);\n39 |     expect(kinds.has(\"empty-catch\")).toBe(true);\n40 |     expect(kinds.has(\"missing-return-type\")",
   "evidence": "1 test file(s) checked. The refactor broke existing behavior.",
   "constraints": "The previous refactor of src/lib/pipeline/target/target-scan.ts broke existing tests. Do not change observable behavior.",
-  "attempts": 21,
+  "attempts": 22,
   "parentHash": "5571206842bed110122b45620bd193d6ec7cc2cdf634b0759804d019eb1fe3ad",
-  "hash": "ae34aaf38794fa75e4a2b666cae93e40b366d4ed3ef996881609f835c0eafba5",
-  "lastAttemptAt": "2026-11-23T13:18:31.153Z",
+  "hash": "35f348427177016b8794368075809b5bc9088acceda14094ecd50c311ce54dde",
+  "lastAttemptAt": "2026-11-23T20:58:21.405Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.202Z",
-  "updatedAt": "2026-11-23T13:18:31.153Z",
+  "updatedAt": "2026-11-23T20:58:21.405Z",
   "schema": 2
 }
