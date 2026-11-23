@@ -83,8 +83,11 @@ export async function getTargetConfig(): Promise<TargetRepoConfig | null> {
   try {
     const row = await db.systemFlag.findUnique({ where: { key: CONFIG_KEY } });
     if (!row || !row.value) return null;
+    
     const parsed = JSON.parse(row.value) as TargetRepoConfig;
-    if (!parsed || typeof parsed !== 'object' || !parsed.repo || !validTargetRepoFormat(parsed.repo)) {
+    
+    // Validate parsed object structure and required fields
+    if (!parsed || typeof parsed !== 'object' || !parsed.repo || !parsed.updatedAt || !validTargetRepoFormat(parsed.repo)) {
       console.error(`Target config found but invalid format for repo key ${CONFIG_KEY}. Parsed data:`, parsed);
       return null;
     }
@@ -114,7 +117,7 @@ export async function setTargetConfig(
   
   let branchValue: string | null = null;
   if (branch !== undefined && branch !== null) {
-    const b = String(branch).trim();
+    const b = String(branch).trim(); // Ensure b is string before validation
     if (b.length > 0) {
       if (!validTargetBranchFormat(b)) {
         throw new Error(`Invalid branch "${b}" — must be a valid git branch name (no whitespace, no "..", no leading '-', max 120 chars)`);
