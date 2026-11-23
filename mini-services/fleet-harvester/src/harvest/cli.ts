@@ -145,6 +145,11 @@ async function main() {
     log(`Smoke-test repos: ${reposArray.length} (${reposArray.join(", ")})`);
   }
 
+  if (!reposArray) {
+    console.error("ERROR: --repos= argument is required for a harvest run.");
+    process.exit(2);
+  }
+
   const result: HarvestResult = await runHarvest({
     githubToken,
     extraction,
