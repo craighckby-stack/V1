@@ -80,6 +80,8 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     return "";
   }
 
+  const footer = "\n--- END PROVENANCE ---";
+
   try {
     // Gather both sources in parallel — neither blocks the other.
     const [gitLog, attempts] = await Promise.all([
@@ -87,7 +89,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
       getRecentAttemptsForFile(filePath, ATTEMPTS_TAKE),
     ]);
 
-    // Ensure results are arrays before proceeding, although Promise.all should handle resolved values.
+    // Ensure results are arrays before proceeding.
     if (!Array.isArray(gitLog) || !Array.isArray(attempts)) {
         console.error(`[ProvenanceDigest] Git log or attempts data was not an array for ${filePath}. Failing soft.`);
         return "";
@@ -185,7 +187,6 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
 
     // Enforce the byte cap.
     let result = lines.join("\n");
-    const footer = "\n--- END PROVENANCE ---";
     
     if (result.length > PROVENANCE_BLOCK_BUDGET) {
       const footerIndex = result.lastIndexOf(footer);
@@ -196,7 +197,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
         const truncatedResult = result.substring(0, footerIndex).slice(0, maxContentLength);
         return truncatedResult + footer;
       }
-      // Fallback if footer somehow isn't found (shouldn't happen)
+      // Fallback if footer somehow isn't found (shouldn't happen, but safer to truncate fully)
       return result.slice(0, PROVENANCE_BLOCK_BUDGET);
     }
     return result;
