@@ -102,8 +102,9 @@ async function checkGitHubAuth(
     return { ok: false, error: "Invalid token: must be a non-empty string" };
   }
 
-  const ac = new AbortController();
-  const kill = setTimeout(() => ac.abort(), 3500);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3500);
+
   try {
     const res = await fetch("https://api.github.com/user", {
       headers: {
@@ -111,8 +112,10 @@ async function checkGitHubAuth(
         Accept: "application/vnd.github+json",
         "User-Agent": "Architecture-Helper-Pipeline",
       },
-      signal: ac.signal,
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
+
     if (!res.ok) {
       // Provide more context on HTTP errors
       const errorText = await res.text();
@@ -129,6 +132,7 @@ async function checkGitHubAuth(
       return { ok: false, error: "Failed to parse JSON response from GitHub API (response body might be empty or malformed)" };
     }
   } catch (e) {
+    clearTimeout(timeoutId);
     if (e instanceof Error) {
       if (e.name === "AbortError") {
         return { ok: false, error: "Request timed out after 3.5s" };
@@ -136,13 +140,6 @@ async function checkGitHubAuth(
       return { ok: false, error: `Network or request error during GitHub auth check: ${e.message}` };
     }
     return { ok: false, error: "Unknown error during GitHub auth check" };
-  } finally {
-    clearTimeout(kill);
-    try {
-      ac.abort(); // Ensure the abort controller is always aborted
-    } catch (e) {
-      // Ignore errors during abort cleanup
-    }
   }
 }
 
