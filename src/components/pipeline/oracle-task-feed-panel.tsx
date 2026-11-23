@@ -35,8 +35,16 @@ export function OracleTaskFeedPanel() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastFetchTimeRef = useRef<number>(0);
 
   const fetchTasks = useCallback(async (isInitialLoad: boolean = false) => {
+    // Implement backpressure: prevent rapid successive calls
+    const now = Date.now();
+    if (!isInitialLoad && now - lastFetchTimeRef.current < 1000) {
+      return;
+    }
+    lastFetchTimeRef.current = now;
+
     if (isRefreshing) return;
     
     if (isInitialLoad) {
@@ -55,10 +63,12 @@ export function OracleTaskFeedPanel() {
       
       const data = await response.json();
       
+      // Validate API response structure
       if (!data || typeof data !== 'object' || !Array.isArray((data as any).tasks)) {
         throw new Error("API response validation failed: Expected an object containing a 'tasks' array.");
       }
       
+      // Validate and filter tasks in parallel
       const validatedTasks: SelfTask[] = (data.tasks as unknown[]).filter(t =>
         t && 
         typeof t === 'object' && 
@@ -69,6 +79,7 @@ export function OracleTaskFeedPanel() {
         'status' in t && (t.status === "pending" || t.status === "in_progress" || t.status === "done" || t.status === "failed" || t.status === "skipped")
       ) as SelfTask[];
       
+      // Filter oracle tasks
       const oracleTasks = validatedTasks.filter((t) => t.kind === "oracle-failed-prophecy");
       setTasks(oracleTasks);
     } catch (err) {
@@ -85,6 +96,7 @@ export function OracleTaskFeedPanel() {
   useEffect(() => {
     fetchTasks(true);
     
+    // Set up polling with bounded interval
     intervalRef.current = setInterval(() => {
         fetchTasks(false);
     }, 30_000);
