@@ -97,17 +97,20 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     // good state; don't break it. This is the signal the postmortem
     // (failure-only) and rejected (failure-only) blocks don't give.
     if (attempts.length > 0) {
-      const enhanced = attempts.filter((a) => a.gateOutcome === "enhanced").length;
-      
-      let rejected = 0;
       const rejectionTypes = new Map<string, number>();
+      let enhanced = 0;
+      let rejected = 0;
+
+      // Single pass over attempts for efficiency
       for (const a of attempts) {
-        if (a.gateOutcome !== "enhanced" && a.gateOutcome !== "deferred" && a.gateOutcome !== "no-change" && a.gateOutcome !== "cosmetic") {
+        if (a.gateOutcome === "enhanced") {
+          enhanced++;
+        } else if (a.gateOutcome !== "deferred" && a.gateOutcome !== "no-change" && a.gateOutcome !== "cosmetic") {
           rejected++;
           rejectionTypes.set(a.gateOutcome, (rejectionTypes.get(a.gateOutcome) ?? 0) + 1);
         }
       }
-      
+
       const last = attempts[0]; // newest-first
       const lastTransform = last.transformSummary?.slice(0, 100) ?? "(no summary)";
       lines.push(
@@ -143,7 +146,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
           return false;
         }
       });
-      
+
       if (lastWithLessons) {
         try {
           const ids = JSON.parse(lastWithLessons.lessonIdsInjected) as string[];
@@ -202,13 +205,24 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     // last; the attempt frequency is first and most essential).
     let result = lines.join("\n");
     if (result.length > PROVENANCE_BLOCK_BUDGET) {
-      // Hard cap: keep the header + first lines, drop the tail.
-      result = result.slice(0, PROVENANCE_BLOCK_BUDGET - 20) + "\n--- END PROVENANCE ---";
+      // Hard cap: keep the header + first lines, drop the tail, ensuring the footer remains.
+      const footer = "\n--- END PROVENANCE ---";
+      const maxContentLength = PROVENANCE_BLOCK_BUDGET - footer.length;
+      
+      // Find the index of the footer and truncate just before it, respecting the budget.
+      const footerIndex = result.lastIndexOf(footer);
+      if (footerIndex !== -1) {
+        const truncatedResult = result.substring(0, footerIndex).slice(0, maxContentLength);
+        return truncatedResult + footer;
+      }
+      // Fallback if footer somehow isn't found (shouldn't happen)
+      return result.slice(0, PROVENANCE_BLOCK_BUDGET);
     }
     return result;
-  } catch {
-    // Fail-soft: any error → empty string. The prompt proceeds without
-    // the digest. The cycle never crashes on provenance.
+  } catch (error) {
+    // Fail-soft: any error → empty string. Log the error context for debugging
+    // without crashing the pipeline.
+    console.error(`[ProvenanceDigest] Failed to build provenance digest for ${filePath}. Failing soft.`, error);
     return "";
   }
 }

@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/evolution/debate/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: oracle-check.tmp.ts(1,26): error TS2307: Cannot find module 'bun:sqlite' or its corresponding type declarations.",
@@ -12,8 +12,8 @@
   "parentHash": "5a82649b453e2359afeb6e6ae0fd97029b50442522a1003021d5a215ee548f6a",
   "hash": "d96d8886475fb8bf3b593abb4ff00324ffd8b2ed9e2552659e2f9c01cc0617ab",
   "lastAttemptAt": "2026-11-22T06:27:00.668Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-23T11:56:53.425Z",
   "createdAt": "2026-11-22T02:44:42.626Z",
-  "updatedAt": "2026-11-22T06:27:00.668Z",
+  "updatedAt": "2026-11-23T11:56:53.425Z",
   "schema": 2
 }
