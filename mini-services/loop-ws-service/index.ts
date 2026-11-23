@@ -145,6 +145,12 @@ io.on("connection", (socket) => {
 let pollFailureCount = 0;
 
 async function pollNextJsState() {
+  if (cachedState === null && lastPollAt === null) {
+    // Skip initial checks if we haven't established any state yet,
+    // allowing the first poll to run without unnecessary logging/checks.
+    // The initial poll is handled by the startup logic.
+  }
+
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
@@ -212,17 +218,17 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`[LOOP-WS] /health available at http://localhost:${PORT}/health`);
   console.log(`[LOOP-WS] Polling ${NEXTJS_STATUS_URL} every ${POLL_INTERVAL_MS}ms`);
   
-  // Run initial poll and set up interval in parallel to reduce startup latency
-  Promise.all([
+  // Run initial poll immediately, then set up the recurring interval.
+  // This ensures the first poll runs without waiting for setInterval setup overhead.
+  pollNextJsState().catch((err) => {
+    console.error("[LOOP-WS] Initial poll failed:", err);
+  });
+
+  setInterval(() => {
     pollNextJsState().catch((err) => {
-      console.error("[LOOP-WS] Initial poll failed:", err);
-    }),
-    setInterval(() => {
-      pollNextJsState().catch((err) => {
-        console.error("[LOOP-WS] Poll interval error:", err);
-      });
-    }, POLL_INTERVAL_MS)
-  ]);
+      console.error("[LOOP-WS] Poll interval error:", err);
+    });
+  }, POLL_INTERVAL_MS);
 });
 
 process.on("SIGTERM", () => {

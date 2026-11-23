@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "mini-services/fleet-harvester/index.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: mini-services/fleet-harvester/index.ts(27,23): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string | URL'.\n  Type 'undefined' is not assignable to type 'string | URL'.",
@@ -12,8 +12,8 @@
   "parentHash": "758fd13b369ece2ef3314068b99f9f54eafbcafa2982432fe0fe42ecd38f4254",
   "hash": "4b6b0f2edc5d7e7eed0cae7b1464505985e3ac4905f6f4a4fd99e8731fd27212",
   "lastAttemptAt": "2026-11-23T12:55:56.037Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-23T13:43:06.171Z",
   "createdAt": "2026-11-23T03:29:46.551Z",
-  "updatedAt": "2026-11-23T12:55:56.037Z",
+  "updatedAt": "2026-11-23T13:43:06.171Z",
   "schema": 2
 }
