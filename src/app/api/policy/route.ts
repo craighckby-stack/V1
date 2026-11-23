@@ -26,9 +26,10 @@ export async function GET() {
   try {
     const report = await buildPolicyReport();
     return NextResponse.json(report);
-  } catch {
-    // Security constraint: Do not expose internal stack traces or detailed
-    // error messages in API responses — the client gets a generic message.
+  } catch (error) {
+    // Log the actual error internally for debugging pipeline health,
+    // but return a generic message to the client for security.
+    console.error("Error generating policy report:", error);
     return NextResponse.json(
       { error: "Failed to generate policy report. Please check pipeline logs for details." },
       { status: 500 }
