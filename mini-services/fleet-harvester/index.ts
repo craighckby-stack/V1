@@ -118,21 +118,25 @@ const gracefulShutdown = (signal: string) => {
     });
   });
 
-  closeServer()
+  // Start closing the server and manage the timeout concurrently
+  const closePromise = closeServer();
+  
+  const timeout = setTimeout(() => {
+    console.log("[fleet-harvester] force exiting after timeout");
+    process.exit(1);
+  }, 10000);
+
+  closePromise
     .then(() => {
+      clearTimeout(timeout); // Clear timeout on successful close
       process.exit(0);
     })
     .catch((err) => {
+      clearTimeout(timeout); // Clear timeout on error
       // If server.close fails, log error and force exit
       console.error("[fleet-harvester] Error during server close:", err);
       process.exit(1);
     });
-  
-  // Force exit after 10 seconds if server doesn't close cleanly
-  setTimeout(() => {
-    console.log("[fleet-harvester] force exiting after timeout");
-    process.exit(1);
-  }, 10000);
 };
 
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));

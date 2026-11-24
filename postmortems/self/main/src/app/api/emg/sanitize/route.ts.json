@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/emg/sanitize/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/api/emg/sanitize/route.ts(54,11): error TS2322: Type 'SecuritySanitizerResult' is not assignable to type 'SanitizeResult'.\n  Types of property 'violations' are incompatible.\n    The type 'readonly string[]' is 'readonly' and cannot be assigned to the mutable type 'string[]'.",
@@ -12,8 +12,8 @@
   "parentHash": "449a5d6d5d69f83d5722762aa5c4abfd2f767a47527dba55204ed9a61af66fe9",
   "hash": "aff3848b97b48d6018bbd51acf4f250aaa7185982a479ac7bb94acd57aeef58d",
   "lastAttemptAt": "2026-11-24T00:29:30.471Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-24T01:53:46.229Z",
   "createdAt": "2026-11-23T03:29:46.357Z",
-  "updatedAt": "2026-11-24T00:29:30.471Z",
+  "updatedAt": "2026-11-24T01:53:46.229Z",
   "schema": 2
 }
