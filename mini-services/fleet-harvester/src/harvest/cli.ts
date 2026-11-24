@@ -41,9 +41,11 @@ function parseArgs(argv: string[]): CliArgs {
       if (reposValue) {
         out.repos = reposValue;
       }
-    } else if (arg === "--no-push") out.noPush = true;
-    else if (arg === "--dry-run") out.dryRun = true;
-    else if (arg.startsWith("--format=")) {
+    } else if (arg === "--no-push") {
+      out.noPush = true;
+    } else if (arg === "--dry-run") {
+      out.dryRun = true;
+    } else if (arg.startsWith("--format=")) {
       const f = arg.slice("--format=".length).trim() as ArchiveFormat;
       if (f === "json" || f === "markdown" || f === "csv") {
         out.format = f;
