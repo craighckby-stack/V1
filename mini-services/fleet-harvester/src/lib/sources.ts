@@ -169,7 +169,7 @@ export function validateDestination(repo: string, branch: string, filePath: stri
  * Derives the split archive file paths (.successful.<ext>, .failed.<ext>, .engines.<ext>) from a base path and format.
  */
 export function deriveLogPaths(
-  basePath: string,
+  basePath: string | null | undefined,
   format: ArchiveFormat
 ): { successful: string; failed: string; engines: string } {
   const extMap: Record<ArchiveFormat, string> = {
@@ -180,13 +180,13 @@ export function deriveLogPaths(
   const ext = extMap[format];
   
   // Use DEFAULT_BASE_PATH if basePath is null/undefined or empty after trimming
-  const clean = (basePath && basePath.trim().length > 0) 
+  const cleanBase = (basePath && basePath.trim().length > 0) 
     ? basePath.trim().replace(/^\/+/, '') 
     : DEFAULT_BASE_PATH.replace(/^\/+/, '');
   
-  const lastSlash = clean.lastIndexOf('/');
-  const dir = lastSlash >= 0 ? clean.slice(0, lastSlash + 1) : '';
-  const file = lastSlash >= 0 ? clean.slice(lastSlash + 1) : clean;
+  const lastSlash = cleanBase.lastIndexOf('/');
+  const dir = lastSlash >= 0 ? cleanBase.slice(0, lastSlash + 1) : '';
+  const file = lastSlash >= 0 ? cleanBase.slice(lastSlash + 1) : cleanBase;
   const stem =
     file
       .replace(/\.(json|md|markdown|csv)$/i, '')
