@@ -20,11 +20,6 @@ const MAX_AUTO_WAIT_MS = 120_000;
  * Computes pacing and rate-limit recovery cooldowns for GitHub REST API requests.
  */
 export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision {
-  // Input validation is necessary for runtime safety even if TypeScript defines the shape.
-  if (!input) {
-    throw new Error("GitHubRateInput cannot be null or undefined.");
-  }
-
   const now = input.nowMs ?? Date.now();
   const remaining =
     input.remainingHeader && input.remainingHeader.trim() !== ''
