@@ -75,7 +75,7 @@ const ATTEMPTS_TAKE = 10;
  *  "src/lib/retro-boot-audio.ts") — the same key the mutation corpus
  *  uses for `filePath` and the same form `git log --follow` expects. */
 export async function buildProvenanceDigestForPrompt(filePath: string): Promise<string> {
-  if (!filePath || typeof filePath !== 'string') {
+  if (!filePath || typeof filePath !== 'string' || filePath.trim() === '') {
     console.error(`[ProvenanceDigest] Invalid filePath provided. Must be a non-empty string.`);
     return "";
   }
