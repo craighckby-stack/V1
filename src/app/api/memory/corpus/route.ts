@@ -4,6 +4,8 @@ import { getCorpusStatus, getFleetDigest, searchEngines } from "@/lib/pipeline/a
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const MAX_MATCHED_TERMS = 5;
+
 /**
  * GET /api/memory/corpus
  *
@@ -66,7 +68,7 @@ export async function GET(request: Request) {
         id: h.engine.id,
         role: h.engine.role,
         score: Number(h.score.toFixed(2)),
-        matched: h.matchedTerms.slice(0, 5),
+        matched: h.matchedTerms.slice(0, MAX_MATCHED_TERMS),
       };
     });
     
