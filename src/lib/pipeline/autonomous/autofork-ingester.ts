@@ -151,7 +151,7 @@ function writeManifest(manifest: Manifest): void {
     mkdirSync(dirname(MANIFEST_PATH), { recursive: true });
     atomicWriteFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
   } catch {
-    /* best-effort */
+    /* best-effort: manifest write failure doesn't stop ingestion */
   }
 }
 
