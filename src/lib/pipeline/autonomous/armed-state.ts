@@ -42,7 +42,7 @@
 
 import { readFileSync, existsSync, mkdirSync } from "fs";
 import { atomicWriteFileSync } from "../core/atomic-file";
-import { join } from "path";
+import { join, dirname } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
 const ARMED_STATE_FILE = join(PROJECT_ROOT, ".git/info/loop-armed-state.json");
@@ -111,7 +111,7 @@ export function markArmed(armed: boolean, by: string): void {
   try {
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
     // Ensure directory exists before attempting to write
-    const dir = ARMED_STATE_FILE.substring(0, ARMED_STATE_FILE.lastIndexOf("/"));
+    const dir = dirname(ARMED_STATE_FILE);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
