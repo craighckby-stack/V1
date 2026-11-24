@@ -38,6 +38,14 @@ async function main() {
     }
   }
 
+  let evidenceString: string;
+  try {
+    evidenceString = JSON.stringify(evidence);
+  } catch (stringifyError) {
+    const errorDetail = stringifyError instanceof Error ? stringifyError.message : String(stringifyError);
+    throw new Error(`Failed to serialize evidence to JSON: ${errorDetail}. The evidence object may contain circular references or be too large.`);
+  }
+
   let record: any;
   try {
     record = await postmortemStore.recordFailure({
@@ -47,7 +55,7 @@ async function main() {
       observed: false,
       failureType: "OTHER",
       symptom: "Bare-UUID commit message landed on main (commit e5d2b7a)",
-      evidence: JSON.stringify(evidence),
+      evidence: evidenceString,
       constraints: `Two-layer defense against host-injected bare-UUID commits. (1) Internal guard: push-target.ts validateCommitMessage is called before every \`git add -A\` in pushCurrentState (both the fallback path ~L698 and the main path ~L778) and aborts with pushed:false + a clear reason if the message is empty/whitespace-only or matches the bare-UUID regex /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i on its first line. On the main path the reason is also recorded into lastPushError (matching how the secret-scan gate failure is handled) so an operator sees a clear cause in the push-target UI. This guarantees LOOP itself never produces a UUID-named commit. (2) Startup detector: self-enhance-loop.ts constructor runs validateCommitMessage against \`git log -1 --format=%B\` once at boot and console.warn's (does NOT block boot — the commit is already on disk by the time LOOP runs; blocking would brick the loop on a restore) if HEAD's message is empty or a bare UUID. The host restore orchestrator that injected commit e5d2b7a is OUTSIDE LOOP's reach: it runs before LOOP boots (machine restart at 04:47:34), so LOOP cannot prevent it directly — only defend (layer 1) + detect (layer 2). Operationally related to external audit finding 1 (test-gate crash recovery in push-target.ts): both findings are about commits landing on main through paths LOOP doesn't control (a crashed test gate leaving an unverified candidate live; a host restore orchestrator using a UUID placeholder), and both are addressed by running a check BEFORE git add -A so the bad commit never lands in the first place.`,
     });
   } catch (e) {
@@ -55,8 +63,8 @@ async function main() {
     throw new Error(`Failed to execute postmortemStore.recordFailure: ${errorDetail}. Check postmortemStore connectivity, permissions, or required dependencies.`);
   }
 
-  if (!record || typeof record !== 'object') {
-    throw new Error("Postmortem recording failed: postmortemStore returned an invalid or empty record. Check store connectivity and permissions.");
+  if (!record || typeof record !== 'object' || !record.id) {
+    throw new Error(`Postmortem recording failed: postmortemStore returned an invalid or empty record. Expected object with 'id' property. Check store connectivity and permissions. Response: ${JSON.stringify(record)}`);
   }
 
   console.log("POSTMORTEM RECORDED");
