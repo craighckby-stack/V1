@@ -72,6 +72,9 @@ const MAX_TRANSFORM_SUMMARY_LENGTH = 100;
 /** The number of lessons injected in the last relevant attempt. */
 const LESSON_COUNT_DISPLAY = 6;
 
+/** Maximum length for the operator's last commit message summary. */
+const MAX_OPERATOR_MSG_LENGTH = 100;
+
 /** Build the provenance digest block for the enhance prompt. Returns
  *  "" on any error or when there's no provenance data (a fresh file the
  *  loop has never touched + no git history → no block, no cost). The
@@ -176,7 +179,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     if (operatorCommits.length > 0) {
       const lastOp = operatorCommits[0]; // git log is newest-first
       const date = lastOp.at.split(" ")[0]; // "2026-11-03"
-      const msg = lastOp.message.split("\n")[0].slice(0, MAX_TRANSFORM_SUMMARY_LENGTH);
+      const msg = lastOp.message.split("\n")[0].slice(0, MAX_OPERATOR_MSG_LENGTH);
       lines.push(`Operator's last change: "${msg}" (${date}).`);
     }
 
