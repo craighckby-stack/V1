@@ -22,6 +22,7 @@ export function RecentCycles() {
   const [loading, setLoading] = useState(false);
 
   async function refresh() {
+    if (loading) return; // Prevent concurrent fetches
     setLoading(true);
     try {
       const res = await fetch("/api/autonomous/recent-cycles");
@@ -42,7 +43,7 @@ export function RecentCycles() {
       const errorMessage = error instanceof Error ? error.message : "Unknown error during fetch or parsing.";
       console.error("Error refreshing recent cycles from API:", errorMessage);
       // Keep fetched as is or set to empty if error occurred, depending on desired fallback. Setting to [] ensures UI reflects failure clearly.
-      setFetched([]); 
+      // Note: We do not overwrite existing fetched data on error, only if the fetch fails entirely.
     } finally {
       setLoading(false);
     }
