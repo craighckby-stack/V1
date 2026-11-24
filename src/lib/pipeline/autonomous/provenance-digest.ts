@@ -148,17 +148,11 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
       });
 
       if (lastWithLessons) {
-        try {
-          const ids = JSON.parse(lastWithLessons.lessonIdsInjected) as string[];
-          if (Array.isArray(ids) && ids.length > 0) {
-            lines.push(
-              `Knowledge applied: ${ids.length} lesson(s) injected on cycle ${lastWithLessons.cycleNumber} (${ids.map((id) => id.slice(-6)).join(", ")}).`,
-            );
-          }
-        } catch (e) {
-          /* malformed lessonIdsInjected — skip the trail line */
-          console.warn(`[ProvenanceDigest] Malformed lessonIdsInjected for cycle ${lastWithLessons.cycleNumber}. Skipping knowledge trail.`);
-        }
+        const lessonCount = lastWithLessons.lessonIdsInjected ? JSON.parse(lastWithLessons.lessonIdsInjected) as string[] : [];
+        const lessonIdShorts = lessonCount.map((id) => id.slice(-6)).join(", ");
+        lines.push(
+          `Knowledge applied: ${lessonCount.length} lesson(s) injected on cycle ${lastWithLessons.cycleNumber} (${lessonIdShorts}).`,
+        );
       }
     } else {
       // The loop has never touched this file via the mutation corpus
