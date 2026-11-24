@@ -4,7 +4,7 @@
 > sees your edits and won't re-derive a contradicting rule. One entry per lesson.
 > 1 active · 3 inactive (0 revoked) · generated 2026-11-24
 
-## [procedure | active] never-propose-changes-that-trigger-security-probes-key · score 0.34 · helped 69 · hindered 136 · lapse 0 · distilled 2026-11-23
+## [procedure | active] never-propose-changes-that-trigger-security-probes-key · score 0.29 · helped 78 · hindered 188 · lapse 0 · distilled 2026-11-23
 **Rule:** Never propose changes that trigger security probes (key exfiltration, PAT embedding, containment bypass, unauthorized package injection)
 **Source:** distilled from 219 postmortem(s)
 **Evidence:** HISTORICAL_FACT — helped/hindered/lapse counts above are measured outcomes of injected prompts, not estimates. AI_INTERPRETATION — the rule wording is the distiller's judgment, not a measured fact.
