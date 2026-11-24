@@ -207,7 +207,7 @@ export async function fetchWithTimeout(
       throw new Error(`Request to ${url} failed: ${err.message}`);
     }
     // Unknown error type
-    throw new Error(`Request to ${url} failed with unknown error`);
+    throw new Error(`Request to ${url} failed with unknown error type`);
   } finally {
     clearTimeout(timer);
     callerSignal?.removeEventListener('abort', onCallerAbort);
