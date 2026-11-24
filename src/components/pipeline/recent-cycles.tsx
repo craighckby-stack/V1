@@ -39,7 +39,10 @@ export function RecentCycles() {
       });
       
       if (res.status === 0) {
-        throw new Error("Request was aborted");
+        // Status 0 is not a standard HTTP status; this likely means the request was aborted or failed before HTTP response.
+        // We rely on the catch block for AbortError, but log this unusual status if it occurs.
+        console.warn("API request returned status 0, likely aborted or network error.");
+        return; 
       }
       
       if (!res.ok) {
@@ -53,7 +56,7 @@ export function RecentCycles() {
         throw new Error("Invalid API response structure: expected object containing a 'cycles' array of AutonomousCycleSummary.");
       }
       
-      // Validate each cycle in the array
+      // Validate each cycle in the array: ensure it's an object and has required identifiers.
       const apiResponseCycles = data.cycles.filter(c => 
         c && typeof c === 'object' && 'id' in c && 'cycleNumber' in c
       ) as AutonomousCycleSummary[];
@@ -86,9 +89,15 @@ export function RecentCycles() {
   // Use Map for O(N) deduplication. WS data (cyclesFromStore) takes precedence.
   const seen = new Map<string, AutonomousCycleSummary>();
   
-  // Process all cycles in a single pass
-  [...cyclesFromStore, ...fetched].forEach(c => {
-    if (c && c.id) { // Guard against null/undefined cycle object AND missing ID
+  // Process WS data first to ensure precedence, then API data.
+  cyclesFromStore.forEach(c => {
+    if (c && c.id) { 
+      seen.set(c.id, c);
+    }
+  });
+  
+  fetched.forEach(c => {
+    if (c && c.id && !seen.has(c.id)) {
       seen.set(c.id, c);
     }
   });
