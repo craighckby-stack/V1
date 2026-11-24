@@ -41,51 +41,67 @@ export async function GET() {
 
   const validSources: CatalogEntry[] = [];
   const invalidSources: InvalidSource[] = [];
+  
+  // Create a local copy to avoid race conditions
+  const sourcesCopy = [...SIPHON_SOURCES];
 
-  SIPHON_SOURCES.forEach((source, i) => {
-    let isValid = true;
-    let reason = "";
-    let patterns: string[] | undefined = undefined;
+  try {
+    sourcesCopy.forEach((source, i) => {
+      if (!source) {
+        invalidSources.push({
+          index: i,
+          reason: "Source element is null or undefined.",
+        });
+        return;
+      }
 
-    if (!source) {
-      isValid = false;
-      reason = "Source element is null or undefined.";
-    } else {
       // Type guard for SiphonSource structure
       const sourceTyped = source as SiphonSource & { patterns?: string[] };
-      patterns = sourceTyped.patterns;
+      const patterns = sourceTyped.patterns;
 
       if (!patterns || !Array.isArray(patterns)) {
-        isValid = false;
-        reason = "Source is missing 'patterns' array or 'patterns' is not an array.";
-      } else if (patterns.length === 0) {
-        isValid = false;
-        reason = "Source patterns array is empty.";
-      } else {
-        // Check all patterns for validity
-        const firstInvalidIndex = patterns.findIndex((p): p is string => typeof p === 'string');
-        if (firstInvalidIndex === -1) {
-          isValid = false;
-          reason = "One or more patterns in the source array are not strings.";
-        }
+        invalidSources.push({
+          index: i,
+          reason: "Source is missing 'patterns' array or 'patterns' is not an array.",
+        });
+        return;
       }
-    }
 
-    if (isValid) {
+      if (patterns.length === 0) {
+        invalidSources.push({
+          index: i,
+          reason: "Source patterns array is empty.",
+        });
+        return;
+      }
+
+      // Check all patterns for validity
+      const hasInvalidPattern = patterns.some(p => typeof p !== 'string');
+      if (hasInvalidPattern) {
+        invalidSources.push({
+          index: i,
+          reason: "One or more patterns in the source array are not strings.",
+        });
+        return;
+      }
+
       // Source is valid, construct CatalogEntry
       validSources.push({
         source: source as SiphonSource,
-        count: patterns ? patterns.length : 0,
+        count: patterns.length,
         complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
         status: "configured",
       });
-    } else {
-      invalidSources.push({
-        index: i,
-        reason: reason,
-      });
-    }
-  });
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { 
+        error: "Unexpected error while processing catalog sources.",
+        details: error instanceof Error ? error.message : String(error)
+      },
+      { status: 500 }
+    );
+  }
 
   if (invalidSources.length > 0) {
     return NextResponse.json(
