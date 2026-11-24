@@ -46,6 +46,7 @@ import { join, dirname } from "path";
 import { PROJECT_ROOT } from "../core/paths";
 
 const ARMED_STATE_FILE = join(PROJECT_ROOT, ".git/info/loop-armed-state.json");
+const ARMED_STATE_DIR = dirname(ARMED_STATE_FILE);
 const VALID_BY_VALUES = ["operator-start", "operator-stop", "config-patch"];
 const ISO8601_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 
@@ -111,9 +112,8 @@ export function markArmed(armed: boolean, by: string): void {
   try {
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
     // Ensure directory exists before attempting to write
-    const dir = dirname(ARMED_STATE_FILE);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
+    if (!existsSync(ARMED_STATE_DIR)) {
+      mkdirSync(ARMED_STATE_DIR, { recursive: true });
     }
     atomicWriteFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2));
   } catch (error) {
