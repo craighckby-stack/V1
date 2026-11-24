@@ -8,7 +8,7 @@ plateaued at 0.7% yield after 900 cycles
 
 ---
 
-## ⏱ THE 10-DAY ENDURANCE TEST (re-baselined 2026-11-24 12:22 Brisbane → closes 2026-12-04)
+## ⏱ THE 10-DAY ENDURANCE TEST (clean start 2026-11-24 ~12:48 Brisbane → closes 2026-12-04)
 
 **This system is currently mid-test.** The question this run answers, in one
 sentence:
@@ -39,12 +39,19 @@ a silent wedge nobody noticed.
   defer; per-branch pushes are HEAD-based, so deferred commits ride the
   first successful push after recovery. Durable state lives in wipe-proof
   tiers (`.git/info/`).
-- **Baseline (re-baselined 2026-11-24 12:22 Brisbane, after the
-  platform-pause hardening landed — env tier, keyed respawn, digest
-  boot-time reporting):** 1382 cycles · 833 enhanced · 813 pushed ·
-  1044 reverted · 25 tests written. The daily digest reports deltas
-  against this. (Supersedes the 09:30 sanction-moment baseline of
-  812/792/1027 — the first hours were calibration, not measurement.)
+- **Baseline (clean start 2026-11-24 ~12:48 Brisbane; snapshot
+  13:11 after ~20 min of confirmed clean cycling):** 1385 cycles ·
+  845 enhanced · 825 pushed · 1048 reverted · 25 tests written. The
+  daily digest reports deltas against this. The zero-hour is the
+  first clean cycle after **all** of the morning's hardening landed:
+  the platform-pause tier env/key re-seal (12:16), keyed respawn,
+  digest boot-time reporting, and the memory-envelope fixes that
+  ended the 12:22–12:37 death loop (memguard re-armed 12:41).
+  (Supersedes two earlier snapshots — the 09:30 sanction-moment
+  812/792/1027, whose clock assumed an uninterrupted start the
+  11:41→12:02 machine pause invalidated, and the 12:22
+  1382/833/813/1044, taken the same minute the death loop began.
+  Both were commissioning, not measurement.)
 
 **The supervision stack (why the operator can walk away):**
 
@@ -120,10 +127,10 @@ What this means for the run:
   contract applied to infrastructure.
 
 **The memory envelope (rewritten 2026-11-24 ~02:45, the death loop):**
-the first hour after re-baselining surfaced a failure mode the
-supervision stack could survive but not prevent — 8 kernel OOM kills
-and 7 silent worker deaths inside ~15 minutes (02:22–02:37). The
-mechanism, three interacting parts:
+the half-hour after the (superseded) 12:22 snapshot surfaced a failure
+mode the supervision stack could survive but not prevent — 8 kernel
+OOM kills and 7 silent worker deaths inside ~15 minutes (02:22–02:37
+UTC; 12:22–12:37 Brisbane). The mechanism, three interacting parts:
 
 1. **Characterization-test gate children grow to ~1.32GB** — `bun test`
    on a file with pinned tests boots the module's whole import graph in
@@ -150,14 +157,18 @@ headroom. **Digest signature:** a day with many worker restarts and a
 small cycle delta is a memory incident, not flakiness — check
 `dmesg | grep "Out of memory"`.
 
-**The clock (rewritten 2026-11-24):** day-N stays calendar-based since the
-2026-11-24 baseline (that's what the digest computes), but the run's true
-currency is **machine time** — the box runs only while the operator's
-session holds it. The digest's machine-boot line makes every gap visible,
-and small deltas on rebooted days are expected, not alarming. The close is
-2026-12-04, or the first day the operator judges ten machine-days have
-accrued — success is judged on what the loop did with the machine-time it
-was given, never on calendar throughput.
+**The clock (rewritten 2026-11-24, second and final re-baseline):** day-N
+stays calendar-based since 2026-11-24 (that's what the digest computes),
+but the run's zero-hour is the ~12:48 clean start — everything before it
+(sanction 09:30, machine pause 11:41→12:02, key re-seal 12:16, death loop
+12:22–12:37, memguard re-arm 12:41) was commissioning, not measurement.
+Day 1 therefore carries only ~11 clean hours and a small digest delta by
+design. The run's true currency is **machine time** — the box runs only
+while the operator's session holds it. The digest's machine-boot line
+makes every gap visible, and small deltas on rebooted days are expected,
+not alarming. The close is 2026-12-04, or the first day the operator
+judges ten machine-days have accrued — success is judged on what the loop
+did with the machine-time it was given, never on calendar throughput.
 
 **What success looks like at the close:** the digests tell a continuous
 story; no intervention required beyond [START] after long pause-gaps; the
@@ -223,7 +234,7 @@ endurance_test:
   window: "2026-11-24 → 2026-12-04 (calendar, Australia/Brisbane); machine-time accrues only while the operator's session holds the box — pause-gaps expected and logged"
   mode: "unattended — cron delegates supervise (heartbeat 8h, digest daily 09:00, dev-watchdog 30s); dead-man's switch is the loud failsafe; >24h pause-gaps hold for one deliberate [START]"
   offline_contract: "outages degrade (idle + local commits + deferred pushes), never halt; deferred commits ride the next successful push"
-  baseline: "re-baselined 2026-11-24T12:22+10:00 (post platform-pause hardening): 1382 cycles / 833 enhanced / 813 pushed / 1044 reverted / 25 tests"
+  baseline: "clean start 2026-11-24T12:48+10:00 (post platform-pause hardening + env/key re-seal + memory-envelope fixes; snapshot 13:11): 1385 cycles / 845 enhanced / 825 pushed / 1048 reverted / 25 tests; supersedes 12:22 mid-hardening 1382/833/813/1044 and 09:30 sanction 812/792/1027"
   platform_pause: "host stops the machine ~20-30min after browser disconnect, cold-boots on return; boot chain auto-recovers (DB tier, env tier, worker, watchdog); cron layer pauses with the session"
   memory_envelope: "memguard: next-server≤700MB, worker≤1550MB, SIGTERM→SIGKILL escalation; worker(1.35GB)+test-child(1.32GB)+dev(0.7GB) must never sum past the 4.04GB box — the 2026-11-24 death loop (8 OOM kills, 7 workers) is the cautionary tale"
 ```
