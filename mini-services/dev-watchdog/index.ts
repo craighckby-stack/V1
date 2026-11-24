@@ -129,22 +129,66 @@ const MAX_SPAWNS_PER_HOUR = 12;
 //      leak). The worker gets NO grace — its 1.35GB working set is
 //      front-loaded inside 90s of boot and its 1550MB ceiling already is
 //      working-set + margin.
-const MEMGUARD_NEXT_SERVER_MB = 850;
+// RETUNE 3 (operator, 2026-11-24 ~05:00 UTC — measured, not guessed): three
+// consecutive instances under full dashboard polling settled at 897/955/
+// 934MB — the true steady state with the operator's browser open is
+// ~900-955MB, so an 850 ceiling still recycled every grace-expiry (~6.5min
+// cycle → budget death in ~1h). Ceiling → 950MB (envelope worst case:
+// worker 1.35 + gate child 1.32 + dev 0.95 + misc 0.35 ≈ 3.97GB — 70MB
+// under the 4041MB wall; the kernel only gets to choose in the rare
+// triple-overlap, and every layer recycles by design) AND the respawn
+// heap cap drops 896 → 640MB so V8 GCs hard instead of hoarding — the
+// appetite shrinks toward ~750-850MB, buying margin under the same
+// ceiling. Worst case the dashboard lags under GC pressure, never dies.
+// RETUNE 4 (operator, 2026-11-24 ~05:12 UTC — guard the currency the
+// kernel actually spends): RSS-based ceilings kept recycling a HEALTHY
+// server — settled RSS 1030-1070MB flat (no leak; 897→955→1023→1039
+// across instances under full dashboard polling), heap cap 896→640 didn't
+// shrink it (native + file-backed dominate). smaps_rollup on the settling
+// instance: RSS 1023MB = Anonymous 774MB + file-backed ~250MB — and file
+// pages are EVICTABLE: under box pressure the kernel reclaims them
+// instead of OOM-killing. The OOM killer spends ANON, so the guard must
+// too. Envelope in anon: worker 1.35 + gate child 1.32 + dev 0.90 +
+// misc 0.35 ≈ 3.92GB < the 4041MB wall (≈120MB margin). Observed settled
+// dev anon: 774MB → ceiling 900MB (margin for compile bursts). A real
+// leak = anon growth → caught at 900 → controlled recycle. The worker
+// stays RSS-based (its 1.35GB working set is compiler/prisma anon;
+// RSS ≥ anon makes its guard slightly conservative — the safe direction).
+const MEMGUARD_NEXT_SERVER_ANON_MB = 900; // next-server ANONYMOUS ceiling (smaps_rollup)
 const MEMGUARD_WARMUP_GRACE_MS = 300_000; // next-server age below which the ceiling is exempt
-const MEMGUARD_WORKER_MB = 1550; // working set ~1.35GB + leak margin
+const MEMGUARD_WORKER_MB = 1550; // working set ~1.35GB + leak margin (RSS metric)
 
 interface MemGuardSpec {
   /** substring matched against /proc/<pid>/cmdline */
   cmdMatch: string;
   limitMb: number;
+  /** which memory currency the limit is expressed in (RETUNE 4):
+   *  "anon" = smaps_rollup Anonymous (the OOM killer's currency — use
+   *  for processes with big evictable file-backed footprints, like a
+   *  Turbopack-warm next-server); "rss" = VmRSS (simpler, conservative). */
+  metric: "anon" | "rss";
   /** which target's respawn path owns the recovery */
   owner: string;
 }
 
 const MEMGUARDS: MemGuardSpec[] = [
-  { cmdMatch: "next-server", limitMb: MEMGUARD_NEXT_SERVER_MB, owner: "dev-server" },
-  { cmdMatch: "loop-worker/index.ts", limitMb: MEMGUARD_WORKER_MB, owner: "loop-worker" },
+  { cmdMatch: "next-server", limitMb: MEMGUARD_NEXT_SERVER_ANON_MB, metric: "anon", owner: "dev-server" },
+  { cmdMatch: "loop-worker/index.ts", limitMb: MEMGUARD_WORKER_MB, metric: "rss", owner: "loop-worker" },
 ];
+
+/** Anonymous memory of a pid in MB, or null when unreadable/vanished.
+ *  /proc/<pid>/smaps_rollup is a single cheap read (unlike full smaps).
+ *  This is the number the OOM killer cares about — file-backed pages
+ *  evict under pressure instead of triggering kills. */
+function anonMb(pid: number): number | null {
+  try {
+    const rollup = readFileSync(`/proc/${pid}/smaps_rollup`, "utf8");
+    const m = /Anonymous:\s+(\d+)\s+kB/.exec(rollup);
+    return m ? Math.round(parseInt(m[1], 10) / 1024) : null;
+  } catch {
+    return null;
+  }
+}
 
 /** RSS of a pid in MB, or null when it vanished. /proc/<pid>/status
  *  VmRSS line (kB). Never throws — processes disappear mid-walk. */
@@ -273,14 +317,20 @@ function runMemoryGuard(): void {
           }
           continue;
         }
-        // Steady-state observability: one compact RSS line every ~5min.
+        // Steady-state observability: one compact RSS line every ~5min
+        // (both currencies — RSS shows the fat, anon shows the risk).
         if (gEscalate.__memguardSweepCount! % 10 === 0) {
-          log(`[memguard] next-server pid ${proc.pid} RSS ${proc.rssMb}MB (ceiling ${guard.limitMb}MB)`);
+          log(
+            `[memguard] next-server pid ${proc.pid} RSS ${proc.rssMb}MB anon ${anonMb(proc.pid)}MB (anon ceiling ${guard.limitMb}MB)`
+          );
         }
       }
-      if (proc.rssMb !== null && proc.rssMb > guard.limitMb) {
+      // RETUNE 4: the dev-server is judged on ANON, the worker on RSS.
+      const metricMb =
+        guard.metric === "anon" ? anonMb(proc.pid) : proc.rssMb;
+      if (metricMb !== null && metricMb > guard.limitMb) {
         log(
-          `[memguard] recycling ${guard.owner} (pid ${proc.pid}, RSS ${proc.rssMb}MB > ${guard.limitMb}MB ceiling) — controlled recycle, 2-strike respawn follows`
+          `[memguard] recycling ${guard.owner} (pid ${proc.pid}, ${guard.metric} ${metricMb}MB > ${guard.limitMb}MB ${guard.metric} ceiling${guard.metric === "anon" ? `, RSS ${proc.rssMb}MB (file-backed is evictable — not the risk)` : ""}) — controlled recycle, 2-strike respawn follows`
         );
         try {
           process.kill(proc.pid, "SIGTERM");
@@ -384,17 +434,19 @@ const devServerTarget: WatchTarget = {
         log(`log rotation failed (continuing): ${err instanceof Error ? err.message : String(err)}`);
       }
 
-      // V8 heap cap for the respawned dev server. The two OOM kills
-      // (04:46, 05:09) both hit next-server at 1.26-1.55GB RSS when its
-      // heap growth coincided with a transient gate child-process (eslint
-      // ~500MB / tsc ~1GB). Capping the heap at 896MB makes V8 GC harder
-      // instead of growing — worst case the dashboard lags, never dies.
-      // Existing NODE_OPTIONS (if any) are preserved, not clobbered.
+      // V8 heap cap for the respawned dev server (RETUNE 3: 896 → 640MB).
+      // The 896 cap let the heap hoard to ~900MB+ before hard GC (observed
+      // settled RSS 897-955MB under dashboard polling). 640 forces V8 to
+      // stay lean: worst case the dashboard lags, never dies. NOTE: only
+      // this respawn path is capped — dev.sh's boot spawn and the cron
+      // keepalive's relaunch run uncapped; an oversized uncapped server
+      // gets one controlled memguard recycle and THIS capped path takes
+      // over. Self-converging by construction.
       const existingNodeOptions = process.env.NODE_OPTIONS ?? "";
       const nodeOptions = existingNodeOptions
         .split(/\s+/)
-        .filter((f) => f && f !== "--max-old-space-size=896")
-        .concat("--max-old-space-size=896")
+        .filter((f) => f && f !== "--max-old-space-size=896" && f !== "--max-old-space-size=640")
+        .concat("--max-old-space-size=640")
         .join(" ");
 
       const child = spawn("bun", ["run", "dev"], {
@@ -669,6 +721,6 @@ process.on("unhandledRejection", (err) => {
 if (serveOk) {
   log(`listening on 0.0.0.0:${PORT} (pid ${process.pid}) — supervising ${TARGETS.length} targets`);
   log(
-    `memguard armed: next-server>${MEMGUARD_NEXT_SERVER_MB}MB (warmup grace ${MEMGUARD_WARMUP_GRACE_MS / 1000}s), loop-worker>${MEMGUARD_WORKER_MB}MB → controlled SIGTERM recycle (kernel OOM kill observed at ~1.3GB, 2026-11-24)`
+    `memguard armed: next-server anon>${MEMGUARD_NEXT_SERVER_ANON_MB}MB (warmup grace ${MEMGUARD_WARMUP_GRACE_MS / 1000}s), loop-worker rss>${MEMGUARD_WORKER_MB}MB → controlled SIGTERM recycle (kernel OOM kill observed at ~1.3GB, 2026-11-24)`
   );
 }

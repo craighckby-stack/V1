@@ -126,6 +126,23 @@ What this means for the run:
   deliberate click. That is the "ends LOUDLY, never silently"
   contract applied to infrastructure.
 
+**The second cold boot (2026-11-24 04:15:45 UTC; 14:15 Brisbane — 73
+minutes after the clean start) exposed the boot chain's last race.** The
+machine paused again while the operator was away and auto-recovery
+worked on return (DB tier restored, worker cycling, pushes landing
+within minutes) — but the boot path starts the mini-services TWICE:
+dev.sh's `bun run dev` wrappers race the dev server's own
+instrumentation spawns for each port. The worker and harvester losers
+died cleanly on their port conflict (fatal on bind); the watchdog and
+loop-ws losers did not — their crash-resilience (correct for probe and
+poll errors) also swallowed the EADDRINUSE from their failed bind,
+leaving a **second watchdog** running a duplicate memguard + spawn
+loop and **two extra ws instances** polling :3000 forever. Both
+services now enforce a **single-owner rule**: a loser of the port race
+exits immediately — the port owner is the one true instance. Observed
+live: the zombie watchdog exited on the fix's hot-reload, one of each
+service remains, no more double kills or double budget-spend.
+
 **The memory envelope (rewritten 2026-11-24 ~02:45, the death loop):**
 the half-hour after the (superseded) 12:22 snapshot surfaced a failure
 mode the supervision stack could survive but not prevent — 8 kernel
@@ -156,6 +173,36 @@ growth (60–90s dark each) — the read-only surface pays for the loop's
 headroom. **Digest signature:** a day with many worker restarts and a
 small cycle delta is a memory incident, not flakiness — check
 `dmesg | grep "Out of memory"`.
+
+**The 700MB ceiling was aspiration, not observation (2026-11-24
+~15:15 Brisbane, the warmup recycle loop):** the second cold boot put
+that ceiling to its first real test — and every respawned dev-server
+warmed straight through it (RSS 791→890MB within ~2min of spawn), so
+the memguard killed each one mid-warmup: **5 spawns burned in 11
+minutes** (04:17–04:27 UTC), budget exhaustion ~30min away, the
+dashboard permanently dark while the loop itself cycled on untouched.
+Diagnosis took three measured iterations, each its own controlled
+recycle (the memguard's new observability lines tell the story):
+settled RSS under full dashboard polling is **1030–1070MB, flat** (no
+leak — the 897→955→1023MB sequence across instances was
+warmup-to-flat, not growth), and the V8 heap cap is not the driver
+(native + file-backed memory dominates; capping the heap 896→640MB
+didn't move the number). The decisive measurement —
+`/proc/<pid>/smaps_rollup` — split the 1023MB settled footprint into
+**774MB anonymous + ~250MB file-backed**, and file pages EVICT under
+box pressure instead of triggering kills: the OOM killer spends
+anonymous memory, so the guard must too. Final envelope, all
+measured: **next-server is judged on ANON, ceiling 900MB** (settled
+anon 774–837MB + compile-burst margin) with a **300s warmup grace**
+(compile spikes are warmup, not leaks) and the respawn heap cap at
+640MB (V8 GCs hard instead of hoarding — worst case the dashboard
+lags, never dies); the worker stays on RSS 1550MB (its 1.35GB working
+set is compiler/Prisma anon; RSS ≥ anon is the conservative
+direction). Worst-case anon sum: 1.35 (worker) + 1.32 (gate child) +
+0.90 (dev) + ~0.35 misc ≈ 3.92GB of the 4041MB wall. **Updated honest
+cost:** the dashboard no longer recycles on a schedule — only on
+genuine anon growth past 900MB, and the guard logs an RSS+anon line
+every ~5min so the digest can point at the curve.
 
 **The clock (rewritten 2026-11-24, second and final re-baseline):** day-N
 stays calendar-based since 2026-11-24 (that's what the digest computes),
@@ -236,7 +283,7 @@ endurance_test:
   offline_contract: "outages degrade (idle + local commits + deferred pushes), never halt; deferred commits ride the next successful push"
   baseline: "clean start 2026-11-24T12:48+10:00 (post platform-pause hardening + env/key re-seal + memory-envelope fixes; snapshot 13:11): 1385 cycles / 845 enhanced / 825 pushed / 1048 reverted / 25 tests; supersedes 12:22 mid-hardening 1382/833/813/1044 and 09:30 sanction 812/792/1027"
   platform_pause: "host stops the machine ~20-30min after browser disconnect, cold-boots on return; boot chain auto-recovers (DB tier, env tier, worker, watchdog); cron layer pauses with the session"
-  memory_envelope: "memguard: next-server≤700MB, worker≤1550MB, SIGTERM→SIGKILL escalation; worker(1.35GB)+test-child(1.32GB)+dev(0.7GB) must never sum past the 4.04GB box — the 2026-11-24 death loop (8 OOM kills, 7 workers) is the cautionary tale"
+  memory_envelope: "memguard (measured 2026-11-24): next-server judged on ANON ≤ 900MB (smaps_rollup; settled anon 774-837MB, the ~250MB file-backed share is evictable) + 300s warmup grace + V8 heap cap 640MB; worker on RSS ≤ 1550MB; SIGTERM→SIGKILL escalation; worst-case anon 1.35+1.32+0.90+0.35 ≈ 3.92GB of the 4041MB box — the death loop (8 OOM kills, 7 workers) and the warmup recycle loop (5 spawns in 11min) are the cautionary tales"
 ```
 
 ---
