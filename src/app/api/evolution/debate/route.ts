@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     
     // Validate structure and cast in one step
     if (typeof json !== 'object' || json === null || !('filePath' in json) || !('candidateCode' in json)) {
-        throw new Error("Request body structure is invalid or missing required fields.");
+        throw new Error("Request body structure is invalid or missing required fields: 'filePath' and 'candidateCode' are required.");
     }
     
     // Perform strict type checking before casting to DebateRequest
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
 
   } catch (e) {
     // Handle JSON parsing errors or structural/validation errors thrown above
-    const errorMessage = e instanceof Error ? e.message : "Unknown input error.";
+    const errorMessage = e instanceof Error ? e.message : "Unknown input error during request parsing.";
     
     return NextResponse.json(
       { error: `Invalid request body: ${errorMessage}` },
