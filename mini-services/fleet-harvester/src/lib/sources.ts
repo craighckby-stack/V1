@@ -112,6 +112,8 @@ export function appendPresetToSources(existing: string | null | undefined, addit
   const existingKeys = new Set(current.map((c) => c.raw.toLowerCase()));
   const merged = [...current.map((c) => c.raw)];
 
+  if (additions.length === 0) return existingString;
+
   // Parse all additions once
   const parsedAdditions = parseSources(additions.join(', '));
 
