@@ -157,6 +157,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
           }
         } catch (e) {
           /* malformed lessonIdsInjected — skip the trail line */
+          console.warn(`[ProvenanceDigest] Malformed lessonIdsInjected for cycle ${lastWithLessons.cycleNumber}: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     } else {
@@ -194,8 +195,8 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
         // Calculate max content length to ensure the total length is <= BUDGET
         const maxContentLength = PROVENANCE_BLOCK_BUDGET - footer.length;
         // Truncate content before the footer, respecting the budget.
-        const truncatedResult = result.substring(0, footerIndex).slice(0, maxContentLength);
-        return truncatedResult + footer;
+        const truncatedContent = result.substring(0, footerIndex).slice(0, maxContentLength);
+        return truncatedContent + footer;
       }
       // Fallback if footer somehow isn't found (shouldn't happen, but safer to truncate fully)
       return result.slice(0, PROVENANCE_BLOCK_BUDGET);
