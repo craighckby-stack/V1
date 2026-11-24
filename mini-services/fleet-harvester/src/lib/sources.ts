@@ -117,7 +117,7 @@ export function appendPresetToSources(existing: string | null | undefined, addit
   
   const current = parseSources(existingString);
   const existingKeys = new Set(current.map((c) => c.raw.toLowerCase()));
-  const merged = [...current.map((c) => c.raw)];
+  const merged: string[] = [...current.map((c) => c.raw)];
 
   if (additions.length === 0) return existingString;
 
@@ -174,7 +174,8 @@ export function deriveLogPaths(
   };
   const ext = extMap[format];
   // Use DEFAULT_BASE_PATH if basePath is null/undefined or empty after trimming
-  const clean = (basePath ? basePath.trim() : DEFAULT_BASE_PATH).replace(/^\/+/, '');
+  const clean = (basePath && basePath.trim().length > 0) ? basePath.trim().replace(/^\/+/, '') : DEFAULT_BASE_PATH.replace(/^\/+/, '');
+  
   const lastSlash = clean.lastIndexOf('/');
   const dir = lastSlash >= 0 ? clean.slice(0, lastSlash + 1) : '';
   const file = lastSlash >= 0 ? clean.slice(lastSlash + 1) : clean;
