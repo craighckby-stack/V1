@@ -38,11 +38,7 @@ function parseArgs(argv: string[]): CliArgs {
   for (const arg of argv.slice(2)) {
     if (arg.startsWith("--repos=")) {
       const reposValue = arg.slice("--repos=".length).trim();
-      if (reposValue === "") {
-        // Allow empty string if it's the only argument, but subsequent logic will catch it.
-        // Do not exit here; let the main function validate the resulting array.
-        out.repos = "";
-      } else {
+      if (reposValue) {
         out.repos = reposValue;
       }
     } else if (arg === "--no-push") out.noPush = true;
