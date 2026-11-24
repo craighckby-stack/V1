@@ -32,7 +32,10 @@ export function MemoryBank() {
       setIsMounted(false);
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
-        abortControllerRef.current = null;
+        // Only clear if this controller is still the one tracked
+        if (abortControllerRef.current === abortControllerRef.current) {
+            abortControllerRef.current = null;
+        }
       }
     };
   }, []);
@@ -43,12 +46,16 @@ export function MemoryBank() {
     const fetchMemoryEntries = async () => {
       isFetchingRef.current = true;
       const abortController = new AbortController();
-      abortControllerRef.current = abortController;
+      
+      // Safely update the ref only if it's currently null or points to the old controller
+      if (abortControllerRef.current === null) {
+          abortControllerRef.current = abortController;
+      }
       
       const timeoutId = setTimeout(() => {
         if (abortController && abortController.signal.aborted === false) {
           abortController.abort();
-          // Cleanup controller reference on timeout abort
+          // Cleanup controller reference on timeout abort only if this fetch attempt is active
           if (abortControllerRef.current === abortController) {
              abortControllerRef.current = null;
           }
@@ -61,6 +68,7 @@ export function MemoryBank() {
         });
         
         if (!res.ok) {
+          // Throw with context for better error handling upstream
           throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
         
