@@ -69,7 +69,11 @@ export async function POST(req: Request) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error during LLM debate execution.";
     
     // Log the full error internally for pipeline observability before returning a sanitized response
-    console.error("LLM Debate Execution Error:", err, { filePath: body.filePath });
+    console.error("LLM Debate Execution Error:", err, { 
+      filePath: body.filePath,
+      candidateCode: body.candidateCode.substring(0, 50) + '...', // Log first 50 chars for privacy
+      topic: body.topic 
+    });
 
     // Return a standardized 500 response with a clear, non-leaking message
     return NextResponse.json(
