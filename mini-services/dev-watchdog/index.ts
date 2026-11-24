@@ -167,8 +167,49 @@ function findProcesses(substr: string): Array<{ pid: number; rssMb: number | nul
 }
 
 /** One memory-guard sweep. SIGTERMs any process over its ceiling; the
- *  target's probe failures then drive the 2-strike respawn. */
+ *  target's probe failures then drive the 2-strike respawn.
+ *
+ * SIGTERM ESCALATION (operator, 2026-11-24 ~02:37 — observed live during
+ * the death-loop recovery): next-server under memory pressure IGNORED
+ * two consecutive SIGTERMs (pid 2634 recycled at 02:34:59 and 02:35:29,
+ * still holding 850MB and port :3000). A stuck-terminating server
+ * blocks its own replacement (EADDRINUSE) and burns respawn budget.
+ * Now: a SIGTERMed pid that is still alive on the NEXT sweep (~30s
+ * later) gets SIGKILL — the port frees, the respawn binds cleanly. */
+const gEscalate = globalThis as unknown as {
+  __memguardSigtermed?: Map<number, number>; // pid → epoch ms of SIGTERM
+};
+gEscalate.__memguardSigtermed ??= new Map();
+
 function runMemoryGuard(): void {
+  const now = Date.now();
+  // Escalation pass first: anything SIGTERMed >25s ago that still lives
+  // is stuck-terminating — hard-kill it so the respawn can bind.
+  for (const [pid, termAt] of gEscalate.__memguardSigtermed!) {
+    let alive = true;
+    try {
+      process.kill(pid, 0); // signal 0 = existence probe, no signal sent
+    } catch {
+      alive = false; // exited on its own — forget it
+    }
+    if (!alive) {
+      gEscalate.__memguardSigtermed!.delete(pid);
+      continue;
+    }
+    if (now - termAt > 25_000) {
+      log(
+        `[memguard] pid ${pid} survived SIGTERM >25s (stuck terminating) — escalating to SIGKILL`
+      );
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch (err) {
+        log(
+          `[memguard] SIGKILL failed for pid ${pid} (guard continues): ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+      gEscalate.__memguardSigtermed!.delete(pid);
+    }
+  }
   for (const guard of MEMGUARDS) {
     for (const proc of findProcesses(guard.cmdMatch)) {
       if (proc.rssMb !== null && proc.rssMb > guard.limitMb) {
@@ -177,6 +218,7 @@ function runMemoryGuard(): void {
         );
         try {
           process.kill(proc.pid, "SIGTERM");
+          gEscalate.__memguardSigtermed!.set(proc.pid, now);
         } catch (err) {
           log(
             `[memguard] SIGTERM failed for pid ${proc.pid} (guard continues): ${err instanceof Error ? err.message : String(err)}`

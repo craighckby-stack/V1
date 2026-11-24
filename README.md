@@ -119,6 +119,37 @@ What this means for the run:
   deliberate click. That is the "ends LOUDLY, never silently"
   contract applied to infrastructure.
 
+**The memory envelope (rewritten 2026-11-24 ~02:45, the death loop):**
+the first hour after re-baselining surfaced a failure mode the
+supervision stack could survive but not prevent — 8 kernel OOM kills
+and 7 silent worker deaths inside ~15 minutes (02:22–02:37). The
+mechanism, three interacting parts:
+
+1. **Characterization-test gate children grow to ~1.32GB** — `bun test`
+   on a file with pinned tests boots the module's whole import graph in
+   the child process.
+2. **The worker's working set is ~1.35GB** (pipeline + in-memory TS
+   compiler + Prisma, front-loaded within 90s of boot).
+3. **The old memguard let next-server reach 1.15GB** — the sum crossed
+   the 4.04GB box, the global OOM killer fired, killed the child, and
+   the worker (whose own failed allocation had *invoked* the killer)
+   died silently with it. Boot recovery then reset `in_progress →
+   pending`, so every respawn re-claimed the same task: a death loop at
+   one worker per ~2 minutes, burning respawn budget.
+
+**The fixes (all live, verified by a clean recovery cycle):** the
+memguard envelope is retuned so the wall can never be reached
+(next-server ceiling 1150→**700MB**; steady-state worst case
+1.35 + 1.32 + 0.70 + ~0.35 ≈ 3.7GB); stuck-terminating processes now
+get **SIGTERM → SIGKILL escalation** (next-server ignored two SIGTERMs
+live while holding the port); and the 124 poison SelfTasks were given
+an operator veto (they regenerate on future scans, now protected by
+the envelope). Honest cost: the dashboard recycles every ~40–60min of
+growth (60–90s dark each) — the read-only surface pays for the loop's
+headroom. **Digest signature:** a day with many worker restarts and a
+small cycle delta is a memory incident, not flakiness — check
+`dmesg | grep "Out of memory"`.
+
 **The clock (rewritten 2026-11-24):** day-N stays calendar-based since the
 2026-11-24 baseline (that's what the digest computes), but the run's true
 currency is **machine time** — the box runs only while the operator's
@@ -194,6 +225,7 @@ endurance_test:
   offline_contract: "outages degrade (idle + local commits + deferred pushes), never halt; deferred commits ride the next successful push"
   baseline: "re-baselined 2026-11-24T12:22+10:00 (post platform-pause hardening): 1382 cycles / 833 enhanced / 813 pushed / 1044 reverted / 25 tests"
   platform_pause: "host stops the machine ~20-30min after browser disconnect, cold-boots on return; boot chain auto-recovers (DB tier, env tier, worker, watchdog); cron layer pauses with the session"
+  memory_envelope: "memguard: next-server≤700MB, worker≤1550MB, SIGTERM→SIGKILL escalation; worker(1.35GB)+test-child(1.32GB)+dev(0.7GB) must never sum past the 4.04GB box — the 2026-11-24 death loop (8 OOM kills, 7 workers) is the cautionary tale"
 ```
 
 ---
