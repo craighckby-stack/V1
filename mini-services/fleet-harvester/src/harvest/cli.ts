@@ -39,10 +39,12 @@ function parseArgs(argv: string[]): CliArgs {
     if (arg.startsWith("--repos=")) {
       const reposValue = arg.slice("--repos=".length).trim();
       if (reposValue === "") {
-        console.error("ERROR: --repos= requires at least one repository name, but received an empty value.");
-        process.exit(2);
+        // Allow empty string if it's the only argument, but subsequent logic will catch it.
+        // Do not exit here; let the main function validate the resulting array.
+        out.repos = "";
+      } else {
+        out.repos = reposValue;
       }
-      out.repos = reposValue;
     } else if (arg === "--no-push") out.noPush = true;
     else if (arg === "--dry-run") out.dryRun = true;
     else if (arg.startsWith("--format=")) {

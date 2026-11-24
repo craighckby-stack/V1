@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/operator-questions/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/api/operator-questions/route.ts(77,11): error TS2451: Cannot redeclare block-scoped variable 'answer'.; src/app/api/operator-questions/route.ts(90,9): error TS2451: Cannot redeclare block-scoped variable 'answer'.; src/app/api/operator-questions/route.ts(117,49): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type '\"yes\" | \"no\"'.\n  Type 'undefined' is not assignable to type '\"yes\" | \"no\"'.",
@@ -12,8 +12,8 @@
   "parentHash": "360b83b9d531d25083b1781f871edc765aebe4edd7f8c6befa10d4a52e28883d",
   "hash": "aa78b876bba3ec7406610a4bf8d82cb331ec71ae4913d41727ba7c6127150333",
   "lastAttemptAt": "2026-11-23T20:29:34.537Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-24T00:20:42.609Z",
   "createdAt": "2026-11-23T03:29:46.358Z",
-  "updatedAt": "2026-11-23T20:29:34.537Z",
+  "updatedAt": "2026-11-24T00:20:42.609Z",
   "schema": 2
 }
