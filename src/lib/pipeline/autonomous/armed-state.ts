@@ -119,7 +119,7 @@ export function markArmed(armed: boolean, by: string): void {
   } catch (error) {
     // Log the error for debugging but don't throw to maintain the contract
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`markArmed: Failed to persist armed state to ${ARMED_STATE_FILE} (by: ${by}, armed: ${armed}). Check file system permissions or directory creation failure. Error details: ${errorMessage}`);
+    console.error(`markArmed: Failed to persist armed state to ${ARMED_STATE_FILE} (by: ${by}, armed: ${armed}). Check file system permissions or directory creation failure. Error: ${errorMessage}`);
   }
 }
 
