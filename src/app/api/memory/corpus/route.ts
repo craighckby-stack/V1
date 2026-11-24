@@ -39,7 +39,7 @@ export async function GET(request: Request) {
     const timeoutError = new Error("Search operation timed out after 5000ms.");
     
     // Wrap timeout in a promise that rejects after 5000ms
-    const timeoutPromise = new Promise<any>((_, reject) => 
+    const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(timeoutError), 5000)
     );
 

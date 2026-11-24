@@ -70,7 +70,6 @@ const OFFLINE_THRESHOLD = 3;
 const PROBE_BASE_MS = 15_000;
 const PROBE_MAX_MS = 5 * 60_000;
 const PROBE_MAX_INTERVAL_MS = PROBE_MAX_MS;
-const PROBE_MAX_MS_CONSTANT = 5 * 60_000;
 
 export interface NetStatusSnapshot {
   offline: boolean;
@@ -228,7 +227,7 @@ export async function probeConnectivity(): Promise<boolean> {
     // Any status (200/301/403/429...) = we reached the internet.
     clearTimeout(timer);
     return res.status >= 0;
-  } catch (e) {
+  } catch {
     clearTimeout(timer);
     // Catch aborts, network errors, etc.
     return false;

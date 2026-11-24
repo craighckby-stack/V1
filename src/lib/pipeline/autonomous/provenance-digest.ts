@@ -196,7 +196,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     lines.push(footer);
 
     // Enforce the byte cap.
-    let result = lines.join("\n");
+    const result = lines.join("\n");
     
     if (result.length > PROVENANCE_BLOCK_BUDGET) {
       const footerIndex = result.lastIndexOf(footer);

@@ -28,7 +28,7 @@ const server = createServer(async (req, res) => {
   let url: URL;
   try {
     url = new URL(urlString, `http://localhost:${PORT}`);
-  } catch (e) {
+  } catch {
     // Handle malformed URL path gracefully
     res.writeHead(400, { "content-type": "text/plain" });
     res.end("Bad Request: Invalid URL path");

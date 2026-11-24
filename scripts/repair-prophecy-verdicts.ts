@@ -60,7 +60,7 @@ async function main(): Promise<void> {
     let meta: ProphecyMeta = {};
     try {
       meta = p.historySnapshot ? (JSON.parse(p.historySnapshot) as ProphecyMeta) : {};
-    } catch (e) {
+    } catch {
       skippedUnparseable++;
       continue;
     }

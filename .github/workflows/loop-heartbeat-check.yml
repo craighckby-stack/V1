@@ -10,10 +10,14 @@
 # quiet because it's doing fine" and "the system is quiet because it's
 # dead."
 #
-# STALENESS THRESHOLD: 8 hours. The batch runs every 4 hours, so a
-# heartbeat older than 8 hours means two consecutive runs missed. The
-# check fails the job (which sends an email to the repo owner) and
-# opens an issue with the diagnostic.
+# STALENESS THRESHOLD: 24 hours. Designed as "two consecutive runs
+# missed": the schedule says every 4h, but OBSERVED cadence on this repo
+# (runs 1-3: 23:06 → 07:39 → 19:13 UTC, 2026-11-23/24) is 8.5-11.5h
+# because GitHub scheduled-workflow dispatch is heavily delayed on quiet
+# repos. An 8h threshold against a ~12h real cadence alarms forever;
+# 24h preserves the intent (two missed runs) against reality. The check
+# fails the job (which sends an email to the repo owner) and opens an
+# issue with the diagnostic.
 #
 # This workflow is separate from loop.yml on purpose: if loop-batch
 # breaks (the extinction event), this workflow keeps running and tells
@@ -61,8 +65,13 @@ jobs:
             exit 0
           fi
 
-          # Parse the timestamp from the heartbeat
-          HEARTBEAT_AT=$(bun -e "console.log(JSON.parse(require('fs').readFileSync('loop-state/last-run.json','utf8')).at)" 2>/dev/null || echo "")
+          # Parse the timestamp from the heartbeat. NOTE: node, not bun —
+          # this workflow never installs bun (the 2026-11-24 incident:
+          # `bun: command not found` on the runner, stderr swallowed by
+          # 2>/dev/null, every heartbeat read as "missing or unparseable",
+          # extinction issue #1 opened against a 31-minute-fresh
+          # heartbeat). node is preinstalled on every GitHub runner.
+          HEARTBEAT_AT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('loop-state/last-run.json','utf8')).at)" 2>/dev/null || echo "")
           if [ -z "$HEARTBEAT_AT" ]; then
             echo "stale=true" >> $GITHUB_OUTPUT
             echo "reason=Heartbeat file exists but .at timestamp is missing or unparseable." >> $GITHUB_OUTPUT
@@ -77,9 +86,9 @@ jobs:
           echo "heartbeat_at=$HEARTBEAT_AT" >> $GITHUB_OUTPUT
           echo "age_hours=$AGE_HOURS" >> $GITHUB_OUTPUT
 
-          if [ "$AGE_HOURS" -gt 8 ]; then
+          if [ "$AGE_HOURS" -gt 24 ]; then
             echo "stale=true" >> $GITHUB_OUTPUT
-            echo "reason=Heartbeat is $AGE_HOURS hours old (threshold: 8h). Two or more consecutive batches missed." >> $GITHUB_OUTPUT
+            echo "reason=Heartbeat is $AGE_HOURS hours old (threshold: 24h). Two or more consecutive batches missed (observed cadence ~12h due to GitHub cron delays)." >> $GITHUB_OUTPUT
           else
             echo "stale=false" >> $GITHUB_OUTPUT
             echo "Heartbeat is fresh ($AGE_HOURS hours old)." 
@@ -114,7 +123,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title: 'LOOP extinction alert: batch scheduler appears dead',
-                body: `## The loop-batch scheduler may be dead\n\n${reason}\n\n### Diagnostic\n- Heartbeat age: ${age} hours (threshold: 8h)\n- Last heartbeat: ${{ steps.check.outputs.heartbeat_at }}\n- Check run: ${context.runId}\n\n### What to check\n1. Is the \`loop-batch\` workflow still enabled? (Actions tab → loop-batch → ...)\n2. Are the repository secrets still set? (Settings → Secrets)\n3. Did the last batch run fail? (Actions tab → recent runs)\n4. Is the system frozen? (check loop-state/last-run.json \`frozen\` field)\n\nThis issue stays open until the heartbeat goes fresh again.`,
+                body: `## The loop-batch scheduler may be dead\n\n${reason}\n\n### Diagnostic\n- Heartbeat age: ${age} hours (threshold: 24h)\n- Last heartbeat: ${{ steps.check.outputs.heartbeat_at }}\n- Check run: ${context.runId}\n\n### What to check\n1. Is the \`loop-batch\` workflow still enabled? (Actions tab → loop-batch → ...)\n2. Are the repository secrets still set? (Settings → Secrets)\n3. Did the last batch run fail? (Actions tab → recent runs)\n4. Is the system frozen? (check loop-state/last-run.json \`frozen\` field)\n\nThis issue stays open until the heartbeat goes fresh again.`,
                 labels: ['loop-extinction', 'operator-action-required']
               });
               core.info('Opened new extinction issue');

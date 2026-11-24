@@ -46,7 +46,7 @@ async function main() {
     throw new Error(`Failed to serialize evidence to JSON: ${errorDetail}. The evidence object may contain circular references or be too large.`);
   }
 
-  let record: any;
+  let record: Awaited<ReturnType<typeof postmortemStore.recordFailure>>;
   try {
     record = await postmortemStore.recordFailure({
       repo: "self",

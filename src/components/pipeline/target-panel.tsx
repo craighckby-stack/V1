@@ -101,13 +101,13 @@ export function TargetPanel({ open, onClose }: Props) {
       const res = await Promise.race([
         fetchPromise, 
         new Promise<Response>((_, reject) => {
-            // This internal timeout promise is redundant if timeoutRef manages state, 
+            // This internal timeout promise is redundant if timeoutRef manages state,
             // but Promise.race requires a promise that resolves/rejects.
             // We rely on the external timeoutRef logic to set state, but this ensures Promise.race doesn't hang.
-            const timeoutId = setTimeout(() => {
+            setTimeout(() => {
                 reject(new Error("Request timed out"));
             }, TIMEOUT_MS);
-            // Note: We cannot reliably clear this internal timeoutId here without complex state management, 
+            // Note: We cannot reliably clear this internal timer here without complex state management,
             // relying on the external timeoutRef cleanup is safer for state consistency.
         })
       ]);

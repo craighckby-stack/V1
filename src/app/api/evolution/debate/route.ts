@@ -65,9 +65,6 @@ export async function POST(req: Request) {
       ...result,
     });
   } catch (err: unknown) {
-    // Safely check if err is an Error object before logging properties
-    const errorMessage = err instanceof Error ? err.message : "Unknown error during LLM debate execution.";
-    
     // Log the full error internally for pipeline observability before returning a sanitized response
     console.error("LLM Debate Execution Error:", err, { 
       filePath: body.filePath,

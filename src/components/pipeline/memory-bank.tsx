@@ -46,7 +46,7 @@ export function MemoryBank() {
       abortControllerRef.current = abortController;
       
       const timeoutPromise = new Promise<never>((_, reject) => {
-        const timeoutId = setTimeout(() => {
+        setTimeout(() => {
           abortController.abort();
           // Ensure abortControllerRef is cleared if timeout triggers
           if (abortControllerRef.current === abortController) {
@@ -54,8 +54,6 @@ export function MemoryBank() {
           }
           reject(new Error("Request timeout after 10 seconds"));
         }, 10000);
-        // Attach timeoutId to abortController for cleanup if fetch succeeds/fails early
-        (abortController as any).timeoutId = timeoutId;
       });
       
       try {

@@ -65,7 +65,7 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
 
   for (const token of tokens) {
     let cleanToken = token;
-    let match = cleanToken.match(githubSlugRegex);
+    const match = cleanToken.match(githubSlugRegex);
 
     if (match) {
       // match[1] is owner, match[2] is repo (optional)

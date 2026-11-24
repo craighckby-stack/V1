@@ -10,8 +10,8 @@ import { describe, test, expect } from "bun:test";
 // that *should* be passed to the external dependency upon successful execution.
 
 // Mocking the necessary external dependency for test isolation
-const mockPostmortemStore = {
-  recordFailure: async (_args: any) => ({
+const _mockPostmortemStore = {
+  recordFailure: async (_args: unknown) => ({
     id: "mock-uuid-123",
     targetRepo: "self",
     branch: "main",
