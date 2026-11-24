@@ -168,6 +168,24 @@ if ! bun run db:push; then
 fi
 log_step_end "bun run db:push"
 
+# ── ENV TIER RESTORE (operator, 2026-11-24 — platform-pause hardening) ────
+# LOOP_API_KEY gates every mutating API route (src/middleware.ts) AND the
+# loop-worker's POST mirrors (:3004) — fail-closed on both. .env is
+# untracked, so every machine stop wipes the key and locks the whole
+# control surface until a human re-sets it. .git/info/ survives machine
+# restarts (proven by the DB tier), so the key is tiered there:
+#   - .env missing the key + tier has it  → restore into .env (boot heal)
+#   - .env has the key                    → refresh the tier from .env
+#     (operator rotations propagate; never overwrites a live key)
+ENV_TIER="$PROJECT_DIR/.git/info/loop-env-tier.env"
+if [ -f "$ENV_TIER" ] && ! grep -q '^LOOP_API_KEY=' "$PROJECT_DIR/.env" 2>/dev/null; then
+        echo "[ENV-TIER] LOOP_API_KEY missing from .env — restoring from wipe-proof tier"
+        cat "$ENV_TIER" >> "$PROJECT_DIR/.env"
+elif grep -q '^LOOP_API_KEY=' "$PROJECT_DIR/.env" 2>/dev/null; then
+        grep '^LOOP_API_KEY=' "$PROJECT_DIR/.env" > "$ENV_TIER"
+        chmod 600 "$ENV_TIER" 2>/dev/null || true
+fi
+
 log_step_start "Starting Next.js dev server"
 echo "[BUN] Starting development server..."
 bun run dev &

@@ -87,6 +87,11 @@ What this means for the run:
   auto-started the worker, the watchdog re-armed within 90s (all 4
   targets probe-ok), and the loop resumed mid-mutation with pushes
   landing within 10 minutes.
+- **The API gate key is wipe-proof now too** — the same restart silently
+  wiped `.env` (untracked), locking every mutating route and the worker's
+  control mirrors (fail-closed gates). The key now lives in
+  `.git/info/loop-env-tier.env` and the boot chain restores it into
+  `.env` on every machine start.
 - **Uptime accrues only while the operator's session is connected.**
   Keep the preview tab open — pinned or in a background window is fine;
   nothing depends on browser polling anymore, and a throttled hidden
