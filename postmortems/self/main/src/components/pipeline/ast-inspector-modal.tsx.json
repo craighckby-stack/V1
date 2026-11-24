@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/ast-inspector-modal.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "d0b41e6b5528b76b63cafaedb8df2dd47fcc9be035e5d9a0e750364cf447006f",
   "hash": "171fdbcd5ddc7ee686917bb539d367e89ad1cdb65c3d34cf9198fc5ec1b81d37",
   "lastAttemptAt": "2026-11-23T22:13:06.246Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-24T00:23:31.769Z",
   "createdAt": "2026-11-23T03:29:46.421Z",
-  "updatedAt": "2026-11-23T22:13:06.246Z",
+  "updatedAt": "2026-11-24T00:23:31.769Z",
   "schema": 2
 }
