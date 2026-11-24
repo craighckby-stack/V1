@@ -18,8 +18,7 @@ interface DebateRequest {
  * returned honestly as a 500.
  */
 export async function POST(req: Request) {
-  let body: DebateRequest | undefined;
-  let filePath: string | undefined;
+  let body: DebateRequest;
 
   try {
     const json = await req.json();
@@ -28,36 +27,26 @@ export async function POST(req: Request) {
     if (typeof json !== 'object' || json === null || !('filePath' in json) || !('candidateCode' in json)) {
         throw new Error("Request body structure is invalid or missing required fields.");
     }
+    
+    // Perform strict type checking before casting to DebateRequest
+    if (typeof json.filePath !== "string" || json.filePath.trim().length === 0 || 
+        typeof json.candidateCode !== "string" || json.candidateCode.trim().length === 0) {
+        throw new Error("filePath and candidateCode must be non-empty strings.");
+    }
+
     body = json as DebateRequest;
-    filePath = body.filePath; // Capture filePath early for error context
+
+    // Validate optional topic field
+    if (body.topic !== undefined && (typeof body.topic !== "string" || body.topic.trim().length === 0)) {
+        throw new Error("If provided, topic must be a non-empty string.");
+    }
 
   } catch (e) {
-    // Provide a specific 400 error for JSON parsing failure or structural mismatch
+    // Handle JSON parsing errors or structural/validation errors thrown above
+    const errorMessage = e instanceof Error ? e.message : "Unknown input error.";
+    
     return NextResponse.json(
-      { error: "Invalid JSON format or missing required fields (filePath, candidateCode) in request body." },
-      { status: 400 }
-    );
-  }
-
-  // Consolidated validation for required fields
-  if (typeof body?.filePath !== "string" || body.filePath.trim().length === 0) {
-    return NextResponse.json(
-      { error: "filePath is required and must be a non-empty string." },
-      { status: 400 }
-    );
-  }
-
-  if (typeof body?.candidateCode !== "string" || body.candidateCode.trim().length === 0) {
-    return NextResponse.json(
-      { error: "candidateCode is required and must be a non-empty string." },
-      { status: 400 }
-    );
-  }
-
-  // Validate optional topic field
-  if (body.topic !== undefined && (typeof body.topic !== "string" || body.topic.trim().length === 0)) {
-    return NextResponse.json(
-      { error: "If provided, topic must be a non-empty string." },
+      { error: `Invalid request body: ${errorMessage}` },
       { status: 400 }
     );
   }
@@ -67,7 +56,6 @@ export async function POST(req: Request) {
     const effectiveTopic = body.topic ?? `Code Review for ${body.filePath}`;
     
     // Execute LLM debate concurrently (assuming conductLlmDebate internally handles parallel Security/Architecture calls)
-    // If conductLlmDebate is sequential, this structure allows for future refactoring to parallelize its internal steps.
     const result = await conductLlmDebate(
       effectiveTopic,
       body.candidateCode,
