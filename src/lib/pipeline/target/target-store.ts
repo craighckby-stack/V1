@@ -222,21 +222,29 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
   
   try {
     const now = new Date().toISOString();
-    await db.systemFlag.upsert({
-      where: { key: LAST_RUN_KEY },
-      update: {
-        value: JSON.stringify(rec),
-        setBy: "target-mode",
-        reason: `run ${rec.status}`,
-        updatedAt: now,
-      },
-      create: {
-        key: LAST_RUN_KEY,
-        value: JSON.stringify(rec),
-        setBy: "target-mode",
-        reason: `run ${rec.status}`,
-        updatedAt: now,
-      },
+    await db.$transaction(async (tx) => {
+      const existing = await tx.systemFlag.findUnique({ where: { key: LAST_RUN_KEY } });
+      if (existing) {
+        await tx.systemFlag.update({
+          where: { key: LAST_RUN_KEY },
+          data: {
+            value: JSON.stringify(rec),
+            setBy: "target-mode",
+            reason: `run ${rec.status}`,
+            updatedAt: now,
+          },
+        });
+      } else {
+        await tx.systemFlag.create({
+          data: {
+            key: LAST_RUN_KEY,
+            value: JSON.stringify(rec),
+            setBy: "target-mode",
+            reason: `run ${rec.status}`,
+            updatedAt: now,
+          },
+        });
+      }
     });
   } catch (error) {
     console.error(`Failed to record target run audit trail ${LAST_RUN_KEY} for status ${rec.status}:`, error);
