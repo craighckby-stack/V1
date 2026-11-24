@@ -116,10 +116,8 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
 export function appendPresetToSources(existing: string | null | undefined, additions: string[]): string {
   const existingString = existing ?? '';
   
-  if (!existingString) {
-    // If existing is empty/null, just parse and join additions
-    const parsedAdditions = parseSources(additions.join(', '));
-    return parsedAdditions.map(c => c.raw).join(', ');
+  if (!existingString && additions.length === 0) {
+    return '';
   }
   
   if (additions.length === 0) return existingString;
@@ -161,8 +159,8 @@ export function validateDestination(repo: string, branch: string, filePath: stri
     throw new Error(`Invalid file path: "${filePath}". File path must point to a relative file (e.g., ${DEFAULT_BASE_PATH}).`);
   }
   for (const seg of trimmedPath.split('/').filter(Boolean)) {
-    if (seg === '.' || seg === '..' || seg.includes('..')) {
-      throw new Error(`Invalid path segment in "${filePath}": segment "${seg}" is forbidden.`);
+    if (seg === '.' || seg.includes('..')) { // Stricter check for path traversal
+      throw new Error(`Invalid path segment in "${filePath}": segment "${seg}" is forbidden due to path traversal risk.`);
     }
   }
 }
