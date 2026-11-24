@@ -200,9 +200,16 @@ lags, never dies); the worker stays on RSS 1550MB (its 1.35GB working
 set is compiler/Prisma anon; RSS ≥ anon is the conservative
 direction). Worst-case anon sum: 1.35 (worker) + 1.32 (gate child) +
 0.90 (dev) + ~0.35 misc ≈ 3.92GB of the 4041MB wall. **Updated honest
-cost:** the dashboard no longer recycles on a schedule — only on
-genuine anon growth past 900MB, and the guard logs an RSS+anon line
-every ~5min so the digest can point at the curve.
+cost (measured over the first hour):** under full dashboard polling the
+dev-server's anon grows ~45MB/min to the 900MB ceiling — one
+controlled recycle per ~6min ≈ 10/hour, so the spawn budget was raised
+12 → 16/hour (a true crash storm burns 40+/hour and still trips). The
+recycle is 60–90s of dark dashboard per cycle; the loop itself never
+notices. The ~45MB/min accumulation smells like a slow per-poll leak
+(turbopack bookkeeping or an unbounded route cache) — profiled and
+fixed on the loop's own future ratchet/enhance backlog, not by the
+operator mid-run. The guard logs an RSS+anon line every ~5min so the
+digest can point at the curve.
 
 **The clock (rewritten 2026-11-24, second and final re-baseline):** day-N
 stays calendar-based since 2026-11-24 (that's what the digest computes),
@@ -283,7 +290,7 @@ endurance_test:
   offline_contract: "outages degrade (idle + local commits + deferred pushes), never halt; deferred commits ride the next successful push"
   baseline: "clean start 2026-11-24T12:48+10:00 (post platform-pause hardening + env/key re-seal + memory-envelope fixes; snapshot 13:11): 1385 cycles / 845 enhanced / 825 pushed / 1048 reverted / 25 tests; supersedes 12:22 mid-hardening 1382/833/813/1044 and 09:30 sanction 812/792/1027"
   platform_pause: "host stops the machine ~20-30min after browser disconnect, cold-boots on return; boot chain auto-recovers (DB tier, env tier, worker, watchdog); cron layer pauses with the session"
-  memory_envelope: "memguard (measured 2026-11-24): next-server judged on ANON ≤ 900MB (smaps_rollup; settled anon 774-837MB, the ~250MB file-backed share is evictable) + 300s warmup grace + V8 heap cap 640MB; worker on RSS ≤ 1550MB; SIGTERM→SIGKILL escalation; worst-case anon 1.35+1.32+0.90+0.35 ≈ 3.92GB of the 4041MB box — the death loop (8 OOM kills, 7 workers) and the warmup recycle loop (5 spawns in 11min) are the cautionary tales"
+  memory_envelope: "memguard (measured 2026-11-24): next-server judged on ANON ≤ 900MB (smaps_rollup; ~250MB file-backed share is evictable) + 300s warmup grace + V8 heap cap 640MB; worker on RSS ≤ 1550MB; SIGTERM→SIGKILL escalation; under dashboard polling anon grows ~45MB/min → one controlled recycle per ~6min ≈ 10/hour, spawn budget 16/hour (crash storms burn 40+/h and still trip); worst-case anon 1.35+1.32+0.90+0.35 ≈ 3.92GB of the 4041MB box — the death loop (8 OOM kills) and the warmup recycle loop (5 spawns in 11min) are the cautionary tales"
 ```
 
 ---

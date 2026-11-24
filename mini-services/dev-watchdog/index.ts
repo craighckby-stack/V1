@@ -71,10 +71,14 @@ const PROBE_INTERVAL_MS = 30_000;
 const PROBE_TIMEOUT_MS = 5_000;
 const STRIKES_TO_RESPAWN = 2;
 const GRACE_MS_AFTER_SPAWN = 90_000;
-// 8/hour (raised from 5 for the 10-day test): memory-guard recycles are
+// 16/hour (raised 5→8→12→16 across 2026-11-24): memory-guard recycles are
 // legitimate restarts, and a worker that legitimately needs recycling
-// must not be starved out by a budget sized for crash storms.
-const MAX_SPAWNS_PER_HOUR = 12;
+// must not be starved out by a budget sized for crash storms. Measured
+// cadence under full dashboard polling: one controlled recycle per ~6min
+// (anon grows ~45MB/min to the 900MB ceiling) ≈ 10/hour — 16 leaves
+// margin without losing crash-storm protection (a true crash loop burns
+// 40+/hour and still trips).
+const MAX_SPAWNS_PER_HOUR = 16;
 
 // ── MEMORY GUARD (operator, 2026-11-24 — 10-day endurance test) ───────
 // dmesg showed the kernel OOM-killer shooting bun processes at ~1.3GB
