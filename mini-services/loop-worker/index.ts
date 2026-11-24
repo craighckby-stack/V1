@@ -171,6 +171,13 @@ async function main() {
             // See self-enhance-loop.ts `masterUnlocked` field comment
             // for the full rationale.
             masterUnlocked: loop.isMasterUnlocked(),
+            // Network/outage state (10-day endurance test — net-status.ts).
+            // offline=true means the loop is in OFFLINE mode: cycles idle,
+            // deterministic SelfTasks still apply locally, pushes defer
+            // (commit-only) until the probe recovers. Distinguishes
+            // "offline but alive" from a genuine stall for the dashboard
+            // banner and the cron heartbeat's stall check.
+            net: loop.getNetStatus(),
             // Honest live-branch accounting vs the monotonic loop-NN
             // counter (which is a lifetime mutation tally, not a live
             // count). Surfaces the retention drain's last result so the

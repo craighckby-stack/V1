@@ -32,6 +32,13 @@ import { isMutationFrozen, mutationFreezeNotice } from "./mutation-freeze";
 import { recoverCrashedTestGate } from "../core/test-gate-journal";
 import { PROJECT_ROOT } from "../core/paths";
 import { sealToken, openToken, isSealedEnvelope } from "../crypto/token-vault";
+import {
+  isNetworkErrorText,
+  noteNetworkFailure,
+  noteNetworkSuccess,
+  noteSuppressedPushFailure,
+  ensureOnlineForPush,
+} from "./net-status";
 
 const SINGLETON_ID = "singleton";
 
@@ -216,6 +223,15 @@ export interface PushOutcome {
   error?: string;
   /** True when a fetch-first rejection was auto-healed (merge -s ours + retry). */
   divergenceHealed?: boolean;
+  /** True when the push was NOT attempted (or failed) because of a
+   *  NETWORK-level outage — the commit still landed locally when
+   *  commitSha is set. Network failures are EXEMPT from the push-failure
+   *  circuit breaker (a 5-strike breaker for "git is wedged" must not
+   *  halt the loop for "the network is down" during the 10-day
+   *  endurance run — see net-status.ts). Callers should treat this as
+   *  "deferred, not failed": the deferred commits ride the next
+   *  successful HEAD-based push. */
+  networkError?: boolean;
 }
 
 interface StoredTarget {
@@ -1312,6 +1328,28 @@ export async function pushCurrentState(opts?: {
       }).trim().slice(0, 7);
     }
 
+    // 1b. OFFLINE GATE (10-day endurance test — net-status.ts): while
+    // the shared net tracker holds OFFLINE, don't burn a 60s git-push
+    // timeout on a doomed attempt. The commit above already landed
+    // locally, and per-branch pushes are HEAD-based — every deferred
+    // commit rides the next successful push. The gate probes
+    // connectivity when the backoff expires (≤4s), so recovery costs at
+    // most one probe, not a wedged push.
+    if (!(await ensureOnlineForPush())) {
+      await record({
+        lastPushError:
+          "[OFFLINE] push deferred (network unreachable) — commits held locally, ride the next successful push",
+      });
+      return {
+        pushed: false,
+        commitSha,
+        hadChanges: Boolean(commitSha),
+        repo: target.repo,
+        error: "OFFLINE — push deferred (committed locally; rides the next successful push)",
+        networkError: true,
+      };
+    }
+
     // 2. Push with auth injected via env (token never on the command line)
     const auth = `Authorization: Basic ${Buffer.from(`x-access-token:${target.token}`).toString("base64")}`;
     const pushBranch = opts?.branchOverride ?? target.branch;
@@ -1333,6 +1371,29 @@ export async function pushCurrentState(opts?: {
       });
     } catch (err) {
       const stderr = scrub(String((err as { stderr?: string }).stderr ?? (err as Error).message ?? ""), target.token);
+
+      // ── NETWORK-OUTAGE EXEMPTION (10-day test; net-status.ts) ──────
+      // A network-level failure (DNS, connection refused, timeout) is
+      // NOT a git wedge. The circuit breaker below exists for wedged
+      // repos (5 strikes → safe-mode → operator attention); offline it
+      // would trip within 5 mutations and HALT the unattended run.
+      // Instead: suppress the breaker count, feed the shared net
+      // tracker (3 strikes → OFFLINE mode → commit-only pushes + probe
+      // backoff), and report the push as DEFERRED with the local
+      // commit intact.
+      if (isNetworkErrorText(stderr)) {
+        noteNetworkFailure("push", stderr);
+        noteSuppressedPushFailure();
+        await record({ lastPushError: `[OFFLINE] push failed (network): ${stderr.slice(0, 250)}` });
+        return {
+          pushed: false,
+          commitSha,
+          hadChanges: Boolean(commitSha),
+          repo: target.repo,
+          error: `network unreachable — push deferred (committed locally; rides the next successful push): ${stderr.slice(0, 200)}`,
+          networkError: true,
+        };
+      }
 
       // ── DIVERGENCE: REFUSE (audit 3, redesigned) ─────────────────────
       // A fetch-first rejection means the remote holds commits this repo
@@ -1443,7 +1504,10 @@ export async function pushCurrentState(opts?: {
       return { pushed: false, commitSha, hadChanges: Boolean(commitSha), repo: target.repo, error: `${stderr.slice(0, 300)}${hint}` };
     }
 
-    // 3. Success — record it
+    // 3. Success — record it. Any successful push is also a positive
+    // network signal for the shared net tracker (clears an offline
+    // streak — see net-status.ts).
+    noteNetworkSuccess("push");
     const headSha =
       commitSha ??
       execSync("git rev-parse HEAD", { cwd: PROJECT_ROOT, encoding: "utf-8", timeout: 5000 })
@@ -1459,6 +1523,20 @@ export async function pushCurrentState(opts?: {
     return { pushed: true, commitSha: headSha, hadChanges: Boolean(commitSha), repo: target.repo };
   } catch (err) {
     const msg = scrub((err as Error).message, target.token);
+    // Network-class exceptions (git child failing to reach the network,
+    // proxy-level failures) get the same offline exemption as push
+    // stderr — they are patience-problems, not operator-problems.
+    if (isNetworkErrorText(msg)) {
+      noteNetworkFailure("push", msg);
+      noteSuppressedPushFailure();
+      await record({ lastPushError: `[OFFLINE] push aborted (network): ${msg.slice(0, 250)}` });
+      return {
+        pushed: false,
+        repo: target.repo,
+        error: `network unreachable — push deferred: ${msg.slice(0, 200)}`,
+        networkError: true,
+      };
+    }
     await notePushFailure(msg);
     await record({ lastPushError: msg.slice(0, 300) });
     return { pushed: false, error: msg.slice(0, 300), repo: target.repo };

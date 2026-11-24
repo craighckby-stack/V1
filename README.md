@@ -8,6 +8,74 @@ plateaued at 0.7% yield after 900 cycles
 
 ---
 
+## ⏱ THE 10-DAY ENDURANCE TEST (2026-11-24 → 2026-12-04)
+
+**This system is currently mid-test.** The question this run answers, in one
+sentence:
+
+> **How long can a self-improving system keep running — online and offline —
+> with ZERO operator interaction, while the operator closes the browser,
+> goes to sleep, and the network drops in and out?**
+
+The purpose (from the operator's framing when the run was sanctioned): not
+throughput, not yield — **autonomy**. The loop must keep cycling, keep
+mutating, keep committing, keep pushing, and — critically — keep *not dying*
+for 10 straight days. Every failure mode that would silently halt the run
+has been pre-empted with a supervision layer or an offline-parity behavior.
+If the run ends early, it must end LOUDLY (a deliberate safe-stop), never as
+a silent wedge nobody noticed.
+
+**Rules of the run:**
+
+- **No operator interaction for 10 days.** The operator may observe the
+  dashboard, but the system must never *require* them. Supervision is
+  delegated to cron delegates (below).
+- **Online and offline.** The network may drop for minutes or hours. An
+  outage degrades the loop (idle cycles, local commits, deferred pushes) —
+  it never halts it. See "Offline parity" below.
+- **Nothing is lost.** Verified mutations commit locally even when pushes
+  defer; per-branch pushes are HEAD-based, so deferred commits ride the
+  first successful push after recovery. Durable state lives in wipe-proof
+  tiers (`.git/info/`).
+- **Baseline at start (2026-11-24):** 1382 cycles · 812 enhanced · 792
+  pushed · 1027 reverted · 25 tests written. The daily digest reports
+  deltas against this.
+
+**The supervision stack (why the operator can walk away):**
+
+| Layer | Cadence | What it does |
+|---|---|---|
+| dev-watchdog `:3005` (in-sandbox) | 30s | probes dev-server + worker, respawns them (budget 12/hr), memory-guard |
+| cron: LOOP stack heartbeat | every 8h | feeds the dead-man's switch, respawns watchdog + worker, stall check (cycle-delta) |
+| cron: daily operator digest | 09:00 Brisbane | 24h deltas, worker restarts, freeze/offline state — the run's diary |
+| cron: dev-server keepalive | every 10 min | outer backstop for the watchdog itself |
+| dead-man's switch | 24h no-touch | the failsafe: if EVERY cron layer dies, the loop ARMED-PAUSES safely (loud, not silent) |
+
+**Offline parity (2026-11-24, operator change):** before this change, a
+network outage was fatal within ~5 mutations — every failed push counted
+toward the 5-strike push-failure circuit breaker, which raises SAFE-MODE
+and halts the loop for an operator. Now:
+
+- **Network errors are exempt from the breaker** (`net-status.ts`): a
+  DNS/refused/timeout push failure is classified as *deferred*, not
+  *failed*. Real git wedges (auth, divergence, corruption) still trip it.
+- **3 consecutive network failures → OFFLINE mode:** cycles idle (no doomed
+  LLM calls), deterministic SelfTasks still apply + commit locally, pushes
+  go commit-only (no 60s timeouts burned), and a ≤4s probe retries on a
+  backing-off schedule (15s → 5min) until the network returns. Recovery is
+  automatic and logged.
+- **The dashboard shows an amber OFFLINE banner** (degraded-but-alive, not
+  red), and `/status` exposes the full `net` block so the heartbeat can
+  tell "offline but alive" (cycles advancing) from a genuine stall
+  (cycles flat).
+
+**What success looks like on 2026-12-04:** ten daily digests telling a
+continuous story; no intervention required; the loop either still running,
+actively idling through an outage, or deliberately ARMED-PAUSED by a safety
+system (dead-man/crash-wall) — never wedged, never silent, nothing lost.
+
+---
+
 ## This README is self-referential
 
 This document is written for **two readers**:
@@ -26,7 +94,7 @@ architecture:
   framework: "Next.js 16 App Router + React 19 + TypeScript 5"
   database: "Prisma 6 + SQLite (12+ models)"
   llm: "z-ai-web-dev-sdk (primary), Gemini (optional), NVIDIA NIM (optional tier-1)"
-  side_processes: ["loop-ws-service:3003", "loop-worker:3004", "fleet-harvester:3010"]
+  side_processes: ["loop-ws-service:3003", "loop-worker:3004", "dev-watchdog:3005", "fleet-harvester:3010"]
 core_cycle:
   - "scan own source for issues"
   - "pick a non-protected file (bandit-scored)"
@@ -42,6 +110,7 @@ safety:
   dead_mans_switch: "24h without operator touch → ARMED-PAUSED"
   crash_wall: "3 consecutive same-class crashes → ARMED-PAUSED"
   quota_gate: "429 escalation: 2/5/15/30min cooldowns"
+  offline_mode: "network outage → 3-strike tripwire → idle cycles + local commits + probe backoff (15s→5min); network push failures exempt from the 5-strike breaker; recovery automatic"
 alive_behaviors:
   curiosity_drive: "flag-gated (default OFF); when overconfident + health flat, boosts unpredictable files"
   health_metrics: "snapshot every 10 cycles (test/tsc/lint counts)"
@@ -59,6 +128,11 @@ honest_limitations:
   - "the wild tier is single-repo-dominant (ragflow) — borrowed evidence, confounders declared"
   - "single-operator, single-instance, SQLite — research system, not production"
 self_rating: "7/10 (novel self-reference + thoughtful trust model + first learned component; held back by scale + research-grade ML + outsourced core generation)"
+endurance_test:
+  window: "2026-11-24 → 2026-12-04 (10 days, Australia/Brisbane)"
+  mode: "unattended — cron delegates supervise (heartbeat 8h, digest daily 09:00, dev-watchdog 30s); dead-man's switch is the loud failsafe"
+  offline_contract: "outages degrade (idle + local commits + deferred pushes), never halt; deferred commits ride the next successful push"
+  baseline: "1382 cycles / 812 enhanced / 792 pushed / 1027 reverted / 25 tests"
 ```
 
 ---

@@ -22,6 +22,17 @@ import { conductLlmDebate } from "../llm/debate-llm";
 import { renderGoalsBullets, renderGoalsTopicLine, maybeReviewGoals } from "./goal-engine";
 import { postmortemStore } from "../postmortem/postmortem-store";
 import { pushCurrentState, getLastBranchNumber, setLastBranchNumber, findLowestFreeBranchSlot, formatLoopBranch, validateCommitMessage, amendUuidHeadCommit, pruneOldLoopBranches } from "./push-target";
+import {
+  isOffline,
+  isNetworkErrorText,
+  noteNetworkFailure,
+  noteNetworkSuccess,
+  nextProbeDue,
+  probeConnectivity,
+  recordProbeResult,
+  getNetStatus,
+  type NetStatusSnapshot,
+} from "./net-status";
 import { db } from "@/lib/db";
 import { generateTasks, claimNextTask } from "./self-task-generator";
 import { executeTask, type TaskExecutionResult } from "./task-executor";
@@ -550,6 +561,11 @@ class SelfEnhanceLoop {
   // file that actually attempts an LLM call (success or non-cooldown failure).
   private consecutiveCooldownCycles = 0;
   private quotaExhaustedLogged = false;
+  // OFFLINE MODE (10-day endurance test — net-status.ts): throttle for
+  // the idle-cycle log so a multi-hour outage doesn't spam one line per
+  // ~5s cycle. The offline state itself lives in the process-global net
+  // tracker; this field only paces ITS log lines.
+  private lastOfflineIdleLogAt = 0;
   // Run-token (generation counter). Incremented by stop(). Each runCycle /
   // enhanceFile captures the value at start; if it changes mid-run (because
   // the user stopped and possibly started again), the in-flight work breaks
@@ -1027,7 +1043,7 @@ class SelfEnhanceLoop {
    * (authenticated; see push-target.ts). Falls back to commit-only when no
    * target is configured.
    */
-  private async gitPush(message: string): Promise<{ pushed: boolean; commitSha?: string }> {
+  private async gitPush(message: string): Promise<{ pushed: boolean; commitSha?: string; networkError?: boolean }> {
     try {
       const outcome = await pushCurrentState({
         message,
@@ -1040,6 +1056,15 @@ class SelfEnhanceLoop {
       if (!outcome.error) {
         // No changes to commit and nothing new to push
         return { pushed: false };
+      }
+      if (outcome.networkError) {
+        // OFFLINE (net-status.ts): the commit landed locally, only the
+        // push deferred. NOT a failure — the deferred commits ride the
+        // next successful HEAD-based push. Surfaced distinctly so the
+        // SelfTask handler can keep the verified write instead of
+        // reverting it.
+        this.log(`OFFLINE — push deferred, commit held locally: ${outcome.commitSha ?? "(no changes)"}`, "warn");
+        return { pushed: false, commitSha: outcome.commitSha, networkError: true };
       }
       if (outcome.commitSha) {
         this.log(`Committed ${outcome.commitSha} but push failed: ${outcome.error}`, "warn");
@@ -1859,11 +1884,28 @@ ${systemTail}`;
           // Non-rate-limit failure (network, parse, empty response).
           result.reason = `LLM unavailable: ${llmResult.error}`;
           this.log(`LLM unavailable for ${relPath}: ${llmResult.error}`, "warn");
+          // ── OFFLINE TRIPWIRE (10-day endurance test — net-status.ts) ──
+          // A network-class LLM failure feeds the shared net tracker.
+          // 3 consecutive → OFFLINE mode: the cycle idles (no more doomed
+          // 3-leg calls), pushes go commit-only, a probe recovers us.
+          // Parse/empty failures do NOT feed it (those are LLM problems,
+          // not network problems).
+          if (isNetworkErrorText(llmResult.error)) {
+            const { wentOffline } = noteNetworkFailure("llm", llmResult.error);
+            if (wentOffline) {
+              this.log(
+                "OFFLINE — 3 consecutive network failures. Entering offline mode: cycles idle, deterministic tasks still apply locally, pushes defer until the network returns. Nothing is lost.",
+                "error"
+              );
+            }
+          }
         }
         return result;
       }
 
-      // LLM succeeded — continue to verification
+      // LLM succeeded — a positive network signal for the shared tracker
+      // (clears any offline streak; see net-status.ts).
+      noteNetworkSuccess("llm");
 
       // Extract the summary (what changed + why) AND the code from the response
       const { summary: changeSummary, code: refactoredCode } = extractSummaryAndCode(llmResult.content);
@@ -2635,9 +2677,11 @@ ${schemaSystemTail}`;
           if (isMutationFrozen()) break;
           // Prefer deterministic tasks (no LLM, zero-diff-immune). Fall
           // back to LLM tasks only if the deterministic queue is empty
-          // AND the LLM gate is open.
+          // AND the LLM gate is open AND we're not OFFLINE (10-day test:
+          // an LLM-kind task offline would burn a doomed 3-leg call —
+          // deterministic work is the loop's offline progress engine).
           let task = await claimNextTask(true).catch(() => null);
-          if (!task && llmCooldownMs() === 0) {
+          if (!task && llmCooldownMs() === 0 && !isOffline()) {
             task = await claimNextTask(false).catch(() => null);
           }
           if (!task) break; // queue empty — proceed to whole-file scan
@@ -2737,7 +2781,7 @@ ${schemaSystemTail}`;
               | { kind: "stopped" }
               | { kind: "conflict"; diskSha?: string; diskError?: string }
               | { kind: "write-failed"; error: string }
-              | { kind: "done"; pushed: boolean; commitSha?: string };
+              | { kind: "done"; pushed: boolean; commitSha?: string; networkError?: boolean };
             const writeOutcome = await withTreeLock<SelfTaskWriteOutcome>(async () => {
               if (myRun !== this.runId) {
                 return { kind: "stopped" };
@@ -2770,7 +2814,12 @@ ${schemaSystemTail}`;
                 return { kind: "write-failed", error: (wErr as Error).message };
               }
               const push = await this.gitPush(pushMsg);
-              return { kind: "done", pushed: push.pushed, commitSha: push.commitSha };
+              return {
+                kind: "done",
+                pushed: push.pushed,
+                commitSha: push.commitSha,
+                ...(push.networkError ? { networkError: true } : {}),
+              };
             });
             if (writeOutcome.kind === "stopped") {
               await this.updateTask(task.id, { status: "pending", lastError: "stop requested before live write — requeued" });
@@ -2834,6 +2883,40 @@ ${schemaSystemTail}`;
               // deterministic fix via Turbopack HMR on the next request, and
               // protected singletons are operator-triggered via
               // /api/hot-swap/trigger.)
+            } else if (writeOutcome.kind === "done" && writeOutcome.networkError) {
+              // ── OFFLINE PUSH-DEFER (10-day endurance test) ─────────
+              // The mutation is verified, written, and COMMITTED locally —
+              // only the push deferred (network outage, exempt from the
+              // circuit breaker). The old path reverted the write and
+              // requeued, which offline meant infinite churn (re-apply →
+              // commit → push-fail → revert). Instead: KEEP the verified
+              // work, mark the task done with the deferred-push note, and
+              // let the commit ride the next successful HEAD-based push
+              // (per-branch pushes carry all accumulated local commits).
+              this.stats.totalEnhanced++;
+              this.persistStats();
+              await this.updateTask(task.id, {
+                status: "done",
+                fixSummary: `${exec.summary.slice(0, 400)} [push deferred: OFFLINE — rides the next successful push]`,
+                ...(writeOutcome.commitSha ? { commitSha: writeOutcome.commitSha } : {}),
+              });
+              selfTaskResults.push({
+                filePath: relPath,
+                enhanced: true,
+                reason: `SelfTask[${kind}] applied locally (OFFLINE — push deferred): ${exec.summary.slice(0, 100)}`,
+                oldBytes: 0,
+                newBytes: candidate.length,
+                diffBytes: candidate.length,
+                llmUsed: exec.method === "llm",
+                llmLatencyMs: 0,
+                compiled: true,
+                pushed: false,
+                commitSha: writeOutcome.commitSha,
+              });
+              this.log(
+                `SelfTask[${kind}] applied locally — push DEFERRED (offline): ${relPath}. Commit rides the next successful push.`,
+                "success"
+              );
             } else {
               // Commit didn't land (push failed). Revert the live write
               // so the working tree doesn't drift from the committed state.
@@ -2865,6 +2948,57 @@ ${schemaSystemTail}`;
         //  these on the instance via a field so the return path can pick
         //  them up. See the return statement near the end of runCycle.)
         (this as unknown as { _selfTaskResults?: SelfEnhanceResult[] })._selfTaskResults = selfTaskResults;
+      }
+
+      // ── OFFLINE MODE GATE (10-day endurance test — net-status.ts) ────
+      // The shared net tracker trips OFFLINE after 3 consecutive
+      // network-class failures (LLM or push). While offline:
+      //   - the deterministic SelfTask drain ABOVE still ran (no LLM
+      //     needed; verified writes commit locally, push deferred)
+      //   - the whole-file scan below is SKIPPED — every file would
+      //     burn a doomed 3-leg LLM call
+      //   - a cheap probe (≤4s HEAD to the push host) runs on a
+      //     backing-off schedule (15s → 5min); the FIRST response
+      //     recovers the system and this cycle resumes normally
+      // The idle cycle still COUNTS (cyclesCompleted++) so the cron
+      // heartbeat's stall detector sees life: cycles advancing with
+      // enhanced flat reads as "offline but alive" in the daily digest
+      // deltas — exactly the honesty the endurance test wants.
+      if (isOffline()) {
+        if (nextProbeDue()) {
+          const up = await probeConnectivity();
+          const { recovered } = recordProbeResult(up);
+          if (recovered) {
+            this.log(
+              "ONLINE — network recovered (probe ok). Resuming whole-file mutations; deferred commits ride the next successful push.",
+              "success"
+            );
+          }
+        }
+        if (isOffline()) {
+          const nowMs = Date.now();
+          if (nowMs - this.lastOfflineIdleLogAt > 60_000) {
+            const ns = getNetStatus();
+            this.log(
+              `OFFLINE since ${ns.since} (last: ${ns.lastError ?? "unknown"}) — idle cycle: deterministic tasks still apply locally, pushes deferred, probe every ${Math.round(ns.probeIntervalMs / 1000)}s. Nothing is lost; recovery is automatic.`,
+              "warn"
+            );
+            this.lastOfflineIdleLogAt = nowMs;
+          }
+          this.stats.cyclesCompleted++;
+          this.persistStats();
+          this.currentFile = null;
+          // Merge any SelfTask results drained this cycle (the normal
+          // end-of-cycle merge is below this early return).
+          const stashed = (this as unknown as { _selfTaskResults?: SelfEnhanceResult[] })._selfTaskResults;
+          (this as unknown as { _selfTaskResults?: SelfEnhanceResult[] })._selfTaskResults = undefined;
+          const idleResults = stashed ?? [];
+          return {
+            filesScanned: 0,
+            filesEnhanced: idleResults.filter((r) => r.enhanced).length,
+            results: idleResults,
+          };
+        }
       }
 
       // ── Pause-before-scan (rate-limit gate) ──────────────────────────
@@ -3163,6 +3297,14 @@ ${schemaSystemTail}`;
         // mutated through the distrusted path.
         if (isSafeMode()) {
           this.log("SAFE-MODE raised mid-cycle — halting self-enhancement pass", "error");
+          break;
+        }
+        // OFFLINE (10-day test): the tracker tripped mid-cycle (3 network
+        // failures in this pass). Stop attempting files — each would burn
+        // a doomed 3-leg LLM call. The NEXT cycle's offline gate idles
+        // until the probe recovers.
+        if (isOffline()) {
+          this.log("OFFLINE tripped mid-cycle — skipping remaining files (they defer instantly until the network returns)", "warn");
           break;
         }
         const relPath = relative(PROJECT_ROOT, file);
@@ -3917,7 +4059,9 @@ ${schemaSystemTail}`;
       if (!(this.continuous && myRun === this.runId)) break;
       // D3: the inter-cycle gap is the other idle moment — one dream
       // task if the gate happens to be open (it self-skips when closed).
-      if (llmCooldownMs() === 0) {
+      // OFFLINE (10-day test): dreams are LLM calls — skip them until the
+      // network returns (the net tracker's probe handles recovery).
+      if (llmCooldownMs() === 0 && !isOffline()) {
         void maybeDream()
           .then((line) => {
             if (line) this.log(line, "info");
@@ -4084,6 +4228,17 @@ ${schemaSystemTail}`;
    *  above for the full rationale. */
   isMasterUnlocked(): boolean {
     return this.masterUnlocked;
+  }
+
+  /** Network/outage state for status payloads (10-day endurance test —
+   *  net-status.ts). Exposed on the worker's /status (and mirrored by
+   *  the app's /api/self-enhance/status proxy) so the dashboard and the
+   *  cron digest can distinguish "offline but alive" from "stalled":
+   *    net.offline=true + cycles advancing  → network outage, working
+   *    locally, pushes deferred (expected during the endurance run)
+   *    net.offline=false + cycles flat      → genuine stall (investigate) */
+  getNetStatus(): NetStatusSnapshot {
+    return getNetStatus();
   }
 
   /** Activate master-unlock mode. Called by the worker's /unlock handler

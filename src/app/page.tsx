@@ -70,6 +70,21 @@ interface SelfEnhanceStatus {
    *  for the full rationale. Optional for backward compat with older
    *  worker payloads (defaults to false). */
   masterUnlocked?: boolean;
+  /** Network/outage state (10-day endurance test — net-status.ts).
+   *  offline=true = the loop is in OFFLINE mode: cycles idle, deterministic
+   *  SelfTasks still apply locally, pushes defer (commit-only) until the
+   *  probe recovers. Optional for backward compat with older workers. */
+  net?: {
+    offline: boolean;
+    since: string | null;
+    consecutiveFailures: number;
+    lastError: string | null;
+    lastSource: string | null;
+    lastSuccessAt: string | null;
+    nextProbeAt: number | null;
+    probeIntervalMs: number;
+    totalSuppressedPushFailures: number;
+  };
   /** Operator mutation freeze — true while the system is locked in its
    *  current state (no code mutation, no commits, no pushes anywhere).
    *  The dashboard shows a FROZEN chip + a [FREEZE]/[UNFREEZE] control.
@@ -3140,6 +3155,38 @@ export default function Home() {
         >
           <span aria-hidden>✕</span>
           <span>WORKER DOWN — loop worker (port 3004) unreachable. Respawning in background; loop status below is a placeholder until it returns.</span>
+        </div>
+      )}
+
+      {/* ── Offline banner (10-day endurance test — net-status.ts) ─────
+          A network outage no longer halts the loop (network-class push
+          failures are exempt from the circuit breaker; cycles idle;
+          deterministic tasks still apply locally; pushes defer). This
+          banner makes the DEGRADED-but-alive state visible: amber, not
+          red — the system is working as designed, waiting for the
+          network. Hidden while online (and while the worker is down —
+          the worker-down banner owns that state). */}
+      {status && status.workerReachable !== false && status.net?.offline === true && (
+        <div
+          role="status"
+          aria-label="Network offline — loop degraded to local-only work, pushes deferred"
+          style={{
+            borderTop: "1px solid #e6a817",
+            borderBottom: "1px solid #e6a817",
+            padding: "6px 8px",
+            background: "#000",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            fontSize: "12px",
+            fontWeight: "bold",
+            color: "#e6a817",
+          }}
+        >
+          <span aria-hidden>⚠</span>
+          <span>
+            OFFLINE — network unreachable since {status.net.since ? new Date(status.net.since).toLocaleTimeString() : "?"}. Loop degraded, not halted: deterministic fixes still apply + commit locally; pushes deferred (they ride the next successful push); auto-probing every {Math.max(1, Math.round((status.net.probeIntervalMs || 15000) / 1000))}s. Recovery is automatic.
+          </span>
         </div>
       )}
 
