@@ -8,12 +8,12 @@
   "symptom": "Push to main rejected: remote has commits local doesn't (divergence)",
   "evidence": "git push stderr: To https://github.com/craighckby-stack/V1.git\n ! [rejected]          HEAD -> main (non-fast-forward)\nerror: failed to push some refs to 'https://github.com/craighckby-stack/V1.git'\nhint: Updates were rejected because the tip of your current branch is behind\nhint: its remote counterpart. If you want ",
   "constraints": "The remote branch diverged from local history. Never auto-discard remote content: inspect origin/main and reconcile deliberately (rebase or merge) before pushing again.",
-  "attempts": 35,
+  "attempts": 34,
   "parentHash": "bab57c124feaf27b6db509595bae6298a1fcc191221797c9eb804f80fd9a471c",
-  "hash": "43cc911b09b67f86d856b97d21c0af8b727835950ca7da3c4488fc5f4aa09ca7",
-  "lastAttemptAt": "2026-11-24T21:19:56.195Z",
+  "hash": "9c47f93fb00adba617765232e641bd020163822093b8c3fc8ff51d1a7a281466",
+  "lastAttemptAt": "2026-11-24T21:59:53.893Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.534Z",
-  "updatedAt": "2026-11-24T21:19:56.195Z",
+  "updatedAt": "2026-11-24T21:59:53.893Z",
   "schema": 2
 }

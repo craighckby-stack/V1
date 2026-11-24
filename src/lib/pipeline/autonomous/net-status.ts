@@ -69,6 +69,7 @@ const OFFLINE_THRESHOLD = 3;
  *  interleave with idle cycles. */
 const PROBE_BASE_MS = 15_000;
 const PROBE_MAX_MS = 5 * 60_000;
+const PROBE_MAX_INTERVAL_MS = PROBE_MAX_MS;
 
 export interface NetStatusSnapshot {
   offline: boolean;
@@ -194,7 +195,7 @@ export function recordProbeResult(ok: boolean): { recovered: boolean } {
   if (ok) {
     return noteNetworkSuccess("probe");
   }
-  s.probeIntervalMs = Math.min(s.probeIntervalMs * 2, PROBE_MAX_MS);
+  s.probeIntervalMs = Math.min(s.probeIntervalMs * 2, PROBE_MAX_INTERVAL_MS);
   s.nextProbeAt = Date.now() + s.probeIntervalMs;
   return { recovered: false };
 }
