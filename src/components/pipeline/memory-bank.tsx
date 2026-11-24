@@ -46,11 +46,16 @@ export function MemoryBank() {
       abortControllerRef.current = abortController;
       
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => {
+        const timeoutId = setTimeout(() => {
           abortController.abort();
-          abortControllerRef.current = null;
+          // Ensure abortControllerRef is cleared if timeout triggers
+          if (abortControllerRef.current === abortController) {
+            abortControllerRef.current = null;
+          }
           reject(new Error("Request timeout after 10 seconds"));
         }, 10000);
+        // Attach timeoutId to abortController for cleanup if fetch succeeds/fails early
+        (abortController as any).timeoutId = timeoutId;
       });
       
       try {
@@ -73,15 +78,26 @@ export function MemoryBank() {
         setEntries(data.entries);
         hasFetchedRef.current = true;
       } catch (error) {
-        if (error instanceof Error && error.name !== 'AbortError') {
-          console.error("Error loading memory entries from API:", { 
-            error: error.message, 
-            context: "MemoryBank fetch",
-            timestamp: new Date().toISOString()
-          });
+        if (error instanceof Error) {
+          if (error.name === 'AbortError') {
+            // Expected on component unmount or explicit abort
+            console.log("Memory entry fetch aborted.");
+          } else if (error.message.includes("Request timeout")) {
+            console.error("Error loading memory entries from API: Request timed out.", { 
+              context: "MemoryBank fetch",
+              timestamp: new Date().toISOString()
+            });
+          } else {
+            console.error("Error loading memory entries from API:", { 
+              error: error.message, 
+              context: "MemoryBank fetch",
+              timestamp: new Date().toISOString()
+            });
+          }
         }
       } finally {
         isFetchingRef.current = false;
+        // Only clear the ref if this specific controller is still the active one
         if (abortControllerRef.current === abortController) {
           abortControllerRef.current = null;
         }
