@@ -8,13 +8,6 @@ interface SanitizeRequest {
   code: string;
 }
 
-// Assuming SanitizeResult is defined in "@/lib/pipeline/emg/sanitizer"
-// and its 'violations' property is mutable (string[]), not readonly string[].
-// We must ensure the return type matches the expected structure exactly.
-// Since we cannot see the definition, we rely on the postmortem constraint:
-// SecuritySanitizerResult.violations (readonly string[]) must map to SanitizeResult.violations (string[]).
-// This implies we must copy the array if the underlying function returns a readonly array.
-
 export async function POST(req: Request) {
   let json: SanitizeRequest;
   try {
@@ -33,7 +26,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // Check for required structure and type
+  // Check for required structure and type robustly
   if (typeof json.code !== "string") {
     return NextResponse.json(
       { error: "code (string) is required in the request body." },
@@ -69,7 +62,7 @@ export async function POST(req: Request) {
   } catch (err) {
     // Catch errors originating from sanitizeAndGovern, ensuring safe casting and context
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during sanitization.";
-    const inputSnippet = json.code.substring(0, 50);
+    const inputSnippet = json.code.substring(0, Math.min(50, json.code.length));
     
     return NextResponse.json(
       { error: `Sanitization failed for input code starting with: ${inputSnippet}... Error: ${errorMessage}` },
