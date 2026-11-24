@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/evolution/debate/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [SYMBOL_DROPPED] Top-level export(s) dropped: dynamic, runtime. Public API must be preserved.",
@@ -12,8 +12,8 @@
   "parentHash": "1a083f6899132d05957a77dbb76d0dfda0daa82483e6f807fcfbbfb5685bee3c",
   "hash": "dc8f988c6aeab1bdd6d090dea3f69e26a204e597667de4457eab9bcf66d57d5d",
   "lastAttemptAt": "2026-11-24T01:19:59.238Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-24T01:40:27.653Z",
   "createdAt": "2026-11-23T03:29:46.401Z",
-  "updatedAt": "2026-11-24T01:19:59.238Z",
+  "updatedAt": "2026-11-24T01:40:27.653Z",
   "schema": 2
 }
