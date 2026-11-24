@@ -112,7 +112,25 @@ const MAX_SPAWNS_PER_HOUR = 12;
 // is never reached. Cost: the dashboard recycles every ~40-60min of
 // growth (60-90s dark each) — read-only surface, acceptable for the
 // endurance test; the LOOP is the point.
-const MEMGUARD_NEXT_SERVER_MB = 700; // death-loop retune: worker+child+dev must never sum past 4GB
+// RETUNE 2 (operator, 2026-11-24 04:30 UTC — the warmup recycle loop): the
+// 700MB ceiling was unattainable in practice. Observed live on the 04:15:45
+// cold boot: EVERY respawned dev-server warms to ~790-890MB within ~2min
+// (Turbopack compile + the dashboard client's route polling), so the guard
+// killed each one mid-warmup — 5 spawns burned in 11 minutes, budget
+// exhaustion ~30min away, dashboard permanently dark while the loop itself
+// cycled fine. Two changes:
+//   1. Ceiling 700 → 850MB: a warmed dev-server's observed steady state on
+//      this box is ~810MB. Envelope at 850: worker 1.35 + gate child 1.32 +
+//      dev 0.85 + misc 0.35 ≈ 3.87GB — still inside the 4.04GB wall with
+//      ~170MB margin (the death-loop math survives; 700 was aspiration,
+//      not observation).
+//   2. WARMUP GRACE: a next-server younger than 5 minutes is exempt from
+//      the ceiling (compile spikes to ~890MB are normal warmup, not a
+//      leak). The worker gets NO grace — its 1.35GB working set is
+//      front-loaded inside 90s of boot and its 1550MB ceiling already is
+//      working-set + margin.
+const MEMGUARD_NEXT_SERVER_MB = 850;
+const MEMGUARD_WARMUP_GRACE_MS = 300_000; // next-server age below which the ceiling is exempt
 const MEMGUARD_WORKER_MB = 1550; // working set ~1.35GB + leak margin
 
 interface MemGuardSpec {
@@ -178,8 +196,34 @@ function findProcesses(substr: string): Array<{ pid: number; rssMb: number | nul
  * later) gets SIGKILL — the port frees, the respawn binds cleanly. */
 const gEscalate = globalThis as unknown as {
   __memguardSigtermed?: Map<number, number>; // pid → epoch ms of SIGTERM
+  __memguardGraceNoted?: Set<number>; // pids already logged as in warmup grace
+  __memguardSweepCount?: number; // RSS observability cadence (log every 10th sweep)
 };
 gEscalate.__memguardSigtermed ??= new Map();
+gEscalate.__memguardGraceNoted ??= new Set();
+gEscalate.__memguardSweepCount ??= 0;
+
+/** Age of a pid in ms, or null when unreadable. /proc/<pid>/stat field 22
+ *  (starttime, clock ticks since boot) vs /proc/uptime. comm (field 2)
+ *  may contain spaces and parens — parse after the LAST ')'. */
+function ageMs(pid: number): number | null {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const close = stat.lastIndexOf(")");
+    if (close === -1) return null;
+    // After "pid (comm) " the next field is state (field 3), so field 22
+    // (starttime) is index 19 of this slice.
+    const fields = stat.slice(close + 2).split(" ");
+    const starttimeTicks = parseInt(fields[19], 10);
+    if (!Number.isFinite(starttimeTicks)) return null;
+    const uptime = parseFloat(readFileSync("/proc/uptime", "utf8").split(" ")[0]);
+    if (!Number.isFinite(uptime)) return null;
+    const CLK_TCK = 100; // _SC_CLK_TCK — 100 on every Linux we run on
+    return Math.max(0, (uptime - starttimeTicks / CLK_TCK) * 1000);
+  } catch {
+    return null;
+  }
+}
 
 function runMemoryGuard(): void {
   const now = Date.now();
@@ -210,8 +254,30 @@ function runMemoryGuard(): void {
       gEscalate.__memguardSigtermed!.delete(pid);
     }
   }
+  gEscalate.__memguardSweepCount!++;
   for (const guard of MEMGUARDS) {
     for (const proc of findProcesses(guard.cmdMatch)) {
+      // Warmup grace (dev-server only): a fresh next-server legitimately
+      // spikes to ~890MB while Turbopack compiles; killing it mid-warmup
+      // burned 5 spawns in 11 minutes on 2026-11-24 (see RETUNE 2 above).
+      // Log the exemption once per pid; RSS line every 10th sweep either
+      // way so the digest has a memory curve to point at.
+      if (guard.owner === "dev-server") {
+        const age = ageMs(proc.pid);
+        if (age !== null && age < MEMGUARD_WARMUP_GRACE_MS) {
+          if (!gEscalate.__memguardGraceNoted!.has(proc.pid)) {
+            gEscalate.__memguardGraceNoted!.add(proc.pid);
+            log(
+              `[memguard] next-server pid ${proc.pid} in warmup grace (age ${Math.round(age / 1000)}s < ${MEMGUARD_WARMUP_GRACE_MS / 1000}s, RSS ${proc.rssMb}MB) — ceiling exempt until settled`
+            );
+          }
+          continue;
+        }
+        // Steady-state observability: one compact RSS line every ~5min.
+        if (gEscalate.__memguardSweepCount! % 10 === 0) {
+          log(`[memguard] next-server pid ${proc.pid} RSS ${proc.rssMb}MB (ceiling ${guard.limitMb}MB)`);
+        }
+      }
       if (proc.rssMb !== null && proc.rssMb > guard.limitMb) {
         log(
           `[memguard] recycling ${guard.owner} (pid ${proc.pid}, RSS ${proc.rssMb}MB > ${guard.limitMb}MB ceiling) — controlled recycle, 2-strike respawn follows`
@@ -512,8 +578,18 @@ g.__devWatchdogTimer = setInterval(() => {
 g.__devWatchdogTimer.unref?.();
 
 // ── HTTP surface: GET /health (port 3005) ─────────────────────────────
+// SINGLE-OWNER RULE (operator, 2026-11-24 — the double-watchdog incident):
+// on every cold boot, dev.sh's `bun run dev` wrappers AND the dev server's
+// own instrumentation spawns race for this port. A watchdog that lost the
+// race used to LINGER — its uncaughtException resilience (correct for probe
+// errors) also swallowed the EADDRINUSE from Bun.serve, leaving a portless
+// zombie running a SECOND memguard sweep and a SECOND spawn loop: double
+// kills, double spawns, budget burned twice as fast, invisible to :3005.
+// A loser now exits immediately — the port owner is the one true watchdog.
 const bootedAt = Date.now();
-Bun.serve({
+let serveOk = true;
+try {
+  Bun.serve({
   port: PORT,
   async fetch(req) {
     const url = new URL(req.url).pathname;
@@ -572,7 +648,15 @@ Bun.serve({
       headers: { "Content-Type": "application/json" },
     });
   },
-});
+  });
+} catch (err) {
+  serveOk = false;
+  log(
+    `port ${PORT} unavailable (${err instanceof Error ? err.message : String(err)}) — another watchdog owns it. Exiting (single-owner rule).`
+  );
+  // Timers registered above die with us; the port owner keeps supervising.
+  process.exit(0);
+}
 
 // The watchdog must never die from a stray rejection.
 process.on("uncaughtException", (err) => {
@@ -582,7 +666,9 @@ process.on("unhandledRejection", (err) => {
   log(`UNHANDLED REJECTION (watchdog stays up): ${err instanceof Error ? err.stack : String(err)}`);
 });
 
-log(`listening on 0.0.0.0:${PORT} (pid ${process.pid}) — supervising ${TARGETS.length} targets`);
-log(
-  `memguard armed: next-server>${MEMGUARD_NEXT_SERVER_MB}MB, loop-worker>${MEMGUARD_WORKER_MB}MB → controlled SIGTERM recycle (kernel OOM kill observed at ~1.3GB, 2026-11-24)`
-);
+if (serveOk) {
+  log(`listening on 0.0.0.0:${PORT} (pid ${process.pid}) — supervising ${TARGETS.length} targets`);
+  log(
+    `memguard armed: next-server>${MEMGUARD_NEXT_SERVER_MB}MB (warmup grace ${MEMGUARD_WARMUP_GRACE_MS / 1000}s), loop-worker>${MEMGUARD_WORKER_MB}MB → controlled SIGTERM recycle (kernel OOM kill observed at ~1.3GB, 2026-11-24)`
+  );
+}

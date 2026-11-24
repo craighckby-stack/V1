@@ -213,6 +213,25 @@ process.on("unhandledRejection", (err) => {
   console.error("[LOOP-WS] UNHANDLED REJECTION (service stays up):", err);
 });
 
+// SINGLE-OWNER RULE (operator, 2026-11-24 — the triple-ws incident): on
+// every cold boot, dev.sh's `bun run dev` wrapper AND the dev server's
+// instrumentation spawn BOTH start this service; the port-race loser's
+// EADDRINUSE used to be swallowed by the uncaughtException resilience
+// above (correct for poll errors, wrong for a server that never bound),
+// leaving portless zombies that still polled :3000 forever — observed
+// live: THREE ws instances after the 04:15:45 cold boot. A loser now
+// exits immediately — the port owner is the one true relay.
+httpServer.on("error", (err) => {
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === "EADDRINUSE") {
+    console.error(
+      `[LOOP-WS] port ${PORT} in use — another instance owns it. Exiting (single-owner rule).`
+    );
+    process.exit(0);
+  }
+  console.error("[LOOP-WS] server error (staying up for now):", err);
+});
+
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`[LOOP-WS] WebSocket service listening on 0.0.0.0:${PORT}`);
   console.log(`[LOOP-WS] /health available at http://localhost:${PORT}/health`);
