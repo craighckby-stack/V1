@@ -146,7 +146,7 @@ export function readArmedState(): ArmedState | null {
       return null;
     }
 
-    const state = parsed as ArmedState;
+    const state = parsed as Partial<ArmedState>;
 
     // Validate that parsed matches ArmedState structure and data integrity
     // ISO 8601 format ending in Z is strictly enforced here.
@@ -160,7 +160,7 @@ export function readArmedState(): ArmedState | null {
       return null;
     }
 
-    return state;
+    return state as ArmedState;
   } catch (error) {
     // Catch I/O errors (including ENOENT/file not found)
     const errorMessage = error instanceof Error ? error.message : String(error);

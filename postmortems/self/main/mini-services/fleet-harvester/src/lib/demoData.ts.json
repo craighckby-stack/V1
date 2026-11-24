@@ -8,12 +8,12 @@
   "symptom": "Refactored code failed in-memory typecheck: [AST_SYMBOL_DROPPED] Dropped 3 original symbol(s): V1_COMMITS, RAGFLOW_COMMITS, _NEXTJS_COMMITS",
   "evidence": "Original: 8176 bytes, Refactored: 8022 bytes. Errors: [AST_SYMBOL_DROPPED] Dropped 3 original symbol(s): V1_COMMITS, RAGFLOW_COMMITS, _NEXTJS_COMMITS",
   "constraints": "The previous refactor of mini-services/fleet-harvester/src/lib/demoData.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
-  "attempts": 8,
-  "parentHash": "afca1b5d7acc2562db9dde698f1d2c53430079451a8e70d8deeb2fb97081cf46",
-  "hash": "c0fdf78b1974670134bd5378a86f061d13c3ac4c458dedf8e978743eea8fe591",
-  "lastAttemptAt": "2026-11-24T10:31:33.194Z",
+  "attempts": 9,
+  "parentHash": "9f1a210c67078292506e8251b8357b35fe79db9bdebb2645542a3f0c7f8a865a",
+  "hash": "0639b9e2600136b63b034cd3d024e8d88f8956fcb199277a201eb204f7c6a1cb",
+  "lastAttemptAt": "2026-11-24T10:55:35.319Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.544Z",
-  "updatedAt": "2026-11-24T10:31:33.194Z",
+  "updatedAt": "2026-11-24T10:55:35.319Z",
   "schema": 2
 }
