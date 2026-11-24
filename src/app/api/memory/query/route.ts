@@ -37,7 +37,7 @@ export async function GET(req: Request) {
   
   try {
     // Run seeding and query in parallel to reduce latency
-    const [_, queryResultSequential] = await Promise.all([
+    const [, queryResultSequential] = await Promise.all([
       emgRagInstance.ensureSeeded(),
       emgRagInstance.query(q)
     ]);
@@ -54,7 +54,7 @@ export async function GET(req: Request) {
         typeof queryResultSequential.cognitiveFrictionScore === 'undefined' || 
         typeof queryResultSequential.epistemicRuling === 'undefined') {
       return NextResponse.json(
-        { error: "RAG query returned malformed result data. Missing required properties." },
+        { error: "RAG query returned malformed result data. Missing required properties (topFixes, topFailures, cognitiveFrictionScore, or epistemicRuling)." },
         { status: 500 }
       );
     }
@@ -88,7 +88,7 @@ export async function GET(req: Request) {
     
     return NextResponse.json(
       { 
-        error: `Failed to execute memory query for query "${q}". Details: ${errorMessage}. Check RAG service logs for details.`,
+        error: `Failed to execute memory query for query "${q}". Details: ${errorMessage}. Please check RAG service logs for specific operational errors.`,
         operation: "memory query"
       }, 
       { status: 500 }
