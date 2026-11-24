@@ -8,7 +8,7 @@ plateaued at 0.7% yield after 900 cycles
 
 ---
 
-## ⏱ THE 10-DAY ENDURANCE TEST (2026-11-24 → 2026-12-04)
+## ⏱ THE 10-DAY ENDURANCE TEST (re-baselined 2026-11-24 12:22 Brisbane → closes 2026-12-04)
 
 **This system is currently mid-test.** The question this run answers, in one
 sentence:
@@ -29,7 +29,9 @@ a silent wedge nobody noticed.
 
 - **No operator interaction for 10 days.** The operator may observe the
   dashboard, but the system must never *require* them. Supervision is
-  delegated to cron delegates (below).
+  delegated to cron delegates (below). One sanctioned exception: after
+  an infrastructure pause longer than 24h, the dead-man's switch (by
+  design) holds the loop paused until one deliberate [START].
 - **Online and offline.** The network may drop for minutes or hours. An
   outage degrades the loop (idle cycles, local commits, deferred pushes) —
   it never halts it. See "Offline parity" below.
@@ -37,9 +39,12 @@ a silent wedge nobody noticed.
   defer; per-branch pushes are HEAD-based, so deferred commits ride the
   first successful push after recovery. Durable state lives in wipe-proof
   tiers (`.git/info/`).
-- **Baseline at start (2026-11-24):** 1382 cycles · 812 enhanced · 792
-  pushed · 1027 reverted · 25 tests written. The daily digest reports
-  deltas against this.
+- **Baseline (re-baselined 2026-11-24 12:22 Brisbane, after the
+  platform-pause hardening landed — env tier, keyed respawn, digest
+  boot-time reporting):** 1382 cycles · 833 enhanced · 813 pushed ·
+  1044 reverted · 25 tests written. The daily digest reports deltas
+  against this. (Supersedes the 09:30 sanction-moment baseline of
+  812/792/1027 — the first hours were calibration, not measurement.)
 
 **The supervision stack (why the operator can walk away):**
 
@@ -76,9 +81,14 @@ the operator's browser disconnects, and cold-boots it on return. Every
 process dies, untracked files are wiped, `/proc/uptime` resets. This is
 infrastructure behavior **above the sandbox's pay grade** — the watchdog,
 the cron delegates, everything freezes with the machine; nothing
-in-sandbox can prevent it. Evidence from the first occurrence: the
-10-min cron keepalive last fired 00:03 UTC then went silent 2h; the
-machine booted 02:02:46 UTC exactly at operator return; all PIDs fresh.
+in-sandbox can prevent it. Evidence from the first occurrence
+(2026-11-24): last on-box activity 01:41 UTC; machine cold-booted
+02:02:46 UTC exactly at operator return — every PID fresh,
+`/proc/uptime` reset, untracked `.env` wiped (and restored minutes
+later by the new env tier). The cron layer pauses with the session
+too: the 10-min keepalive ran 23:43/23:53/00:03 UTC, then went quiet
+until after the boot (next fire 02:23 UTC) — the supervision delegates
+are live only while the operator's session is.
 What this means for the run:
 
 - **Auto-recovery is proven, not assumed** — this restart was a live fire
@@ -100,11 +110,29 @@ What this means for the run:
 - **Gaps in the 10-day timeline while the operator is away are
   infrastructure, not system failure.** The daily digest reports the
   machine's boot time so pause-gaps are distinguishable from stalls.
+- **An away-gap longer than 24h trips the dead-man on resume — by
+  design.** The touch file survives the pause with wall-clock
+  timestamps, so on return the worker sees a stale switch and does NOT
+  auto-start: the loop waits, loudly, for one operator [START]
+  (self-enhance-loop.ts: the armed state is respected but not
+  auto-started). Short gaps auto-resume; long gaps require one
+  deliberate click. That is the "ends LOUDLY, never silently"
+  contract applied to infrastructure.
 
-**What success looks like on 2026-12-04:** ten daily digests telling a
-continuous story; no intervention required; the loop either still running,
-actively idling through an outage, or deliberately ARMED-PAUSED by a safety
-system (dead-man/crash-wall) — never wedged, never silent, nothing lost.
+**The clock (rewritten 2026-11-24):** day-N stays calendar-based since the
+2026-11-24 baseline (that's what the digest computes), but the run's true
+currency is **machine time** — the box runs only while the operator's
+session holds it. The digest's machine-boot line makes every gap visible,
+and small deltas on rebooted days are expected, not alarming. The close is
+2026-12-04, or the first day the operator judges ten machine-days have
+accrued — success is judged on what the loop did with the machine-time it
+was given, never on calendar throughput.
+
+**What success looks like at the close:** the digests tell a continuous
+story; no intervention required beyond [START] after long pause-gaps; the
+loop either still running, actively idling through an outage, or
+deliberately ARMED-PAUSED by a safety system (dead-man/crash-wall) — never
+wedged, never silent, nothing lost.
 
 ---
 
@@ -161,10 +189,11 @@ honest_limitations:
   - "single-operator, single-instance, SQLite — research system, not production"
 self_rating: "7/10 (novel self-reference + thoughtful trust model + first learned component; held back by scale + research-grade ML + outsourced core generation)"
 endurance_test:
-  window: "2026-11-24 → 2026-12-04 (10 days, Australia/Brisbane)"
-  mode: "unattended — cron delegates supervise (heartbeat 8h, digest daily 09:00, dev-watchdog 30s); dead-man's switch is the loud failsafe"
+  window: "2026-11-24 → 2026-12-04 (calendar, Australia/Brisbane); machine-time accrues only while the operator's session holds the box — pause-gaps expected and logged"
+  mode: "unattended — cron delegates supervise (heartbeat 8h, digest daily 09:00, dev-watchdog 30s); dead-man's switch is the loud failsafe; >24h pause-gaps hold for one deliberate [START]"
   offline_contract: "outages degrade (idle + local commits + deferred pushes), never halt; deferred commits ride the next successful push"
-  baseline: "1382 cycles / 812 enhanced / 792 pushed / 1027 reverted / 25 tests"
+  baseline: "re-baselined 2026-11-24T12:22+10:00 (post platform-pause hardening): 1382 cycles / 833 enhanced / 813 pushed / 1044 reverted / 25 tests"
+  platform_pause: "host stops the machine ~20-30min after browser disconnect, cold-boots on return; boot chain auto-recovers (DB tier, env tier, worker, watchdog); cron layer pauses with the session"
 ```
 
 ---
