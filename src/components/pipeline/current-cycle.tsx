@@ -30,7 +30,7 @@ const getConsensusClass = (consensus: string): string => {
 };
 
 export function CurrentCycle() {
-  const cycle = usePipelineStore((s) => s.loopState?.currentCycle) ?? null;
+  const cycle = usePipelineStore((s) => s.loopState?.currentCycle);
 
   if (!cycle) {
     return (
@@ -123,11 +123,11 @@ export function CurrentCycle() {
           <span aria-label={`Started at ${cycle.startedAt ? new Date(cycle.startedAt).toLocaleTimeString() : 'unknown time'}`}>
             started: {cycle.startedAt ? new Date(cycle.startedAt).toLocaleTimeString() : 'unknown'}
           </span>
-          <span aria-label={`Scanned ${cycle.filesScanned || 0} files`}>
-            scanned: {cycle.filesScanned || 0}
+          <span aria-label={`Scanned ${cycle.filesScanned ?? 0} files`}>
+            scanned: {cycle.filesScanned ?? 0}
           </span>
-          <span aria-label={`Committed ${cycle.filesCommitted || 0} files`}>
-            committed: {cycle.filesCommitted || 0}
+          <span aria-label={`Committed ${cycle.filesCommitted ?? 0} files`}>
+            committed: {cycle.filesCommitted ?? 0}
           </span>
         </div >
       </CardHeader>
