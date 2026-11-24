@@ -117,7 +117,7 @@ export function computeAiBatchCooldownMs(attempt = 0, retryAfterSec?: number | n
   
   if (retryAfterSec !== undefined && retryAfterSec !== null) {
     if (retryAfterSec <= 0) {
-      throw new Error(`retryAfterSec must be a positive number, got ${retryAfterSec}`);
+      throw new Error(`retryAfterSec must be a positive number, got ${retryAfterSec}. This typically indicates an invalid response from the API.`);
     }
     return Math.min(30_000, Math.ceil(retryAfterSec * 1000) + 300);
   }
@@ -165,6 +165,10 @@ export async function fetchWithTimeout(
     throw new Error(`timeoutMs must be a positive number, got ${timeoutMs}`);
   }
 
+  if (!url || typeof url !== 'string' || url.trim() === '') {
+    throw new Error(`URL must be a non-empty string, got ${url}`);
+  }
+
   const controller = new AbortController();
   let timedOut = false;
   const callerSignal = init.signal ?? undefined;
@@ -205,6 +209,11 @@ export async function fetchWithTimeout(
     throw new Error(`Request to ${url} failed with unknown error type`);
   } finally {
     clearTimeout(timer);
-    callerSignal?.removeEventListener('abort', onCallerAbort);
+    // Ensure cleanup happens even if an error occurred before the timeout was set
+    try {
+      callerSignal?.removeEventListener('abort', onCallerAbort);
+    } catch (e) {
+      // Ignore errors during cleanup
+    }
   }
 }
