@@ -99,7 +99,20 @@ const MAX_SPAWNS_PER_HOUR = 12;
 // for the worker's gate-children spikes (tsc/eslint ~500-1000MB).
 // Combined worst case: 1.55 + 1.15 + ~0.5 misc + ~0.6 spike ≈ 3.8GB of
 // the 3.9GB machine — the kernel never gets to choose a victim.
-const MEMGUARD_NEXT_SERVER_MB = 1150; // keep the dashboard lean — the loop is the point of the test
+//
+// RETUNE (operator, 2026-11-24 ~02:35 — the death loop): the 1150MB
+// ceiling was WRONG in practice. Observed: characterization-test gate
+// children (`bun test` on files with pinned tests) grow to ~1.32GB; at
+// a fat moment (worker 1.35GB + child 1.32GB + next-server 0.86GB+)
+// the 4.04GB box hit global OOM five times in ten minutes — the kernel
+// killed the child and the WORKER (whose own allocation had invoked
+// the killer) died with it, silently, every time. Six workers burned
+// half the respawn budget. The envelope only closes if next-server is
+// capped at 700MB: 1.35 + 1.32 + 0.70 + ~0.35 misc ≈ 3.7GB — the wall
+// is never reached. Cost: the dashboard recycles every ~40-60min of
+// growth (60-90s dark each) — read-only surface, acceptable for the
+// endurance test; the LOOP is the point.
+const MEMGUARD_NEXT_SERVER_MB = 700; // death-loop retune: worker+child+dev must never sum past 4GB
 const MEMGUARD_WORKER_MB = 1550; // working set ~1.35GB + leak margin
 
 interface MemGuardSpec {

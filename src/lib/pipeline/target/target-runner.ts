@@ -237,7 +237,12 @@ export async function runTargetMutation(opts?: {
     await recordTargetRun({ at: new Date().toISOString(), repo, status: "no-work", reason: `first ${probes.length || 0} probed file(s) clean` });
     return { ok: true, status: "no-work", repo, log };
   }
-  const chosen = probes.find((p) => p.path === pick.file)!;
+  const chosen = probes.find((p) => p.path === pick.file);
+  if (!chosen) {
+    // This path should theoretically not be reached if pick is not null, but handle defensively.
+    await recordTargetRun({ at: new Date().toISOString(), repo, status: "failed", reason: "Internal logic error: pick found but probe not found" });
+    return { ok: false, status: "failed", repo, error: "Internal logic error: pick found but probe not found", log };
+  }
   const file = chosen.path;
   const originalCode = chosen.content;
   say(`file: ${file} — ${kindSummary(chosen.findings)}`);
