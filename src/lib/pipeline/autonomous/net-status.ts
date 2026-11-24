@@ -129,7 +129,8 @@ function state(): NetState {
 export function noteNetworkFailure(source: string, err: string | null | undefined): { wentOffline: boolean } {
   const s = state();
   s.consecutiveFailures++;
-  s.lastError = (err ?? "").replace(/\s+/g, " ").slice(0, 200) || "network error";
+  const errorText = (err ?? "").replace(/\s+/g, " ").substring(0, 200) || "network error";
+  s.lastError = errorText;
   s.lastSource = source;
   if (!s.offline && s.consecutiveFailures >= OFFLINE_THRESHOLD) {
     s.offline = true;
@@ -248,5 +249,9 @@ export async function ensureOnlineForPush(): Promise<boolean> {
   if (recovered) {
     return true;
   }
-  return up;
+  // If not recovered, return the probe result (up) to indicate if the probe itself succeeded,
+  // but the primary logic relies on 'recovered' for state transition.
+  // If up is true but recovered is false, it means recordProbeResult failed to transition state,
+  // which shouldn't happen if probeConnectivity returned true, but we must respect the state change logic.
+  return recovered ? true : up;
 }
