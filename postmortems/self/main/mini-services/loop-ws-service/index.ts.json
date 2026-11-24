@@ -8,12 +8,12 @@
   "symptom": "Test gate failed: test failed (sandboxed): mini-services/loop-ws-service/index.test.ts — The following filters did not match any test files:\n mini-services/loop-ws-service/index.test.ts\n473 files were searched [25.00ms]\n\nnote: Tests need \".test\", \"_test_\", \".spec\" or \"_spec_\" in the filen",
   "evidence": "1 test file(s) checked. The refactor broke existing behavior.",
   "constraints": "The previous refactor of mini-services/loop-ws-service/index.ts broke existing tests. Do not change observable behavior.",
-  "attempts": 3,
-  "parentHash": "fb21d362eb6f662c5ebb92bad1459c86cb86bf527825f17b737c124587171f41",
-  "hash": "f40780769737f2184af526915129c756af13b2531666fe826dae19ca6c6ee55c",
-  "lastAttemptAt": "2026-11-23T21:25:07.467Z",
+  "attempts": 4,
+  "parentHash": "225fbf64ae99e7af32d5cb20745b62324ca4a7449347d4a46daf5fb70aca4aae",
+  "hash": "080e41321e4acc1fe941fe89a3634ff8bcdbea8cf3399ff3a0b8cb46a4b7a9c0",
+  "lastAttemptAt": "2026-11-24T00:25:50.039Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.542Z",
-  "updatedAt": "2026-11-23T21:25:07.467Z",
+  "updatedAt": "2026-11-24T00:25:50.039Z",
   "schema": 2
 }
