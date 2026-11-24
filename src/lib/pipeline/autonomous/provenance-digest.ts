@@ -66,6 +66,9 @@ const GIT_LOG_TAKE = 5;
  *  flooding the digest with ancient history. */
 const ATTEMPTS_TAKE = 10;
 
+/** Maximum length to slice the last transform summary for the digest. */
+const MAX_TRANSFORM_SUMMARY_LENGTH = 100;
+
 /** Build the provenance digest block for the enhance prompt. Returns
  *  "" on any error or when there's no provenance data (a fresh file the
  *  loop has never touched + no git history → no block, no cost). The
@@ -121,7 +124,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
       }
 
       const last = attempts[0]; // newest-first
-      const lastTransform = last.transformSummary?.slice(0, 100) ?? "(no summary)";
+      const lastTransform = last.transformSummary?.slice(0, MAX_TRANSFORM_SUMMARY_LENGTH) ?? "(no summary)";
       lines.push(
         `Your attempts: ${attempts.length} (${enhanced} enhanced · ${rejected} rejected). Last: cycle ${last.cycleNumber} ${last.gateOutcome} "${lastTransform}".`,
       );
@@ -170,7 +173,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     if (operatorCommits.length > 0) {
       const lastOp = operatorCommits[0]; // git log is newest-first
       const date = lastOp.at.split(" ")[0]; // "2026-11-03"
-      const msg = lastOp.message.split("\n")[0].slice(0, 100);
+      const msg = lastOp.message.split("\n")[0].slice(0, MAX_TRANSFORM_SUMMARY_LENGTH);
       lines.push(`Operator's last change: "${msg}" (${date}).`);
     }
 
