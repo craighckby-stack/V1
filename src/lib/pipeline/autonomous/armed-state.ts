@@ -40,7 +40,7 @@
  * to load from anywhere (loop-runtime, API routes, instrumentation).
  */
 
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, mkdirSync } from "fs";
 import { atomicWriteFileSync } from "../core/atomic-file";
 import { join } from "path";
 import { PROJECT_ROOT } from "../core/paths";
@@ -113,11 +113,8 @@ export function markArmed(armed: boolean, by: string): void {
     // Ensure directory exists before attempting to write
     const dir = ARMED_STATE_FILE.substring(0, ARMED_STATE_FILE.lastIndexOf("/"));
     if (!existsSync(dir)) {
-      // Note: In a real implementation, you'd want to use mkdirSync here
-      // but since we're avoiding external dependencies, we'll let atomicWriteFileSync handle it
-      // or fail gracefully
+      mkdirSync(dir, { recursive: true });
     }
-    // Rely on atomicWriteFileSync to handle directory creation or fail gracefully
     atomicWriteFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2));
   } catch (error) {
     // Log the error for debugging but don't throw to maintain the contract
