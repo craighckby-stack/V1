@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/recent-cycles.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/recent-cycles.tsx(71,28): error TS18046: 'error' is of type 'unknown'.",
@@ -12,8 +12,8 @@
   "parentHash": "b2189f7be023622b61163ac50bb14eb81f236d35fb47120f0531d4df4439e669",
   "hash": "35219ff2d21ce4be396900c899a084acfe28d731be2d981796961e2a32aed0ce",
   "lastAttemptAt": "2026-11-24T10:28:21.742Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-24T11:14:15.077Z",
   "createdAt": "2026-11-23T03:29:46.412Z",
-  "updatedAt": "2026-11-24T10:28:21.742Z",
+  "updatedAt": "2026-11-24T11:14:15.077Z",
   "schema": 2
 }

@@ -40,8 +40,7 @@ export function RecentCycles() {
       
       if (res.status === 0) {
         // Status 0 is not a standard HTTP status; this likely means the request was aborted or failed before HTTP response.
-        // We rely on the catch block for AbortError, but log this unusual status if it occurs.
-        console.warn("API request returned status 0, likely aborted or network error.");
+        // Rely on the catch block for AbortError, no need for specific console.warn here unless we know it's not an abort.
         return; 
       }
       
@@ -65,7 +64,6 @@ export function RecentCycles() {
     } catch (error) {
       if (error instanceof Error && error.name !== 'AbortError') {
         // Improved error handling: log the full error object for better debugging context
-        const errorMessage = error.message || "Unknown error during fetch or parsing.";
         console.error("Error refreshing recent cycles from API:", error);
       }
     } finally {
