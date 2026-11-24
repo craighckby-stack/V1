@@ -190,8 +190,10 @@ export function nextProbeDue(): boolean {
 /** Record a probe result: success recovers (and lets the caller log it);
  *  failure doubles the backoff (capped) and schedules the next probe. */
 export function recordProbeResult(ok: boolean): { recovered: boolean } {
-  if (ok) return noteNetworkSuccess("probe");
   const s = state();
+  if (ok) {
+    return noteNetworkSuccess("probe");
+  }
   s.probeIntervalMs = Math.min(s.probeIntervalMs * 2, PROBE_MAX_MS);
   s.nextProbeAt = Date.now() + s.probeIntervalMs;
   return { recovered: false };
@@ -222,12 +224,12 @@ export async function probeConnectivity(): Promise<boolean> {
       cache: "no-store",
     });
     // Any status (200/301/403/429...) = we reached the internet.
+    clearTimeout(timer);
     return res.status >= 0;
   } catch (e) {
+    clearTimeout(timer);
     // Catch aborts, network errors, etc.
     return false;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -252,8 +254,6 @@ export async function ensureOnlineForPush(): Promise<boolean> {
     return true;
   }
   // If not recovered, we return the result of the probe (up).
-  // If up is true but recovered is false, it implies recordProbeResult failed to update state,
-  // but based on its implementation, if up is true, recovered MUST be true.
-  // Therefore, if we reach here, recovered is false, and we return up (which must be false if recovered is false).
+  // If recovered is false, the state is still offline, and we return the probe result.
   return up;
 }
