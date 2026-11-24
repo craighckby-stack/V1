@@ -59,17 +59,24 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   const results: ParsedSource[] = [];
 
   // Regex to match GitHub URLs and capture owner/repo, or just owner/repo slugs.
-  // Handles: https://github.com/owner/repo, github.com/owner/repo, owner/repo
-  // Captures: (owner)/(repo)
-  const githubSlugRegex = /^((?:https?:\/\/(?:www\.)?github\.com\/)?([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+))(?:\.git)?$/i;
+  // Handles: https://github.com/owner/repo, github.com/owner/repo, owner/repo, owner
+  // Captures: (owner)/(repo) or just (owner)
+  const githubSlugRegex = /^(?:https?:\/\/(?:www\.)?github\.com\/)?([a-zA-Z0-9_-]+)(?:\/([a-zA-Z0-9_-]+))?(?:\.git)?$/i;
 
   for (const token of tokens) {
     let cleanToken = token;
     let match = cleanToken.match(githubSlugRegex);
 
     if (match) {
-      // match[2] is owner, match[3] is repo
-      cleanToken = `${match[2]}/${match[3]}`;
+      // match[1] is owner, match[2] is repo (optional)
+      const owner = match[1];
+      const repo = match[2];
+      
+      if (repo) {
+        cleanToken = `${owner}/${repo}`;
+      } else {
+        cleanToken = owner; // Owner only
+      }
     } else {
       // Strip trailing .git if not matched by URL regex
       cleanToken = cleanToken.replace(/\.git$/i, '');
@@ -115,11 +122,11 @@ export function appendPresetToSources(existing: string | null | undefined, addit
     return parsedAdditions.map(c => c.raw).join(', ');
   }
   
+  if (additions.length === 0) return existingString;
+  
   const current = parseSources(existingString);
   const existingKeys = new Set(current.map((c) => c.raw.toLowerCase()));
   const merged: string[] = [...current.map((c) => c.raw)];
-
-  if (additions.length === 0) return existingString;
 
   // Parse all additions once
   const parsedAdditions = parseSources(additions.join(', '));
@@ -173,8 +180,11 @@ export function deriveLogPaths(
     csv: 'csv',
   };
   const ext = extMap[format];
+  
   // Use DEFAULT_BASE_PATH if basePath is null/undefined or empty after trimming
-  const clean = (basePath && basePath.trim().length > 0) ? basePath.trim().replace(/^\/+/, '') : DEFAULT_BASE_PATH.replace(/^\/+/, '');
+  const clean = (basePath && basePath.trim().length > 0) 
+    ? basePath.trim().replace(/^\/+/, '') 
+    : DEFAULT_BASE_PATH.replace(/^\/+/, '');
   
   const lastSlash = clean.lastIndexOf('/');
   const dir = lastSlash >= 0 ? clean.slice(0, lastSlash + 1) : '';
