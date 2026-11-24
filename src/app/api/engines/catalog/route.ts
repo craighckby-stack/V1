@@ -39,7 +39,10 @@ export async function GET() {
     return NextResponse.json({ sources: [] });
   }
 
-  const results = SIPHON_SOURCES.map((source, i) => {
+  const validSources: CatalogEntry[] = [];
+  const invalidSources: InvalidSource[] = [];
+
+  SIPHON_SOURCES.forEach((source, i) => {
     let isValid = true;
     let reason = "";
     let patterns: string[] | undefined = undefined;
@@ -70,31 +73,19 @@ export async function GET() {
 
     if (isValid) {
       // Source is valid, construct CatalogEntry
-      return {
-        type: 'valid',
-        entry: {
-          source: source as SiphonSource,
-          count: patterns ? patterns.length : 0,
-          complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
-          status: "configured",
-        },
-      };
+      validSources.push({
+        source: source as SiphonSource,
+        count: patterns ? patterns.length : 0,
+        complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
+        status: "configured",
+      });
     } else {
-      return {
-        type: 'invalid',
+      invalidSources.push({
         index: i,
         reason: reason,
-      };
+      });
     }
   });
-
-  const validSources = results
-    .filter((r): r is { type: 'valid', entry: CatalogEntry } => r.type === 'valid')
-    .map(r => r.entry);
-
-  const invalidSources = results
-    .filter((r): r is { type: 'invalid', index: number, reason: string } => r.type === 'invalid')
-    .map(r => ({ index: r.index, reason: r.reason }));
 
   if (invalidSources.length > 0) {
     return NextResponse.json(

@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/evolution/debate/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "4c40cfbbfd647777826f3c9d258b79f78d56a0935c3ca81a152a91b9caa82344",
   "hash": "3b7696f26555bbe3bf2bc044437fcdf130d5e8851dbeadda1f981147bb0b2185",
   "lastAttemptAt": "2026-11-23T22:10:58.292Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-24T00:16:42.906Z",
   "createdAt": "2026-11-23T03:29:46.401Z",
-  "updatedAt": "2026-11-23T22:10:58.292Z",
+  "updatedAt": "2026-11-24T00:16:42.906Z",
   "schema": 2
 }
