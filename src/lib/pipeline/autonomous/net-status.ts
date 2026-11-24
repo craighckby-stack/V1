@@ -245,7 +245,8 @@ export async function ensureOnlineForPush(): Promise<boolean> {
   const up = await probeConnectivity();
   const { recovered } = recordProbeResult(up);
 
-  // If recovered is true, noteNetworkSuccess already updated state (offline=false, etc.)
-  // If recovered is false, recordProbeResult updated state (backoff/nextProbeAt)
+  if (recovered) {
+    return true;
+  }
   return up;
 }
