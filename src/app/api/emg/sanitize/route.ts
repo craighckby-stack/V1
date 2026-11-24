@@ -11,7 +11,17 @@ interface SanitizeRequest {
 export async function POST(req: Request) {
   let json: SanitizeRequest;
   try {
-    json = (await req.json()) as SanitizeRequest;
+    const body = await req.json();
+    
+    // Input Validation: Check structure and type robustly immediately after parsing
+    if (typeof body !== 'object' || body === null || typeof body.code !== 'string') {
+        return NextResponse.json(
+            { error: "Invalid request body format. Expected { code: string }." },
+            { status: 400 }
+        );
+    }
+    json = body as SanitizeRequest;
+
   } catch (e) {
     if (e instanceof SyntaxError) {
       return NextResponse.json(
@@ -23,14 +33,6 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: "Failed to read or parse request body due to an unexpected I/O error." },
       { status: 500 }
-    );
-  }
-
-  // Check for required structure and type robustly
-  if (typeof json.code !== "string") {
-    return NextResponse.json(
-      { error: "code (string) is required in the request body." },
-      { status: 400 }
     );
   }
 
