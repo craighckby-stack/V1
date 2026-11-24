@@ -109,6 +109,12 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
 export function appendPresetToSources(existing: string | null | undefined, additions: string[]): string {
   const existingString = existing ?? '';
   
+  if (!existingString) {
+    // If existing is empty/null, just parse and join additions
+    const parsedAdditions = parseSources(additions.join(', '));
+    return parsedAdditions.map(c => c.raw).join(', ');
+  }
+  
   const current = parseSources(existingString);
   const existingKeys = new Set(current.map((c) => c.raw.toLowerCase()));
   const merged = [...current.map((c) => c.raw)];
@@ -188,9 +194,15 @@ export function deriveLogPaths(
  * Filters repositories by comma-separated substring patterns.
  */
 export function matchesRepoFilter(fullName: string, filterText: string): boolean {
-  if (typeof filterText !== 'string' || !filterText.trim()) return true;
+  if (typeof filterText !== 'string') {
+    // Explicitly handle non-string input instead of silently defaulting to true
+    throw new TypeError(`Filter text must be a string, received ${typeof filterText}.`);
+  }
   
-  const tokens = filterText
+  const trimmedFilterText = filterText.trim();
+  if (!trimmedFilterText) return true;
+  
+  const tokens = trimmedFilterText
     .split(/[\n,]+/)
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
