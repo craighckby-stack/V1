@@ -166,7 +166,7 @@ export async function GET() {
   }
 
   // Prepare all independent async tasks for parallel execution
-  const corpusPromise = (async () => {
+  const corpusPromise = Promise.resolve().then(async () => {
     try {
       const [attempts, failed, enhanced] = await Promise.all([
         db.mutationCorpus.count(),
@@ -182,9 +182,9 @@ export async function GET() {
       }
       return null;
     }
-  })();
+  });
 
-  const passRatePromise = (async () => {
+  const passRatePromise = Promise.resolve().then(async () => {
     try {
       const t = await getPassRateTrend();
       if (t) {
@@ -204,11 +204,11 @@ export async function GET() {
       }
       return null;
     }
-  })();
+  });
 
   const scarsPromise = diskScarCount();
 
-  const hotSwapPromise = (async () => {
+  const hotSwapPromise = Promise.resolve().then(async () => {
     try {
       return { lifetime: await getHotSwapSuccessCount(), thisBoot: getSwapCount() };
     } catch (e) {
@@ -219,9 +219,9 @@ export async function GET() {
       }
       return null;
     }
-  })();
+  });
 
-  const autonomyPromise = (async () => {
+  const autonomyPromise = Promise.resolve().then(async () => {
     try {
       const state = autonomousLoopRuntime.getState();
       return {
@@ -237,9 +237,9 @@ export async function GET() {
       }
       return null;
     }
-  })();
+  });
 
-  const zaiPromise = (async () => {
+  const zaiPromise = Promise.resolve().then(async () => {
     try {
       warmZaiCortex();
       return zaiCortexStatus();
@@ -251,7 +251,7 @@ export async function GET() {
       }
       return null;
     }
-  })();
+  });
 
   // Await all independent tasks in parallel using allSettled to ensure partial success is returned
   const results = await Promise.allSettled([
