@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { History, RefreshCw, GitCommit } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,16 +20,28 @@ export function RecentCycles() {
   const cyclesFromStore = usePipelineStore((s) => s.loopState?.recentCycles) ?? [];
   const [fetched, setFetched] = useState<AutonomousCycleSummary[]>([]);
   const [loading, setLoading] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   async function refresh() {
     if (loading) return; // Prevent concurrent fetches
     
-    // Optimization: Skip fetch if store already has data and we are not explicitly refreshing due to user action (though useEffect runs once)
-    // Since this is triggered by both useEffect and button click, we proceed unless loading.
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
     
+    abortControllerRef.current = new AbortController();
     setLoading(true);
+    
     try {
-      const res = await fetch("/api/autonomous/recent-cycles");
+      const res = await fetch("/api/autonomous/recent-cycles", {
+        signal: abortControllerRef.current.signal
+      });
+      
+      if (res.status === 0) {
+        throw new Error("Request was aborted");
+      }
+      
       if (!res.ok) {
         throw new Error(`Failed to fetch recent cycles: HTTP status ${res.status} ${res.statusText}`);
       }
@@ -41,40 +53,47 @@ export function RecentCycles() {
         throw new Error("Invalid API response structure: expected object containing a 'cycles' array of AutonomousCycleSummary.");
       }
       
-      const apiResponseCycles = data.cycles as AutonomousCycleSummary[];
+      // Validate each cycle in the array
+      const apiResponseCycles = data.cycles.filter(c => 
+        c && typeof c === 'object' && 'id' in c && 'cycleNumber' in c
+      ) as AutonomousCycleSummary[];
+      
       setFetched(apiResponseCycles);
     } catch (error) {
-      // Improved error handling: log the full error object for better debugging context
-      const errorMessage = error instanceof Error ? error.message : "Unknown error during fetch or parsing.";
-      console.error("Error refreshing recent cycles from API:", error);
+      if (error instanceof Error && error.name !== 'AbortError') {
+        // Improved error handling: log the full error object for better debugging context
+        const errorMessage = error.message || "Unknown error during fetch or parsing.";
+        console.error("Error refreshing recent cycles from API:", error);
+      }
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
     }
   }
 
   useEffect(() => {
     refresh();
+    
+    return () => {
+      // Cleanup abort controller on component unmount
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
 
   // Merge: in-memory recent from WS (most recent first) + DB fetch (dedup by id).
   // Use Map for O(N) deduplication. WS data (cyclesFromStore) takes precedence.
   const seen = new Map<string, AutonomousCycleSummary>();
   
-  // 1. Process store cycles first (WS data, highest priority)
-  cyclesFromStore.forEach(c => {
+  // Process all cycles in a single pass
+  [...cyclesFromStore, ...fetched].forEach(c => {
     if (c && c.id) { // Guard against null/undefined cycle object AND missing ID
       seen.set(c.id, c);
     }
   });
 
-  // 2. Process fetched cycles, only adding if ID is not already seen (API data is secondary)
-  fetched.forEach(c => {
-    if (c && c.id && !seen.has(c.id)) { // Guard against null/undefined cycle object AND missing ID
-      seen.set(c.id, c);
-    }
-  });
-
-  // Convert map values back to array. Map preserves insertion order (WS first, then unique API additions).
+  // Convert map values back to array. Map preserves insertion order (WS first, then API additions).
   const merged = Array.from(seen.values());
 
   return (
