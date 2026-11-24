@@ -9,18 +9,18 @@ interface SanitizeRequest {
 }
 
 export async function POST(req: Request) {
-  let json: SanitizeRequest;
+  let body: SanitizeRequest;
   try {
-    const body = await req.json();
+    const parsedBody = await req.json();
     
     // Input Validation: Check structure and type robustly immediately after parsing
-    if (typeof body !== 'object' || body === null || typeof body.code !== 'string') {
+    if (typeof parsedBody !== 'object' || parsedBody === null || typeof parsedBody.code !== 'string') {
         return NextResponse.json(
             { error: "Invalid request body format. Expected { code: string }." },
             { status: 400 }
         );
     }
-    json = body as SanitizeRequest;
+    body = parsedBody as SanitizeRequest;
 
   } catch (e) {
     if (e instanceof SyntaxError) {
@@ -37,7 +37,7 @@ export async function POST(req: Request) {
   }
 
   // Additional validation for empty string code
-  if (json.code.trim() === "") {
+  if (body.code.trim() === "") {
     return NextResponse.json(
       { error: "code cannot be an empty string." },
       { status: 400 }
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = sanitizeAndGovern(json.code);
+    const result = sanitizeAndGovern(body.code);
     
     // FIX: Ensure 'violations' is a mutable array (string[]) as required by SanitizeResult, 
     // even if sanitizeAndGovern returns a readonly array (SecuritySanitizerResult).
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
   } catch (err) {
     // Catch errors originating from sanitizeAndGovern, ensuring safe casting and context
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during sanitization.";
-    const inputSnippet = json.code.substring(0, Math.min(50, json.code.length));
+    const inputSnippet = body.code.substring(0, Math.min(50, body.code.length));
     
     return NextResponse.json(
       { error: `Sanitization failed for input code starting with: ${inputSnippet}... Error: ${errorMessage}` },
