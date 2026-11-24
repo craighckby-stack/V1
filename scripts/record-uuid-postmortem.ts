@@ -27,8 +27,8 @@ async function main() {
   };
 
   // Validate evidence object before stringifying
-  if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)) {
-    throw new Error("Invalid evidence object: must be a non-array object");
+  if (typeof evidence !== 'object' || evidence === null || Array.isArray(evidence)) {
+    throw new Error("Invalid evidence object: must be a non-array object.");
   }
 
   const requiredEvidenceFields = [
@@ -55,7 +55,7 @@ async function main() {
   });
 
   if (!record) {
-    throw new Error("Failed to create postmortem record");
+    throw new Error("Postmortem recording failed: postmortemStore returned no record ID. Check store connectivity and permissions.");
   }
 
   console.log("POSTMORTEM RECORDED");
