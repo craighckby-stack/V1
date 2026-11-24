@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/engines/catalog/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/api/engines/catalog/route.ts(78,25): error TS2345: Argument of type '{ source: SiphonSource; count: number; complianceStandard: string; status: string; } | undefined' is not assignable to parameter of type 'CatalogEntry'.\n  Type 'undefined' is not assignable to type 'CatalogEntry'.; src/app/api/engines/catalog/route.ts(80,27): error TS2345: Argument of type '{ index: number; reason: string; } | undefined' is not assignable to parameter of type 'InvalidSource'.\n  Type 'undefined' is not assignable to type 'InvalidSource'.",
@@ -12,8 +12,8 @@
   "parentHash": "5c57a58400ef44b369305bf58acb9f16ed9cb744bd00e36686b5198152e91552",
   "hash": "595f0e51b6c24a36fe95439187ad4832189cc5480ebb040c27b56ce545402245",
   "lastAttemptAt": "2026-11-24T01:41:45.665Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-24T02:51:05.407Z",
   "createdAt": "2026-11-23T03:29:46.406Z",
-  "updatedAt": "2026-11-24T01:41:45.665Z",
+  "updatedAt": "2026-11-24T02:51:05.407Z",
   "schema": 2
 }

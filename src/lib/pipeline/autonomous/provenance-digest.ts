@@ -157,7 +157,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
           }
         } catch (e) {
           /* malformed lessonIdsInjected — skip the trail line */
-          console.warn(`[ProvenanceDigest] Malformed lessonIdsInjected for cycle ${lastWithLessons.cycleNumber}: ${e instanceof Error ? e.message : String(e)}`);
+          console.warn(`[ProvenanceDigest] Malformed lessonIdsInjected for cycle ${lastWithLessons.cycleNumber}. Skipping knowledge trail.`);
         }
       }
     } else {
@@ -184,7 +184,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
       );
     }
 
-    lines.push("--- END PROVENANCE ---");
+    lines.push(footer);
 
     // Enforce the byte cap.
     let result = lines.join("\n");
