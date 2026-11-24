@@ -67,7 +67,7 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
       };
     }
 
-    // Secondary rate limit without Retry-After header (GitHub uses both 429 and 403 with remaining > 0)
+    // Secondary rate limit without Retry-After header (429 or 403 with remaining > 0)
     if (input.status === 429 || (input.status === 403 && remaining !== 0)) {
       return {
         waitMs: input.status === 403 ? 8000 : 5000,
@@ -135,14 +135,18 @@ export async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<
   try {
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
-        signal?.removeEventListener('abort', onAbort);
+        if (signal) {
+          signal.removeEventListener('abort', onAbort);
+        }
         resolve();
       }, ms);
       const onAbort = () => {
         clearTimeout(timer);
         reject(new Error('Operation cancelled during sleep'));
       };
-      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal) {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
     });
   } catch (err) {
     if (err instanceof Error && err.message.includes('Operation cancelled')) {
@@ -171,14 +175,16 @@ export async function fetchWithTimeout(
 
   const controller = new AbortController();
   let timedOut = false;
-  const callerSignal = init.signal ?? undefined;
+  const callerSignal = init.signal;
 
   if (callerSignal?.aborted) {
     throw new Error(`Operation cancelled by caller before request started for ${url}.`);
   }
 
   const onCallerAbort = () => controller.abort();
-  callerSignal?.addEventListener('abort', onCallerAbort, { once: true });
+  if (callerSignal) {
+    callerSignal.addEventListener('abort', onCallerAbort, { once: true });
+  }
 
   const timer = setTimeout(() => {
     timedOut = true;
@@ -210,10 +216,12 @@ export async function fetchWithTimeout(
   } finally {
     clearTimeout(timer);
     // Ensure cleanup happens even if an error occurred before the timeout was set
-    try {
-      callerSignal?.removeEventListener('abort', onCallerAbort);
-    } catch (e) {
-      // Ignore errors during cleanup
+    if (callerSignal) {
+      try {
+        callerSignal.removeEventListener('abort', onCallerAbort);
+      } catch (e) {
+        // Ignore errors during cleanup
+      }
     }
   }
 }
