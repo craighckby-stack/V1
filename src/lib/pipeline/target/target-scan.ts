@@ -97,7 +97,9 @@ function isMagicNumber(node: ts.NumericLiteral): boolean {
 /** Line number (1-based) for a position in a parsed source file. */
 function lineOf(sf: ts.SourceFile | undefined, pos: number): number {
   if (!sf) return 1; // Default to line 1 if source file is undefined
-  return sf.getLineAndCharacterOfPosition(pos).line + 1;
+  // FIX: Use getLineAndCharacterOfPosition which returns { line: number, character: number }
+  const { line } = sf.getLineAndCharacterOfPosition(pos);
+  return line + 1;
 }
 
 /** Right ScriptKind per extension — .tsx needs TSX or the parser fails
@@ -123,8 +125,17 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
   const findings: TargetFinding[] = [];
   const seen = new Set<string>();
 
-  const push = (kind: TargetTaskKind, pos: number) => {
-    const line = lineOf(sf, pos);
+  // Pre-calculate line numbers for all nodes to avoid repeated lookups in push
+  const nodeLineMap = new Map<ts.Node, number>();
+  const visitAndMap = (node: ts.Node) => {
+    const line = lineOf(sf, node.getStart());
+    nodeLineMap.set(node, line);
+    ts.forEachChild(node, visitAndMap);
+  };
+  visitAndMap(sf);
+
+  const push = (kind: TargetTaskKind, node: ts.Node) => {
+    const line = nodeLineMap.get(node) ?? 1; // Fallback to 1 if mapping failed unexpectedly
     const key = `${kind}:${line}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -137,7 +148,7 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
   const visit = (node: ts.Node): void => {
     // 2) empty catch blocks
     if (ts.isCatchClause(node) && node.block.statements.length === 0) {
-      push("empty-catch", node.block.getStart());
+      push("empty-catch", node);
     }
 
     // 3) `any` in type positions (annotation, as-expression, type args)
@@ -148,7 +159,7 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
         ts.isAsExpression(p) ||
         ts.isTypeReferenceNode(p) ||
         ts.isArrayTypeNode(p);
-      if (inTypePosition) push("any-usage", node.getStart());
+      if (inTypePosition) push("any-usage", node);
     }
 
     // 4a) missing return type on function/method declarations
@@ -158,7 +169,7 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
       !node.type &&
       node.name
     ) {
-      push("missing-return-type", node.name.getStart());
+      push("missing-return-type", node);
     }
 
     // 4b) unused imports — heuristic: an imported binding name that does
@@ -189,7 +200,7 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
         const escapedBinding = b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const re = new RegExp(`\\b${escapedBinding}\\b`, "g");
         if ((restOfFile.match(re) ?? []).length === 0) {
-          push("unused-import", node.getStart());
+          push("unused-import", node);
           break;
         }
       }
@@ -197,12 +208,12 @@ export function scanTargetContent(relPath: string, text: string): TargetFinding[
 
     // 5) magic numbers
     if (ts.isNumericLiteral(node) && isMagicNumber(node)) {
-      push("magic-number", node.getStart());
+      push("magic-number", node);
     }
 
     // 6) non-null assertions
     if (ts.isNonNullExpression(node)) {
-      push("non-null-assertion", node.getStart());
+      push("non-null-assertion", node);
     }
 
     ts.forEachChild(node, visit);
