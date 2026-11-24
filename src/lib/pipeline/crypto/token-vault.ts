@@ -71,7 +71,7 @@ function ensureKey(): Buffer | null {
       let hex: string;
       try {
         hex = readFileSync(KEY_FILE, "utf-8").trim();
-      } catch {
+      } catch (e) {
         // Failed to read file content
         return null;
       }
