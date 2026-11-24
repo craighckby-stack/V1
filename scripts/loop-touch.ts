@@ -28,7 +28,7 @@
 import { markOperatorTouch, readOperatorTouch } from "../src/lib/pipeline/autonomous/operator-touch";
 
 const rawBy = process.argv[2] ?? "";
-const by = rawBy.trim() || "cron-delegate";
+const by = rawBy.trim() ? rawBy.trim() : "cron-delegate";
 
 // The touch module is a pure leaf (fs + path + atomic-write) — no DB,
 // no LLM, no pipeline graph. Safe to call from any process, any time.
@@ -38,6 +38,6 @@ const state = readOperatorTouch();
 if (state) {
   console.log(`touched: at=${state.at} by=${state.by}`);
 } else {
-  console.error(`touch FAILED: readOperatorTouch returned null after attempting write with label "${by}". Check underlying file system permissions or store integrity.`);
+  console.error(`touch FAILED: readOperatorTouch returned null. Expected a state object after writing with label "${by}". Check underlying file system permissions or store integrity.`);
   process.exit(1);
 }
