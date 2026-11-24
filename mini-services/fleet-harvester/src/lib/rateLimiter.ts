@@ -20,24 +20,27 @@ const MAX_AUTO_WAIT_MS = 120_000;
  * Computes pacing and rate-limit recovery cooldowns for GitHub REST API requests.
  */
 export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision {
-  if (!input) {
+  if (input === null || typeof input === 'undefined') {
     throw new Error("GitHubRateInput must be provided to computeGitHubCooldown.");
   }
   const now = input.nowMs ?? Date.now();
+  
   const remaining =
     input.remainingHeader && input.remainingHeader.trim() !== ''
       ? Number(input.remainingHeader)
-      : null;
+      : NaN; // Use NaN instead of null for numeric checks later
+  
   const resetEpochSec =
-    input.resetHeader && input.resetHeader.trim() !== '' ? Number(input.resetHeader) : null;
+    input.resetHeader && input.resetHeader.trim() !== '' ? Number(input.resetHeader) : NaN;
+  
   const retryAfterSec =
     input.retryAfterHeader && input.retryAfterHeader.trim() !== ''
       ? Number(input.retryAfterHeader)
-      : null;
+      : NaN;
 
   // Hard rate-limit or secondary abuse response
   if (input.status === 403 || input.status === 429) {
-    if (retryAfterSec !== null && !Number.isNaN(retryAfterSec) && retryAfterSec > 0) {
+    if (retryAfterSec > 0 && !Number.isNaN(retryAfterSec)) {
       const waitMs = Math.ceil(retryAfterSec * 1000) + 250;
       if (waitMs <= MAX_AUTO_WAIT_MS) {
         return {
@@ -53,7 +56,7 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
       };
     }
 
-    if (remaining === 0 && resetEpochSec !== null && !Number.isNaN(resetEpochSec)) {
+    if (remaining === 0 && !Number.isNaN(resetEpochSec) && resetEpochSec > 0) {
       const waitMs = Math.max(1000, resetEpochSec * 1000 - now + 500);
       if (waitMs <= MAX_AUTO_WAIT_MS) {
         return {
@@ -71,7 +74,7 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
     }
 
     // Secondary rate limit without Retry-After header (429 or 403 with remaining > 0)
-    if (input.status === 429 || (input.status === 403 && remaining !== 0)) {
+    if (input.status === 429 || (input.status === 403 && remaining > 0)) {
       return {
         waitMs: input.status === 403 ? 8000 : 5000,
         shouldRetry: true,
@@ -81,9 +84,9 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
   }
 
   // Proactive pacing based on remaining quota
-  if (remaining !== null && !Number.isNaN(remaining)) {
+  if (!Number.isNaN(remaining)) {
     // Check for exhaustion based on reset time, only if not already handled by hard 403/429 logic above
-    if (remaining === 0 && resetEpochSec !== null && !Number.isNaN(resetEpochSec)) {
+    if (remaining === 0 && !Number.isNaN(resetEpochSec) && resetEpochSec > 0) {
       const waitMs = Math.max(1000, resetEpochSec * 1000 - now + 500);
       if (waitMs <= MAX_AUTO_WAIT_MS) {
         return {
@@ -208,7 +211,7 @@ export async function fetchWithTimeout(
         } else if (callerSignal?.aborted) {
           throw new Error(`Operation cancelled by caller during request to ${url}`);
         } else {
-          throw new Error(`Request to ${url} was aborted for an unknown reason`);
+          throw new Error(`Request to ${url} was aborted for an unknown reason (AbortError received without timeout or caller signal being set)`);
         }
       }
       // General network/fetch error
