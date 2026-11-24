@@ -70,6 +70,7 @@ const OFFLINE_THRESHOLD = 3;
 const PROBE_BASE_MS = 15_000;
 const PROBE_MAX_MS = 5 * 60_000;
 const PROBE_MAX_INTERVAL_MS = PROBE_MAX_MS;
+const PROBE_MAX_MS_CONSTANT = 5 * 60_000;
 
 export interface NetStatusSnapshot {
   offline: boolean;
