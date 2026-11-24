@@ -20,7 +20,7 @@ export function MemoryBank() {
   const setEntries = usePipelineStore((s) => s.setMemoryEntries);
   const hasFetchedRef = useRef(false);
   const isFetchingRef = useRef(false);
-  const [isMounted, setIsMounted] = useState(false); // Start as false, set true in mount effect
+  const [isMounted, setIsMounted] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const isLoading = isFetchingRef.current && !hasFetchedRef.current;
@@ -32,10 +32,7 @@ export function MemoryBank() {
       setIsMounted(false);
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
-        // Only clear if this controller is still the one tracked
-        if (abortControllerRef.current === abortControllerRef.current) {
-            abortControllerRef.current = null;
-        }
+        abortControllerRef.current = null;
       }
     };
   }, []);
@@ -46,29 +43,24 @@ export function MemoryBank() {
     const fetchMemoryEntries = async () => {
       isFetchingRef.current = true;
       const abortController = new AbortController();
+      abortControllerRef.current = abortController;
       
-      // Safely update the ref only if it's currently null or points to the old controller
-      if (abortControllerRef.current === null) {
-          abortControllerRef.current = abortController;
-      }
-      
-      const timeoutId = setTimeout(() => {
-        if (abortController && abortController.signal.aborted === false) {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
           abortController.abort();
-          // Cleanup controller reference on timeout abort only if this fetch attempt is active
-          if (abortControllerRef.current === abortController) {
-             abortControllerRef.current = null;
-          }
-        }
-      }, 10000);
+          abortControllerRef.current = null;
+          reject(new Error("Request timeout after 10 seconds"));
+        }, 10000);
+      });
       
       try {
-        const res = await fetch("/api/memory/entries", {
+        const fetchPromise = fetch("/api/memory/entries", {
           signal: abortController.signal
         });
         
+        const res = await Promise.race([fetchPromise, timeoutPromise]);
+        
         if (!res.ok) {
-          // Throw with context for better error handling upstream
           throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
         
@@ -79,7 +71,7 @@ export function MemoryBank() {
         }
         
         setEntries(data.entries);
-        hasFetchedRef.current = true; // Mark success only after state update
+        hasFetchedRef.current = true;
       } catch (error) {
         if (error instanceof Error && error.name !== 'AbortError') {
           console.error("Error loading memory entries from API:", { 
@@ -89,11 +81,9 @@ export function MemoryBank() {
           });
         }
       } finally {
-        clearTimeout(timeoutId);
         isFetchingRef.current = false;
-        // Only clear controller reference if this fetch attempt was the one holding it
         if (abortControllerRef.current === abortController) {
-             abortControllerRef.current = null;
+          abortControllerRef.current = null;
         }
       }
     };
