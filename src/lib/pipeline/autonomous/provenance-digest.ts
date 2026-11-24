@@ -69,6 +69,9 @@ const ATTEMPTS_TAKE = 10;
 /** Maximum length to slice the last transform summary for the digest. */
 const MAX_TRANSFORM_SUMMARY_LENGTH = 100;
 
+/** The number of lessons injected in the last relevant attempt. */
+const LESSON_COUNT_DISPLAY = 6;
+
 /** Build the provenance digest block for the enhance prompt. Returns
  *  "" on any error or when there's no provenance data (a fresh file the
  *  loop has never touched + no git history → no block, no cost). The
@@ -155,7 +158,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
           const ids = JSON.parse(lastWithLessons.lessonIdsInjected) as string[];
           if (Array.isArray(ids) && ids.length > 0) {
             lines.push(
-              `Knowledge applied: ${ids.length} lesson(s) injected on cycle ${lastWithLessons.cycleNumber} (${ids.map((id) => id.slice(-6)).join(", ")}).`,
+              `Knowledge applied: ${ids.length} lesson(s) injected on cycle ${lastWithLessons.cycleNumber} (${ids.map((id) => id.slice(-LESSON_COUNT_DISPLAY)).join(", ")}).`,
             );
           }
         } catch (e) {
