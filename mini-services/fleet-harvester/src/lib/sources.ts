@@ -58,17 +58,18 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   const seen = new Set<string>();
   const results: ParsedSource[] = [];
 
-  // Regex to match GitHub URLs and capture owner/repo
+  // Regex to match GitHub URLs and capture owner/repo, or just owner/repo slugs.
   // Handles: https://github.com/owner/repo, github.com/owner/repo, owner/repo
-  const githubUrlRegex = /^(?:https?:\/\/(?:www\.)?github\.com\/)?([^/]+)\/([^/]+)(?:\.git)?$/i;
+  // Captures: (owner)/(repo)
+  const githubSlugRegex = /^((?:https?:\/\/(?:www\.)?github\.com\/)?([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+))(?:\.git)?$/i;
 
   for (const token of tokens) {
     let cleanToken = token;
-    let match = cleanToken.match(githubUrlRegex);
+    let match = cleanToken.match(githubSlugRegex);
 
     if (match) {
-      // Extract owner and repo from match groups
-      cleanToken = `${match[1]}/${match[2]}`;
+      // match[2] is owner, match[3] is repo
+      cleanToken = `${match[2]}/${match[3]}`;
     } else {
       // Strip trailing .git if not matched by URL regex
       cleanToken = cleanToken.replace(/\.git$/i, '');
