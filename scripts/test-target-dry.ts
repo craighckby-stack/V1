@@ -129,7 +129,8 @@ async function main() {
     line(`=======================================\n`);
   } catch (error) {
     line(`\n[!] FATAL: An unhandled error occurred during the dry-run test.`);
-    line(`    Error: ${error instanceof Error ? error.message : String(error)}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    line(`    Error: ${errorMessage}`);
     await clearTargetConfig();
     process.exitCode = 2;
   }
