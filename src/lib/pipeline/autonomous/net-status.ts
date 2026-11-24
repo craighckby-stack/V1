@@ -223,7 +223,8 @@ export async function probeConnectivity(): Promise<boolean> {
     });
     // Any status (200/301/403/429...) = we reached the internet.
     return res.status >= 0;
-  } catch {
+  } catch (e) {
+    // Catch aborts, network errors, etc.
     return false;
   } finally {
     clearTimeout(timer);
@@ -246,12 +247,13 @@ export async function ensureOnlineForPush(): Promise<boolean> {
   const up = await probeConnectivity();
   const { recovered } = recordProbeResult(up);
 
+  // If recovered is true, the state is ONLINE, so we return true.
   if (recovered) {
     return true;
   }
-  // If not recovered, return the probe result (up) to indicate if the probe itself succeeded,
-  // but the primary logic relies on 'recovered' for state transition.
-  // If up is true but recovered is false, it means recordProbeResult failed to transition state,
-  // which shouldn't happen if probeConnectivity returned true, but we must respect the state change logic.
-  return recovered ? true : up;
+  // If not recovered, we return the result of the probe (up).
+  // If up is true but recovered is false, it implies recordProbeResult failed to update state,
+  // but based on its implementation, if up is true, recovered MUST be true.
+  // Therefore, if we reach here, recovered is false, and we return up (which must be false if recovered is false).
+  return up;
 }
