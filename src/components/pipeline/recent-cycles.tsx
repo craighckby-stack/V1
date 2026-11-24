@@ -23,6 +23,10 @@ export function RecentCycles() {
 
   async function refresh() {
     if (loading) return; // Prevent concurrent fetches
+    
+    // Optimization: Skip fetch if store already has data and we are not explicitly refreshing due to user action (though useEffect runs once)
+    // Since this is triggered by both useEffect and button click, we proceed unless loading.
+    
     setLoading(true);
     try {
       const res = await fetch("/api/autonomous/recent-cycles");
@@ -40,10 +44,9 @@ export function RecentCycles() {
       const apiResponseCycles = data.cycles as AutonomousCycleSummary[];
       setFetched(apiResponseCycles);
     } catch (error) {
+      // Improved error handling: log the full error object for better debugging context
       const errorMessage = error instanceof Error ? error.message : "Unknown error during fetch or parsing.";
-      console.error("Error refreshing recent cycles from API:", errorMessage);
-      // Keep fetched as is or set to empty if error occurred, depending on desired fallback. Setting to [] ensures UI reflects failure clearly.
-      // Note: We do not overwrite existing fetched data on error, only if the fetch fails entirely.
+      console.error("Error refreshing recent cycles from API:", error);
     } finally {
       setLoading(false);
     }
