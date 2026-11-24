@@ -123,22 +123,19 @@ class LoopEventBus {
       throw new Error("LoopEventBus.on() called with non-function listener");
     }
     
-    let cleanupError: Error | null = null;
     try {
       this.emitter.on("event", listener);
     } catch (error) {
-      cleanupError = error instanceof Error ? error : new Error(String(error));
+      // If adding the listener fails, throw the error immediately
+      // This prevents the cleanup function from trying to remove a listener that was never added
+      throw error;
     }
 
     return () => {
       try {
         this.emitter.off("event", listener);
       } catch (error) {
-        // If both initial add and removal fail, prioritize the removal error
-        if (cleanupError) {
-          throw new Error(`Failed to remove listener: ${error instanceof Error ? error.message : String(error)}. Original error during add: ${cleanupError.message}`);
-        }
-        throw error;
+        throw new Error(`Failed to remove listener: ${error instanceof Error ? error.message : String(error)}`);
       }
     };
   }
