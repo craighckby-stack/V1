@@ -57,22 +57,17 @@ export function AstInspectorModal() {
       return;
     }
     
-    // Check clipboard availability and perform write operation in parallel
-    const clipboardAvailable = Promise.resolve(
-      !!navigator.clipboard && typeof navigator.clipboard.writeText === 'function'
-    );
+    // Check if clipboard API is available
+    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+      toast({ 
+        title: "Failed to copy code", 
+        description: "Clipboard API is not available in this environment. Try copying manually." 
+      });
+      return;
+    }
 
     try {
-      // Perform clipboard check and write operation in parallel
-      const [isAvailable] = await Promise.all([
-        clipboardAvailable,
-        navigator.clipboard.writeText(evolvedStr)
-      ]);
-      
-      if (!isAvailable) {
-        throw new Error("Clipboard API is not available in this environment");
-      }
-      
+      await navigator.clipboard.writeText(evolvedStr);
       toast({ title: "Copied evolved code", description: `${evolvedStr.length} bytes to clipboard` });
     } catch (error) {
       // Catching generic error from clipboard API with context
