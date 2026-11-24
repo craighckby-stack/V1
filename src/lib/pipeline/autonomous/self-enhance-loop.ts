@@ -133,11 +133,82 @@ import {
 // applyTaskPlan — two independent writers previously raced (its rollback
 // could silently revert a gated, already-pushed enhancement).
 import { withTreeLock } from "../core/tree-lock";
+// Wipe-proof-tier atomic writes for the master-unlock persistence below
+// (same primitive armed-state/loop-stats use — a torn write must never
+// leave a half-written bypass record on disk).
+import { atomicWriteFileSync } from "../core/atomic-file";
 
 /** D4 (corpus): 16-hex sha of a source string — compact provenance for
  *  "what did the file look like when this was attempted". */
 function sha16(s: string): string {
   return createHash("sha256").update(s).digest("hex").slice(0, 16);
+}
+
+// ── MASTER-UNLOCK PERSISTENCE (operator, 2026-11-24 — 10-day test) ────
+// The master-unlock flag used to be worker-process-memory only: every
+// worker restart (crash, OOM, respawn — observed 3 boots in 2h) cleared
+// it, forcing the operator to re-enter the master PIN mid-session. For
+// the sanctioned 10-day endurance run the operator explicitly asked for
+// the bypass to persist "until the system is stopped": this wipe-proof
+// tier (.git/info/ — never committed, survives sandbox restores) holds
+// it, stop() clears it, the constructor re-hydrates it. This does NOT
+// weaken the per-file operator-PIN (691) friction gate — that tier is
+// untouched — and the real code boundary (protected-files + the gate
+// chain) never honored any PIN anyway.
+const MASTER_UNLOCK_FILE = join(PROJECT_ROOT, ".git/info/loop-master-unlocked.json");
+
+interface MasterUnlockPersisted {
+  masterUnlocked: boolean;
+  at: string;
+  by: string;
+}
+
+/** True iff the wipe-proof tier holds a well-formed master-unlock record.
+ *  Malformed/absent → null (fail-closed: never fabricate a bypass from a
+ *  bad read — same dual-layer contract as the armed tier). */
+function readMasterUnlockPersisted(): MasterUnlockPersisted | null {
+  try {
+    const parsed = JSON.parse(
+      readFileSync(MASTER_UNLOCK_FILE, "utf8")
+    ) as MasterUnlockPersisted;
+    if (parsed?.masterUnlocked === true && typeof parsed.at === "string") {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null; // absent/unreadable/torn — fail-closed
+  }
+}
+
+/** Persist the bypass. Best-effort: a write failure never fails the
+ *  unlock that already succeeded in memory (the session keeps working;
+ *  only the restart re-hydration is lost). */
+function persistMasterUnlock(): void {
+  try {
+    const entry: MasterUnlockPersisted = {
+      masterUnlocked: true,
+      at: new Date().toISOString(),
+      by: "operator-master-pin",
+    };
+    atomicWriteFileSync(MASTER_UNLOCK_FILE, JSON.stringify(entry, null, 2));
+  } catch (err) {
+    console.error(
+      "[SELF-ENHANCE] master-unlock persist failed (session continues; a restart will require the PIN again):",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
+/** Clear the persisted bypass — called ONLY from stop(), so an explicit
+ *  [STOP] is the single deliberate way the bypass ends. Best-effort: an
+ *  undeletable file re-hydrates on the next boot (the operator can
+ *  [STOP] again or remove it by hand). */
+function clearMasterUnlockPersisted(): void {
+  try {
+    rmSync(MASTER_UNLOCK_FILE, { force: true });
+  } catch {
+    /* best-effort by contract */
+  }
 }
 
 /**
@@ -526,18 +597,21 @@ class SelfEnhanceLoop {
   private saturation = new Map<string, FileSaturation>();
   // MASTER UNLOCK (operator-only, secret — NOT in the README): once the
   // operator enters the master PIN (4444 / LOOP_MASTER_PIN) on ANY
-  // saturation [unlock] prompt, this flips to true and STAYS true for
-  // the rest of this worker process's life. While true, every subsequent
-  // [unlock] click bypasses the PIN prompt entirely — the operator's
-  // active management session no longer needs a PIN per file. This is a
-  // pure convenience: it protects nothing the operator PIN doesn't
-  // already protect, and the real code-safety boundary stays
-  // protected-files + the gate chain (no PIN can bypass those). Resets
-  // on worker restart — a natural "new session" boundary. Persisting
-  // it to disk would be a security smell (a permanent silent PIN bypass
-  // is exactly what the friction gate exists to prevent), so it lives
-  // in memory only. See /unlock in loop-worker/index.ts + the edge route
-  // /api/self-enhance/unlock/route.ts for the gate logic.
+  // saturation [unlock] prompt, this flips to true. While true, every
+  // subsequent [unlock] click bypasses the PIN prompt entirely — the
+  // operator's active management session no longer needs a PIN per file.
+  // This is a pure convenience: it protects nothing the operator PIN
+  // doesn't already protect, and the real code-safety boundary stays
+  // protected-files + the gate chain (no PIN can bypass those).
+  //
+  // PERSISTENCE (operator, 2026-11-24 — 10-day endurance test): the
+  // flag ALSO lives in the wipe-proof tier (.git/info/loop-master-
+  // unlocked.json) so worker restarts no longer clear it — the operator
+  // asked for "unlocked until the system is stopped". stop() deletes
+  // the file (explicit [STOP] is the ONLY way the bypass ends); the
+  // constructor re-hydrates from disk. The per-file operator-PIN (691)
+  // tier is untouched. See /unlock in loop-worker/index.ts + the edge
+  // route /api/self-enhance/unlock/route.ts for the gate logic.
   private masterUnlocked = false;
   private stats = {
     totalScanned: 0,
@@ -800,6 +874,24 @@ class SelfEnhanceLoop {
       }
     } catch {
       /* armed-state read failure must never block the constructor */
+    }
+
+    // ── MASTER-UNLOCK REHYDRATION (10-day endurance test) ────────────
+    // The wipe-proof tier says the operator entered the master PIN at
+    // some point and has not pressed [STOP] since. Re-hydrate the
+    // bypass so a worker respawn doesn't demand the PIN again
+    // mid-test. Fail-closed: absent/malformed tier → stays false.
+    try {
+      const persistedMaster = readMasterUnlockPersisted();
+      if (persistedMaster) {
+        this.masterUnlocked = true;
+        this.log(
+          `🔑 master unlock re-hydrated from persistent tier (activated ${persistedMaster.at}) — PIN prompt stays skipped until [STOP]`,
+          "info"
+        );
+      }
+    } catch {
+      /* master-unlock rehydration failure must never block the constructor */
     }
   }
 
@@ -3864,6 +3956,10 @@ ${schemaSystemTail}`;
     // cycle sharing currentCycleBranch / currentFile.
     this.continuous = false;
     this.runId++;
+    // Clear the persisted master-unlock tier: an explicit [STOP] is the
+    // single deliberate end of the PIN bypass (the 10-day-test
+    // contract — "unlocked until the system is stopped").
+    clearMasterUnlockPersisted();
     this.log("Self-enhance loop stop requested", "warn");
   }
 
@@ -3982,21 +4078,26 @@ ${schemaSystemTail}`;
 
   /** Is the operator master-unlock active? While true, the saturation
    *  [unlock] buttons in the UI skip the per-file PIN prompt and unlock
-   *  directly (the operator already proved they know the master PIN
-   *  this session). Resets on worker restart. See the field comment above
-   *  for the full rationale. */
+   *  directly (the operator already proved they know the master PIN).
+   *  Survives worker restarts via the wipe-proof tier (10-day-test
+   *  contract); only an explicit [STOP] clears it. See the field comment
+   *  above for the full rationale. */
   isMasterUnlocked(): boolean {
     return this.masterUnlocked;
   }
 
-  /** Activate master-unlock mode for the rest of this worker process's
-   *  life. Called by the worker's /unlock handler when the submitted PIN
-   *  matches LOOP_MASTER_PIN. Idempotent — setting again is a no-op. */
+  /** Activate master-unlock mode. Called by the worker's /unlock handler
+   *  when the submitted PIN matches LOOP_MASTER_PIN. Idempotent — setting
+   *  again is a no-op in memory, but the wipe-proof tier is re-stamped
+   *  (fresh `at` timestamp) so the persistence never goes stale. */
   setMasterUnlocked(): void {
     if (!this.masterUnlocked) {
       this.masterUnlocked = true;
       this.log("🔑 master unlock active — PIN prompt skipped for this session", "info");
     }
+    // Persist to the wipe-proof tier (10-day endurance test): the bypass
+    // must survive worker restarts; only stop() clears it.
+    persistMasterUnlock();
   }
 
   /** Unlock a locked-out file so it's eligible for the next cycle. Called

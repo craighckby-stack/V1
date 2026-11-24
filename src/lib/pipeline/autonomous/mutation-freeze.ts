@@ -66,11 +66,19 @@ export interface MutationFreezeState {
  * Test runs must NEVER write production intent tiers — see
  * self-enhance-armed-state.ts for the pollution incident this guards. */
 function isTestOrigin(): boolean {
-  return (
+  // ARGV SIGNAL (operator, 2026-11-24): Bun 1.3.14's no-args `bun test`
+  // mode sets NODE_ENV=development — env alone can't detect it. The
+  // *.test.* entry-file argv shape covers BOTH bun test modes. See
+  // armed-state.ts isTestOrigin() for the full forensic note.
+  if (
     process.env.BUN_TEST === "1" ||
     process.env.VITEST === "1" ||
     process.env.NODE_ENV === "test"
-  );
+  ) {
+    return true;
+  }
+  const entry = process.argv[1] ?? "";
+  return /\.test\.[cm]?[jt]sx?$/.test(entry);
 }
 
 /** Persist the freeze intent. Never throws — a persistence failure must

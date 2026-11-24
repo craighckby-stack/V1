@@ -166,8 +166,10 @@ async function main() {
             // Operator master-unlock flag (secret master PIN 4444 /
             // LOOP_MASTER_PIN — NOT in the README). While true, the
             // UI skips the per-file PIN prompt and unlocks directly.
-            // Resets on worker restart. See self-enhance-loop.ts
-            // `masterUnlocked` field comment for the full rationale.
+            // Survives worker restarts via the wipe-proof tier
+            // (2026-11-24, 10-day test); an explicit [STOP] clears it.
+            // See self-enhance-loop.ts `masterUnlocked` field comment
+            // for the full rationale.
             masterUnlocked: loop.isMasterUnlocked(),
             // Honest live-branch accounting vs the monotonic loop-NN
             // counter (which is a lifetime mutation tally, not a live
@@ -326,14 +328,18 @@ async function main() {
         //     entry.
         //   - master PIN (LOOP_MASTER_PIN, default "4444"): NOT in the
         //     README — operator-only secret. Entering it once flips
-        //     `loop.masterUnlocked` to true for the rest of this worker
-        //     process's life; while true, every subsequent [unlock]
-        //     request (with or without a PIN) auto-passes — the
+        //     `loop.masterUnlocked` to true; while true, every subsequent
+        //     [unlock] request (with or without a PIN) auto-passes — the
         //     operator's active management session no longer needs a
-        //     PIN per file. Resets on worker restart (a natural "new
-        //     session" boundary; persisting it would be a permanent
-        //     silent bypass, which is the exact thing the friction gate
-        //     exists to prevent).
+        //     PIN per file.
+        //
+        // PERSISTENCE (operator, 2026-11-24 — 10-day endurance test):
+        //     master-unlock now lives in the wipe-proof tier (.git/info/
+        //     loop-master-unlocked.json) and SURVIVES worker restarts;
+        //     the constructor re-hydrates it at boot. An explicit [STOP]
+        //     (loop.stop()) deletes the file — the single deliberate end
+        //     of the bypass, per the operator's "unlocked until the
+        //     system is stopped" contract.
         // The master PIN protects nothing the operator PIN doesn't
         // already protect — the real code-safety boundary is
         // protected-files + the gate chain, which no PIN can bypass.

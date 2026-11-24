@@ -234,7 +234,13 @@ function assembleSnapshot(
  */
 export function captureHealthSnapshotSync(cycleNumber: number): HealthSnapshot {
   // Tests (timeout 30s — the suite is ~1.6s, 30s is generous)
-  const test = runSync("bun", ["test"], 30_000);
+  // Explicit path args (operator, 2026-11-24): bare `bun test` (no args)
+  // sets NODE_ENV=development in Bun 1.3.14, which blinded every
+  // test-origin guard in the wipe-proof tiers — the 15-min snapshots
+  // were re-corrupting the production armed-state via armed-state.test.ts.
+  // With path args bun sets NODE_ENV=test (belt); the guards' argv signal
+  // covers both modes regardless (braces).
+  const test = runSync("bun", ["test", "src", "mini-services", "scripts"], 30_000);
   // tsc (timeout 60s — full project typecheck)
   const tsc = runSync("bun", ["x", "tsc", "--noEmit"], 60_000);
   // eslint (timeout 60s)
@@ -254,7 +260,7 @@ export function captureHealthSnapshotSync(cycleNumber: number): HealthSnapshot {
 export async function captureHealthSnapshotAsync(
   cycleNumber: number
 ): Promise<HealthSnapshot> {
-  const test = await runAsync("bun", ["test"], 30_000);
+  const test = await runAsync("bun", ["test", "src", "mini-services", "scripts"], 30_000);
   const tsc = await runAsync("bun", ["x", "tsc", "--noEmit"], 60_000);
   const lint = await runAsync("bun", ["x", "eslint", "."], 60_000);
   return assembleSnapshot(cycleNumber, test, tsc, lint);

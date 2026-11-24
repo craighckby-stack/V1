@@ -60,6 +60,24 @@ export interface OperatorTouchState {
   by: string;
 }
 
+/** True when running under any test runner. Env signals cover vitest
+ *  and `bun test <file>` (NODE_ENV=test); the argv shape covers Bun
+ *  1.3.14's no-args `bun test` mode, which sets NODE_ENV=development
+ *  (same as the dev server) and rewrites process.argv[1] to the
+ *  *.test.* entry file — the only reliable marker for that mode. See
+ *  armed-state.ts isTestOrigin() for the full forensic note. */
+function isTestOrigin(): boolean {
+  if (
+    process.env.BUN_TEST === "1" ||
+    process.env.VITEST === "1" ||
+    process.env.NODE_ENV === "test"
+  ) {
+    return true;
+  }
+  const entry = process.argv[1] ?? "";
+  return /\.test\.[cm]?[jt]sx?$/.test(entry);
+}
+
 /** Record an operator touch. `by` should match the caller's gesture
  *  ("operator-start" | "operator-stop" | "config-patch"). Never throws —
  *  a persistence failure must not fail a start/stop that already
@@ -68,6 +86,25 @@ export function markOperatorTouch(by: string, now: Date = new Date()): void {
   if (typeof by !== "string" || by.trim().length === 0) {
     // Input validation failure, but must not throw per contract. Log and exit gracefully.
     console.error(`markOperatorTouch: 'by' parameter must be a non-empty string. Persistence skipped for ${OPERATOR_TOUCH_FILE}.`);
+    return;
+  }
+
+  // TEST-ORIGIN GUARD (operator, 2026-11-24): same pollution class as
+  // the armed-state tier — the health monitor's 15-min `bun test` run
+  // executes operator-touch.test.ts IN THIS REPO, and its old
+  // markOperatorTouch("test", ...) calls wrote the PRODUCTION touch
+  // file every 15 minutes. That had two live consequences: (1) the
+  // dead-man's switch was fed garbage timestamps (mid-suite it held
+  // 24h-old and even invalid dates), and (2) the same suite run was
+  // observed corrupting the sibling armed-state tier. NOTE: Bun 1.3.14
+  // sets NEITHER BUN_TEST nor (in the no-args `bun test` mode the
+  // health monitor uses) NODE_ENV=test — the argv *.test.* entry-file
+  // shape is the only reliable marker for that mode. See
+  // armed-state.ts isTestOrigin() for the full forensic note.
+  if (isTestOrigin()) {
+    console.error(
+      `markOperatorTouch: refused test-origin write (by=${by.slice(0, 40)}) — tests must never write the production dead-man's-switch tier.`
+    );
     return;
   }
 
@@ -137,7 +174,11 @@ export function isDeadMansTripped(
   thresholdMs: number = DEFAULT_DEAD_MANS_THRESHOLD_MS,
   now: Date = new Date()
 ): boolean {
-  if (typeof thresholdMs !== "number" || thresholdMs < 0) {
+  // Number.isNaN check (operator, 2026-11-24): NaN < 0 evaluates false,
+  // so a NaN threshold previously escaped this guard and fell through
+  // to `nowTime - lastTouchTime > NaN` → always false — the exact
+  // INVERSE of the documented fail-closed contract. NaN is invalid.
+  if (typeof thresholdMs !== "number" || Number.isNaN(thresholdMs) || thresholdMs < 0) {
     // Fail-closed: if threshold is invalid, treat as tripped to prevent runaway loop
     console.error(`isDeadMansTripped: Invalid 'thresholdMs' provided. Treating as tripped to enforce safety for ${OPERATOR_TOUCH_FILE}.`);
     return true;

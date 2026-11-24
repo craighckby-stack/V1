@@ -68,10 +68,16 @@ export function markSelfEnhanceArmed(armed: boolean, by: string): void {
   // TEST'S intent. Refuse outright under any test runner — tests that
   // need to exercise the write path pin the guard/read functions instead
   // (see self-enhance-armed-state.test.ts).
+  // ARGV SIGNAL (operator, 2026-11-24): Bun 1.3.14's NO-ARGS `bun test`
+  // mode (how the health monitor invokes the suite) sets
+  // NODE_ENV=development, not "test" — the env checks above are dead in
+  // exactly that mode. `bun test` in BOTH modes rewrites process.argv[1]
+  // to the *.test.* entry file; plain scripts never have one.
   if (
     process.env.BUN_TEST === "1" ||
     process.env.VITEST === "1" ||
-    process.env.NODE_ENV === "test"
+    process.env.NODE_ENV === "test" ||
+    /\.test\.[cm]?[jt]sx?$/.test(process.argv[1] ?? "")
   ) {
     console.error(
       `markSelfEnhanceArmed: refused test-origin write (armed=${armed}, by=${by}) — tests must never write the production armed tier.`

@@ -22,13 +22,15 @@ export const runtime = "nodejs";
  *
  *   - master PIN (LOOP_MASTER_PIN, default "4444"): operator-only secret.
  *     NOT in the README (the operator keeps it to themselves). Entering
- *     it once activates "master unlock mode" in the worker for the rest
- *     of that worker process's life; while active, every subsequent
- *     [unlock] click bypasses the PIN prompt and unlocks directly — the
- *     operator's active management session no longer needs a PIN per
- *     file. Resets on worker restart (a natural "new session" boundary;
- *     persisting it would be a permanent silent bypass, which is the
- *     exact thing the friction gate exists to prevent).
+ *     it once activates "master unlock mode"; while active, every
+ *     subsequent [unlock] click bypasses the PIN prompt and unlocks
+ *     directly — the operator's active management session no longer
+ *     needs a PIN per file. PERSISTENCE (2026-11-24, 10-day endurance
+ *     test): the flag lives in the wipe-proof tier (.git/info/loop-
+ *     master-unlocked.json) and survives worker restarts; the
+ *     constructor re-hydrates it at boot. An explicit [STOP] deletes
+ *     the file — the single deliberate end of the bypass, per the
+ *     operator's "unlocked until the system is stopped" contract.
  *
  * The master PIN protects nothing the operator PIN doesn't already
  * protect. The real code-safety boundary is protected-files + the gate

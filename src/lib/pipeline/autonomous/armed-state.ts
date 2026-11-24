@@ -57,21 +57,48 @@ export interface ArmedState {
   by: string;
 }
 
+/** True when running under any test runner. Env signals cover vitest
+ *  and `bun test <file>` (NODE_ENV=test); the argv shape covers Bun
+ *  1.3.14's no-args `bun test` mode, which sets NODE_ENV=development
+ *  (same as the dev server) and rewrites process.argv[1] to the
+ *  *.test.* entry file — the only reliable marker for that mode. */
+function isTestOrigin(): boolean {
+  if (
+    process.env.BUN_TEST === "1" ||
+    process.env.VITEST === "1" ||
+    process.env.NODE_ENV === "test"
+  ) {
+    return true;
+  }
+  const entry = process.argv[1] ?? "";
+  return /\.test\.[cm]?[jt]sx?$/.test(entry);
+}
+
 /** Persist the armed intent. Never throws — a persistence failure must
  *  never fail a start/stop that already succeeded in memory (the in-memory
  *  flag remains the live source; the disk file is the restart tier). */
 export function markArmed(armed: boolean, by: string): void {
-  // TEST-ORIGIN GUARD: same pollution class as the self-enhance armed
-  // tier ("armed by test-run") — no test runner may ever write the
-  // production intent file, regardless of the 'by' value passing the
-  // whitelist below.
-  if (
-    process.env.BUN_TEST === "1" ||
-    process.env.VITEST === "1"
-  ) {
+  // TEST-ORIGIN GUARD (operator, 2026-11-24 — re-armed after live
+  // corruption): the original guard checked only BUN_TEST/VITEST, but
+  // this Bun version (1.3.14) sets NEITHER — and critically, `bun test`
+  // with NO file arguments (exactly how the health monitor invokes it)
+  // sets NODE_ENV=development, same as the dev server, so env alone
+  // cannot detect it (verified empirically — this hole re-corrupted
+  // the production tier every 15 minutes). The reliable structural
+  // signal: `bun test` in BOTH arg modes rewrites process.argv[1] to
+  // the *.test.* file being executed; plain scripts and the Next.js
+  // server never have a .test.* entry file.
+  if (isTestOrigin()) {
     console.error(
       `markArmed: refused test-origin write (armed=${armed}, by=${by}) — tests must never write the production armed tier.`
     );
+    return;
+  }
+  // RUNTIME TYPE CHECK (the dead-guard lesson): the test passed null
+  // through a TS cast — a typeof check at the boundary is the only
+  // thing that makes the write path null-proof regardless of guards.
+  if (typeof armed !== "boolean") {
+    console.error(`markArmed: 'armed' must be a boolean (got ${typeof armed}). Persistence skipped.`);
     return;
   }
   // Validate the 'by' parameter to ensure only valid values are persisted
