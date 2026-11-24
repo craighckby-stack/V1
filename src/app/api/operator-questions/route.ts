@@ -81,7 +81,14 @@ export async function POST(req: Request) {
       note?: string;
     };
 
-    const answerRaw = (parsedBody.answer ?? "").toLowerCase();
+    if (!parsedBody.answer) {
+        return NextResponse.json(
+            { error: "The 'answer' field is required in the request body." },
+            { status: 400 }
+        );
+    }
+
+    const answerRaw = parsedBody.answer.toLowerCase();
     if (answerRaw !== "yes" && answerRaw !== "no") {
       return NextResponse.json(
         { error: "answer must be 'yes' or 'no'" },
