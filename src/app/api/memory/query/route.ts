@@ -88,7 +88,7 @@ export async function GET(req: Request) {
     
     return NextResponse.json(
       { 
-        error: `Failed to execute memory query for query "${q}". Details: ${errorMessage}. Please check RAG service logs for specific operational errors.`,
+        error: `Failed to execute memory query for query "${q}". Context: RAG service operation failed. Details: ${errorMessage}. Please check RAG service logs for specific operational errors.`,
         operation: "memory query"
       }, 
       { status: 500 }
