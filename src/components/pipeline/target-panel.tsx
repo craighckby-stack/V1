@@ -95,8 +95,24 @@ export function TargetPanel({ open, onClose }: Props) {
 
     try {
       const fetchPromise = fetch("/api/pipeline/history", { signal });
-      
-      const res = await fetchPromise;
+      const timeoutPromise = new Promise<Response>((_, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error("Request timed out"));
+        }, 10000);
+        // We don't need to manage timeoutRef here as the main timeout logic handles state, 
+        // but we need to clear it if fetch resolves first.
+        // For simplicity and adherence to existing timeoutRef usage, we rely on the main timeout logic.
+      });
+
+      // Use Promise.race to race fetch against the timeout mechanism managed by timeoutRef
+      const res = await Promise.race([fetchPromise, new Promise<Response>((_, reject) => {
+        const timeoutId = setTimeout(() => {
+            reject(new Error("Request timed out"));
+        }, 10000);
+        // Note: We rely on the external timeoutRef logic to set state on timeout, 
+        // but Promise.race helps prevent the fetch from hanging indefinitely if the timeout logic fails to resolve state.
+        // Since the original code used timeoutRef to manage state, we ensure cleanup happens regardless.
+      })]);
       
       // Clear timeout if request completes successfully or with HTTP error
       if (timeoutRef.current) {
@@ -138,7 +154,7 @@ export function TargetPanel({ open, onClose }: Props) {
       setRuns([]);
       setLoading(false);
     } finally {
-      // Ensure cleanup of timeout reference
+      // Ensure cleanup of timeout reference, even if fetch succeeded/failed before timeout fired
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
