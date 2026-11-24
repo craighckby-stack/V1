@@ -8,12 +8,12 @@
   "symptom": "Test gate failed: test failed (sandboxed): scripts/record-uuid-postmortem.test.ts — The following filters did not match any test files:\n scripts/record-uuid-postmortem.test.ts\n474 files were searched [23.00ms]\n\nnote: Tests need \".test\", \"_test_\", \".spec\" or \"_spec_\" in the filename (",
   "evidence": "1 test file(s) checked. The refactor broke existing behavior.",
   "constraints": "The previous refactor of scripts/record-uuid-postmortem.ts broke existing tests. Do not change observable behavior.",
-  "attempts": 6,
-  "parentHash": "e70a993f0880219c06192ee3dd0706c9e1975bed583f293a0c1a8ba7e309a772",
-  "hash": "5bace4ae636278d9d0fa1028b06c2d2d321fa45355cfe4fe053b90d67673245f",
-  "lastAttemptAt": "2026-11-24T09:32:08.831Z",
+  "attempts": 7,
+  "parentHash": "3253115204dde0bffda7fcc028000a9929677dd446b4df11233bb92973f03638",
+  "hash": "855851bb0d24fa9fc5b61f659b98b9763de9bc40cfc02165e14c493c76bfbefe",
+  "lastAttemptAt": "2026-11-24T09:40:03.894Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.526Z",
-  "updatedAt": "2026-11-24T09:32:08.831Z",
+  "updatedAt": "2026-11-24T09:40:03.894Z",
   "schema": 2
 }

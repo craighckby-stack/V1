@@ -23,8 +23,8 @@ function line(s: string) {
 }
 
 async function main() {
-  // Input validation: If an argument was provided, it must not be empty/whitespace.
-  if (providedRepo && providedRepo.trim() === "") {
+  // Input validation: Ensure REPO is not empty if provided, otherwise use default.
+  if (providedRepo && REPO === "") {
     line(`Error: Repository argument provided is empty or whitespace.`);
     process.exitCode = 1;
     return;
@@ -53,32 +53,27 @@ async function main() {
     line(`      token resolved: ${token ? `yes (len ${token.length})` : "no — anonymous"}`);
     line(`      default branch: ${defaultBranch ?? "(unreachable)"}`);
     
-    if (!defaultBranch) {
+    let finalBranch = defaultBranch;
+
+    if (!finalBranch && token) {
       // If branch fetch failed without token, try again with token if available
-      if (token) {
-        line("      retrying branch fetch with token...");
-        const branchWithToken = await getRepoDefaultBranch(REPO, token);
-        line(`      default branch (with token): ${branchWithToken ?? "(unreachable)"}`);
-        
-        if (!branchWithToken) {
-          line(`\n[!] REPO NOT REACHABLE — rolling back config. The repo may be`);
-          line(`    private and no usable token is stored, or GitHub rate-limited.`);
-          await clearTargetConfig();
-          process.exitCode = 1;
-          return;
-        }
-      } else {
-        line(`\n[!] REPO NOT REACHABLE — rolling back config. The repo may be`);
-        line(`    private and no usable token is stored, or GitHub rate-limited.`);
-        await clearTargetConfig();
-        process.exitCode = 1;
-        return;
-      }
+      line("      retrying branch fetch with token...");
+      const branchWithToken = await getRepoDefaultBranch(REPO, token);
+      finalBranch = branchWithToken;
+      line(`      default branch (with token): ${finalBranch ?? "(unreachable)"}`);
+    }
+
+    if (!finalBranch) {
+      line(`\n[!] REPO NOT REACHABLE — rolling back config. The repo may be`);
+      line(`    private and no usable token is stored, or GitHub rate-limited.`);
+      await clearTargetConfig();
+      process.exitCode = 1;
+      return;
     }
     
     // STEP 2: Set config only after successful reachability check.
     line("[2/3] setting target config (validate + persist)...");
-    const saved = await setTargetConfig(REPO, defaultBranch);
+    const saved = await setTargetConfig(REPO, finalBranch);
     line(`      persisted repo: ${saved.repo}`);
     line(`      persisted branch: ${saved.branch}`);
 
