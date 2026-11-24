@@ -50,6 +50,7 @@ a silent wedge nobody noticed.
 | cron: daily operator digest | 09:00 Brisbane | 24h deltas, worker restarts, freeze/offline state — the run's diary |
 | cron: dev-server keepalive | every 10 min | outer backstop for the watchdog itself |
 | dead-man's switch | 24h no-touch | the failsafe: if EVERY cron layer dies, the loop ARMED-PAUSES safely (loud, not silent) |
+| **platform host (outside the sandbox)** | on operator idle | stops the whole machine ~20–30 min after the browser disconnects; cold-boots it on return — the boot chain auto-recovers everything (see "Platform-pause layer" below) |
 
 **Offline parity (2026-11-24, operator change):** before this change, a
 network outage was fatal within ~5 mutations — every failed push counted
@@ -68,6 +69,32 @@ and halts the loop for an operator. Now:
   red), and `/status` exposes the full `net` block so the heartbeat can
   tell "offline but alive" (cycles advancing) from a genuine stall
   (cycles flat).
+
+**Platform-pause layer (observed live 2026-11-24, the "off-screen stop"):**
+the sandbox host stops the entire *machine* roughly 20–30 minutes after
+the operator's browser disconnects, and cold-boots it on return. Every
+process dies, untracked files are wiped, `/proc/uptime` resets. This is
+infrastructure behavior **above the sandbox's pay grade** — the watchdog,
+the cron delegates, everything freezes with the machine; nothing
+in-sandbox can prevent it. Evidence from the first occurrence: the
+10-min cron keepalive last fired 00:03 UTC then went silent 2h; the
+machine booted 02:02:46 UTC exactly at operator return; all PIDs fresh.
+What this means for the run:
+
+- **Auto-recovery is proven, not assumed** — this restart was a live fire
+  drill and the full stack came back unaided: `dev.sh` restored the DB
+  from the wipe-proof tier (1382 cycles intact), instrumentation
+  auto-started the worker, the watchdog re-armed within 90s (all 4
+  targets probe-ok), and the loop resumed mid-mutation with pushes
+  landing within 10 minutes.
+- **Uptime accrues only while the operator's session is connected.**
+  Keep the preview tab open — pinned or in a background window is fine;
+  nothing depends on browser polling anymore, and a throttled hidden
+  tab still holds the platform session. If the machine stops anyway,
+  the run resumes from restored state on return.
+- **Gaps in the 10-day timeline while the operator is away are
+  infrastructure, not system failure.** The daily digest reports the
+  machine's boot time so pause-gaps are distinguishable from stalls.
 
 **What success looks like on 2026-12-04:** ten daily digests telling a
 continuous story; no intervention required; the loop either still running,
