@@ -91,6 +91,13 @@ export async function getTargetConfig(): Promise<TargetRepoConfig | null> {
       console.error(`Target config found but invalid format for repo key ${CONFIG_KEY}. Missing required fields or invalid repo format. Parsed data:`, parsed);
       return null;
     }
+    
+    // Validate branch field if present
+    if (parsed.branch !== null && !validTargetBranchFormat(parsed.branch)) {
+      console.error(`Target config found but invalid branch format for key ${CONFIG_KEY}. Branch: ${parsed.branch}`);
+      return null;
+    }
+    
     return parsed;
   } catch (error) {
     if (error instanceof SyntaxError) {
@@ -133,22 +140,32 @@ export async function setTargetConfig(
   };
   const now = new Date().toISOString();
 
-  await db.systemFlag.upsert({
-    where: { key: CONFIG_KEY },
-    update: {
-      value: JSON.stringify(config),
-      setBy: "target-mode",
-      reason: "operator set target repository",
-      updatedAt: now,
-    },
-    create: {
-      key: CONFIG_KEY,
-      value: JSON.stringify(config),
-      setBy: "target-mode",
-      reason: "operator set target repository",
-      updatedAt: now,
-    },
+  // Use transaction to ensure atomic update
+  await db.$transaction(async (tx) => {
+    const existing = await tx.systemFlag.findUnique({ where: { key: CONFIG_KEY } });
+    if (existing) {
+      await tx.systemFlag.update({
+        where: { key: CONFIG_KEY },
+        data: {
+          value: JSON.stringify(config),
+          setBy: "target-mode",
+          reason: "operator set target repository",
+          updatedAt: now,
+        },
+      });
+    } else {
+      await tx.systemFlag.create({
+        data: {
+          key: CONFIG_KEY,
+          value: JSON.stringify(config),
+          setBy: "target-mode",
+          reason: "operator set target repository",
+          updatedAt: now,
+        },
+      });
+    }
   });
+  
   return config;
 }
 
