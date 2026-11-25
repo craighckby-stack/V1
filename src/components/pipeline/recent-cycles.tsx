@@ -38,13 +38,8 @@ export function RecentCycles() {
         signal: abortControllerRef.current.signal
       });
       
-      if (res.status === 0) {
-        // Status 0 is not a standard HTTP status; this likely means the request was aborted or failed before HTTP response.
-        // Rely on the catch block for AbortError, no need for specific console.warn here unless we know it's not an abort.
-        return; 
-      }
-      
       if (!res.ok) {
+        // Use res.status and res.statusText for comprehensive error reporting
         throw new Error(`Failed to fetch recent cycles: HTTP status ${res.status} ${res.statusText}`);
       }
       
@@ -64,7 +59,7 @@ export function RecentCycles() {
     } catch (error) {
       if (error instanceof Error && error.name !== 'AbortError') {
         // Improved error handling: log the full error object for better debugging context
-        console.error("Error refreshing recent cycles from API:", error);
+        console.error("Error refreshing recent cycles from API:", error.message);
       }
     } finally {
       setLoading(false);
@@ -73,6 +68,7 @@ export function RecentCycles() {
   }
 
   useEffect(() => {
+    // Run refresh once on mount
     refresh();
     
     return () => {
