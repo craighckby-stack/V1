@@ -101,7 +101,7 @@ export function CurrentCycle() {
             />
             Cycle #{cycle.cycleNumber ?? 0}
             <span className="text-xs text-slate-400 font-normal uppercase tracking-widest hidden sm:inline ml-1">
-              {cycle.mode}
+              {cycle.mode ?? 'N/A'}
             </span>
           </CardTitle>
           <Badge
