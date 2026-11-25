@@ -42,15 +42,12 @@ export async function GET() {
   // Use reduce for a single pass to build both valid and invalid lists efficiently
   const { validSources, invalidSources } = SIPHON_SOURCES.reduce(
     (acc, source, i) => {
-      const currentInvalidSources = [...acc.invalidSources];
-      const currentValidSources = [...acc.validSources];
-
       if (!source) {
-        currentInvalidSources.push({
+        acc.invalidSources.push({
           index: i,
           reason: "Source element is null or undefined.",
         });
-        return { validSources: currentValidSources, invalidSources: currentInvalidSources };
+        return acc;
       }
 
       // Type guard for SiphonSource structure
@@ -58,40 +55,40 @@ export async function GET() {
       const patterns = sourceTyped.patterns;
 
       if (!patterns || !Array.isArray(patterns)) {
-        currentInvalidSources.push({
+        acc.invalidSources.push({
           index: i,
           reason: "Source is missing 'patterns' array or 'patterns' is not an array.",
         });
-        return { validSources: currentValidSources, invalidSources: currentInvalidSources };
+        return acc;
       }
 
       if (patterns.length === 0) {
-        currentInvalidSources.push({
+        acc.invalidSources.push({
           index: i,
           reason: "Source patterns array is empty.",
         });
-        return { validSources: currentValidSources, invalidSources: currentInvalidSources };
+        return acc;
       }
 
       // Check all patterns for validity
       const hasInvalidPattern = patterns.some(p => typeof p !== 'string');
       if (hasInvalidPattern) {
-        currentInvalidSources.push({
+        acc.invalidSources.push({
           index: i,
           reason: "One or more patterns in the source array are not strings.",
         });
-        return { validSources: currentValidSources, invalidSources: currentInvalidSources };
+        return acc;
       }
 
       // Source is valid, construct CatalogEntry
-      currentValidSources.push({
+      acc.validSources.push({
         source: source as SiphonSource,
         count: patterns.length,
         complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
         status: "configured",
       });
       
-      return { validSources: currentValidSources, invalidSources: currentInvalidSources };
+      return acc;
     },
     { validSources: [] as CatalogEntry[], invalidSources: [] as InvalidSource[] }
   );
