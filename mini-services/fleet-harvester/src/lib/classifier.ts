@@ -127,12 +127,8 @@ export function classifyHeuristic(
     okRx: RegExp;
   }
 ): HeuristicResult {
-  if (!commit || typeof commit !== 'object') {
+  if (!commit || typeof commit !== 'object' || !commit.sha || !commit.message) {
     throw new Error('Invalid commit: must be an object with sha and message properties');
-  }
-
-  if (!commit?.sha || !commit?.message) {
-    throw new Error('Invalid commit: missing required fields (sha, message)');
   }
 
   if (!options?.revertedShas || !options?.failRx || !options?.okRx) {
@@ -216,20 +212,17 @@ export function reconcileDualVerdicts(
   strategy: AiStrategy,
   tieBreakerVerdict?: LlmVerdict
 ): ReconcileResult {
-  if (!commit || typeof commit !== 'object') {
+  if (!commit || typeof commit !== 'object' || !commit.sha || !commit.message) {
     throw new Error('Invalid commit: must be an object with sha and message properties');
-  }
-
-  if (!commit?.sha || !commit?.message) {
-    throw new Error('Invalid commit: missing required fields (sha, message)');
   }
 
   if (!strategy || !['consensus', 'specialist'].includes(strategy)) {
     throw new Error(`Invalid strategy: must be one of "consensus" or "specialist", got "${strategy}"`);
   }
 
+  const defaultFootprint = summarizeFootprint(commit.message);
+
   if (!heuristic.needsAi) {
-    const defaultFootprint = summarizeFootprint(commit.message);
     return {
       classified: {
         ...commit,
@@ -242,8 +235,6 @@ export function reconcileDualVerdicts(
       needsTieBreaker: false,
     };
   }
-
-  const defaultFootprint = summarizeFootprint(commit.message);
 
   if (tieBreakerVerdict) {
     return {
