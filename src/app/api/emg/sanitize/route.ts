@@ -47,19 +47,13 @@ export async function POST(req: Request) {
   try {
     const result = sanitizeAndGovern(body.code);
     
-    // FIX: Ensure 'violations' is a mutable array (string[]) as required by SanitizeResult, 
-    // even if sanitizeAndGovern returns a readonly array (SecuritySanitizerResult).
-    const resultWithMutableViolations = {
-        ...result,
-        violations: Array.from(result.violations),
-    };
-
+    // Construct response directly, ensuring violations is an array as required by the output structure
     return NextResponse.json({
-      clean: resultWithMutableViolations.clean,
-      sanitizedCode: resultWithMutableViolations.sanitizedCode,
-      violations: resultWithMutableViolations.violations,
-      errorClass: resultWithMutableViolations.errorClass,
-      highEntropyTokensFound: resultWithMutableViolations.highEntropyTokensFound,
+      clean: result.clean,
+      sanitizedCode: result.sanitizedCode,
+      violations: Array.from(result.violations),
+      errorClass: result.errorClass,
+      highEntropyTokensFound: result.highEntropyTokensFound,
     });
   } catch (err) {
     // Catch errors originating from sanitizeAndGovern, ensuring safe casting and context
