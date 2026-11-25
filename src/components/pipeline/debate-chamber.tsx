@@ -68,7 +68,6 @@ export function DebateChamber() {
   const frictionPct = Math.round(cognitiveFriction * 100);
 
   const consensusStatus = verdict.consensus as string | undefined;
-  const finalConsensusStatus = consensusStatus || "DEFAULT";
   
   const statusMap: Record<string, string> = {
     "APPROVED": "bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/20",
@@ -77,6 +76,8 @@ export function DebateChamber() {
     "DEFAULT": "bg-rose-500/15 text-rose-300 border-rose-500/40 hover:bg-rose-500/20",
   };
 
+  // Use status directly if present, otherwise default to "DEFAULT"
+  const finalConsensusStatus = consensusStatus || "DEFAULT";
   const badgeClasses = statusMap[finalConsensusStatus] || statusMap["DEFAULT"];
 
   return (
@@ -99,18 +100,18 @@ export function DebateChamber() {
               {finalConsensusStatus.replace("_", " ")}
             </Badge>
             <div className="text-right">
-              <div className="text-[10px] uppercase tracking-widest text-slate-500">Consensus</div>
+              <div className="text-[10px] uppercase tracking-widest text-slate-500">Consensus</div >
               <div className="text-xl font-bold text-emerald-300 tabular-nums leading-none">
                 {consensusPct}%
-              </div>
-            </div>
+              </div >
+            </div >
           </div>
         </div >
         <div className="space-y-3 mt-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
             <div className="text-[10px] text-slate-500 mb-1 sm:mb-0">Consensus Coefficient</div>
             <span className="tabular-nums text-emerald-300 text-base font-medium">{consensusPct}%</span>
-          </div>
+          </div >
           <Progress
             value={consensusPct}
             className="h-2 bg-slate-800/60 [&>div]:bg-emerald-500 transition-all duration-300"
@@ -118,7 +119,7 @@ export function DebateChamber() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
             <div className="text-[10px] text-slate-500 mb-1 sm:mb-0">Cognitive Friction</div>
             <span className="tabular-nums text-amber-300 text-base font-medium">{frictionPct}%</span>
-          </div>
+          </div >
           <Progress
             value={frictionPct}
             className="h-2 bg-slate-800/60 [&>div]:bg-amber-500 transition-all duration-300"
@@ -130,7 +131,7 @@ export function DebateChamber() {
           <AnimatePresence>
             {verdict.arguments?.length > 0 ? (
               verdict.arguments.map((arg, idx) => {
-                // Calculate friction percentage directly and safely
+                // Calculate friction percentage once and safely
                 const frictionValue = (typeof arg.cognitiveFriction === 'number' && !isNaN(arg.cognitiveFriction)) 
                   ? arg.cognitiveFriction * 100 
                   : 0;
@@ -149,7 +150,7 @@ export function DebateChamber() {
                     )}
                   >
                     <div className="flex items-center gap-3 mb-2">
-                      <span className="text-2xl">{arg.avatar}</span>
+                      <span className="text-2xl">{arg.avatar}</span >
                       <span className="text-base font-semibold text-slate-100">{arg.speakerName}</span>
                       <Badge
                         variant="outline"
