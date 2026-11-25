@@ -164,9 +164,9 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
               `Knowledge applied: ${ids.length} lesson(s) injected on cycle ${lastWithLessons.cycleNumber} (${ids.map((id) => id.slice(-LESSON_COUNT_DISPLAY)).join(", ")}).`,
             );
           }
-        } catch {
+        } catch (e) {
           /* malformed lessonIdsInjected — skip the trail line */
-          console.warn(`[ProvenanceDigest] Malformed lessonIdsInjected for cycle ${lastWithLessons.cycleNumber}. Skipping knowledge trail.`);
+          console.warn(`[ProvenanceDigest] Malformed lessonIdsInjected for cycle ${lastWithLessons.cycleNumber}. Skipping knowledge trail. Error: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     } else {
