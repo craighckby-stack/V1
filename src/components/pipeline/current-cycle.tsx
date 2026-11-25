@@ -57,13 +57,8 @@ export function CurrentCycle() {
   const fileResults = cycle.fileResults || [];
   const totalFiles = fileResults.length;
   
-  // Calculate pushedFiles efficiently
-  let pushedFiles = 0;
-  for (const r of fileResults) {
-    if (r.pushed) {
-      pushedFiles += 1;
-    }
-  }
+  // Calculate pushedFiles efficiently using reduce
+  const pushedFiles = fileResults.reduce((count, r) => (r.pushed ? count + 1 : count), 0);
   
   // Safely determine firstProofHash only if files exist
   const firstProofHash = totalFiles > 0 ? fileResults[0]?.proofHash : undefined;
