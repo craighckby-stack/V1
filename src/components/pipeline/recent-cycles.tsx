@@ -56,9 +56,9 @@ export function RecentCycles() {
       }
       
       // Validate each cycle in the array: ensure it's an object and has required identifiers.
-      const apiResponseCycles = data.cycles.filter(c => 
+      const apiResponseCycles = data.cycles.filter((c): c is AutonomousCycleSummary => 
         c && typeof c === 'object' && 'id' in c && 'cycleNumber' in c
-      ) as AutonomousCycleSummary[];
+      );
       
       setFetched(apiResponseCycles);
     } catch (error) {
@@ -88,13 +88,13 @@ export function RecentCycles() {
   const seen = new Map<string, AutonomousCycleSummary>();
   
   // Process WS data first to ensure precedence, then API data.
-  cyclesFromStore.forEach(c => {
+  cyclesFromStore.forEach((c) => {
     if (c && c.id) { 
       seen.set(c.id, c);
     }
   });
   
-  fetched.forEach(c => {
+  fetched.forEach((c) => {
     if (c && c.id && !seen.has(c.id)) {
       seen.set(c.id, c);
     }
