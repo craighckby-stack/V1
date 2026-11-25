@@ -82,11 +82,18 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
     }
 
     // Secondary rate limit without Retry-After header (429 or 403 with remaining > 0)
-    if (input.status === 429 || (input.status === 403 && remaining > 0)) {
+    if (input.status === 429) {
       return {
-        waitMs: input.status === 403 ? 8000 : 5000,
+        waitMs: 5000,
         shouldRetry: true,
-        reason: `GitHub secondary rate limit (HTTP ${input.status}) — cooling down ${input.status === 403 ? 8 : 5}s before retry.`,
+        reason: `GitHub secondary rate limit (HTTP 429) — cooling down 5s before retry.`,
+      };
+    }
+    if (input.status === 403 && remaining > 0) {
+      return {
+        waitMs: 8000,
+        shouldRetry: true,
+        reason: `GitHub secondary rate limit (HTTP 403 with remaining quota) — cooling down 8s before retry.`,
       };
     }
   }
