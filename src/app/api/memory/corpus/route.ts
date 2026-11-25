@@ -55,6 +55,7 @@ export async function GET(request: Request) {
       
     // Validate search results before mapping
     if (!Array.isArray(searchResult)) {
+      // This handles cases where searchEngines resolves successfully but returns non-array data
       throw new Error(`Search returned invalid data format: expected array, got ${typeof searchResult}.`);
     }
     
@@ -88,9 +89,13 @@ export async function GET(request: Request) {
     // For all other errors (validation, data format, internal library errors), return 500
     // Provide a more actionable internal error message context for debugging, while keeping client response generic.
     console.error("Corpus API Error:", error.message, error.stack);
+    
+    // Check if the error originated from input validation (400) or data structure issues (500)
+    const isClientInputError = error.message.includes("Missing or empty 'keyword'");
+
     return NextResponse.json(
       { ok: false, error: "Internal server error while accessing corpus data." },
-      { status: 500 }
+      isClientInputError ? { status: 400 } : { status: 500 }
     );
   }
 }
