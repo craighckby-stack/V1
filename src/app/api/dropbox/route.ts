@@ -21,6 +21,7 @@ export async function GET() {
     return NextResponse.json(status);
   } catch (err) {
     // Return a standardized 500 error response with context
+    console.error("Error retrieving Dropbox status:", err);
     return NextResponse.json(
       { error: "Failed to retrieve Dropbox status." },
       { status: 500 },
@@ -34,6 +35,7 @@ export async function POST() {
     return NextResponse.json(result);
   } catch (err) {
     // Return a standardized 500 error response with context
+    console.error("Error triggering Dropbox ingestion scan:", err);
     return NextResponse.json(
       { error: "Failed to trigger Dropbox ingestion scan." },
       { status: 500 },
