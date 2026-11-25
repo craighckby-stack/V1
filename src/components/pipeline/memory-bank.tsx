@@ -48,14 +48,10 @@ export function MemoryBank() {
       const timeoutPromise = new Promise<Response>((_, reject) => {
         const timeoutId = setTimeout(() => {
           abortController.abort();
-          // Ensure abortControllerRef is cleared if timeout triggers
-          if (abortControllerRef.current === abortController) {
-            abortControllerRef.current = null;
-          }
           reject(new Error("Request timeout after 10 seconds"));
         }, 10000);
 
-        // Cleanup timeout if fetch resolves/rejects first
+        // Return cleanup function for the timeout
         return () => clearTimeout(timeoutId);
       });
       
@@ -70,7 +66,13 @@ export function MemoryBank() {
           throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
         
-        const data = await res.json();
+        // Added try/catch around res.json() to handle non-JSON responses gracefully
+        let data;
+        try {
+            data = await res.json();
+        } catch (e) {
+            throw new Error(`Failed to parse JSON response from /api/memory/entries. Response body was not valid JSON.`);
+        }
         
         if (!data || !Array.isArray(data.entries)) {
           throw new Error("Invalid API response structure: expected 'entries' array in response body. Received: " + JSON.stringify(data));
