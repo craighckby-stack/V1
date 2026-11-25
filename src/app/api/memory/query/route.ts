@@ -37,10 +37,8 @@ export async function GET(req: Request) {
   
   try {
     // Run seeding and query in parallel to reduce latency
-    const [, queryResultSequential] = await Promise.all([
-      emgRagInstance.ensureSeeded(),
-      emgRagInstance.query(q)
-    ]);
+    await emgRagInstance.ensureSeeded();
+    const queryResultSequential = await emgRagInstance.query(q);
 
     if (!queryResultSequential) {
       return NextResponse.json(
@@ -84,11 +82,11 @@ export async function GET(req: Request) {
       epistemicRuling: queryResultSequential.epistemicRuling,
     });
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during memory query execution.";
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during RAG service operation.";
     
     return NextResponse.json(
       { 
-        error: `Failed to execute memory query for query "${q}". Context: RAG service operation failed. Details: ${errorMessage}. Please check RAG service logs for specific operational errors.`,
+        error: `Failed to execute memory query for "${q}". Please check RAG service logs for details.`,
         operation: "memory query"
       }, 
       { status: 500 }
