@@ -23,8 +23,10 @@ function line(s: string) {
 }
 
 async function main() {
-  // Input validation: Ensure REPO is not empty if provided, otherwise use default.
-  if (providedRepo && REPO === "") {
+  // Input validation is implicitly handled by REPO assignment: if providedRepo is falsy, REPO is DEFAULT_REPO.
+  // If providedRepo is present but empty/whitespace, REPO will be "" if trim() results in empty string,
+  // but we rely on the default logic or subsequent checks if "" is invalid.
+  if (REPO === "" && providedRepo !== undefined) {
     line(`Error: Repository argument provided is empty or whitespace.`);
     process.exitCode = 1;
     return;
@@ -39,22 +41,20 @@ async function main() {
   line(`mode: DRY RUN (zero writes to target repo)`);
   line(`====================================================\n`);
 
+  let configSetSuccessfully = false;
+
   // STEP 1 — verify reachability using the operator's stored PAT (sealed),
   // which resolveTargetToken reuses server-side. Roll back if not reachable.
   line("[1/3] verifying reachability with stored token...");
   
   try {
-    // Fetch token and branch in parallel for better performance
-    const [token, defaultBranch] = await Promise.all([
-      resolveTargetToken(),
-      getRepoDefaultBranch(REPO, null) // Start branch fetch without token (will retry if needed)
-    ]);
-
+    // Fetch token first
+    const token = await resolveTargetToken();
     line(`      token resolved: ${token ? `yes (len ${token.length})` : "no — anonymous"}`);
-    line(`      default branch: ${defaultBranch ?? "(unreachable)"}`);
-    
-    let finalBranch = defaultBranch;
 
+    // Attempt branch fetch without token first (faster if public)
+    let finalBranch = await getRepoDefaultBranch(REPO, null);
+    
     if (!finalBranch && token) {
       // If branch fetch failed without token, try again with token if available
       line("      retrying branch fetch with token...");
@@ -76,6 +76,7 @@ async function main() {
     const saved = await setTargetConfig(REPO, finalBranch);
     line(`      persisted repo: ${saved.repo}`);
     line(`      persisted branch: ${saved.branch}`);
+    configSetSuccessfully = true;
 
     // STEP 3 — DRY-RUN the full gated pipeline. No branch, no commit, no push.
     line("[3/3] running DRY-RUN mutation (full gate chain, no write-back)...\n");
@@ -126,7 +127,11 @@ async function main() {
     line(`\n[!] FATAL: An unhandled error occurred during the dry-run test.`);
     const errorMessage = error instanceof Error ? error.message : String(error);
     line(`    Error: ${errorMessage}`);
-    await clearTargetConfig();
+    
+    // Only clear config if it was successfully set before the error occurred in Step 3
+    if (configSetSuccessfully) {
+        await clearTargetConfig();
+    }
     process.exitCode = 2;
   }
 }
