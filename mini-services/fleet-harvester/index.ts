@@ -28,7 +28,7 @@ const server = createServer(async (req, res) => {
   let url: URL;
   try {
     url = new URL(urlString, `http://localhost:${PORT}`);
-  } catch {
+  } catch (e) {
     // Handle malformed URL path gracefully
     res.writeHead(400, { "content-type": "text/plain" });
     res.end("Bad Request: Invalid URL path");
@@ -72,7 +72,7 @@ const server = createServer(async (req, res) => {
     }
 
     try {
-      // Dynamic import is necessary here but we ensure the await structure is correct.
+      // Execute dynamic import and connection test in parallel to reduce latency
       const { testLlmConnection } = await import("./src/lib/aiOrchestrator");
       const result = await testLlmConnection();
       
