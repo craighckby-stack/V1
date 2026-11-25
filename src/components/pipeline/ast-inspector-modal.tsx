@@ -79,6 +79,10 @@ export function AstInspectorModal() {
     }
   };
 
+  // Safely calculate drift ratio percentage
+  const driftRatio = ast.structuralDriftRatio ?? 0;
+  const driftRatioPercent = (driftRatio * 100).toFixed(0);
+
   return (
     <AnimatePresence>
       <motion.div
@@ -192,7 +196,7 @@ export function AstInspectorModal() {
                 </div>
               </div>
               <div className="text-[10px] text-slate-500 pt-1">
-                Drift ratio: <span className="font-mono text-amber-300">{(ast.structuralDriftRatio !== null && ast.structuralDriftRatio !== undefined ? (ast.structuralDriftRatio * 100).toFixed(0) : '0')}%</span>
+                Drift ratio: <span className="font-mono text-amber-300">{driftRatioPercent}%</span>
               </div>
             </div>
             <div className="space-y-3">
