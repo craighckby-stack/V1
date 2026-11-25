@@ -25,7 +25,8 @@ export async function GET() {
     const entriesResult = await emgRagInstance.getAll();
     
     // Ensure we return an array, defaulting to empty array if null or undefined
-    return NextResponse.json({ entries: entriesResult || [] });
+    const entries = Array.isArray(entriesResult) ? entriesResult : [];
+    return NextResponse.json({ entries: entries });
   } catch (err: unknown) {
     let errorMessage = "An error occurred while accessing the memory store. Please check server logs for details.";
     let statusCode = 500;

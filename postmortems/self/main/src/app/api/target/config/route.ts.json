@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/target/config/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Syntax error: 'try' expected.",
@@ -12,8 +12,8 @@
   "parentHash": "a0ff666cfbabac4a9d8430d7b8a3f0181954cef35ab8290c91bb75f8d41d4536",
   "hash": "f16a3db29d3004995f8ccb0778cd797747f604b8b0c9fffa9a6f225fe596a7a8",
   "lastAttemptAt": "2026-11-24T00:08:51.804Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-25T17:07:09.699Z",
   "createdAt": "2026-11-23T03:29:46.350Z",
-  "updatedAt": "2026-11-24T00:08:51.804Z",
+  "updatedAt": "2026-11-25T17:07:09.699Z",
   "schema": 2
 }
