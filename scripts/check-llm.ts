@@ -16,9 +16,4 @@ async function main() {
     process.exit(1);
   }
 }
-main().catch(e => {
-  // This catch block is now redundant due to try/catch in main, but kept to satisfy the original structure if main() itself threw outside the try block scope (unlikely here).
-  // However, since main() now handles its own critical exit, this outer catch is mostly for unexpected runtime errors outside the DB call.
-  console.error("CRITICAL: Unexpected runtime error during LLM configuration check.", e);
-  process.exit(1);
-});
+main();
