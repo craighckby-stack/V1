@@ -88,7 +88,7 @@ export async function getTargetConfig(): Promise<TargetRepoConfig | null> {
     
     // Validate parsed object structure and required fields
     if (!parsed || typeof parsed !== 'object' || !parsed.repo || !parsed.updatedAt || !validTargetRepoFormat(parsed.repo)) {
-      console.error(`Target config found but invalid format for repo key ${CONFIG_KEY}. Missing required fields or invalid repo format. Parsed data:`, parsed);
+      console.error(`Target config found but invalid format for key ${CONFIG_KEY}. Missing required fields or invalid repo format. Parsed data:`, parsed);
       return null;
     }
     
@@ -209,8 +209,10 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
   }
   
   // Validate optional 'branch' field if present
-  if (rec.branch !== undefined && !validTargetBranchFormat(rec.branch)) {
-    throw new Error(`Invalid branch format in record: ${rec.branch} — must be a valid git branch name`);
+  if (rec.branch !== undefined) {
+    if (!validTargetBranchFormat(rec.branch)) {
+      throw new Error(`Invalid branch format in record: ${rec.branch} — must be a valid git branch name`);
+    }
   }
   
   // Validate optional 'commitSha' field if present
