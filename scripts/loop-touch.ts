@@ -28,7 +28,8 @@
 import { markOperatorTouch, readOperatorTouch } from "../src/lib/pipeline/autonomous/operator-touch";
 
 const rawBy = process.argv[2] ?? "";
-const by = rawBy.trim() ? rawBy.trim() : "cron-delegate";
+const trimmedBy = rawBy.trim();
+const by = trimmedBy.length > 0 ? trimmedBy : "cron-delegate";
 
 // The touch module is a pure leaf (fs + path + atomic-write) — no DB,
 // no LLM, no pipeline graph. Safe to call from any process, any time.
