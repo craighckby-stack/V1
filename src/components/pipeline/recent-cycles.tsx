@@ -83,15 +83,16 @@ export function RecentCycles() {
   // Use Map for O(N) deduplication. WS data (cyclesFromStore) takes precedence.
   const seen = new Map<string, AutonomousCycleSummary>();
   
-  // Process WS data first to ensure precedence, then API data.
+  // Process WS data first to ensure precedence
   cyclesFromStore.forEach((c) => {
-    if (c && c.id) { 
+    if (c?.id) { 
       seen.set(c.id, c);
     }
   });
   
+  // Process API data, only adding if not already seen (i.e., not in WS store)
   fetched.forEach((c) => {
-    if (c && c.id && !seen.has(c.id)) {
+    if (c?.id && !seen.has(c.id)) {
       seen.set(c.id, c);
     }
   });
