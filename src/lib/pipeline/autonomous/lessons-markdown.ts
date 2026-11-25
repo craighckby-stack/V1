@@ -30,11 +30,12 @@
  * AND PUSHED — the loop must not be able to shape what it writes here.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, existsSync, mkdirSync } from "fs";
 import { spawnSync } from "child_process";
 import { db } from "@/lib/db";
 import { isMutationFrozen } from "./mutation-freeze";
 import { PROJECT_ROOT } from "../core/paths";
+import { atomicWriteFileSync } from "../core/atomic-file";
 import { withTreeLock } from "../core/tree-lock";
 export const LESSONS_MD_PATH = `${PROJECT_ROOT}/memory/lessons.md`;
 
@@ -142,7 +143,12 @@ export async function exportLessonsMarkdown(): Promise<boolean> {
       if (!changed) return false;
 
       mkdirSync(`${PROJECT_ROOT}/memory`, { recursive: true });
-      writeFileSync(LESSONS_MD_PATH, content, "utf-8");
+      // Atomic write (2026-11-25 audit A): this file is COMMITTED AND
+      // PUSHED below — a torn lessons.md swept into the loop's `git add -A`
+      // would ship a truncated memory file to the remote tree (and the
+      // archaeology feed that reads it). rename(2) keeps the visible file
+      // always complete.
+      atomicWriteFileSync(LESSONS_MD_PATH, content);
       commitLessonsFile();
       return true;
     });

@@ -22,6 +22,7 @@ import { db } from "@/lib/db";
 import { postmortemStore, generatePostmortemFromReport } from "../postmortem/postmortem-store";
 import { autoProphecyAfterCycle } from "../oracle/oracle-auto";
 import { isSafeMode, getSafeModeState } from "../core/duress";
+import { computeTreeFingerprintHash } from "../emg/halt";
 import type { LoopSnapshot } from "../core/hot-swap";
 // Retention helpers (audit 4 — grow-only sweep): bounded growth for the
 // AutonomousCycle + PipelineRun tables the loop writes to. Fire-and-
@@ -1329,8 +1330,12 @@ class AutonomousLoopRuntime {
       };
       const tree = treeData.tree ?? [];
 
-      // Compute tree fingerprint
-      const fp = this.computeTreeFingerprint(tree);
+      // Compute tree fingerprint — sha256, ONE shared definition
+      // (emg/halt.ts computeTreeFingerprintHash; the private 32-bit copy
+      // that lived here was deleted in the 2026-11-25 audit E — duplicate
+      // hash algorithms drift, and the 32-bit version had real collision
+      // odds over a ~1000-entry tree).
+      const fp = computeTreeFingerprintHash(tree);
       if (this.config.mode === "watch" && this.stats.lastTreeFingerprint === fp) {
         this.addLog(
           `Watch mode: tree fingerprint unchanged (${fp}). Skipping cycle — no remote changes detected.`,
@@ -2143,18 +2148,6 @@ class AutonomousLoopRuntime {
         /* defensive */
       }
     }
-  }
-
-  private computeTreeFingerprint(
-    tree: Array<{ path: string; sha: string; size?: number }>
-  ): string {
-    const sorted = [...tree].sort((a, b) => a.path.localeCompare(b.path));
-    const raw = sorted.map((f) => `${f.path}:${f.sha ?? f.size ?? 0}`).join("|");
-    let hash = 0;
-    for (let i = 0; i < raw.length; i++) {
-      hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
-    }
-    return "tree_fp_" + Math.abs(hash).toString(16);
   }
 }
 

@@ -55,11 +55,19 @@
  *   bun scripts/run-batch.ts --dry-run           ← pre-flight only, no cycles
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+// Atomic write (tmp + rename) — pure fs leaf, safe to import before the
+// .env loader runs. The heartbeat is read by the heartbeat-check workflow
+// and the dashboard; a torn last-run.json (process dies mid-write on a
+// runner) would read as corrupt and mask a healthy batch as an extinction
+// signal. rename(2) is atomic on POSIX — readers see old or new, never
+// partial. (2026-11-25 audit A: the four bare writeFileSync call sites
+// that matter most now route through atomicWriteFileSync.)
+import { atomicWriteFileSync } from "../src/lib/pipeline/core/atomic-file";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -101,6 +109,22 @@ const STATE_ABS = path.resolve(PROJECT_ROOT, stateDir);
 const HEARTBEAT_PATH = join(STATE_ABS, "last-run.json");
 const DEADLINE_MS = Date.now() + maxMinutes * 60 * 1000;
 
+// ── CRASH BACKOFF / CIRCUIT BREAKER (2026-11-25 audit A) ─────────────
+// The old loop treated a crashed cycle as free: log it, move on to the
+// next cycle immediately. On a systemic break (a broken import graph, a
+// dead LLM credential, an API outage) that burned all 15 cycles on the
+// SAME failure in minutes, produced 15 identical postmortems, and — worst
+// — the fast retry loop hid the outage's duration. Now: exponential
+// backoff between a crash and the next attempt, and a circuit breaker
+// that aborts the batch after 4 CONSECUTIVE crashes (a transient LLM hiccup
+// recovers; a systemic break shouldn't consume the whole time budget).
+const CRASH_BACKOFF_MS = [5_000, 15_000, 45_000];
+const MAX_CONSECUTIVE_CRASHES = 4;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 interface Heartbeat {
   at: string;
   ok: boolean;
@@ -128,7 +152,9 @@ function writeHeartbeat(partial: Partial<Heartbeat>): void {
     durationMs: 0,
     ...partial,
   };
-  writeFileSync(HEARTBEAT_PATH, JSON.stringify(beat, null, 2) + "\n", "utf8");
+  // Atomic write — see the import comment. rename(2) guarantees the
+  // heartbeat-check workflow never reads a torn JSON.
+  atomicWriteFileSync(HEARTBEAT_PATH, JSON.stringify(beat, null, 2) + "\n");
 }
 
 // ── PRE-FLIGHT: typecheck + lint (the extinction defense) ─────────────
@@ -138,8 +164,16 @@ function writeHeartbeat(partial: Partial<Heartbeat>): void {
 // on itself. If it fails, the batch aborts — the 10-week run stops
 // rather than propagating a broken state.
 function preflight(): { typecheck: boolean; lint: boolean; reason?: string } {
+  // TIMEOUT 240s (2026-11-25 audit A): the old 120s occasionally misfired
+  // on a COLD GitHub Actions runner — bunx resolving the toolchain from an
+  // empty npm cache on the first preflight looked exactly like a hung
+  // compiler, spawnSync returned SIGTERM, and the batch aborted with
+  // "tsc exited null" — the extinction defense firing on infrastructure,
+  // not on a real mutation. 240s covers a cold bunx resolve (~60-90s) with
+  // headroom for the actual typecheck (~40s warm). The loop's own gates
+  // are unaffected; this is the whole-project gate only.
   console.log("[batch] pre-flight: typecheck");
-  const tsc = spawnSync("bunx", ["tsc", "--noEmit"], { cwd: PROJECT_ROOT, encoding: "utf8", timeout: 120_000 });
+  const tsc = spawnSync("bunx", ["tsc", "--noEmit"], { cwd: PROJECT_ROOT, encoding: "utf8", timeout: 240_000 });
   if (tsc.status !== 0) {
     const reason = `tsc exited ${tsc.status}: ${(tsc.stderr || tsc.stdout).slice(0, 500)}`;
     console.error(`[batch] pre-flight FAILED (typecheck): ${reason}`);
@@ -148,7 +182,7 @@ function preflight(): { typecheck: boolean; lint: boolean; reason?: string } {
   console.log("[batch] pre-flight: typecheck OK");
 
   console.log("[batch] pre-flight: lint");
-  const eslint = spawnSync("bunx", ["eslint", "."], { cwd: PROJECT_ROOT, encoding: "utf8", timeout: 120_000 });
+  const eslint = spawnSync("bunx", ["eslint", "."], { cwd: PROJECT_ROOT, encoding: "utf8", timeout: 240_000 });
   if (eslint.status !== 0) {
     const reason = `eslint exited ${eslint.status}: ${(eslint.stderr || eslint.stdout).slice(0, 500)}`;
     console.error(`[batch] pre-flight FAILED (lint): ${reason}`);
@@ -232,6 +266,7 @@ async function main(): Promise<number> {
 
   let cyclesCompleted = 0;
   let cyclesAttempted = 0;
+  let consecutiveCrashes = 0;
   for (let i = 0; i < maxCycles; i++) {
     if (Date.now() > DEADLINE_MS) {
       console.log(`[batch] time budget (${maxMinutes}min) reached after ${i} cycles`);
@@ -251,9 +286,34 @@ async function main(): Promise<number> {
       const scanned = result.filesScanned ?? 0;
       console.log(`[batch] cycle ${i + 1} done — scanned=${scanned} enhanced=${enhanced}`);
       cyclesCompleted++;
+      consecutiveCrashes = 0;
     } catch (err) {
-      console.error(`[batch] cycle ${i + 1} CRASHED:`, err instanceof Error ? err.message : err);
+      consecutiveCrashes++;
+      console.error(`[batch] cycle ${i + 1} CRASHED (${consecutiveCrashes} consecutive):`, err instanceof Error ? err.message : err);
       // Continue — one bad cycle shouldn't kill the whole batch.
+      // CIRCUIT BREAKER: 4 consecutive crashes means something systemic
+      // broke (import graph, credential, API). Burn no more cycles/time —
+      // abort and let the heartbeat carry the failure honestly.
+      if (consecutiveCrashes >= MAX_CONSECUTIVE_CRASHES) {
+        const reason = `circuit breaker: ${consecutiveCrashes} consecutive crashed cycles — aborting batch (last error: ${err instanceof Error ? err.message : String(err)})`;
+        console.error(`[batch] ${reason}`);
+        writeHeartbeat({
+          ok: false,
+          cyclesAttempted,
+          cyclesCompleted,
+          preflight: pf,
+          error: reason,
+          durationMs: Date.now() - t0,
+        });
+        return 1;
+      }
+      // BACKOFF before the next attempt — exponential (5s/15s/45s, then
+      // hold). Gives a rate-limited LLM or a flapping API room to recover
+      // instead of hammering it, and spreads identical failures out in the
+      // timeline instead of stacking them back-to-back.
+      const backoff = CRASH_BACKOFF_MS[Math.min(consecutiveCrashes - 1, CRASH_BACKOFF_MS.length - 1)];
+      console.log(`[batch] backing off ${backoff / 1000}s before next attempt`);
+      await sleep(backoff);
     }
   }
 

@@ -381,7 +381,15 @@ async function main() {
           //   3. operator PIN submitted → normal single-file unlock.
           //   4. no PIN and master not active → 400 (pin required).
           //   5. PIN present but matches neither → 403 (wrong PIN).
-          if (pinStr === masterPin) {
+          //
+          // Constant-time compares (2026-11-25 audit): the old direct ===
+          // leaked PIN-prefix knowledge through response timing. keyMatches
+          // (above, operator round 3) is the same digest trick this file
+          // already used for the x-loop-key gate — applied to both PIN tiers
+          // here. The explicit `pinStr &&` guard documents that an empty
+          // submission can never match (fail-closed), matching the old
+          // short-circuit semantics exactly.
+          if (pinStr && keyMatches(pinStr, masterPin)) {
             loop.setMasterUnlocked();
             const result = loop.unlockFile(filePath);
             console.log(`[LOOP-WORKER] unlock (master) for ${filePath}: ${result.unlocked ? "ok" : result.reason}`);
@@ -392,7 +400,7 @@ async function main() {
             console.log(`[LOOP-WORKER] unlock (master-auto) for ${filePath}: ${result.unlocked ? "ok" : result.reason}`);
             return json({ ok: result.unlocked, ...result, masterUnlocked: true });
           }
-          if (pinStr === operatorPin) {
+          if (pinStr && keyMatches(pinStr, operatorPin)) {
             const result = loop.unlockFile(filePath);
             console.log(`[LOOP-WORKER] unlock (operator) for ${filePath}: ${result.unlocked ? "ok" : result.reason}`);
             return json({ ok: result.unlocked, ...result });

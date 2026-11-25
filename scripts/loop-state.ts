@@ -49,9 +49,15 @@
  *   bun scripts/loop-state.ts status [loop-state/]   — print both sides
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+// Atomic write (tmp + rename) — the exported JSON IS the compounding
+// layer that travels between runners; a torn table file (crash mid-write)
+// would fail the next run's RESTORE step and abort the whole batch before
+// a single cycle. rename(2) makes the reader-visible file always complete.
+// (2026-11-25 audit A.)
+import { atomicWriteFileSync } from "../src/lib/pipeline/core/atomic-file";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -131,7 +137,7 @@ async function cmdExport(destArg?: string): Promise<number> {
       }
       const rows = await model.findMany();
       const jsonPath = path.join(dbDir, `${table}.json`);
-      writeFileSync(jsonPath, JSON.stringify(rows, null, 2) + "\n", "utf8");
+      atomicWriteFileSync(jsonPath, JSON.stringify(rows, null, 2) + "\n");
       summary[table] = rows.length;
       console.log(`[loop-state] exported ${table}: ${rows.length} rows → ${path.relative(PROJECT_ROOT, jsonPath)}`);
     } catch (err) {

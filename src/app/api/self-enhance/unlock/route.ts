@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { workerFetch, ensureWorkerRunning } from "@/lib/pipeline/autonomous/loop-worker-client";
+import { constantTimeEqual } from "@/lib/pipeline/core/constant-time";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -79,8 +80,11 @@ export async function POST(req: Request) {
     }
 
     const pinStr = typeof body.pin === "string" ? body.pin.trim() : "";
-    const isMaster = pinStr === expectedMasterPin();
-    const isOperator = pinStr === expectedUnlockPin();
+    // Constant-time compares (constantTimeEqual, 2026-11-25 audit): the old
+    // direct === leaked PIN-prefix knowledge through response timing. Same
+    // pattern the loop-worker's keyMatches has used since round 3.
+    const isMaster = constantTimeEqual(pinStr, expectedMasterPin());
+    const isOperator = constantTimeEqual(pinStr, expectedUnlockPin());
 
     // ── Edge PIN gate — validate BEFORE touching the worker ─────────
     // Three accepted cases:

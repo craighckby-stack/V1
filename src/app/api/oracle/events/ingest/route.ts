@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { emitOracleEvent, type OracleEvent } from "@/lib/pipeline/oracle/oracle-events";
+import { constantTimeEqual } from "@/lib/pipeline/core/constant-time";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,13 +17,20 @@ export const runtime = "nodejs";
  *
  * Token check: display-stream tamper resistance, not a security boundary —
  * a forged event could at worst put one fake line in the terminal view.
- * The shared token comes from LOOP_WORKER_TOKEN on both sides (default
- * keeps dev frictionless).
+ * The shared token comes from LOOP_WORKER_TOKEN on both sides.
+ *
+ * FAIL-CLOSED (operator, 2026-11-25 audit): the old source-readable default
+ * ("loop-worker-ingest-v1") is REMOVED — with LOOP_WORKER_TOKEN unset the
+ * route accepts nothing. The client half (oracle-events.ts worker bridge)
+ * already fails closed the same way: no token → no POST + one warning. The
+ * two halves now honor the same contract that file's comment always claimed.
+ * Compare is constant-time (constantTimeEqual) — same pattern as the PIN
+ * gates, so a wrong token can't be probed byte-by-byte through timing.
  */
 export async function POST(req: Request) {
   const token = req.headers.get("x-loop-worker-token");
-  const expected = process.env.LOOP_WORKER_TOKEN ?? "loop-worker-ingest-v1";
-  if (token !== expected) {
+  const expected = process.env.LOOP_WORKER_TOKEN;
+  if (!expected || !constantTimeEqual(token, expected)) {
     return NextResponse.json({ error: "invalid worker token" }, { status: 401 });
   }
 

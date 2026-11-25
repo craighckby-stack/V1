@@ -5,6 +5,7 @@ import {
   readMutationFreezeState,
 } from "@/lib/pipeline/autonomous/mutation-freeze";
 import { markSelfEnhanceArmed } from "@/lib/pipeline/autonomous/self-enhance-armed-state";
+import { constantTimeEqual } from "@/lib/pipeline/core/constant-time";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -70,7 +71,9 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
-      if (pinStr !== operatorPin && pinStr !== masterPin) {
+      // Constant-time compares (constantTimeEqual, 2026-11-25 audit): the
+      // old !== chain leaked PIN-prefix knowledge through response timing.
+      if (!constantTimeEqual(pinStr, operatorPin) && !constantTimeEqual(pinStr, masterPin)) {
         // Never log the submitted PIN — outcome only.
         console.warn("[FREEZE] unfreeze refused: wrong PIN");
         return NextResponse.json(

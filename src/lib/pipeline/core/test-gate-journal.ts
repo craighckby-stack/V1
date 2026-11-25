@@ -35,9 +35,10 @@
  * (PROTECTED_PREFIXES, audit 3).
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "fs";
+import { readFileSync, existsSync, mkdirSync, rmSync } from "fs";
 import { join } from "path";
 import { PROJECT_ROOT } from "./paths";
+import { atomicWriteFileSync } from "./atomic-file";
 
 const JOURNAL_DIR = join(PROJECT_ROOT, ".git", "info");
 const JOURNAL_PATH = join(JOURNAL_DIR, "test-gate-journal.json");
@@ -83,7 +84,14 @@ export function writeTestGateJournal(filePath: string, originalCode: string, can
       candidateCode,
       armedAt: new Date().toISOString(),
     };
-    writeFileSync(JOURNAL_PATH, JSON.stringify(entry), "utf-8");
+    // Atomic write (tmp + rename, 2026-11-25 audit A): the journal IS the
+    // crash-recovery contract — a torn journal (process dies mid-write,
+    // exactly the crash this file exists to survive) could read as corrupt
+    // or truncated. A truncated entry with candidateCode sliced mid-JSON
+    // would fail JSON.parse in recoverCrashedTestGate and the recovery
+    // would silently do nothing. rename(2) makes the visible file always
+    // complete: pre-crash original or fully-armed journal.
+    atomicWriteFileSync(JOURNAL_PATH, JSON.stringify(entry));
   } catch {
     // Journaling is best-effort crash insurance. If .git/info is somehow
     // unwritable, the caller's own restore path still functions — failing
@@ -183,7 +191,14 @@ export function recoverCrashedTestGate(): CrashRecovery {
       entry.candidateCode.length > 0 &&
       onDisk === entry.candidateCode
     ) {
-      writeFileSync(entry.filePath, entry.originalCode, "utf-8");
+      // Atomic restore (2026-11-25 audit A): a torn bare write here was
+      // UNRECOVERABLE — the next recovery pass would see disk matching
+      // neither original nor candidate, fall into the "unknown disk state"
+      // branch below, clear the journal, and strand a broken source file
+      // forever. rename(2) makes the restore all-or-nothing: a crash
+      // mid-restore leaves the candidate on disk, the journal armed, and
+      // the next pass simply retries.
+      atomicWriteFileSync(entry.filePath, entry.originalCode);
       clearTestGateJournal();
       return { recovered: true, alreadyIntact: false, filePath: entry.filePath, armedAt: entry.armedAt };
     }

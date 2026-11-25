@@ -1,4 +1,5 @@
 import { stripComments } from "../autonomous/code-analysis";
+import { createHash } from "node:crypto";
 
 export interface HaltEvaluationState {
   shouldHalt: boolean;
@@ -40,6 +41,35 @@ export function normalizeCode(code: string): string {
     .trim();
 }
 
+/**
+ * THE tree fingerprint (sha256, 2026-11-25 audit E). One definition shared
+ * by the governor (below) and loop-runtime.ts — the two modules previously
+ * carried byte-identical copies of a 32-bit hash.
+ *
+ * WHY SHA256 AND NOT THE OLD 32-BIT djb2-STYLE HASH: the fingerprint is a
+ * "has the tree changed at all" detector — its whole value is NOT colliding.
+ * A 32-bit hash over a ~1000-entry tree has meaningful birthday-collision
+ * odds across a long endurance run (p ≈ n²/2³³ per pair set); a collision
+ * reads as "tree unchanged" in watch mode, silently SKIPPING cycles on a
+ * remotely-changed repo, and as "saturated" in the governor, halting the
+ * loop on a false convergence. sha256 (256-bit) makes collisions a
+ * non-event. Cost: one hash of a ~100KB string per cycle — nanoseconds.
+ *
+ * MIGRATION NOTE: persisted stats (LoopStats.lastTreeFingerprint) may hold
+ * an old-format `tree_fp_<8hex>` value. On the first cycle after this
+ * change the new-format fingerprint simply won't match the stored one —
+ * watch mode runs one extra cycle instead of skipping (the safe direction)
+ * and the stored value is overwritten with the new format on completion.
+ * Self-healing; no migration code needed.
+ */
+export function computeTreeFingerprintHash(
+  files: Array<{ path: string; sha?: string; size?: number }>
+): string {
+  const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
+  const raw = sorted.map((f) => `${f.path}:${f.sha ?? f.size ?? 0}`).join("|");
+  return "tree_fp_" + createHash("sha256").update(raw).digest("hex");
+}
+
 export class SelfStoppingGovernor {
   private saturatedTreeHash: string | null = null;
   private consecutiveFailures = 0;
@@ -55,13 +85,7 @@ export class SelfStoppingGovernor {
   }
 
   public computeTreeFingerprint(files: TreeFileDescriptor[]): string {
-    const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
-    const raw = sorted.map(f => `${f.path}:${f.sha ?? f.size ?? 0}`).join("|");
-    let hash = 0;
-    for (let i = 0; i < raw.length; i++) {
-      hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
-    }
-    return `tree_fp_${Math.abs(hash).toString(16)}`;
+    return computeTreeFingerprintHash(files);
   }
 
   public checkTreeSaturation(currentTreeFingerprint: string): HaltEvaluationState | null {
