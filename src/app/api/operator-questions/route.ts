@@ -63,7 +63,7 @@ export async function POST(req: Request) {
     let body;
     try {
         body = await req.json();
-    } catch {
+    } catch (e) {
         return NextResponse.json(
             { error: "Failed to parse request body as JSON. Ensure content-type is application/json." },
             { status: BAD_REQUEST_STATUS }
