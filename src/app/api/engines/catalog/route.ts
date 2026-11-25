@@ -39,20 +39,18 @@ export async function GET() {
     return NextResponse.json({ sources: [] });
   }
 
-  const validSources: CatalogEntry[] = [];
-  const invalidSources: InvalidSource[] = [];
-  
-  // Create a local copy to avoid race conditions
-  const sourcesCopy = [...SIPHON_SOURCES];
+  // Use reduce for a single pass to build both valid and invalid lists efficiently
+  const { validSources, invalidSources } = SIPHON_SOURCES.reduce(
+    (acc, source, i) => {
+      const currentInvalidSources = [...acc.invalidSources];
+      const currentValidSources = [...acc.validSources];
 
-  try {
-    sourcesCopy.forEach((source, i) => {
       if (!source) {
-        invalidSources.push({
+        currentInvalidSources.push({
           index: i,
           reason: "Source element is null or undefined.",
         });
-        return;
+        return { validSources: currentValidSources, invalidSources: currentInvalidSources };
       }
 
       // Type guard for SiphonSource structure
@@ -60,48 +58,43 @@ export async function GET() {
       const patterns = sourceTyped.patterns;
 
       if (!patterns || !Array.isArray(patterns)) {
-        invalidSources.push({
+        currentInvalidSources.push({
           index: i,
           reason: "Source is missing 'patterns' array or 'patterns' is not an array.",
         });
-        return;
+        return { validSources: currentValidSources, invalidSources: currentInvalidSources };
       }
 
       if (patterns.length === 0) {
-        invalidSources.push({
+        currentInvalidSources.push({
           index: i,
           reason: "Source patterns array is empty.",
         });
-        return;
+        return { validSources: currentValidSources, invalidSources: currentInvalidSources };
       }
 
       // Check all patterns for validity
       const hasInvalidPattern = patterns.some(p => typeof p !== 'string');
       if (hasInvalidPattern) {
-        invalidSources.push({
+        currentInvalidSources.push({
           index: i,
           reason: "One or more patterns in the source array are not strings.",
         });
-        return;
+        return { validSources: currentValidSources, invalidSources: currentInvalidSources };
       }
 
       // Source is valid, construct CatalogEntry
-      validSources.push({
+      currentValidSources.push({
         source: source as SiphonSource,
         count: patterns.length,
         complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
         status: "configured",
       });
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { 
-        error: "Unexpected error while processing catalog sources.",
-        details: error instanceof Error ? error.message : String(error)
-      },
-      { status: 500 }
-    );
-  }
+      
+      return { validSources: currentValidSources, invalidSources: currentInvalidSources };
+    },
+    { validSources: [] as CatalogEntry[], invalidSources: [] as InvalidSource[] }
+  );
 
   if (invalidSources.length > 0) {
     return NextResponse.json(
