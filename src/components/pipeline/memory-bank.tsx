@@ -45,7 +45,7 @@ export function MemoryBank() {
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
       
-      const timeoutPromise = new Promise<unknown>((_, reject) => {
+      const timeoutPromise = new Promise<Response>((_, reject) => {
         const timeoutId = setTimeout(() => {
           abortController.abort();
           // Ensure abortControllerRef is cleared if timeout triggers
@@ -70,7 +70,7 @@ export function MemoryBank() {
           throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
         
-        const data = await (res as Response).json();
+        const data = await res.json();
         
         if (!data || !Array.isArray(data.entries)) {
           throw new Error("Invalid API response structure: expected 'entries' array in response body.");
