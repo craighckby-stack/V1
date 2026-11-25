@@ -25,18 +25,18 @@ const SEARCH_TIMEOUT_MS = 5000;
  *     the prior-art retrieval is visible without running a cycle
  */
 export async function GET(request: Request) {
+  // Extract and validate keyword from query parameters first
+  const { searchParams } = new URL(request.url);
+  const keyword = searchParams.get("keyword");
+  
+  if (typeof keyword !== "string" || keyword.trim() === "") {
+    return NextResponse.json(
+      { ok: false, error: "Missing or empty 'keyword' query parameter. Please provide a valid 'keyword'." },
+      { status: 400 }
+    );
+  }
+  
   try {
-    // Extract and validate keyword from query parameters
-    const { searchParams } = new URL(request.url);
-    const keyword = searchParams.get("keyword");
-    
-    if (typeof keyword !== "string" || keyword.trim() === "") {
-      return NextResponse.json(
-        { ok: false, error: "Missing or empty 'keyword' query parameter. Please provide a valid 'keyword'." },
-        { status: 400 }
-      );
-    }
-    
     // Run status, digest, and search in parallel to reduce latency
     const searchPromise = searchEngines(keyword, 3);
     const timeoutError = new Error("Search operation timed out after 5000ms.");
@@ -90,12 +90,10 @@ export async function GET(request: Request) {
     // Provide a more actionable internal error message context for debugging, while keeping client response generic.
     console.error("Corpus API Error:", error.message, error.stack);
     
-    // Check if the error originated from input validation (400) or data structure issues (500)
-    const isClientInputError = error.message.includes("Missing or empty 'keyword'");
-
+    // Since input validation (400) is handled before the try block, any error reaching here is internal (500).
     return NextResponse.json(
       { ok: false, error: "Internal server error while accessing corpus data." },
-      isClientInputError ? { status: 400 } : { status: 500 }
+      { status: 500 }
     );
   }
 }
