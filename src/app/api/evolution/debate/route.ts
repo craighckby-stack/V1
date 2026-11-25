@@ -34,12 +34,12 @@ export async function POST(req: Request) {
         throw new Error("filePath and candidateCode must be non-empty strings.");
     }
 
-    body = json as DebateRequest;
-
     // Validate optional topic field
-    if (body.topic !== undefined && (typeof body.topic !== "string" || body.topic.trim().length === 0)) {
+    if (json.topic !== undefined && (typeof json.topic !== "string" || json.topic.trim().length === 0)) {
         throw new Error("If provided, topic must be a non-empty string.");
     }
+
+    body = json as DebateRequest;
 
   } catch (e) {
     // Handle JSON parsing errors or structural/validation errors thrown above
