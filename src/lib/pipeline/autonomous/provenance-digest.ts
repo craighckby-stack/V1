@@ -151,7 +151,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
         try {
           const ids = JSON.parse(a.lessonIdsInjected);
           return Array.isArray(ids) && ids.length > 0;
-        } catch {
+        } catch (e) {
           return false;
         }
       });
@@ -165,8 +165,8 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
             );
           }
         } catch (e) {
-          /* malformed lessonIdsInjected — skip the trail line */
-          console.warn(`[ProvenanceDigest] Malformed lessonIdsInjected for cycle ${lastWithLessons.cycleNumber}. Skipping knowledge trail. Error: ${e instanceof Error ? e.message : String(e)}`);
+          // malformed lessonIdsInjected — skip the trail line
+          console.warn(`[ProvenanceDigest] Malformed lessonIdsInjected for cycle ${lastWithLessons.cycleNumber}. Skipping knowledge trail.`);
         }
       }
     } else {
@@ -196,7 +196,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     lines.push(footer);
 
     // Enforce the byte cap.
-    const result = lines.join("\n");
+    let result = lines.join("\n");
     
     if (result.length > PROVENANCE_BLOCK_BUDGET) {
       const footerIndex = result.lastIndexOf(footer);
@@ -214,7 +214,8 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
   } catch (error) {
     // Fail-soft: any error → empty string. Log the error context for debugging
     // without crashing the pipeline.
-    console.error(`[ProvenanceDigest] Failed to build provenance digest for ${filePath}. Failing soft.`, error instanceof Error ? error.message : String(error));
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`[ProvenanceDigest] Failed to build provenance digest for ${filePath}. Failing soft. Error: ${errorMessage}`);
     return "";
   }
 }
