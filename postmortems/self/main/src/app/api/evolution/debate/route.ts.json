@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/evolution/debate/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "OTHER",
   "symptom": "Test gate failed: test failed (sandboxed): src/app/api/evolution/debate/route.test.ts — \nsrc/app/api/evolution/debate/route.test.ts:\n(pass) route constants > dynamic constant must be 'force-dynamic' [0.06ms]\n(pass) route constants > runtime constant must be 'nodejs' [0.97ms]\n27 |     con",
@@ -12,8 +12,8 @@
   "parentHash": "b90225c7ed4ce2e72d861c70653ea2c1c912c7f0ca6a99559b3dca9f025f8b64",
   "hash": "392381c9796a6c88bcd03bd994411196f41bc0555b121ca842a82c851655f3b5",
   "lastAttemptAt": "2026-11-25T17:40:19.689Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-25T17:58:00.966Z",
   "createdAt": "2026-11-23T03:29:46.401Z",
-  "updatedAt": "2026-11-25T17:40:19.689Z",
+  "updatedAt": "2026-11-25T17:58:00.966Z",
   "schema": 2
 }
