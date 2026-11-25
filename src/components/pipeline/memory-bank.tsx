@@ -73,7 +73,7 @@ export function MemoryBank() {
         const data = await res.json();
         
         if (!data || !Array.isArray(data.entries)) {
-          throw new Error("Invalid API response structure: expected 'entries' array in response body.");
+          throw new Error("Invalid API response structure: expected 'entries' array in response body. Received: " + JSON.stringify(data));
         }
         
         setEntries(data.entries);
