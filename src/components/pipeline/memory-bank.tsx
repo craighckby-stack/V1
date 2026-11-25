@@ -45,8 +45,8 @@ export function MemoryBank() {
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
       
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => {
+      const timeoutPromise = new Promise<unknown>((_, reject) => {
+        const timeoutId = setTimeout(() => {
           abortController.abort();
           // Ensure abortControllerRef is cleared if timeout triggers
           if (abortControllerRef.current === abortController) {
@@ -54,6 +54,9 @@ export function MemoryBank() {
           }
           reject(new Error("Request timeout after 10 seconds"));
         }, 10000);
+
+        // Cleanup timeout if fetch resolves/rejects first
+        return () => clearTimeout(timeoutId);
       });
       
       try {
@@ -63,11 +66,11 @@ export function MemoryBank() {
         
         const res = await Promise.race([fetchPromise, timeoutPromise]);
         
-        if (!res.ok) {
+        if (res instanceof Response && !res.ok) {
           throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
         
-        const data = await res.json();
+        const data = await (res as Response).json();
         
         if (!data || !Array.isArray(data.entries)) {
           throw new Error("Invalid API response structure: expected 'entries' array in response body.");
@@ -92,6 +95,13 @@ export function MemoryBank() {
               timestamp: new Date().toISOString()
             });
           }
+        } else {
+            // Handle non-Error objects that might be thrown (e.g., network errors without standard Error structure)
+            console.error("Error loading memory entries from API: Unknown error type.", { 
+              error: String(error), 
+              context: "MemoryBank fetch",
+              timestamp: new Date().toISOString()
+            });
         }
       } finally {
         isFetchingRef.current = false;
