@@ -224,10 +224,9 @@ export async function probeConnectivity(): Promise<boolean> {
       headers: { "User-Agent": "LOOP-net-status-probe" },
       cache: "no-store",
     });
-    // Any status (200/301/403/429...) = we reached the internet.
     clearTimeout(timer);
     return res.status >= 0;
-  } catch {
+  } catch (e) {
     clearTimeout(timer);
     // Catch aborts, network errors, etc.
     return false;
