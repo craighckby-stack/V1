@@ -31,13 +31,15 @@ const BAD_REQUEST_STATUS = 400;
 
 export async function GET() {
   try {
-    // Opportunistic expiry sweep — cheap (one updateMany) and keeps the
-    // pending list from accumulating stale questions forever.
-    const cycle = autonomousLoopRuntime.getState().stats.totalRuns;
+    const state = autonomousLoopRuntime.getState();
+    const cycle = state?.stats?.totalRuns;
 
     // Run expiry sweep and fetch questions concurrently to reduce latency.
+    // Only run expiry if cycle is available to prevent potential runtime errors on state access.
+    const expiryPromise = cycle !== undefined ? expireOldQuestions(cycle) : Promise.resolve(undefined);
+    
     const [expiryResult, pendingSettled] = await Promise.allSettled([
-      expireOldQuestions(cycle),
+      expiryPromise,
       getPendingQuestions(),
     ]);
 
@@ -110,11 +112,20 @@ export async function POST(req: Request) {
           { status: 404 },
         );
       }
-      // Assuming pending is ordered newest-first as per comment
+      // Use the ID of the first element, assuming it is the most recent as per documentation context.
       questionId = pending[0].id; 
     }
 
-    const cycle = autonomousLoopRuntime.getState().stats.totalRuns;
+    const state = autonomousLoopRuntime.getState();
+    const cycle = state?.stats?.totalRuns;
+
+    if (!questionId) {
+        // Should be unreachable if logic above is correct, but guards against unexpected state.
+        return NextResponse.json(
+            { error: "Could not determine a valid question ID to record the answer against." },
+            { status: 400 }
+        );
+    }
     
     const result = await recordAnswer(questionId, answer, cycle, parsedBody.note);
     if (!result) {
