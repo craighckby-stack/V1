@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/engines/catalog/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/api/engines/catalog/route.ts(112,7): error TS2304: Cannot find name 'invalidSources'.; src/app/api/engines/catalog/route.ts(116,25): error TS2304: Cannot find name 'invalidSources'.; src/app/api/engines/catalog/route.ts(122,39): error TS2304: Cannot find name 'validSources'.",
@@ -12,8 +12,8 @@
   "parentHash": "17ebff6c1e0d113719c70d9d5640a811228fcac5a9b1b11784b170a44b7dc5da",
   "hash": "eb825bdc79f574f269d4a7f950b52001801a356dfbde93561b6cdc9905ff06ef",
   "lastAttemptAt": "2026-11-25T16:16:30.245Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-25T17:06:04.923Z",
   "createdAt": "2026-11-23T03:29:46.406Z",
-  "updatedAt": "2026-11-25T16:16:30.245Z",
+  "updatedAt": "2026-11-25T17:06:04.923Z",
   "schema": 2
 }

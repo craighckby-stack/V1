@@ -36,6 +36,7 @@ export async function POST(req: Request) {
     body = (await req.json()) as { repo?: string; branch?: string };
     
     if (!body?.repo || typeof body.repo !== "string") {
+      contextRepo = 'unknown'; // Ensure context is set even if repo is missing
       return NextResponse.json({ ok: false, error: "repo is required (owner/name)" }, { status: 400 });
     }
     
