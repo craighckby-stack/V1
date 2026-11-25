@@ -61,48 +61,51 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   // Regex to match GitHub URLs and capture owner/repo, or just owner/repo slugs.
   // Handles: https://github.com/owner/repo, github.com/owner/repo, owner/repo, owner
   // Captures: (owner)/(repo) or just (owner)
+  // This regex is designed to capture owner and optionally repo, allowing for various formats.
   const githubSlugRegex = /^(?:https?:\/\/(?:www\.)?github\.com\/)?([a-zA-Z0-9_-]+)(?:\/([a-zA-Z0-9_-]+))?(?:\.git)?$/i;
 
   for (const token of tokens) {
     let cleanToken = token;
+    let owner: string | undefined;
+    let repo: string | undefined;
+
     const match = cleanToken.match(githubSlugRegex);
 
     if (match) {
-      // match[1] is owner, match[2] is repo (optional)
-      const owner = match[1];
-      const repo = match[2];
-      
-      if (repo) {
-        cleanToken = `${owner}/${repo}`;
-      } else {
-        cleanToken = owner; // Owner only
-      }
+      owner = match[1];
+      repo = match[2];
     } else {
       // Strip trailing .git if not matched by URL regex
       cleanToken = cleanToken.replace(/\.git$/i, '');
+      
+      // Attempt to parse as owner/repo or owner if it contains a slash
+      const parts = cleanToken.split('/').filter(Boolean);
+      if (parts.length >= 2) {
+        owner = parts[0];
+        repo = parts.slice(1).join('/');
+      } else if (parts.length === 1) {
+        owner = parts[0];
+      }
     }
     
-    cleanToken = cleanToken.replace(/^\/+|\/+$/g, '');
-    
-    if (!cleanToken) continue;
+    if (!owner) continue;
 
-    const parts = cleanToken.split('/').filter(Boolean);
+    // Normalize owner and clean token
+    const normalizedOwner = owner.toLowerCase();
     
-    if (parts.length >= 2) {
-      const owner = parts[0];
-      // Ensure repo captures the entire path after the owner
-      const repo = parts.slice(1).join('/'); 
-      const key = `${owner.toLowerCase()}/${repo.toLowerCase()}`;
+    if (repo) {
+      const normalizedRepo = repo.toLowerCase();
+      const key = `${normalizedOwner}/${normalizedRepo}`;
       if (!seen.has(key)) {
         seen.add(key);
-        results.push({ type: 'repo', owner, repo, raw: `${owner}/${repo}` });
+        results.push({ type: 'repo', owner: owner, repo: repo, raw: `${owner}/${repo}` });
       }
-    } else if (parts.length === 1) {
-      const owner = parts[0];
-      const key = owner.toLowerCase();
+    } else {
+      // Owner only
+      const key = normalizedOwner;
       if (!seen.has(key)) {
         seen.add(key);
-        results.push({ type: 'owner', owner, raw: owner });
+        results.push({ type: 'owner', owner: owner, raw: owner });
       }
     }
   }
@@ -114,6 +117,10 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
  * Appends new preset tokens to an existing sources string without duplicating entries.
  */
 export function appendPresetToSources(existing: string | null | undefined, additions: string[]): string {
+  if (!Array.isArray(additions)) {
+    throw new TypeError('Additions must be an array of strings.');
+  }
+  
   const existingString = existing ?? '';
   
   if (!existingString && additions.length === 0) {

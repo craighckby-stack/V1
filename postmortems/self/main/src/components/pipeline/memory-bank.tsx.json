@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/memory-bank.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/memory-bank.tsx(68,18): error TS2339: Property 'ok' does not exist on type 'Error | Response'.\n  Property 'ok' does not exist on type 'Error'.; src/components/pipeline/memory-bank.tsx(69,78): error TS2339: Property 'status' does not exist on type 'Error | Response'.\n  Property 'status' does not exist on type 'Error'.; src/components/pipeline/memory-bank.tsx(72,32): error TS2339: Property 'json' does not exist on type 'Error | Response'.\n  Property 'json' does not exist on type 'Error'.",
@@ -12,8 +12,8 @@
   "parentHash": "ca29938daf7d2c264c322c48dc7c02214715a8e8395af0947bb5e63290eae081",
   "hash": "0342b26c33a4ab17ed25472f929869d6a67f11880a8bee4a1b6ec5647f844e06",
   "lastAttemptAt": "2026-11-24T10:59:26.377Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-25T16:12:39.581Z",
   "createdAt": "2026-11-23T03:29:46.413Z",
-  "updatedAt": "2026-11-24T10:59:26.378Z",
+  "updatedAt": "2026-11-25T16:12:39.581Z",
   "schema": 2
 }
