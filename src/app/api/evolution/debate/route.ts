@@ -43,6 +43,13 @@ export async function POST(req: Request) {
 
   } catch (e) {
     // Handle JSON parsing errors or structural/validation errors thrown above
+    if (e instanceof SyntaxError) {
+        return NextResponse.json(
+          { error: "Invalid JSON format in request body." },
+          { status: 400 }
+        );
+    }
+    
     const errorMessage = e instanceof Error ? e.message : "Unknown input error during request parsing.";
     
     return NextResponse.json(
@@ -52,10 +59,10 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Use nullish coalescing for cleaner fallback logic
+    // Determine topic immediately, this is fast and doesn't block LLM execution setup
     const effectiveTopic = body.topic ?? `Code Review for ${body.filePath}`;
     
-    // Execute LLM debate concurrently (assuming conductLlmDebate internally handles parallel Security/Architecture calls)
+    // Execute LLM debate
     const result = await conductLlmDebate(
       effectiveTopic,
       body.candidateCode,
