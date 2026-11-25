@@ -9,6 +9,8 @@ import { autonomousLoopRuntime } from "@/lib/pipeline/autonomous/loop-runtime";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const BAD_REQUEST_STATUS = 400;
+
 /**
  * /api/operator-questions — the loop's "voice" surface (step 4 of "what
  * the system should be for").
@@ -64,14 +66,14 @@ export async function POST(req: Request) {
     } catch {
         return NextResponse.json(
             { error: "Failed to parse request body as JSON. Ensure content-type is application/json." },
-            { status: 400 }
+            { status: BAD_REQUEST_STATUS }
         );
     }
     
     if (typeof body !== 'object' || body === null) {
         return NextResponse.json(
             { error: "Request body must be a valid JSON object." },
-            { status: 400 }
+            { status: BAD_REQUEST_STATUS }
         );
     }
 
@@ -84,7 +86,7 @@ export async function POST(req: Request) {
     if (!parsedBody.answer) {
         return NextResponse.json(
             { error: "The 'answer' field is required in the request body." },
-            { status: 400 }
+            { status: BAD_REQUEST_STATUS }
         );
     }
 
@@ -92,7 +94,7 @@ export async function POST(req: Request) {
     if (answerRaw !== "yes" && answerRaw !== "no") {
       return NextResponse.json(
         { error: "answer must be 'yes' or 'no'" },
-        { status: 400 },
+        { status: BAD_REQUEST_STATUS },
       );
     }
     const answer = answerRaw as "yes" | "no";
