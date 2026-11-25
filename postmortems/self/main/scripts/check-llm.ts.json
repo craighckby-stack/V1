@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "scripts/check-llm.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 2 → evolved 4), no behavioral signal, 5 changed lines — mutations must change observable behavior, not add guards to code that already works",
@@ -12,8 +12,8 @@
   "parentHash": "8d0d12465beb62061dbbcf2fc1785c8ebfb2778d854641ddc26de0f1c4d0ac33",
   "hash": "b162ca41c8dca2342fc45376e37902a206f6c639ad5755cb44b1c32857cc2c1e",
   "lastAttemptAt": "2026-11-25T17:25:11.562Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-25T17:52:41.941Z",
   "createdAt": "2026-11-23T20:41:26.451Z",
-  "updatedAt": "2026-11-25T17:25:11.562Z",
+  "updatedAt": "2026-11-25T17:52:41.941Z",
   "schema": 2
 }

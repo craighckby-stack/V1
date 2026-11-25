@@ -50,9 +50,8 @@ export async function GET() {
         return acc;
       }
 
-      // Type guard for SiphonSource structure
-      const sourceTyped = source as SiphonSource & { patterns?: string[] };
-      const patterns = sourceTyped.patterns;
+      // Check for required structure properties directly on the source object
+      const patterns = (source as any).patterns;
 
       if (!patterns || !Array.isArray(patterns)) {
         acc.invalidSources.push({
