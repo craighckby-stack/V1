@@ -58,7 +58,12 @@ export function CurrentCycle() {
   const totalFiles = fileResults.length;
   
   // Calculate pushedFiles efficiently
-  const pushedFiles = fileResults.reduce((count, r) => count + (r.pushed ? 1 : 0), 0);
+  let pushedFiles = 0;
+  for (const r of fileResults) {
+    if (r.pushed) {
+      pushedFiles += 1;
+    }
+  }
   
   // Safely determine firstProofHash only if files exist
   const firstProofHash = totalFiles > 0 ? fileResults[0]?.proofHash : undefined;
@@ -119,7 +124,7 @@ export function CurrentCycle() {
           <span className="inline-flex items-center gap-1">
             <GitBranch className="h-3 w-3 text-slate-500" aria-hidden="true" />
             {cycle.targetRepo ?? 'N/A'}:{cycle.branch ?? 'N/A'}
-          </span >
+          </span>
           <span aria-label={`Started at ${cycle.startedAt ? new Date(cycle.startedAt).toLocaleTimeString() : 'unknown time'}`}>
             started: {cycle.startedAt ? new Date(cycle.startedAt).toLocaleTimeString() : 'unknown'}
           </span>
