@@ -36,7 +36,7 @@ export async function GET(req: Request) {
   }
   
   try {
-    // Run seeding and query in parallel to reduce latency
+    // Ensure seeding completes before querying to maintain data integrity
     await emgRagInstance.ensureSeeded();
     const queryResultSequential = await emgRagInstance.query(q);
 
@@ -59,17 +59,20 @@ export async function GET(req: Request) {
 
     // Helper to map and clean array elements
     const mapResultArray = (arr: VectorEntry[]) => 
-      arr.filter(e => e != null).map((e) => ({
-        id: e.id,
-        provenance: e.provenance,
-        trust: e.trust,
-        filePath: e.filePath,
-        content: e.content,
-        diagnosis: e.diagnosis,
-        cleanSnippet: e.cleanSnippet,
-        ruleToAvoid: e.ruleToAvoid,
-        timestamp: e.timestamp,
-      }));
+      arr.map((e) => {
+        if (e == null) return null;
+        return {
+          id: e.id,
+          provenance: e.provenance,
+          trust: e.trust,
+          filePath: e.filePath,
+          content: e.content,
+          diagnosis: e.diagnosis,
+          cleanSnippet: e.cleanSnippet,
+          ruleToAvoid: e.ruleToAvoid,
+          timestamp: e.timestamp,
+        };
+      }).filter((e): e is NonNullable<typeof e> => e !== null);
 
     const safeTopFixes = mapResultArray(queryResultSequential.topFixes);
     const safeTopFailures = mapResultArray(queryResultSequential.topFailures);
@@ -83,6 +86,9 @@ export async function GET(req: Request) {
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during RAG service operation.";
+    
+    // Log the full error context internally for debugging, but return a safe, actionable message to the client.
+    console.error(`[MemoryQueryError] Failed to execute memory query for "${q}". Details: ${errorMessage}`, err);
     
     return NextResponse.json(
       { 
