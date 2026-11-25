@@ -40,7 +40,11 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
 
   // Check for rate limit exhaustion based on reset time, applicable to 403/429 or proactive pacing
   const isExhausted = !Number.isNaN(resetEpochSec) && resetEpochSec > 0;
-  const waitMsFromReset = isExhausted ? Math.max(1000, resetEpochSec * 1000 - now + 500) : NaN;
+  
+  let waitMsFromReset = NaN;
+  if (isExhausted) {
+    waitMsFromReset = Math.max(1000, resetEpochSec * 1000 - now + 500);
+  }
   const canWaitFromReset = !Number.isNaN(waitMsFromReset) && waitMsFromReset <= MAX_AUTO_WAIT_MS;
 
   // Hard rate-limit or secondary abuse response
@@ -212,7 +216,7 @@ export async function fetchWithTimeout(
         } else if (callerSignal?.aborted) {
           throw new Error(`Operation cancelled by caller during request to ${url}`);
         } else {
-          throw new Error(`Request to ${url} was aborted for an unknown reason (AbortError received without timeout or caller signal being set)`);
+          throw new Error(`Request to ${url} was aborted unexpectedly (AbortError received without timeout or caller signal being set)`);
         }
       }
       // General network/fetch error
