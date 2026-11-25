@@ -97,20 +97,7 @@ export function TargetPanel({ open, onClose }: Props) {
     try {
       const fetchPromise = fetch("/api/pipeline/history", { signal });
       
-      // Race fetch against a promise that rejects on timeout
-      const res = await Promise.race([
-        fetchPromise, 
-        new Promise<Response>((_, reject) => {
-            // This internal timeout promise is redundant if timeoutRef manages state,
-            // but Promise.race requires a promise that resolves/rejects.
-            // We rely on the external timeoutRef logic to set state, but this ensures Promise.race doesn't hang.
-            setTimeout(() => {
-                reject(new Error("Request timed out"));
-            }, TIMEOUT_MS);
-            // Note: We cannot reliably clear this internal timer here without complex state management,
-            // relying on the external timeoutRef cleanup is safer for state consistency.
-        })
-      ]);
+      const res = await fetchPromise;
       
       // Clear external timeout if request completes successfully or with HTTP error
       if (timeoutRef.current) {
