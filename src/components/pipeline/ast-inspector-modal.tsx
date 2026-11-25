@@ -15,8 +15,34 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { usePipelineStore } from "@/lib/pipeline-store";
 import { cn } from "@/lib/utils";
+import React from "react";
 
-export function AstInspectorModal() {
+interface InspectorFile {
+  path: string;
+  original: string | any;
+  evolved: string | any;
+  report: {
+    proofCommitHash?: string;
+    status: "COMPLETED" | "REJECTED" | "RUNNING";
+    astDiffResult: {
+      astScore: number;
+      symbolMap: {
+        originalCount: number;
+        proposedCount: number;
+        retainedCount: number;
+      };
+      structuralDriftRatio: number;
+      violations?: Array<{ severity: "high" | "medium" | "low"; message: string }>;
+    };
+    sanitizerResult: {
+      clean: boolean;
+      violations?: Array<{ message: string }>;
+      highEntropyTokensFound: number;
+    };
+  };
+}
+
+export const AstInspectorModal = React.memo(() => {
   const inspectorFile = usePipelineStore((s) => s.inspectorFile);
   const setInspectorFile = usePipelineStore((s) => s.setInspectorFile);
   const { toast } = useToast();
@@ -251,4 +277,4 @@ export function AstInspectorModal() {
       </motion.div>
     </AnimatePresence>
   );
-}
+});
