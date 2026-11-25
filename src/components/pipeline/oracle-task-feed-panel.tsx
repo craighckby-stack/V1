@@ -69,7 +69,7 @@ export function OracleTaskFeedPanel() {
       }
       
       // Validate and filter tasks in a single pass for efficiency
-      const oracleTasks: SelfTask[] = (data.tasks as unknown[]).reduce((acc: SelfTask[], t: unknown) => {
+      const oracleTasks: SelfTask[] = (data.tasks as unknown[]).filter((t): t is SelfTask => {
         if (t && 
             typeof t === 'object' && 
             'id' in t && typeof t.id === 'string' &&
@@ -79,10 +79,11 @@ export function OracleTaskFeedPanel() {
             'status' in t && (t.status === "pending" || t.status === "in_progress" || t.status === "done" || t.status === "failed" || t.status === "skipped") &&
             t.kind === "oracle-failed-prophecy" // Filter oracle tasks during validation
         ) {
-          acc.push(t as SelfTask);
+          // Ensure all required fields for SelfTask are present and correctly typed before casting
+          return true;
         }
-        return acc;
-      }, []);
+        return false;
+      }) as SelfTask[];
       
       setTasks(oracleTasks);
     } catch (err) {

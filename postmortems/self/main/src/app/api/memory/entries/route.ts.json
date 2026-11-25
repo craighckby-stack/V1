@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/memory/entries/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/api/memory/entries/route.ts(27,23): error TS2339: Property 'status' does not exist on type 'VectorEntry[]'.; src/app/api/memory/entries/route.ts(28,35): error TS2551: Property 'value' does not exist on type 'VectorEntry[]'. Did you mean 'values'?; src/app/api/memory/entries/route.ts(33,65): error TS2339: Property 'reason' does not exist on type 'VectorEntry[]'.",
@@ -12,8 +12,8 @@
   "parentHash": "ec327945945d82200ff2d1890a374b5635ddd20cff86fec5e4a205dc0588f411",
   "hash": "bc2e4a181dd7a8db667fd28d844fdf52909ed2296c2f854ca3d7bafc0ffb192b",
   "lastAttemptAt": "2026-11-24T01:51:53.312Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-25T17:07:50.498Z",
   "createdAt": "2026-11-23T03:29:46.393Z",
-  "updatedAt": "2026-11-24T01:51:53.312Z",
+  "updatedAt": "2026-11-25T17:07:50.498Z",
   "schema": 2
 }
