@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const MAX_MATCHED_TERMS = 5;
+const SEARCH_TIMEOUT_MS = 5000;
 
 /**
  * GET /api/memory/corpus
@@ -42,7 +43,7 @@ export async function GET(request: Request) {
     
     // Wrap timeout in a promise that rejects after 5000ms
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(timeoutError), 5000)
+      setTimeout(() => reject(timeoutError), SEARCH_TIMEOUT_MS)
     );
 
     // Execute status, digest, and the race (search vs timeout) in parallel
