@@ -92,10 +92,7 @@ export async function POST(req: Request) {
       // Log bootstrap failure with context and return an error response
       const errorToLog = bootstrapError instanceof Error ? bootstrapError : new Error(String(bootstrapError));
       console.error("Failed to bootstrap self-model during POST operation:", errorToLog);
-      return NextResponse.json(
-        { error: `Failed to bootstrap self-model: ${errorToLog.message}` },
-        { status: 500 }
-      );
+      return createErrorResponse(`Failed to bootstrap self-model: ${errorToLog.message}`, 500);
     }
   }
 
