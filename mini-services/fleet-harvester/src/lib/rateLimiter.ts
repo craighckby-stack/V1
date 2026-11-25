@@ -38,6 +38,11 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
       ? Number(input.retryAfterHeader)
       : NaN;
 
+  // Check for rate limit exhaustion based on reset time, applicable to 403/429 or proactive pacing
+  const isExhausted = !Number.isNaN(resetEpochSec) && resetEpochSec > 0;
+  const waitMsFromReset = isExhausted ? Math.max(1000, resetEpochSec * 1000 - now + 500) : NaN;
+  const canWaitFromReset = !Number.isNaN(waitMsFromReset) && waitMsFromReset <= MAX_AUTO_WAIT_MS;
+
   // Hard rate-limit or secondary abuse response
   if (input.status === 403 || input.status === 429) {
     if (retryAfterSec > 0 && !Number.isNaN(retryAfterSec)) {
@@ -56,13 +61,12 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
       };
     }
 
-    if (remaining === 0 && !Number.isNaN(resetEpochSec) && resetEpochSec > 0) {
-      const waitMs = Math.max(1000, resetEpochSec * 1000 - now + 500);
-      if (waitMs <= MAX_AUTO_WAIT_MS) {
+    if (isExhausted && remaining === 0) {
+      if (canWaitFromReset) {
         return {
-          waitMs,
+          waitMs: waitMsFromReset,
           shouldRetry: true,
-          reason: `GitHub primary rate limit exhausted — cooling down ${Math.ceil(waitMs / 1000)}s until reset.`,
+          reason: `GitHub primary rate limit exhausted — cooling down ${Math.ceil(waitMsFromReset / 1000)}s until reset.`,
         };
       }
       const resetTime = new Date(resetEpochSec * 1000).toLocaleTimeString();
@@ -85,16 +89,13 @@ export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision 
 
   // Proactive pacing based on remaining quota
   if (!Number.isNaN(remaining)) {
-    // Check for exhaustion based on reset time, only if not already handled by hard 403/429 logic above
-    if (remaining === 0 && !Number.isNaN(resetEpochSec) && resetEpochSec > 0) {
-      const waitMs = Math.max(1000, resetEpochSec * 1000 - now + 500);
-      if (waitMs <= MAX_AUTO_WAIT_MS) {
-        return {
-          waitMs,
-          shouldRetry: true,
-          reason: `GitHub quota reached 0 — cooling down ${Math.ceil(waitMs / 1000)}s until reset.`,
-        };
-      }
+    // Check for exhaustion based on reset time (only if not handled above, e.g., status wasn't 403/429)
+    if (isExhausted && remaining === 0 && canWaitFromReset) {
+      return {
+        waitMs: waitMsFromReset,
+        shouldRetry: true,
+        reason: `GitHub quota reached 0 — cooling down ${Math.ceil(waitMsFromReset / 1000)}s until reset.`,
+      };
     } else if (remaining < 20) {
       return {
         waitMs: 1500,
@@ -225,7 +226,7 @@ export async function fetchWithTimeout(
     if (callerSignal) {
       try {
         callerSignal.removeEventListener('abort', onCallerAbort);
-      } catch {
+      } catch (e) {
         // Ignore errors during cleanup
       }
     }
