@@ -23,10 +23,8 @@ function line(s: string) {
 }
 
 async function main() {
-  // Input validation is implicitly handled by REPO assignment: if providedRepo is falsy, REPO is DEFAULT_REPO.
-  // If providedRepo is present but empty/whitespace, REPO will be "" if trim() results in empty string,
-  // but we rely on the default logic or subsequent checks if "" is invalid.
-  if (REPO === "" && providedRepo !== undefined) {
+  // Input validation: Check if providedRepo was present but resulted in an empty string after trimming.
+  if (providedRepo !== undefined && REPO === "") {
     line(`Error: Repository argument provided is empty or whitespace.`);
     process.exitCode = 1;
     return;
@@ -128,7 +126,7 @@ async function main() {
     const errorMessage = error instanceof Error ? error.message : String(error);
     line(`    Error: ${errorMessage}`);
     
-    // Only clear config if it was successfully set before the error occurred in Step 3
+    // Ensure config is cleared if it was successfully set before the error occurred in Step 3
     if (configSetSuccessfully) {
         await clearTargetConfig();
     }
