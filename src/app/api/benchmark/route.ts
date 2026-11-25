@@ -36,15 +36,14 @@ export async function GET() {
     if (err instanceof Error) {
       errorMessage = err.message;
       errorName = err.name;
-    } else if (typeof err === 'object' && err !== null) {
+    } else if (typeof err === 'object' && err !== null && 'message' in err && typeof (err as { message: string }).message === 'string') {
       // Handle non-Error objects that might have a message property safely
-      if ('message' in err && typeof (err as { message: string }).message === 'string') {
-        errorMessage = (err as { message: string }).message;
-        errorName = 'ObjectError';
-      } else {
-        errorMessage = "Received non-Error object without a discernible message.";
-        errorName = 'MalformedError';
-      }
+      errorMessage = (err as { message: string }).message;
+      errorName = 'ObjectError';
+    } else {
+      // Fallback for truly malformed/uninspectable errors
+      errorMessage = "Received non-Error object without a discernible message.";
+      errorName = 'MalformedError';
     }
 
     // Log the full error context server-side for debugging, but return a sanitized message to the client.
