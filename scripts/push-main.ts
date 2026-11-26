@@ -34,14 +34,21 @@ async function main() {
     console.log("[push-main] PUSH OK:", String(out).slice(0, 300));
     process.exit(0);
   } catch (err) {
-    const error = err as NodeJS.ErrnoException | Error;
-    const stderr = (error as { stderr?: string }).stderr || (error as Error).message;
-    console.error(`[push-main] PUSH FAILED: git push origin main failed.`);
-    console.error("--- Error Details ---");
+    let stderr = "";
+    if (err instanceof Error) {
+      // execSync errors often contain stdout/stderr in the message or as properties if piped
+      // We check for stderr property first, then fall back to message.
+      const execError = err as { stderr?: string };
+      stderr = execError.stderr || err.message;
+    }
+    
+    console.error(`[push-main] PUSH FAILED: git push origin main failed. Check git output for details.`);
+    console.error("--- Error Details (First 500 chars) ---");
     console.error(String(stderr).slice(0, 500));
-    if (error instanceof Error) {
+    
+    if (err instanceof Error) {
         console.error("--- Full Error Stack ---");
-        console.error(error.stack);
+        console.error(err.stack);
     }
     process.exit(1);
   }
