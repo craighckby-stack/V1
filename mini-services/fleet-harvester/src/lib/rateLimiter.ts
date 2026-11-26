@@ -240,7 +240,7 @@ export async function fetchWithTimeout(
     if (callerSignal) {
       try {
         callerSignal.removeEventListener('abort', onCallerAbort);
-      } catch (e) {
+      } catch {
         // Ignore errors during cleanup
       }
     }
