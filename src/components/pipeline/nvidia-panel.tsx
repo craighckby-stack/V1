@@ -169,8 +169,6 @@ export function NvidiaPanel({ open, onClose }: Props) {
         clearTimeout(autoCloseTimer.current);
         autoCloseTimer.current = null;
       }
-      // Fresh sync each open — the stored model may have changed elsewhere.
-      syncedModelRef.current = false;
     }
   }, [open]);
 

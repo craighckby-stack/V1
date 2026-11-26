@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/autonomous/prompt-context.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/autonomous/prompt-context.ts(123,28): error TS2552: Cannot find name 'postmortemSymptom'. Did you mean 'postmortemStore'?; src/lib/pipeline/autonomous/prompt-context.ts(123,51): error TS2552: Cannot find name 'postmortemSymptom'. Did you mean 'postmortemStore'?; src/lib/pipeline/autonomous/prompt-context.ts(247,5): error TS2349: This expression is not callable.\n  Type 'Promise<{ active: boolean; block: string; symptom: string; }>' has no call signatures.",
@@ -12,8 +12,8 @@
   "parentHash": "8f75ffaa5551dd6d96b30a8cf7abd23689ce0266c10c352bb3ab915e001e87ca",
   "hash": "f78a0992c1c6492274a8ee81ba0c779e5be61c8b4da62e54032da69b42b6493c",
   "lastAttemptAt": "2026-11-26T05:24:37.794Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T07:12:32.265Z",
   "createdAt": "2026-11-23T03:29:46.264Z",
-  "updatedAt": "2026-11-26T05:24:37.794Z",
+  "updatedAt": "2026-11-26T07:12:32.265Z",
   "schema": 2
 }
