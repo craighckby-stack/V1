@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/policy/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [SYMBOL_DROPPED] Top-level export(s) dropped: dynamic, runtime. Public API must be preserved.",
@@ -12,8 +12,8 @@
   "parentHash": "6246462d86a69389464885d954830262b691a77e8c57645bd10d3c85a5a1d80c",
   "hash": "aa742e94e295474ab65c8f9419d91f89442eabcdda7940fda9b6a385665480d4",
   "lastAttemptAt": "2026-11-25T17:36:38.424Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T02:22:59.239Z",
   "createdAt": "2026-11-23T03:29:46.398Z",
-  "updatedAt": "2026-11-25T17:36:38.424Z",
+  "updatedAt": "2026-11-26T02:22:59.239Z",
   "schema": 2
 }
