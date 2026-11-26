@@ -386,7 +386,8 @@ Output the COMPLETE new content for this file with the improvement applied.`;
         observed: true,
       });
     } catch (err) {
-      say(`postmortem write failed (non-fatal): ${(err as Error).message.slice(0, 120)}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      say(`postmortem write failed (non-fatal): ${errorMessage.slice(0, 120)}`);
     }
     await recordTargetRun({ at: new Date().toISOString(), repo, status: "rejected", file, reason });
     return {
