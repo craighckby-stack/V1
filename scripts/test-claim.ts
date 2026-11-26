@@ -38,10 +38,20 @@ async function main() {
   }
 }
 main().catch((e) => {
-  const errorMessage = e instanceof Error ? e.message : String(e);
-  console.error(`Error during task claim peek: Failed to retrieve next task state. Context: ${errorMessage}`);
+  let errorMessage: string;
+  let stackTrace: string | undefined = undefined;
+
   if (e instanceof Error) {
-    console.error("Full stack trace:", e.stack);
+    errorMessage = e.message;
+    stackTrace = e.stack;
+  } else {
+    // Safely convert non-Error objects to string for logging context
+    errorMessage = String(e);
+  }
+
+  console.error(`Error during task claim peek: Failed to retrieve next task state. Context: ${errorMessage}`);
+  if (stackTrace) {
+    console.error("Full stack trace:", stackTrace);
   }
   process.exit(1);
 });
