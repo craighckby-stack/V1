@@ -185,13 +185,14 @@ export function PostmortemPanel() {
         ) : (
           <ScrollArea className="h-[320px] pr-3">
             <div className="space-y-2">
-              <AnimatePresence>
+              <AnimatePresence initial={false}>
                 {postmortems.map((pm) => (
                   <motion.div
                     key={pm.id}
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, x: -8 }}
+                    transition={{ duration: 0.2 }}
                     className={cn(
                       "rounded-md border p-3 transition-colors",
                       expanded === pm.id
@@ -251,6 +252,7 @@ export function PostmortemPanel() {
                       <motion.div
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
                         transition={{ duration: 0.2 }}
                         className="mt-3 pt-3 border-t border-slate-800/60 space-y-2"
                       >
