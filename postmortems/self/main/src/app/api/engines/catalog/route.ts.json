@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/engines/catalog/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [AST_SYMBOL_DROPPED] Dropped 2 original symbol(s): CatalogEntry, InvalidSource",
@@ -12,8 +12,8 @@
   "parentHash": "0855baac4e0cc6c2e6ea264e27ed6886b79f186bc74ee221aa06415bb4e16e71",
   "hash": "ba02022c247132117f6f761d7b20bbcfc7738cd08278ccb8acd51c8cb4019c38",
   "lastAttemptAt": "2026-11-26T04:40:07.447Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T07:21:38.773Z",
   "createdAt": "2026-11-23T03:29:46.406Z",
-  "updatedAt": "2026-11-26T04:40:07.447Z",
+  "updatedAt": "2026-11-26T07:21:38.773Z",
   "schema": 2
 }

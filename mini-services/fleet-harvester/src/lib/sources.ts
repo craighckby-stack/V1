@@ -61,15 +61,15 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   // Regex to match GitHub URLs and capture owner/repo, or just owner/repo slugs.
   // Handles: https://github.com/owner/repo, github.com/owner/repo, owner/repo, owner
   // Captures: (owner)/(repo) or just (owner)
-  // Modified to be more permissive on the end, allowing just 'owner' without a trailing slash/dotgit
-  const githubSlugRegex = /^(?:https?:\/\/(?:www\.)?github\.com\/)?([a-zA-Z0-9_-]+)(?:\/([a-zA-Z0-9_-]+))?$/i;
+  // This regex is designed to capture owner and optionally repo from standard GitHub URL formats.
+  const githubUrlRegex = /^(?:https?:\/\/(?:www\.)?github\.com\/)?([a-zA-Z0-9_-]+)(?:\/([a-zA-Z0-9_-]+))?$/i;
 
   for (const token of tokens) {
     let cleanToken = token;
     let owner: string | undefined;
     let repo: string | undefined;
 
-    const match = cleanToken.match(githubSlugRegex);
+    const match = cleanToken.match(githubUrlRegex);
 
     if (match) {
       owner = match[1];
