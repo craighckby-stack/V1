@@ -155,13 +155,15 @@ function walkDir(dir: string, acc: string[] = []): string[] {
       const full = join(dir, entry);
       const st = statSync(full);
       if (st.isDirectory()) {
+        // Correctly merge results from recursive call
         walkDir(full, acc);
       } else if (st.isFile()) {
         acc.push(full);
       }
     }
-  } catch {
-    /* unreadable dir — skip */
+  } catch (error) {
+    // Log specific error instead of silently swallowing it
+    console.error(`Error reading directory ${dir}:`, error);
   }
   return acc;
 }
