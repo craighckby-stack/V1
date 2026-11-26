@@ -116,7 +116,7 @@ function state(): NetState {
       lastError: null,
       lastSource: null,
       lastSuccessAt: null,
-      nextProbeAt: 0,
+      nextProbeAt: Date.now(), // Initialize to now, assuming online until proven otherwise
       probeIntervalMs: PROBE_BASE_MS,
       totalSuppressedPushFailures: 0,
     };
@@ -258,9 +258,8 @@ export async function ensureOnlineForPush(): Promise<boolean> {
     return true;
   }
   // If not recovered, the state is still offline. We return false to block the push.
-  // This handles the case where probeConnectivity returns true but recordProbeResult
-  // somehow fails to set recovered=true (though unlikely with current logic,
-  // this ensures consistency: if probe was successful, we should be online).
+  // If probeConnectivity returned true (up=true) but recordProbeResult didn't set recovered=true,
+  // we must trust the probe result as the source of truth for this immediate check.
   if (up) {
       return true;
   }
