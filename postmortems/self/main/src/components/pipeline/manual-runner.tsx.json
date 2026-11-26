@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/pipeline/manual-runner.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/src/components/pipeline/manual-runner.tsx:265:23 React Hook \"useToast\" is called in function \"finishManual\" that is neither a React function component nor a custom React Hook function. React component names must start with an uppercase letter. React Hook names must start with the word \"use\". (react-hooks/rules-of-hooks)",
+  "evidence": "Original: 21548 bytes, Refactored: 22099 bytes. Errors: /home/z/my-project/src/components/pipeline/manual-runner.tsx:265:23 React Hook \"useToast\" is called in function \"finishManual\" that is neither a React function component nor a custom React Hook function. React component names must start with an uppercase letter. React Hook names must start with the word \"use\". (react-hooks/rules-of-hooks)",
+  "constraints": "The previous refactor of src/components/pipeline/manual-runner.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "fa04c081748e8e5f62b88cfdfe94ca248cb55ec90294abffe747963053a22100",
+  "hash": "c2f866fb8b726f0f034603d49600ca964143a54f8007205fdf8bad167516c7fb",
+  "lastAttemptAt": "2026-11-26T02:48:42.959Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-26T02:48:42.960Z",
+  "updatedAt": "2026-11-26T02:48:42.960Z",
+  "schema": 2
+}

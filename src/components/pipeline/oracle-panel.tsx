@@ -256,30 +256,48 @@ export function OraclePanel({ open, onClose }: Props) {
       // Resolve the configured push-target so archaeology mines the SAME
       // repo the loop is mutating — no manual repo entry needed.
       const ptRes = await fetch("/api/self-enhance/push-target");
-      const pt = ptRes.ok ? await ptRes.json() : null;
+      let pt: { repo: string; branch: string } | null = null;
+      if (ptRes.ok) {
+        pt = await ptRes.json();
+      } else {
+        setError(`Failed to fetch push target configuration. Status: ${ptRes.status}`);
+        return;
+      }
+      
       const repo = pt?.repo;
       const branch = pt?.branch ?? "main";
       if (!repo) {
         setError("No push target configured — archaeology needs a repo to mine. Set one via the push command first.");
         return;
       }
+      
       const res = await fetch(
         `/api/oracle/archaeology?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&maxCommits=100`,
         { method: "POST" }
       );
-      const data = await res.json();
+      
+      let data: { pairs?: { correct: boolean }[], seeded?: number, error?: string } | null = null;
       if (res.ok) {
+        data = await res.json();
+      } else {
+        // Attempt to read error from body if available, otherwise use status
+        const errorBody = await res.json().catch(() => ({ error: `HTTP Error ${res.status}` }));
+        setError(errorBody.error ?? `Archaeology failed with status ${res.status}`);
+        return;
+      }
+
+      if (data) {
         setActionMsg(
           `Archaeology: mined ${data.pairs?.length ?? 0} wrong/correct pair(s) from ${repo}:${branch}, seeded ${data.seeded ?? 0} archaeology prophecies.`,
         );
-        // Refresh prophecies + chain to show the new ones.
+        // Refresh prophecies + chain to show the new ones in parallel
         const [pRes2] = await Promise.all([fetch("/api/oracle/prophecies?limit=30")]);
         if (pRes2.ok) {
           const p = (await pRes2.json()) as { prophecies: Prophecy[] };
           setProphecies(p.prophecies ?? []);
+        } else {
+          setError(`Failed to refresh prophecies after archaeology: ${pRes2.statusText}`);
         }
-      } else {
-        setError(data.error ?? "Archaeology failed");
       }
     } catch (e) {
       setError((e as Error).message);
