@@ -189,11 +189,14 @@ export function extractSections(
         ts.isPropertyDeclaration(member) ||
         ts.isGetAccessorDeclaration(member) ||
         ts.isSetAccessorDeclaration(member)) &&
-      member.name
+      member.name && // Added explicit check for member.name existence
+      (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name)) // Added check for valid name types
     ) {
-      return ts.isIdentifier(member.name)
-        ? member.name.text
-        : member.name.getText(sf);
+      if (ts.isIdentifier(member.name)) {
+        return member.name.text;
+      }
+      // Assuming getText(sf) handles non-identifier names correctly, but guarding against null/undefined name structure is key.
+      return member.name.getText(sf);
     }
     return null;
   };
