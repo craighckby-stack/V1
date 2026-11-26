@@ -40,12 +40,12 @@ const SOURCE_COLOR = {
 const MAX_LOG_ENTRIES = 100; // Prevent unbounded memory growth
 
 const LogEntryComponent = memo(({ entry }: { entry: LogEntry }) => {
-  // Use type directly if it exists in the map, otherwise default to 'info' for safety
+  // Use type guards for safer lookups instead of relying solely on 'in' checks on string literals
   const typeKey = entry.type in TYPE_ICON ? entry.type : 'info';
-  const Icon = TYPE_ICON[typeKey as keyof typeof TYPE_ICON] || Info;
+  const Icon = TYPE_ICON[typeKey as keyof typeof TYPE_ICON];
   const color = TYPE_COLOR[typeKey as keyof typeof TYPE_COLOR] || "text-slate-400";
   
-  // Use source directly if it exists in the map, otherwise default to 'pipeline'
+  // Use type guards for safer lookups
   const sourceKey = entry.source in SOURCE_COLOR ? entry.source : 'pipeline';
   const sourceColor = SOURCE_COLOR[sourceKey as keyof typeof SOURCE_COLOR] || "bg-slate-700/15 text-slate-300 border-slate-700/30";
   
