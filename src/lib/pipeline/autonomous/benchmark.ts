@@ -163,17 +163,25 @@ function verdictFor(name: string, deltaPct: number, confidence: BenchmarkResult[
 export async function buildBenchmarkReport(): Promise<BenchmarkReport | null> {
   try {
     // ── 1. READ THE MUTATION CORPUS ──────────────────────────────
-    // Capped at 5000 (the retention sweep keeps 2000, so this is
-    // always a full read in practice). Newest-first so the "recent"
-    // window is the first 20 resolvable attempts.
     const rows = await db.mutationCorpus.findMany({
       orderBy: { createdAt: "desc" },
       take: 5000,
       select: { gateOutcome: true, lessonIdsInjected: true, createdAt: true, filePath: true, cycleNumber: true },
     });
 
+    if (rows.length === 0) {
+      return {
+        overall: {
+          lifetime: { enhanced: 0, failed: 0, passRatePct: 0 },
+          recent: { enhanced: 0, failed: 0, passRatePct: 0, trend: "FLAT" },
+          cyclesCompleted: 0,
+        },
+        experiments: [],
+        generatedAt: new Date().toISOString(),
+      } as BenchmarkReport;
+    }
+
     // ── 2. OVERALL LIFETIME + RECENT TREND ───────────────────────
-    // Lifetime: all rows. Recent: last 20 resolvable (enhanced + failed).
     const lifetimeOutcomes = rows.map((r) => r.gateOutcome);
     const lifetimeArm = armFromOutcomes(lifetimeOutcomes);
 
@@ -185,6 +193,7 @@ export async function buildBenchmarkReport(): Promise<BenchmarkReport | null> {
     const recentArm = armFromOutcomes(recent20);
 
     // Trend: second half vs first half of the recent 20.
+    // Note: If resolvable.length < 20, slice handles bounds gracefully.
     const first10 = resolvable.slice(10, 20).map((r) => r.gateOutcome);
     const second10 = resolvable.slice(0, 10).map((r) => r.gateOutcome);
     const firstArm = armFromOutcomes(first10);
@@ -196,7 +205,6 @@ export async function buildBenchmarkReport(): Promise<BenchmarkReport | null> {
       : "DECLINING";
 
     // ── 3. LESSONS A/B ──────────────────────────────────────────
-    // Split by lessonIdsInjected (per-attempt, recorded in the corpus).
     const withLessons = rows
       .filter((r) => r.lessonIdsInjected && r.lessonIdsInjected !== "[]")
       .map((r) => r.gateOutcome);
@@ -209,7 +217,6 @@ export async function buildBenchmarkReport(): Promise<BenchmarkReport | null> {
     const lessonsDelta = lessonsB.passRatePct - lessonsA.passRatePct;
 
     // ── 4. PROVENANCE A/B ───────────────────────────────────────
-    // Split by the provenance commit timestamp.
     const provTime = new Date(PROVENANCE_COMMIT_ISO);
     const beforeProv = rows
       .filter((r) => r.createdAt < provTime)
@@ -223,10 +230,6 @@ export async function buildBenchmarkReport(): Promise<BenchmarkReport | null> {
     const provDelta = provB.passRatePct - provA.passRatePct;
 
     // ── 5. POSTMORTEM A/B (CONFOUNDED) ─────────────────────────
-    // Files with an active postmortem vs without. CONFOUNDED: scars
-    // are on harder files. Reported for completeness, not causal.
-    // Read the active postmortem file paths, then split the corpus
-    // by whether the attempt's filePath is in that set.
     let activeScarFiles = new Set<string>();
     try {
       const active = await db.postmortem.findMany({
@@ -234,8 +237,9 @@ export async function buildBenchmarkReport(): Promise<BenchmarkReport | null> {
         select: { filePath: true },
       });
       activeScarFiles = new Set(active.map((a) => a.filePath));
-    } catch {
-      /* postmortem read failed — skip this experiment */
+    } catch (e) {
+      console.error("Failed to read active postmortem files for benchmark report:", e instanceof Error ? e.message : "Unknown error");
+      // activeScarFiles remains empty, skipping this experiment gracefully.
     }
     const withScar = rows
       .filter((r) => activeScarFiles.has(r.filePath))
@@ -294,12 +298,13 @@ export async function buildBenchmarkReport(): Promise<BenchmarkReport | null> {
           passRatePct: recentArm.passRatePct,
           trend,
         },
-        cyclesCompleted: rows.length > 0 ? Math.max(...rows.map((r) => r.cycleNumber ?? 0)) : 0,
+        cyclesCompleted: Math.max(...rows.map((r) => r.cycleNumber ?? 0)),
       },
       experiments,
       generatedAt: new Date().toISOString(),
     };
-  } catch {
+  } catch (e) {
+    console.error("Critical error during benchmark report generation:", e instanceof Error ? e.message : "Unknown error during DB/IO operation.");
     return null;
   }
 }
