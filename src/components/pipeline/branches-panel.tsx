@@ -81,10 +81,16 @@ export function BranchesPanel({ open, onClose }: Props) {
   // cycle) and the fetch hits GitHub 38+ times, so polling would burn
   // quota. The operator clicks [REFRESH] to re-fetch.
   useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
+    if (!open) {
+        setLoading(false);
+        setError(null);
+        return;
+    }
+    
     setLoading(true);
     setError(null);
+    
+    let cancelled = false;
     
     const fetchData = async () => {
       try {
