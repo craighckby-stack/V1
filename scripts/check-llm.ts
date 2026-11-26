@@ -4,9 +4,14 @@ async function main() {
     const row = await db.llmConfig.findUnique({ where: { id: "singleton" } });
     
     if (row) {
-      console.log("configured:", true);
-      // Narrowed payload to essential configuration details
-      console.log("model:", row.geminiModel, "hasKey:", !!row.geminiApiKey, "lastError:", row.lastError ?? "N/A");
+      // Input validation/safety check: Ensure essential fields exist before logging/using them
+      if (row.geminiModel && typeof row.geminiApiKey === 'boolean' && row.lastError !== undefined) {
+        console.log("configured:", true);
+        // Narrowed payload to essential configuration details
+        console.log("model:", row.geminiModel, "hasKey:", !!row.geminiApiKey, "lastError:", row.lastError ?? "N/A");
+      } else {
+        console.warn("LLM configuration record found, but essential fields (geminiModel, geminiApiKey, lastError) are missing or invalid for 'singleton'.");
+      }
     } else {
       console.warn("LLM configuration record with id 'singleton' not found in the database.");
     }

@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/target/target-github.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/src/lib/pipeline/target/target-github.ts:71:12 'error' is defined but never used. (@typescript-eslint/no-unused-vars)",
@@ -12,8 +12,8 @@
   "parentHash": "e40e49850a9af0677e463c50aa0d8b6bcfbb2271862b4e10ead63c8623bae2c4",
   "hash": "94a1b6be4fadb3d4454cf2f8b1e0d536fe43af6274b833321f16d46729a0f7bc",
   "lastAttemptAt": "2026-11-26T10:28:11.975Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T11:25:09.969Z",
   "createdAt": "2026-11-26T06:45:07.453Z",
-  "updatedAt": "2026-11-26T10:28:11.975Z",
+  "updatedAt": "2026-11-26T11:25:09.969Z",
   "schema": 2
 }
