@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "mini-services/fleet-harvester/src/harvest/runner.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: mini-services/fleet-harvester/src/harvest/runner.ts(198,5): error TS18004: No value exists in scope for the shorthand property 'runEndedAt'. Either declare one or provide an initializer.; mini-services/fleet-harvester/src/harvest/runner.ts(199,17): error TS2304: Cannot find name 'runEndedAt'.; mini-services/fleet-harvester/src/harvest/runner.ts(199,31): error TS2304: Cannot find name 'runEndedAt'.",
+  "evidence": "Original: 21982 bytes, Refactored: 22031 bytes. Errors: mini-services/fleet-harvester/src/harvest/runner.ts(198,5): error TS18004: No value exists in scope for the shorthand property 'runEndedAt'. Either declare one or provide an initializer.\nmini-services/fleet-harvester/src/harvest/runner.ts(199,17): error TS2304: Cannot find name 'runEndedAt'.\nmini-services/fleet-harvester/src/harvest/runner.ts(199,31): error TS2304: Cannot find name 'runEndedAt'.\nmini-services/fleet-harvester/src/harvest/runner.ts(199,67): error TS2339: Property 'getTime' does not exist on type 'number'.",
+  "constraints": "The previous refactor of mini-services/fleet-harvester/src/harvest/runner.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "83cd19852da0da1c98639844a1c54a20f1ee64895f5fd4bf9f882f2fbe7e39a1",
+  "hash": "426805a9bacefb9d489733c6059f486af340aa65820936e079421f3ea4f4c534",
+  "lastAttemptAt": "2026-11-26T02:47:15.165Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-26T02:47:15.166Z",
+  "updatedAt": "2026-11-26T02:47:15.166Z",
+  "schema": 2
+}

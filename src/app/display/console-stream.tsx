@@ -191,7 +191,7 @@ function parseTs(ts: string | undefined | null): number {
 function formatTs(ts: string | undefined | null): string {
   if (!ts) return "";
   const ms = parseTs(ts);
-  if (Number.isNaN(ms)) return ts;
+  if (Number.isNaN(ms)) return "";
   const d = new Date(ms);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
