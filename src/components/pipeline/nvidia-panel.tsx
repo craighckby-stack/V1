@@ -127,6 +127,9 @@ export function NvidiaPanel({ open, onClose }: Props) {
   const poll = useCallback(async () => {
     try {
       const res = await fetch("/api/self-enhance/llm-config", { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error(`Failed to fetch LLM config: HTTP status ${res.status}`);
+      }
       const data = (await res.json()) as LlmConfigView;
       setCfg(data);
       setNvCfg(data.nvidia ?? null);
@@ -134,7 +137,8 @@ export function NvidiaPanel({ open, onClose }: Props) {
         syncedModelRef.current = true;
         setModel(data.nvidia.model);
       }
-    } catch {
+    } catch (error) {
+      console.error("Error during LLM config polling:", error);
       // Poll failure is non-fatal — keep the last snapshot on screen.
     }
   }, []);
