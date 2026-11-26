@@ -32,7 +32,7 @@ interface PostmortemRecord {
   lastAttemptAt: string;
 }
 
-const FAILURE_COLOR: Record<string, string> = {
+const FAILURE_COLOR: Record<string, string | undefined> = {
   AST_SYMBOL_DROPPED: "bg-rose-500/15 text-rose-300 border-rose-500/40",
   AST_STRUCTURAL_DRIFT: "bg-amber-500/15 text-amber-300 border-amber-500/40",
   BRANDING_INJECTION: "bg-purple-500/15 text-purple-300 border-purple-500/40",
