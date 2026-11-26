@@ -410,9 +410,10 @@ export function extractSections(
  * the seed across cycles via the branch slot + source sha). */
 function hashString(s: string): number {
   let h = 2166136261 >>> 0;
+  const FNV_PRIME = 16777619;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
+    h = Math.imul(h, FNV_PRIME);
   }
   return h >>> 0;
 }
