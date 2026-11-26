@@ -123,8 +123,8 @@ export async function setTargetConfig(
   }
   
   let branchValue: string | null = null;
-  if (branch !== undefined && branch !== null) {
-    const b = String(branch).trim();
+  if (branch !== undefined && branch !== null && typeof branch === 'string') {
+    const b = branch.trim();
     if (b.length > 0) {
       if (!validTargetBranchFormat(b)) {
         throw new Error(`Invalid branch "${b}" — must be a valid git branch name (no whitespace, no "..", no leading '-', max 120 chars)`);
@@ -225,11 +225,16 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
     const now = new Date().toISOString();
     await db.$transaction(async (tx) => {
       const existing = await tx.systemFlag.findUnique({ where: { key: LAST_RUN_KEY } });
+      const dataToStore = {
+        ...rec,
+        updatedAt: now, // Ensure consistent timestamp
+      };
+      
       if (existing) {
         await tx.systemFlag.update({
           where: { key: LAST_RUN_KEY },
           data: {
-            value: JSON.stringify(rec),
+            value: JSON.stringify(dataToStore),
             setBy: "target-mode",
             reason: `run ${rec.status}`,
             updatedAt: now,
@@ -239,7 +244,7 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
         await tx.systemFlag.create({
           data: {
             key: LAST_RUN_KEY,
-            value: JSON.stringify(rec),
+            value: JSON.stringify(dataToStore),
             setBy: "target-mode",
             reason: `run ${rec.status}`,
             updatedAt: now,
