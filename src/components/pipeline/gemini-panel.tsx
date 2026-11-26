@@ -130,14 +130,23 @@ export function GeminiPanel({ open, onClose }: Props) {
     // +1000ms) so the countdown is correct on the first visible frame.
     // The useState initializer is 0 to avoid the hydration mismatch
     // described above; this is where the real time enters the state.
-    setNowTick(Date.now());
-    void poll();
-    const pollIv = setInterval(() => void poll(), 5000);
-    const tickIv = setInterval(() => setNowTick(Date.now()), 1000);
-    return () => {
-      clearInterval(pollIv);
-      clearInterval(tickIv);
+    const initialTimePromise = Promise.resolve(Date.now());
+    
+    const setupIntervals = () => {
+        void poll();
+        const pollIv = setInterval(() => void poll(), 5000);
+        const tickIv = setInterval(() => setNowTick(Date.now()), 1000);
+        return () => {
+          clearInterval(pollIv);
+          clearInterval(tickIv);
+        };
     };
+
+    Promise.all([initialTimePromise]).then(() => {
+        setNowTick(Date.now());
+        const cleanup = setupIntervals();
+        return () => cleanup();
+    });
   }, [open, poll]);
 
   // Reset transient state when the panel reopens.
