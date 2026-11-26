@@ -258,5 +258,11 @@ export async function ensureOnlineForPush(): Promise<boolean> {
     return true;
   }
   // If not recovered, the state is still offline. We return false to block the push.
+  // This handles the case where probeConnectivity returns true but recordProbeResult
+  // somehow fails to set recovered=true (though unlikely with current logic,
+  // this ensures consistency: if probe was successful, we should be online).
+  if (up) {
+      return true;
+  }
   return false;
 }
