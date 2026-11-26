@@ -202,8 +202,13 @@ export async function ensureTargetBranch(
   if (!repo || typeof repo !== 'string') {
     return { ok: false, error: "Invalid input: repository name must be a non-empty string." };
   }
+  if (!baseRef || typeof baseRef !== 'string') {
+    return { ok: false, error: "Invalid input: base reference must be a non-empty string." };
+  }
   try {
     const headers = ghHeaders(token, "application/vnd.github.v3+json");
+    
+    // Check if branch exists
     const refRes = await fetch(
       `${GH_API}/repos/${repo}/git/ref/heads/${encodeURIComponent(branch)}`,
       { headers }
@@ -213,6 +218,8 @@ export async function ensureTargetBranch(
       const body = await refRes.json().catch(() => null);
       return { ok: false, error: ghError(refRes.status, body, "branch check failed") };
     }
+
+    // Check base reference existence
     const baseRes = await fetch(
       `${GH_API}/repos/${repo}/git/ref/heads/${encodeURIComponent(baseRef)}`,
       { headers }
@@ -221,15 +228,20 @@ export async function ensureTargetBranch(
       const body = await baseRes.json().catch(() => null);
       return { ok: false, error: ghError(baseRes.status, body, `base branch ${baseRef} not resolvable`) };
     }
+    
+    // Only parse JSON if response was OK
     const baseData = (await baseRes.json()) as { object?: { sha?: string } };
     const baseSha = baseData.object?.sha;
     if (!baseSha) return { ok: false, error: `base branch ${baseRef} has no HEAD sha` };
+    
+    // Attempt to create branch
     const createRes = await fetch(`${GH_API}/repos/${repo}/git/refs`, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: baseSha }),
     });
     if (createRes.ok) return { ok: true };
+    
     const body = await createRes.json().catch(() => null);
     return { ok: false, error: ghError(createRes.status, body, `could not create branch ${branch}`) };
   } catch (err) {
