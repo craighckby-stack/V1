@@ -177,6 +177,13 @@ export function GeminiPanel({ open, onClose }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ geminiApiKey: trimmed, model }),
       });
+      
+      if (!res.ok) {
+        // Attempt to read error body for better context before parsing as JSON
+        const errorText = await res.text();
+        throw new Error(`API save failed with status ${res.status}: ${errorText.substring(0, 100)}`);
+      }
+
       const data = (await res.json()) as {
         ok?: boolean;
         error?: string;
@@ -184,8 +191,9 @@ export function GeminiPanel({ open, onClose }: Props) {
         locationBlocked?: boolean;
         model?: string;
       };
+      
       if (!data.ok) {
-        setMsg({ kind: "err", text: data.error ?? "Save failed" });
+        setMsg({ kind: "err", text: data.error ?? "Save failed due to unknown API response." });
         return;
       }
 
@@ -208,7 +216,7 @@ export function GeminiPanel({ open, onClose }: Props) {
       if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current);
       autoCloseTimer.current = setTimeout(() => onClose(), 2000);
     } catch (e) {
-      setMsg({ kind: "err", text: (e as Error).message });
+      setMsg({ kind: "err", text: (e instanceof Error ? e.message : "An unknown error occurred during save.") });
     } finally {
       setLoading(false);
     }

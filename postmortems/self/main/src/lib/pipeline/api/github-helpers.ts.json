@@ -8,12 +8,12 @@
   "symptom": "Test gate failed: test failed (sandboxed): src/lib/pipeline/api/github-helpers.test.ts — \nsrc/lib/pipeline/api/github-helpers.test.ts:\n(pass) github-helpers > getUsableToken > returns null for undefined input [0.10ms]\n(pass) github-helpers > getUsableToken > returns null for empty string ",
   "evidence": "1 test file(s) checked. The refactor broke existing behavior.",
   "constraints": "The previous refactor of src/lib/pipeline/api/github-helpers.ts broke existing tests. Do not change observable behavior.",
-  "attempts": 30,
-  "parentHash": "a9c73be84b0eadae48bfeca10b3165175ce9b0946e9475fd206e57e6b3bdfcd4",
-  "hash": "6c91e5d2d6b4aa0dfa7d3d8cb23a46c4a0ba93c75c2b9ce8569294e950ea6c92",
-  "lastAttemptAt": "2026-11-26T05:10:48.360Z",
+  "attempts": 31,
+  "parentHash": "44ced9097e3b5c0ff402c1afaff3b9c3373b9e6cd12e2d5efe78b73c27bcac79",
+  "hash": "d4b8f65d194a5abda282df7a31d5a09b4df8ef753b6b6b909ee58021b011d929",
+  "lastAttemptAt": "2026-11-26T06:02:07.142Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.334Z",
-  "updatedAt": "2026-11-26T05:10:48.360Z",
+  "updatedAt": "2026-11-26T06:02:07.142Z",
   "schema": 2
 }
