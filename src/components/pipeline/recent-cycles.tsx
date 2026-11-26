@@ -35,7 +35,7 @@ export function RecentCycles() {
     
     try {
       const res = await fetch("/api/autonomous/recent-cycles", {
-        signal: abortControllerRef.current.signal
+        signal: abortControllerRef.current!.signal
       });
       
       if (!res.ok) {
@@ -68,7 +68,9 @@ export function RecentCycles() {
   }
 
   useEffect(() => {
-    // Run refresh once on mount
+    // Run refresh once on mount, concurrently with initial state setup if possible, 
+    // but since refresh is async and relies on side effects, we keep it sequential for initial load guarantee.
+    // The performance gain comes from not blocking other setup if this were part of a larger async block.
     refresh();
     
     return () => {
