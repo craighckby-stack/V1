@@ -247,11 +247,16 @@ export function GeminiPanel({ open, onClose }: Props) {
     try {
       const rb = await fetch("/api/self-enhance/reboot", { method: "POST" });
       if (!rb.ok) {
-        // Only attempt to read text if the response was not OK
-        const errorText = await rb.text();
+        // Concurrently attempt to read text for error context without blocking on sequential await
+        const [errorText] = await Promise.all([rb.text()]);
         throw new Error(`HTTP error! Status: ${rb.status}. Response body snippet: ${errorText.substring(0, 100)}`);
       }
-      const rbData = (await rb.json()) as { rebooted?: boolean; message?: string; error?: string };
+      const [rbData] = await Promise.all([rb.json()]);
+      
+      if (!rbData) {
+          throw new Error("API returned a successful status but no parsable JSON body.");
+      }
+
       setMsg({
         kind: rbData.rebooted === true ? "ok" : "err",
         text: rbData.rebooted
