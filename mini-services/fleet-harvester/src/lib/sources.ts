@@ -61,7 +61,6 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   // Regex to match GitHub URLs and capture owner/repo, or just owner/repo slugs.
   // Handles: https://github.com/owner/repo, github.com/owner/repo, owner/repo, owner
   // Captures: (owner)/(repo) or just (owner)
-  // Updated regex to be more robust for owner-only inputs that might not match full URL structure.
   const githubSlugRegex = /^(?:https?:\/\/(?:www\.)?github\.com\/)?([a-zA-Z0-9_-]+)(?:\/([a-zA-Z0-9_-]+))?(?:\.git)?$/i;
 
   for (const token of tokens) {
@@ -186,24 +185,18 @@ export function deriveLogPaths(
   };
   const ext = extMap[format];
   
-  // Use DEFAULT_BASE_PATH if basePath is null/undefined or empty after trimming
+  // Clean basePath if provided, otherwise use DEFAULT_BASE_PATH
   const cleanBase = (basePath && basePath.trim().length > 0) 
     ? basePath.trim().replace(/^\/+/, '') 
     : DEFAULT_BASE_PATH.replace(/^\/+/, '');
   
-  if (!cleanBase) {
-      // Handle case where both basePath and DEFAULT_BASE_PATH might resolve to empty/invalid after cleaning
-      return {
-        successful: `${DEFAULT_BASE_PATH.replace(/^\/+/, '')}.successful.${ext}`,
-        failed: `${DEFAULT_BASE_PATH.replace(/^\/+/, '')}.failed.${ext}`,
-        engines: `${DEFAULT_BASE_PATH.replace(/^\/+/, '')}.engines.${ext}`,
-      };
-  }
+  // If cleanBase is empty after cleaning (e.g., input was just slashes), use DEFAULT_BASE_PATH cleaned version
+  const finalBase = cleanBase || DEFAULT_BASE_PATH.replace(/^\/+/, '');
 
-  const lastSlash = cleanBase.lastIndexOf('/');
-  // Ensure dir is correctly set, even if cleanBase is just a filename (lastSlash = -1)
-  const dir = lastSlash >= 0 ? cleanBase.slice(0, lastSlash + 1) : '';
-  const file = lastSlash >= 0 ? cleanBase.slice(lastSlash + 1) : cleanBase;
+  const lastSlash = finalBase.lastIndexOf('/');
+  // Ensure dir is correctly set, even if finalBase is just a filename (lastSlash = -1)
+  const dir = lastSlash >= 0 ? finalBase.slice(0, lastSlash + 1) : '';
+  const file = lastSlash >= 0 ? finalBase.slice(lastSlash + 1) : finalBase;
   
   // Stem calculation: remove known extensions, default to 'commit-history' if no recognizable stem remains
   const stem =
@@ -223,7 +216,6 @@ export function deriveLogPaths(
  */
 export function matchesRepoFilter(fullName: string, filterText: string): boolean {
   if (typeof filterText !== 'string') {
-    // Explicitly handle non-string input instead of silently defaulting to true
     throw new TypeError(`Filter text must be a string, received ${typeof filterText}.`);
   }
   
