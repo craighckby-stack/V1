@@ -68,8 +68,10 @@ export function OracleTaskFeedPanel() {
         throw new Error("API response validation failed: Expected an object containing a 'tasks' array.");
       }
       
-      // Validate and filter tasks in a single pass for efficiency
-      const oracleTasks: SelfTask[] = (data.tasks as unknown[]).filter((t): t is SelfTask => {
+      // Safely assert tasks array and filter
+      const rawTasks = (data as { tasks?: unknown }).tasks as unknown[];
+
+      const oracleTasks: SelfTask[] = rawTasks.filter((t): t is SelfTask => {
         if (t && 
             typeof t === 'object' && 
             'id' in t && typeof t.id === 'string' &&
@@ -79,11 +81,11 @@ export function OracleTaskFeedPanel() {
             'status' in t && (t.status === "pending" || t.status === "in_progress" || t.status === "done" || t.status === "failed" || t.status === "skipped") &&
             t.kind === "oracle-failed-prophecy" // Filter oracle tasks during validation
         ) {
-          // Ensure all required fields for SelfTask are present and correctly typed before casting
+          // Type guard ensures t conforms to SelfTask structure
           return true;
         }
         return false;
-      }) as SelfTask[];
+      });
       
       setTasks(oracleTasks);
     } catch (err) {
