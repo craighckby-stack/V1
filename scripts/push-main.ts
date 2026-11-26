@@ -35,11 +35,16 @@ async function main() {
     process.exit(0);
   } catch (err) {
     let stderr = "";
+    
+    // execSync errors often contain stdout/stderr in the message or as properties if piped.
+    // We check for the specific error structure provided by Node.js execSync when stdio is 'pipe'.
     if (err instanceof Error) {
-      // execSync errors often contain stdout/stderr in the message or as properties if piped
-      // We check for stderr property first, then fall back to message.
       const execError = err as { stderr?: string };
+      // Prioritize stderr property if available, otherwise use the full message.
       stderr = execError.stderr || err.message;
+    } else if (typeof err === 'object' && err !== null && 'stderr' in err && typeof (err as { stderr: string }).stderr === 'string') {
+        // Handle cases where err is not an Error instance but has stderr property
+        stderr = (err as { stderr: string }).stderr;
     }
     
     console.error(`[push-main] PUSH FAILED: git push origin main failed. Check git output for details.`);
