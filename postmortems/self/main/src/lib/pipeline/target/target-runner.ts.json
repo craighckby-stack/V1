@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/target/target-runner.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/target/target-runner.ts(426,13): error TS2322: Type '\"dry-run-error\"' is not assignable to type 'TargetRunStatus'.",
@@ -12,8 +12,8 @@
   "parentHash": "3471bd71be2edbb2403d6b768b85af0e4255d23b1497c107dd083618144712cc",
   "hash": "351a700c9a3180cf9353cc8eb6902ec4879b48e172db7235d85638c6484b5af9",
   "lastAttemptAt": "2026-11-26T11:18:04.344Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T16:23:33.839Z",
   "createdAt": "2026-11-26T06:45:07.452Z",
-  "updatedAt": "2026-11-26T11:18:04.344Z",
+  "updatedAt": "2026-11-26T16:23:33.839Z",
   "schema": 2
 }

@@ -154,10 +154,7 @@ export function GeminiPanel({ open, onClose }: Props) {
   // Reset transient state when the panel reopens.
   useEffect(() => {
     if (open) {
-      setMsg(null);
-      setKey("");
-      setShowKey(false);
-      // BUG-4 fix: clear any stale auto-close timer from a prior save.
+      // Clear any stale auto-close timer from a prior save.
       if (autoCloseTimer.current) {
         clearTimeout(autoCloseTimer.current);
         autoCloseTimer.current = null;
