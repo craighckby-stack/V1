@@ -128,8 +128,8 @@ interface GoalRow {
   activatedCycle: number;
   retiredCycle: number | null;
   retiredReason: string | null;
-  createdAt: string;
-  retiredAt: string | null;
+  createdAt: Date;
+  retiredAt: Date | null;
 }
 
 interface GoalsSnapshot {
