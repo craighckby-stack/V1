@@ -308,19 +308,41 @@ export async function listTargetBranches(
   token: string | null
 ): Promise<string[]> {
   const names: string[] = [];
-  try {
-    for (let page = 1; page <= 3; page++) {
+  let page = 1;
+  let hasMore = true;
+
+  while (hasMore) {
+    try {
       const res = await fetch(
         `${GH_API}/repos/${repo}/branches?per_page=100&page=${page}`,
         { headers: ghHeaders(token) }
       );
-      if (!res.ok) break;
+      if (!res.ok) {
+        // Use ghError for structured error reporting if possible, otherwise log context
+        console.error(`Failed to fetch branches for ${repo} on page ${page}: Status ${res.status}`);
+        break;
+      }
       const data = (await res.json()) as Array<{ name?: string }>;
-      for (const b of data) if (b.name) names.push(b.name);
-      if (data.length < 100) break;
+
+      if (data.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      for (const b of data) {
+        if (b.name) names.push(b.name);
+      }
+
+      if (data.length < 100) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    } catch (error) {
+      console.error(`Network or parsing error while listing branches for ${repo} at page ${page}:`, error);
+      // Network hiccup: return what we have, but stop trying to fetch more pages
+      hasMore = false;
     }
-  } catch {
-    /* network hiccup — return what we have; numbering falls back to 1 */
   }
   return names;
 }
