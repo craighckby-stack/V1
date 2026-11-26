@@ -189,6 +189,15 @@ export function OraclePanel({ open, onClose }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ count: 1 }),
       });
+      
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => ({ failures: [{ reason: "Unknown API error", error: `HTTP status ${res.status}` }] }));
+        const f = errorBody.failures?.[0];
+        setError(f ? `${f.reason}: ${f.error}` : `Generation failed with status ${res.status}`);
+        setLoading(false);
+        return;
+      }
+
       const data = await res.json();
       if (data.ok) {
         setActionMsg(
@@ -198,17 +207,27 @@ export function OraclePanel({ open, onClose }: Props) {
         );
       } else {
         const f = data.failures?.[0];
-        setError(f ? `${f.reason}: ${f.error}` : "Generation failed");
+        setError(f ? `${f.reason}: ${f.error}` : "Generation failed due to internal data error");
       }
-      // Refresh both views
+      
+      // Refresh both views in parallel
       const [sRes, pRes] = await Promise.all([
         fetch("/api/oracle/status"),
         fetch("/api/oracle/prophecies?limit=30"),
       ]);
-      if (sRes.ok) setStatus((await sRes.json()) as OracleStatus);
+      
+      if (sRes.ok) {
+        const statusData = await sRes.json();
+        setStatus(statusData as OracleStatus);
+      } else {
+        setError(prev => prev ? `${prev} | Failed to fetch status: ${sRes.status}` : `Failed to fetch status: ${sRes.status}`);
+      }
+
       if (pRes.ok) {
         const p = (await pRes.json()) as { prophecies: Prophecy[] };
         setProphecies(p.prophecies ?? []);
+      } else {
+        setError(prev => prev ? `${prev} | Failed to fetch prophecies: ${pRes.status}` : `Failed to fetch prophecies: ${pRes.status}`);
       }
     } catch (e) {
       setError((e as Error).message);
