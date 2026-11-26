@@ -156,10 +156,15 @@ export function BranchesPanel({ open, onClose }: Props) {
             <button
               type="button"
               onClick={() => {
-                // Force a refetch by toggling state via the effect dep.
+                if (loading) return; // Prevent concurrent fetches
                 setLoading(true);
                 fetch("/api/branches?details=1", { cache: "no-store" })
-                  .then((r) => r.json())
+                  .then((r) => {
+                    if (!r.ok) {
+                      throw new Error(`API fetch failed with status ${r.status}: ${r.statusText}`);
+                    }
+                    return r.json();
+                  })
                   .then((j: BranchesData) => {
                     setData(j);
                     setLastFetchAt(Date.now());
