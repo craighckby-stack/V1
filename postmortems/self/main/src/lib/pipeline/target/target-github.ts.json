@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/target/target-github.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/target/target-github.ts(322,23): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.; src/lib/pipeline/target/target-github.ts(343,21): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.",
@@ -12,8 +12,8 @@
   "parentHash": "f0007d7cc7e5f13fe1649e5552e1e6ee5c40da83629d1c903cb89ef370e42cf9",
   "hash": "73a7b072a7dc082ba8c6df4a2027251fe024d307a954208a3b8473b18d265041",
   "lastAttemptAt": "2026-11-26T04:27:33.154Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T05:25:53.190Z",
   "createdAt": "2026-11-26T03:32:08.261Z",
-  "updatedAt": "2026-11-26T04:27:33.154Z",
+  "updatedAt": "2026-11-26T05:25:53.190Z",
   "schema": 2
 }

@@ -185,35 +185,41 @@ export async function discoverRepositories(
 ): Promise<{ repos: RepoSummary[]; externalOwners: Set<string> }> {
   const repoMap = new Map<string, RepoSummary>();
   const externalOwners = new Set<string>();
-  const hasToken = Boolean(token.trim());
+  const hasToken = Boolean(token?.trim());
 
-  if (options.includeMine && !hasToken) {
-    onLog(
-      'No GitHub token verified — skipping private/personal repository discovery and scanning public sources.',
-      'info'
-    );
-  } else if (options.includeMine && hasToken) {
-    let nextUrl: string | null =
-      `/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member`;
-    while (nextUrl) {
-      if (options.signal?.aborted) throw new Error('Operation cancelled.');
-      const { data, headers } = await ghRequest<RawGhRepo[]>(
-        nextUrl,
-        token,
-        { signal: options.signal },
-        { onLog }
-      );
-      for (const r of data) {
-        if (!options.includePrivate && r.private) continue;
-        if (!options.includeForks && r.fork) continue;
-        if (!matchesRepoFilter(r.full_name, options.repoFilter)) continue;
-        repoMap.set(r.full_name.toLowerCase(), toRepoSummary(r));
-      }
-      nextUrl = parseNextLink(headers.get('Link'));
-    }
-    onLog(`Discovered ${repoMap.size} personal/member repositories.`, 'info');
-  }
+  // 1. Discover personal/member repositories if requested and token is available
+  const personalRepoDiscoveryPromise = options.includeMine && hasToken
+    ? (async () => {
+        let nextUrl: string | null =
+          `/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member`;
+        while (nextUrl) {
+          if (options.signal?.aborted) throw new Error('Operation cancelled.');
+          const { data, headers } = await ghRequest<RawGhRepo[]>(
+            nextUrl,
+            token,
+            { signal: options.signal },
+            { onLog }
+          );
+          for (const r of data) {
+            if (!options.includePrivate && r.private) continue;
+            if (!options.includeForks && r.fork) continue;
+            if (!matchesRepoFilter(r.full_name, options.repoFilter)) continue;
+            repoMap.set(r.full_name.toLowerCase(), toRepoSummary(r));
+          }
+          nextUrl = parseNextLink(headers.get('Link'));
+        }
+        onLog(`Discovered ${repoMap.size} personal/member repositories.`, 'info');
+      })()
+    : (async () => {
+        if (options.includeMine && !hasToken) {
+            onLog(
+              'No GitHub token verified — skipping private/personal repository discovery and scanning public sources.',
+              'info'
+            );
+        }
+    })();
 
+  // 2. Process external sources concurrently with personal discovery
   const externalTargets = parseSources(options.sources);
   
   const externalProcessingPromises = externalTargets.map(async (target) => {
@@ -273,7 +279,8 @@ export async function discoverRepositories(
     }
   });
 
-  await Promise.all(externalProcessingPromises);
+  // Run personal discovery and external processing in parallel
+  await Promise.all([personalRepoDiscoveryPromise, Promise.all(externalProcessingPromises)]);
 
   return {
     repos: Array.from(repoMap.values()),
