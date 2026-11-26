@@ -449,8 +449,7 @@ export function AutoPipelineRunner() {
                     )}
                     {p.id === "gauntlet" && report && (
                       <div className="text-slate-400 font-mono break-all mt-0.5">
-                        {report.status} · AST {report.astDiffResult?.astScore ?? "—"} ·{" "}
-                        {report.reviewVerdict?.consensus ?? "—"} · proof {report.proofCommitHash}
+                        {report.status} · AST {report.astDiffResult?.astScore ?? "—"} · {report.reviewVerdict?.consensus ?? "—"} · proof {report.proofCommitHash}
                       </div>
                     )}
                     {p.id === "push" && finishResult && (
