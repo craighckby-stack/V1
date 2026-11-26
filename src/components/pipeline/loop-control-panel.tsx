@@ -68,16 +68,16 @@ export function LoopControlPanel() {
   const setLoopState = usePipelineStore((s) => s.setLoopState);
 
   const [form, setForm] = useState({
-    mode: (loopState?.config.mode ?? "scheduled") as LoopMode,
-    intervalMinutes: loopState?.config.intervalMinutes ?? 10,
-    targetRepo: loopState?.config.targetRepo ?? "craighckby-stack/66",
-    branch: loopState?.config.branch ?? "main",
-    evolutionBranch: loopState?.config.evolutionBranch ?? "helper-evolution",
-    maxFilesPerCycle: loopState?.config.maxFilesPerCycle ?? 5,
-    autoPush: loopState?.config.autoPush ?? true,
-    siphonSourceId: loopState?.config.siphonSourceId ?? "pattern-optimizer-helper",
+    mode: loopState?.config?.mode ?? "scheduled",
+    intervalMinutes: loopState?.config?.intervalMinutes ?? 10,
+    targetRepo: loopState?.config?.targetRepo ?? "craighckby-stack/66",
+    branch: loopState?.config?.branch ?? "main",
+    evolutionBranch: loopState?.config?.evolutionBranch ?? "helper-evolution",
+    maxFilesPerCycle: loopState?.config?.maxFilesPerCycle ?? 5,
+    autoPush: loopState?.config?.autoPush ?? true,
+    siphonSourceId: loopState?.config?.siphonSourceId ?? "pattern-optimizer-helper",
     userPrompt:
-      loopState?.config.userPrompt ??
+      loopState?.config?.userPrompt ??
       "Apply 5-pillar modular refactoring with AST retention and Shannon entropy sanitization.",
     githubToken: "",
   });
