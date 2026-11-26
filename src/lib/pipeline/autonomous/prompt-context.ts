@@ -123,14 +123,9 @@ export async function buildEnhanceContext(
   let lessonIds: string[] = [];
 
   // ── 1. POSTMORTEM (per-file active constraint) ──────────────────
-  // Always first (after the operating block below) — the active
-  // failure constraint is the most prominent per-file signal.
-  // Also capture the symptom string — the ancestral query (below)
-  // prepends it to the keyword so a syntax-drop scar on foo.ts
-  // surfaces verified scars from other files with the same symptom.
   let postmortemBlock = "";
   let postmortemActive = false;
-  let postmortemSymptom = "";
+  let postmortemSymptom = ""; // Declared before use
   try {
     const postmortem = await postmortemStore.getConstraintsForFile("self", "main", relPath);
     postmortemActive = postmortem.hasActivePostmortem;
@@ -141,53 +136,45 @@ export async function buildEnhanceContext(
     /* best-effort */
   }
 
+  // Pre-calculate common keyword components
+  const pathKeyword = relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
+  const ancestralKeyword = postmortemSymptom ? `${postmortemSymptom} ${pathKeyword}` : pathKeyword;
+
   // ── 2. ANCESTRAL RAG (verified postmortems from OTHER files) ────
-  // Schema mode: skip (a single-file schema has no imports neighborhood
-  // to cross-reference). Refactor + visual-polish: include.
-  // The keyword prepends the active postmortem's symptom (when present)
-  // so a file with a "AST_SYMBOL_DROPPED" scar surfaces other files'
-  // verified scars with the same symptom — cross-file failure transfer.
   let ancestralBlock = "";
+  // ── 3. PRIOR-ART RAG (GitHistory-Sync fleet corpus) ─────────────
+  let priorArtBlock = "";
+
   if (mode !== "schema") {
     try {
-      // Construct keyword once to avoid repeated string operations
-      const pathKeyword = relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
-      const ancestralKeyword = postmortemSymptom ? `${postmortemSymptom} ${pathKeyword}` : pathKeyword;
-      const ancestral = await queryRelevantPostmortems({
-        keyword: ancestralKeyword,
-        excludeFilePath: relPath,
-        repo: "self",
-        limit: 5,
-      });
-      ancestralBlock = formatAncestralPromptBlock(ancestral);
+      // Run Ancestral and Prior-Art in parallel if mode allows both
+      const [ancestralResult, priorArtResult] = await Promise.all([
+        (async () => {
+          const ancestral = await queryRelevantPostmortems({
+            keyword: ancestralKeyword,
+            excludeFilePath: relPath,
+            repo: "self",
+            limit: 5,
+          });
+          return formatAncestralPromptBlock(ancestral);
+        })(),
+        (async () => {
+          if (mode === "refactor") {
+            const engineHits = searchEngines(ancestralKeyword, 3);
+            return formatPriorArtBlock(engineHits);
+          }
+          return "";
+        })()
+      ]);
+      ancestralBlock = ancestralResult;
+      priorArtBlock = priorArtResult;
     } catch (error) {
-      console.error(`Failed to retrieve ancestral RAG for ${relPath}:`, error);
-      /* best-effort */
-    }
-  }
-
-  // ── 3. PRIOR-ART RAG (GitHistory-Sync fleet corpus) ─────────────
-  // Refactor mode only — the engine corpus is backend logic; styling
-  // prompts have no use for it. Same exclusion as arch context. Reuses
-  // the ancestral keyword (symptom + relPath) for consistency.
-  let priorArtBlock = "";
-  if (mode === "refactor") {
-    try {
-      // Reuse the already constructed keyword from above
-      const pathKeyword = relPath.replace(/[\/\\]/g, " ").replace(/\.[a-z]+$/, "");
-      const ancestralKeyword = postmortemSymptom ? `${postmortemSymptom} ${pathKeyword}` : pathKeyword;
-      const engineHits = searchEngines(ancestralKeyword, 3);
-      priorArtBlock = formatPriorArtBlock(engineHits);
-    } catch (error) {
-      console.error(`Failed to retrieve prior art for ${relPath}:`, error);
+      console.error(`Failed to retrieve RAG data for ${relPath}:`, error);
       /* best-effort */
     }
   }
 
   // ── 4. LESSONS (promoted procedures + bounded general rules) ───
-  // D2 two-track: PROMOTED procedures inject through a separate,
-  // unbounded Operating Constraints block ABOVE the postmortem; the
-  // bounded block carries the rest under a hard byte budget.
   let operatingBlock = "";
   let lessonsBlock = "";
   try {
@@ -219,8 +206,6 @@ export async function buildEnhanceContext(
   }
 
   // ── 6. ARCH CONTEXT (2-hop neighborhood) ───────────────────────
-  // Refactor mode only (in the user prompt). Schema + visual-polish
-  // skip it.
   let archContextBlock = "";
   if (mode === "refactor") {
     try {
@@ -235,7 +220,6 @@ export async function buildEnhanceContext(
   }
 
   // ── 7. PROVENANCE DIGEST (the loop's own history with this file) ─
-  // Mode-agnostic: the loop's prior attempts are relevant in all modes.
   let provenanceBlock = "";
   try {
     provenanceBlock = await buildProvenanceDigestForPrompt(relPath);
@@ -245,13 +229,6 @@ export async function buildEnhanceContext(
   }
 
   // ── 3.75 MUTATION POLICY (learned transform-family prior) ────────
-  // Refactor mode only — it steers WHAT KIND of change to make
-  // (which transform families historically pass the gates); the
-  // visual-polish and schema transforms are fixed by their mode, so a
-  // strategy prior is noise there. Two-tier + honesty rules: see
-  // mutation-policy.ts. Positioned AFTER provenance (history) and
-  // BEFORE rejected (the exhausted space): policy says what TO do,
-  // rejected says what NOT to do.
   let policyBlock = "";
   if (mode === "refactor") {
     try {
