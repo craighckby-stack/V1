@@ -37,7 +37,7 @@ markOperatorTouch(by);
 
 const state = readOperatorTouch();
 if (state) {
-  console.log(`touched: at=${state.at} by=${state.by}`);
+  console.log(`touched: at=${state.at} by=${by}`);
 } else {
   console.error(`touch FAILED: readOperatorTouch returned null. Expected a state object after writing with label "${by}". Check underlying file system permissions or store integrity.`);
   process.exit(1);
