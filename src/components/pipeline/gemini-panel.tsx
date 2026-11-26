@@ -225,20 +225,22 @@ export function GeminiPanel({ open, onClose }: Props) {
     try {
       const rb = await fetch("/api/self-enhance/reboot", { method: "POST" });
       if (!rb.ok) {
+        // Only attempt to read text if the response was not OK
         const errorText = await rb.text();
-        throw new Error(`HTTP error! Status: ${rb.status}. Response body: ${errorText.substring(0, 100)}`);
+        throw new Error(`HTTP error! Status: ${rb.status}. Response body snippet: ${errorText.substring(0, 100)}`);
       }
       const rbData = (await rb.json()) as { rebooted?: boolean; message?: string; error?: string };
       setMsg({
         kind: rbData.rebooted ? "ok" : "err",
         text: rbData.rebooted
           ? `Loop rebooted — ${rbData.message ?? "running with the new provider chain."}`
-          : `Reboot failed: ${rbData.error ?? "unknown error"}`,
+          : `Reboot failed: ${rbData.error ?? "unknown error from API response"}`,
       });
       // SMELL-12 fix: refresh the panel's status after a successful reboot.
-      if (rbData.rebooted) void poll();
+      if (rbData.rebooted === true) void poll();
     } catch (e) {
-      setMsg({ kind: "err", text: `Reboot request to /api/self-enhance/reboot failed: ${(e as Error).message}` });
+      // Provide more actionable context on the failure
+      setMsg({ kind: "err", text: `Failed to initiate reboot request to /api/self-enhance/reboot. Check network or API availability. Details: ${(e as Error).message}` });
     } finally {
       setRebooting(false);
     }
