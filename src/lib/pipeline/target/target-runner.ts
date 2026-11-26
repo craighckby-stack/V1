@@ -103,6 +103,9 @@ export interface TargetRunResult {
 }
 
 function kindSummary(findings: TargetFinding[], max = 3): string {
+  if (findings.length === 0) {
+    return "";
+  }
   const kinds = Array.from(new Set(findings.map((f) => f.kind)))
     .sort(
       (a, b) => TARGET_KIND_PRIORITY[a] - TARGET_KIND_PRIORITY[b]
