@@ -12,8 +12,8 @@ export function HeaderBar() {
   }));
   
   const status = loopState?.status ?? "idle";
-  const stats = loopState?.stats;
-
+  // Removed intermediate 'stats' variable as it's only used for totalRuns, which can be accessed via loopState?.stats
+  
   const statusColor: Record<string, string> = {
     idle: "bg-slate-500/15 text-slate-300 border-slate-500/40",
     running: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
@@ -120,7 +120,7 @@ export function HeaderBar() {
             variant="outline"
             className="text-[10px] uppercase tracking-widest bg-slate-900/60 text-amber-300 border-amber-700/40 whitespace-nowrap"
           >
-            cycles: <span className="ml-1 font-mono tabular-nums">{stats?.totalRuns ?? 0}</span>
+            cycles: <span className="ml-1 font-mono tabular-nums">{loopState?.stats?.totalRuns ?? 0}</span>
           </Badge>
         </div >
       </div >

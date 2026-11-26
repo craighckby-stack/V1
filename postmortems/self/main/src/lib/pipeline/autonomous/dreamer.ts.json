@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/autonomous/dreamer.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "LLM output truncated: parse error at end of output: Unterminated regular expression literal.",
@@ -12,8 +12,8 @@
   "parentHash": "642c0acdecbf4ae01d962fc2ffac6e6539461530990412c749a6bf8bf00a11d4",
   "hash": "67680c476a8a53a170d3f4140abd3d1eeb16511025384644ccd6ac00c83ce634",
   "lastAttemptAt": "2026-11-26T08:30:44.908Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T08:44:10.615Z",
   "createdAt": "2026-11-23T03:29:46.305Z",
-  "updatedAt": "2026-11-26T08:30:44.908Z",
+  "updatedAt": "2026-11-26T08:44:10.615Z",
   "schema": 2
 }
