@@ -84,7 +84,7 @@ const MAX_OPERATOR_MSG_LENGTH = 100;
  *  "src/lib/retro-boot-audio.ts") — the same key the mutation corpus
  *  uses for `filePath` and the same form `git log --follow` expects. */
 export async function buildProvenanceDigestForPrompt(filePath: string): Promise<string> {
-  if (!filePath || typeof filePath !== 'string' || filePath.trim() === '') {
+  if (typeof filePath !== 'string' || filePath.trim() === '') {
     console.error(`[ProvenanceDigest] Invalid filePath provided. Must be a non-empty string.`);
     return "";
   }
