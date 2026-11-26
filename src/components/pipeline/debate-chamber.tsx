@@ -132,7 +132,7 @@ export function DebateChamber() {
             {verdict.arguments?.length > 0 ? (
               verdict.arguments.map((arg, idx) => {
                 // Calculate friction percentage safely using optional chaining and nullish coalescing
-                const frictionValue = arg.cognitiveFriction * 100;
+                const frictionValue = (typeof arg.cognitiveFriction === 'number' ? arg.cognitiveFriction : 0) * 100;
                 
                 return (
                   <motion.div
