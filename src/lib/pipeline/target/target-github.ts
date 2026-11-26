@@ -199,6 +199,9 @@ export async function ensureTargetBranch(
   baseRef: string,
   token: string | null
 ): Promise<{ ok: boolean; error?: string }> {
+  if (!repo || typeof repo !== 'string') {
+    return { ok: false, error: "Invalid input: repository name must be a non-empty string." };
+  }
   try {
     const headers = ghHeaders(token, "application/vnd.github.v3+json");
     const refRes = await fetch(
@@ -230,7 +233,7 @@ export async function ensureTargetBranch(
     const body = await createRes.json().catch(() => null);
     return { ok: false, error: ghError(createRes.status, body, `could not create branch ${branch}`) };
   } catch (err) {
-    return { ok: false, error: `Branch ensure failed: ${(err as Error).message}` };
+    return { ok: false, error: `Branch ensure failed for repo ${repo} and branch ${branch}: ${(err as Error).message}` };
   }
 }
 
