@@ -126,16 +126,16 @@ function parseTs(ts: string | undefined | null): number {
   const s = String(ts).trim();
   if (s.length === 0) return NaN;
 
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth();
+  const day = now.getUTCDate();
+
   // Full ISO-8601 with a date component
   if (/\d{4}-\d{2}-\d{2}T/.test(s) || /Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
     const t = new Date(s).getTime();
     return isNaN(t) ? NaN : t;
   }
-
-  const now = new Date();
-  const year = now.getUTCFullYear();
-  const month = now.getUTCMonth();
-  const day = now.getUTCDate();
 
   // 12-hour AM/PM, time only — server is UTC, infer today (UTC).
   const m12 = s.match(/^(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i);
