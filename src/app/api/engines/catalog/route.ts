@@ -16,6 +16,12 @@ interface InvalidSource {
   reason: string;
 }
 
+interface ValidationResult {
+  index: number;
+  entry?: CatalogEntry;
+  invalid?: InvalidSource;
+}
+
 /**
  * GET /api/engines/catalog
  * Lists every siphon (architectural template) source available to the pipeline.
@@ -39,55 +45,56 @@ export async function GET() {
     return NextResponse.json({ sources: [] });
   }
 
+  const validationPromises = SIPHON_SOURCES.map((source, i) => {
+    return new Promise<ValidationResult>((resolve) => {
+      if (!source) {
+        resolve({ index: i, invalid: { index: i, reason: "Source element is null or undefined." } });
+        return;
+      }
+
+      const patterns = source.patterns;
+
+      if (!patterns || !Array.isArray(patterns)) {
+        resolve({ index: i, invalid: { index: i, reason: "Source is missing 'patterns' array or 'patterns' is not an array." } });
+        return;
+      }
+
+      if (patterns.length === 0) {
+        resolve({ index: i, invalid: { index: i, reason: "Source patterns array is empty." } });
+        return;
+      }
+
+      // Check all patterns for validity
+      const hasInvalidPattern = patterns.some(p => typeof p !== 'string');
+      if (hasInvalidPattern) {
+        resolve({ index: i, invalid: { index: i, reason: "One or more patterns in the source array are not strings." } });
+        return;
+      }
+
+      // Source is valid, construct CatalogEntry
+      resolve({
+        index: i,
+        entry: {
+          source: source as SiphonSource,
+          count: patterns.length,
+          complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
+          status: "configured",
+        },
+      });
+    });
+  });
+
+  const results = await Promise.all(validationPromises);
+
   const validSources: CatalogEntry[] = [];
   const invalidSources: InvalidSource[] = [];
 
-  SIPHON_SOURCES.forEach((source, i) => {
-    if (!source) {
-      invalidSources.push({
-        index: i,
-        reason: "Source element is null or undefined.",
-      });
-      return;
+  results.forEach(result => {
+    if (result.entry) {
+      validSources.push(result.entry);
+    } else if (result.invalid) {
+      invalidSources.push(result.invalid);
     }
-
-    // Check for required structure properties directly on the source object
-    const patterns = source.patterns;
-
-    if (!patterns || !Array.isArray(patterns)) {
-      invalidSources.push({
-        index: i,
-        reason: "Source is missing 'patterns' array or 'patterns' is not an array.",
-      });
-      return;
-    }
-
-    if (patterns.length === 0) {
-      invalidSources.push({
-        index: i,
-        reason: "Source patterns array is empty.",
-      });
-      return;
-    }
-
-    // Check all patterns for validity
-    const hasInvalidPattern = patterns.some(p => typeof p !== 'string');
-    if (hasInvalidPattern) {
-      invalidSources.push({
-        index: i,
-        reason: "One or more patterns in the source array are not strings.",
-      });
-      return;
-    }
-
-    // Source is valid, construct CatalogEntry
-    // Since we validated the structure, we can safely cast/assume SiphonSource structure here
-    validSources.push({
-      source: source as SiphonSource,
-      count: patterns.length,
-      complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
-      status: "configured",
-    });
   });
 
   if (invalidSources.length > 0) {
