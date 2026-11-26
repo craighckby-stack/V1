@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "scripts/check-llm.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "9a66679eea5abafce21228158a467a0e05e0f875cb04936ede5dc94770ff03ad",
   "hash": "7c235c4b4c848be222da5451f032fe7e9d105e9309ae214802c6cc5d3e0a010a",
   "lastAttemptAt": "2026-11-26T01:30:42.597Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T02:14:43.565Z",
   "createdAt": "2026-11-23T20:41:26.451Z",
-  "updatedAt": "2026-11-26T01:30:42.597Z",
+  "updatedAt": "2026-11-26T02:14:43.565Z",
   "schema": 2
 }
