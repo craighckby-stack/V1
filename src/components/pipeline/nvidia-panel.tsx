@@ -159,10 +159,7 @@ export function NvidiaPanel({ open, onClose }: Props) {
   // Reset transient state when the panel reopens.
   useEffect(() => {
     if (open) {
-      setMsg(null);
-      setKey("");
-      setShowKey(false);
-      // BUG-4 fix: clear any stale auto-close timer from a prior save so it
+      // Clear stale auto-close timer from a prior save so it
       // can't fire onClose on the freshly re-opened panel.
       if (autoCloseTimer.current) {
         clearTimeout(autoCloseTimer.current);
