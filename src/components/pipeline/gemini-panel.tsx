@@ -220,6 +220,10 @@ export function GeminiPanel({ open, onClose }: Props) {
     setMsg(null);
     try {
       const rb = await fetch("/api/self-enhance/reboot", { method: "POST" });
+      if (!rb.ok) {
+        const errorText = await rb.text();
+        throw new Error(`HTTP error! Status: ${rb.status}. Response body: ${errorText.substring(0, 100)}`);
+      }
       const rbData = (await rb.json()) as { rebooted?: boolean; message?: string; error?: string };
       setMsg({
         kind: rbData.rebooted ? "ok" : "err",
@@ -230,7 +234,7 @@ export function GeminiPanel({ open, onClose }: Props) {
       // SMELL-12 fix: refresh the panel's status after a successful reboot.
       if (rbData.rebooted) void poll();
     } catch (e) {
-      setMsg({ kind: "err", text: `Reboot request failed: ${(e as Error).message}` });
+      setMsg({ kind: "err", text: `Reboot request to /api/self-enhance/reboot failed: ${(e as Error).message}` });
     } finally {
       setRebooting(false);
     }
