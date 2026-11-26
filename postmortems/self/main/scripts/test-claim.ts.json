@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "scripts/test-claim.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 1 → evolved 3), no behavioral signal, 9 changed lines — mutations must change observable behavior, not add guards to code that already works",
@@ -12,8 +12,8 @@
   "parentHash": "74350359a40f428880fbd2cd4e33ed266958f10319a941a78ce95fa20a353b82",
   "hash": "4973b0a10b8c8119019542aa512c75e72b07ea4a792e3fc1a98e9f679edf3b20",
   "lastAttemptAt": "2026-11-25T16:51:59.835Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T01:41:21.077Z",
   "createdAt": "2026-11-23T03:29:46.530Z",
-  "updatedAt": "2026-11-25T16:51:59.835Z",
+  "updatedAt": "2026-11-26T01:41:21.077Z",
   "schema": 2
 }
