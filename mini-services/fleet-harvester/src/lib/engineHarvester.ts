@@ -152,11 +152,11 @@ function uniqueOrdered(items: string[], max = 40): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const item of items) {
-    const clean = item.trim();
-    if (!clean || seen.has(clean)) continue;
-    seen.add(clean);
-    out.push(clean);
-    if (out.length >= max) break;
+    if (!seen.has(item)) {
+      seen.add(item);
+      out.push(item);
+      if (out.length >= max) break;
+    }
   }
   return out;
 }
