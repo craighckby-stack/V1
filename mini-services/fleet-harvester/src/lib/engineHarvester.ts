@@ -277,10 +277,16 @@ export function linkCommitsToEngine(
   functionNames: string[],
   repoCommits: RawCommit[]
 ): string[] {
+  if (!filePath || !repoCommits || repoCommits.length === 0) {
+    return [];
+  }
+
   const fileName = (filePath.split('/').pop() || filePath).toLowerCase();
   const stem = fileName.replace(/\.[a-z0-9]+$/i, '');
   const terms = new Set<string>([filePath.toLowerCase(), fileName]);
   if (stem.length >= 4) terms.add(stem);
+
+  // Process classNames and functionNames efficiently
   for (const cls of classNames.slice(0, 6)) {
     if (cls.length >= 4) terms.add(cls.toLowerCase());
   }
@@ -290,7 +296,13 @@ export function linkCommitsToEngine(
 
   const matched: string[] = [];
   for (const commit of repoCommits) {
+    // Input validation for commit message is implicitly handled by RawCommit structure,
+    // but we ensure message exists before calling toLowerCase() defensively.
+    if (!commit.message) continue;
+    
     const msg = commit.message.toLowerCase();
+    
+    // Check against the pre-built set of terms
     const isMatch = Array.from(terms).some(term => msg.includes(term));
     
     if (isMatch) {
