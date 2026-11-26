@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/branches-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/branches-panel.tsx(87,17): error TS2345: Argument of type 'never[]' is not assignable to parameter of type 'SetStateAction<BranchesData | null>'.",
@@ -12,8 +12,8 @@
   "parentHash": "1dc5c124d067a6faa96b436a40641a77f1b1117918ac2bf7e68c55f896d0ac31",
   "hash": "3383f11674ecd26985cc0824806c3e8f8a1183de05947a151379a553cc54399b",
   "lastAttemptAt": "2026-11-26T08:49:54.480Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T11:28:39.635Z",
   "createdAt": "2026-11-26T06:45:07.493Z",
-  "updatedAt": "2026-11-26T08:49:54.480Z",
+  "updatedAt": "2026-11-26T11:28:39.635Z",
   "schema": 2
 }
