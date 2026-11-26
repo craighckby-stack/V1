@@ -105,14 +105,6 @@ const SCROLL_CONTAINER_STYLE: React.CSSProperties = {
   flex: 1,
   overflowY: "auto",
   paddingRight: "4px",
-  // Next.js dev mode injects a transient "● Compiling…" pill in the
-  // bottom-left corner during route compilation. Without bottom
-  // padding, that pill floats ON TOP of the freshest log line and
-  // hides its timestamp + the start of its text. The padding lifts
-  // the last line above the pill so the newest entry stays readable
-  // even mid-compile. (In production there is no pill, so the extra
-  // space is just a little terminal breathing room.)
-  paddingBottom: "36px",
   // contain: content isolates the scrollback's layout from the rest
   // of the page — a reflow inside a log line can't trigger a re-lay
   // of the header or prompt. Combined with per-line contain: content,
