@@ -8,12 +8,12 @@
   "symptom": "Test gate failed: test failed (sandboxed): src/app/api/target/run/route.test.ts — \nsrc/app/api/target/run/route.test.ts:\n(pass) route constants > dynamic is 'force-dynamic' [0.03ms]\n(pass) route constants > runtime is 'nodejs'\n(pass) route constants > maxDuration is 300 (full attem",
   "evidence": "1 test file(s) checked. The refactor broke existing behavior.",
   "constraints": "The previous refactor of src/app/api/target/run/route.ts broke existing tests. Do not change observable behavior.",
-  "attempts": 33,
-  "parentHash": "2a0ef4136946ddf097a7d3bd924d1c6c2c52cb98a24237fde87ec48e71fc0bc3",
-  "hash": "acb32e84df370dfe424a581dcc18a32d3ad4d5fdb2da1188b6ac89711ffad715",
-  "lastAttemptAt": "2026-11-26T04:18:07.635Z",
+  "attempts": 34,
+  "parentHash": "8773a07f50cc3d1d58b35d0a82bc309befa32c19a97777ee8a3d81872cd6f0dc",
+  "hash": "f7d0fdc1d562c605b38c44a68ff9e2900f86efbc9d03264afcba8a994cd12d33",
+  "lastAttemptAt": "2026-11-26T05:06:07.777Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.347Z",
-  "updatedAt": "2026-11-26T04:18:07.635Z",
+  "updatedAt": "2026-11-26T05:06:07.777Z",
   "schema": 2
 }
