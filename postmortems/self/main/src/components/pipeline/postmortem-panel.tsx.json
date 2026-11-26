@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/postmortem-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "REVIEW_REJECTED",
   "symptom": "Debate rejected the refactor: Debate rejected (REQUIRES_REWRITE): Both reviewers strongly oppose this change because the implementation fails to achieve its stated goal: resolving the performance bottleneck. Instead, it reintroduces `JSON.stringify` inside the comparison loop, negating any potential gain and introducing brittle, incorrect equality checks. This is low-value churn masquerading as optimization. A proper, non-serializing deep equality check must be implemented to meet the goal of reducing polling latency.",
@@ -12,8 +12,8 @@
   "parentHash": "b2a3d41da87b39887d6c9424f3b8f5337a3aa2e047bcb4524d6a6541c7cd7984",
   "hash": "5250a55dc075837bdfcf562d2369ee3332ae07bd5092dabaff5097b05a6c8612",
   "lastAttemptAt": "2026-11-26T06:19:35.845Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T08:03:22.969Z",
   "createdAt": "2026-11-23T03:29:46.449Z",
-  "updatedAt": "2026-11-26T06:19:35.845Z",
+  "updatedAt": "2026-11-26T08:03:22.969Z",
   "schema": 2
 }

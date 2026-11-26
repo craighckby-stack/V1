@@ -287,14 +287,6 @@ export function ConsoleStream({ lines, logRef, onScroll }: ConsoleStreamProps) {
     [lines],
   );
 
-  // Validate input lines for the error-log path only (the render path
-  // above handles [] cleanly). This sits AFTER the hook so it's not a
-  // conditional-return-before-hook violation.
-  if (!lines || !Array.isArray(lines)) {
-    console.error("ConsoleStream: Input validation failed. 'lines' prop must be an array.");
-    return null;
-  }
-
   return (
     <div
       ref={logRef}
@@ -303,12 +295,6 @@ export function ConsoleStream({ lines, logRef, onScroll }: ConsoleStreamProps) {
     >
       {ordered.map((line) => {
         // orderLogRuns filters out invalid entries, so we primarily check rendering requirements.
-        if (typeof line.text !== "string") {
-          // This indicates a structural issue in the input data that bypassed orderLogRuns checks.
-          console.error("ConsoleStream: Line missing critical rendering properties. Line data:", line);
-          return null;
-        }
-
         // Validate line type is one of the expected values
         if (!["system", "command", "output", "log"].includes(line.type)) {
           console.error("ConsoleStream: Invalid line type encountered:", line.type);
@@ -320,7 +306,6 @@ export function ConsoleStream({ lines, logRef, onScroll }: ConsoleStreamProps) {
         // the per-line style-diff. Only the error logType needs a
         // distinct color; everything else shares LINE_STYLE_BASE.
         let style: React.CSSProperties = LINE_STYLE_BASE;
-        let showTimestamp = false;
 
         if (line.type === "command") {
           style = LINE_STYLE_COMMAND;
@@ -328,7 +313,6 @@ export function ConsoleStream({ lines, logRef, onScroll }: ConsoleStreamProps) {
           if (line.logType === "error") {
             style = LINE_STYLE_ERROR;
           }
-          showTimestamp = typeof line.ts === "string" && line.ts.length > 0;
         }
 
         return (
@@ -337,7 +321,7 @@ export function ConsoleStream({ lines, logRef, onScroll }: ConsoleStreamProps) {
             style={style}
           >
             {line.type === "command" && "> "}
-            {showTimestamp && (
+            {line.type === "log" && typeof line.ts === "string" && line.ts.length > 0 && (
               <span style={{ color: DIM_COLOR }}>[{formatTs(line.ts)}]{" "}</span>
             )}
             {line.text || "\u00a0"}
