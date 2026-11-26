@@ -59,7 +59,7 @@ const INITIAL_PHASES: Record<PhaseId, PhaseStatus> = {
 };
 
 interface PickResponse {
-  ok: true;
+  ok: boolean;
   repo: string;
   branch: string;
   pick: {
