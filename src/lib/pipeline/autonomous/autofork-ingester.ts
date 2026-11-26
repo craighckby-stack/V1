@@ -124,13 +124,21 @@ interface AutoForkResult {
 
 /** Read the seed list. Returns [] if the file is absent/unreadable. */
 function readSeeds(): SeedEntry[] {
+  if (!existsSync(SEEDS_PATH)) return [];
   try {
-    if (!existsSync(SEEDS_PATH)) return [];
     const raw = readFileSync(SEEDS_PATH, "utf8");
     const parsed = JSON.parse(raw) as SeedEntry[];
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) {
+      console.error(`[autofork-ingester] Seeds file ${SEEDS_PATH} content is not a JSON array.`);
+      return [];
+    }
     return parsed.filter((s) => typeof s.repo === "string" && s.enabled !== false);
-  } catch {
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      console.error(`[autofork-ingester] Failed to parse JSON from seeds file ${SEEDS_PATH}:`, error.message);
+    } else {
+      console.error(`[autofork-ingester] Failed to read or process seeds file ${SEEDS_PATH}:`, error);
+    }
     return [];
   }
 }
