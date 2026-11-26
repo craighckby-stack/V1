@@ -66,15 +66,9 @@ let warnedKeyMissing = false;
 
 /** Read (or first-create) the vault key. Returns null if unreadable. */
 function ensureKey(): Buffer | null {
-  try {
-    if (existsSync(KEY_FILE)) {
-      let hex: string;
-      try {
-        hex = readFileSync(KEY_FILE, "utf-8").trim();
-      } catch {
-        // Failed to read file content
-        return null;
-      }
+  if (existsSync(KEY_FILE)) {
+    try {
+      const hex = readFileSync(KEY_FILE, "utf-8").trim();
       if (!hex || !/^[0-9a-f]{64}$/i.test(hex)) {
         if (!warnedKeyMissing) {
           warnedKeyMissing = true;
@@ -85,41 +79,42 @@ function ensureKey(): Buffer | null {
         return null;
       }
       return Buffer.from(hex, "hex");
-    }
-    // First use: generate. Atomic write (tmp + rename), 0600, and mkdir
-    // .git/info (it normally exists; don't assume).
-    const key = randomBytes(KEY_BYTES);
-    const tmp = `${KEY_FILE}.tmp`;
-    let tmpCreated = false;
-    try {
-      mkdirSync(dirname(KEY_FILE), { recursive: true });
-      writeFileSync(tmp, key.toString("hex") + "\n", { encoding: "utf-8", mode: KEY_FILE_MODE });
-      tmpCreated = true;
-      renameSync(tmp, KEY_FILE);
-      return key;
     } catch (error) {
-      // Clean up temp file if it was created but rename failed
-      if (tmpCreated && existsSync(tmp)) {
-        try {
-          unlinkSync(tmp);
-        } catch {
-          // Ignore cleanup failures
-        }
-      }
-      // Read-only .git? Sealing is impossible — callers fall back to
-      // storing plaintext (better a working push than a bricked loop).
+      // Failed to read file content due to permissions or other FS error
       if (!warnedKeyMissing) {
         warnedKeyMissing = true;
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`[TOKEN-VAULT] cannot create the key file (.git/info/ not writable) — tokens will stay PLAINTEXT. Error: ${errorMessage}`);
+        console.error(`[TOKEN-VAULT] failed to read key file at ${KEY_FILE}: ${errorMessage}`);
       }
       return null;
     }
+  }
+  
+  // Key does not exist: generate and write
+  const key = randomBytes(KEY_BYTES);
+  const tmp = `${KEY_FILE}.tmp`;
+  let tmpCreated = false;
+  try {
+    mkdirSync(dirname(KEY_FILE), { recursive: true });
+    writeFileSync(tmp, key.toString("hex") + "\n", { encoding: "utf-8", mode: KEY_FILE_MODE });
+    tmpCreated = true;
+    renameSync(tmp, KEY_FILE);
+    return key;
   } catch (error) {
+    // Clean up temp file if it was created but rename failed
+    if (tmpCreated && existsSync(tmp)) {
+      try {
+        unlinkSync(tmp);
+      } catch {
+        // Ignore cleanup failures
+      }
+    }
+    // Read-only .git? Sealing is impossible — callers fall back to
+    // storing plaintext (better a working push than a bricked loop).
     if (!warnedKeyMissing) {
       warnedKeyMissing = true;
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[TOKEN-VAULT] critical error accessing key file at ${KEY_FILE}: ${errorMessage}`);
+      console.error(`[TOKEN-VAULT] cannot create the key file (.git/info/ not writable) — tokens will stay PLAINTEXT. Error: ${errorMessage}`);
     }
     return null;
   }
@@ -178,6 +173,7 @@ export function openToken(stored: string): string {
   try {
     const body = stored.slice(ENVELOPE_PREFIX.length);
     const parts = body.split(".");
+    
     if (parts.length !== ENVELOPE_PARTS_COUNT) {
       // Structure mismatch
       return "";

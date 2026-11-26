@@ -8,12 +8,12 @@
   "symptom": "Test gate failed: test failed (sandboxed): mini-services/fleet-harvester/src/types/git.test.ts — The following filters did not match any test files:\n mini-services/fleet-harvester/src/types/git.test.ts\n487 files were searched [22.00ms]\n\nnote: Tests need \".test\", \"_test_\", \".spec\" or \"_spec_\" in t",
   "evidence": "1 test file(s) checked. The refactor broke existing behavior.",
   "constraints": "The previous refactor of mini-services/fleet-harvester/src/types/git.ts broke existing tests. Do not change observable behavior.",
-  "attempts": 16,
-  "parentHash": "f1deb6951dd4102c4ec3b20c39db5cef2dd6ee45199df2293f90e888516a8f8b",
-  "hash": "ee61bf5078fd76355a7fddf5c468a8ecd7012c12be145152ebbe9cb3fc563f32",
-  "lastAttemptAt": "2026-11-26T06:00:45.349Z",
+  "attempts": 12,
+  "parentHash": "86ce7efe030bef29cd9434e8941d86363fe71950e188bd049b0b4f55ffb6b001",
+  "hash": "079223563f9fa68cc8ee0542682c95cb6f1b0fbff34de057e1be0fbf28280de9",
+  "lastAttemptAt": "2026-11-26T07:46:23.333Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.550Z",
-  "updatedAt": "2026-11-26T06:00:45.349Z",
+  "updatedAt": "2026-11-26T07:46:23.333Z",
   "schema": 2
 }
