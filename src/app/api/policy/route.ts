@@ -28,7 +28,7 @@ export async function GET() {
     return NextResponse.json(report);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`[GET /api/policy] Error generating policy report in GET: ${errorMessage}. Check pipeline logs for detailed error context. Original error:`, error);
+    console.error(`[GET /api/policy] Error generating policy report. Message: ${errorMessage}. Full error object:`, error);
     
     // Return a standardized 500 error response to the client
     return NextResponse.json(
