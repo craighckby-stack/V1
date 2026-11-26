@@ -191,6 +191,15 @@ export function deriveLogPaths(
     ? basePath.trim().replace(/^\/+/, '') 
     : DEFAULT_BASE_PATH.replace(/^\/+/, '');
   
+  if (!cleanBase) {
+      // Handle case where both basePath and DEFAULT_BASE_PATH might resolve to empty/invalid after cleaning
+      return {
+        successful: `${DEFAULT_BASE_PATH.replace(/^\/+/, '')}.successful.${ext}`,
+        failed: `${DEFAULT_BASE_PATH.replace(/^\/+/, '')}.failed.${ext}`,
+        engines: `${DEFAULT_BASE_PATH.replace(/^\/+/, '')}.engines.${ext}`,
+      };
+  }
+
   const lastSlash = cleanBase.lastIndexOf('/');
   // Ensure dir is correctly set, even if cleanBase is just a filename (lastSlash = -1)
   const dir = lastSlash >= 0 ? cleanBase.slice(0, lastSlash + 1) : '';

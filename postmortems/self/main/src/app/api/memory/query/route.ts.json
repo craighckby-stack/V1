@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/memory/query/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/src/app/api/memory/query/route.ts:55:45 Unexpected any. Specify a different type. (@typescript-eslint/no-explicit-any)",
@@ -12,8 +12,8 @@
   "parentHash": "f8078e2342e89203ec4436ce2bb4db862b39ad77bb1bf9af2c4b0caa6b25cde0",
   "hash": "a1590b5ac485fb43798cd1d72c5b8b008632d83e33a8505f1feceea94114974b",
   "lastAttemptAt": "2026-11-26T02:25:05.468Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T03:13:20.236Z",
   "createdAt": "2026-11-23T03:29:46.366Z",
-  "updatedAt": "2026-11-26T02:25:05.468Z",
+  "updatedAt": "2026-11-26T03:13:20.236Z",
   "schema": 2
 }
