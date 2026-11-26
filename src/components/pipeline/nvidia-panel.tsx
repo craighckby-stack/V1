@@ -284,9 +284,9 @@ export function NvidiaPanel({ open, onClose }: Props) {
         return;
       }
       setMsg({ kind: "ok", text: "NVIDIA config cleared — provider chain is Gemini → Z.AI again." });
-      void poll();
+      await poll();
     } catch (e) {
-      setMsg({ kind: "err", text: `Clear request failed: ${(e as Error).message} — the key may still be stored.` });
+      setMsg({ kind: "err", text: `Clear request failed due to network or parsing error: ${(e as Error).message} — the key may still be stored.` });
     } finally {
       setLoading(false);
     }
