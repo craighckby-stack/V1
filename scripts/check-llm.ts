@@ -12,13 +12,18 @@ async function main() {
     }
   } catch (e) {
     let errorMessage = "An unknown error occurred during LLM configuration check.";
+    
     if (e instanceof Error) {
       errorMessage = e.message;
     } else if (typeof e === 'string') {
       errorMessage = e;
+    } else {
+      // Handle other types (e.g., objects without Error interface) safely
+      errorMessage = String(e);
     }
+    
     // Improved error context for database operation failure
-    console.error("CRITICAL: Error during LLM configuration check (DB access failed). Ensure database connection is active and schema is correct.", errorMessage);
+    console.error("CRITICAL: Error during LLM configuration check (DB access failed). Ensure database connection is active and schema is correct. Details:", errorMessage);
   }
 }
 main();
