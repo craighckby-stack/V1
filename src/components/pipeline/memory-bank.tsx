@@ -51,7 +51,6 @@ export function MemoryBank() {
           reject(new Error("Request timeout after 10 seconds"));
         }, 10000);
 
-        // Return cleanup function for the timeout
         return () => clearTimeout(timeoutId);
       });
       
@@ -62,16 +61,20 @@ export function MemoryBank() {
         
         const res = await Promise.race([fetchPromise, timeoutPromise]);
         
-        if (res instanceof Response && !res.ok) {
+        if (!(res instanceof Response)) {
+            throw new Error("Fetch promise did not resolve to a Response object.");
+        }
+
+        if (!res.ok) {
           throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
         
-        // Added try/catch around res.json() to handle non-JSON responses gracefully
+        // Attempt to parse JSON, handling potential parsing errors explicitly
         let data;
         try {
             data = await res.json();
-        } catch {
-            throw new Error(`Failed to parse JSON response from /api/memory/entries. Response body was not valid JSON.`);
+        } catch (e) {
+            throw new Error(`Failed to parse JSON response from /api/memory/entries. Response body was not valid JSON. Original error: ${e instanceof Error ? e.message : String(e)}`);
         }
         
         if (!data || !Array.isArray(data.entries)) {
