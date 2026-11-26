@@ -157,14 +157,16 @@ export function extractSections(
   const statementName = (stmt: ts.Statement): string | null => {
     if (ts.isFunctionDeclaration(stmt) && stmt.name) return stmt.name.text;
     if (ts.isClassDeclaration(stmt) && stmt.name) return stmt.name.text;
-    if (ts.isInterfaceDeclaration(stmt)) return stmt.name.text;
-    if (ts.isTypeAliasDeclaration(stmt)) return stmt.name.text;
-    if (ts.isEnumDeclaration(stmt)) return stmt.name.text;
+    if (ts.isInterfaceDeclaration(stmt) && stmt.name) return stmt.name.text;
+    if (ts.isTypeAliasDeclaration(stmt) && stmt.name) return stmt.name.text;
+    if (ts.isEnumDeclaration(stmt) && stmt.name) return stmt.name.text;
     if (ts.isModuleDeclaration(stmt) && ts.isIdentifier(stmt.name)) return stmt.name.text;
     if (ts.isVariableStatement(stmt)) {
-      const first = stmt.declarationList.declarations[0];
-      if (first && ts.isIdentifier(first.name)) return first.name.text;
-      if (first) return `var@L${lineOf(first.getStart(sf))}`;
+      if (stmt.declarationList.declarations.length > 0) {
+        const first = stmt.declarationList.declarations[0];
+        if (first && ts.isIdentifier(first.name)) return first.name.text;
+        if (first) return `var@L${first.getStart(sf)}`; // Assuming sf is available in scope for position retrieval
+      }
     }
     return null;
   };
