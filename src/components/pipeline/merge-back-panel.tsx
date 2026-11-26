@@ -180,7 +180,7 @@ export function MergeBackPanel({ open, onClose }: Props) {
 
       if (!res.ok) {
         const errorBody = await res.text();
-        throw new Error(`Merge back failed with status ${res.status}: ${errorBody.substring(0, 100)}`);
+        throw new Error(`Merge back failed with status ${res.status} for branch ${selected}: ${errorBody.substring(0, 100)}`);
       }
 
       const j: ExecResult = await res.json();
@@ -192,7 +192,7 @@ export function MergeBackPanel({ open, onClose }: Props) {
         try {
           const r = await fetch("/api/self-enhance/merge-back", { cache: "no-store" });
           if (!r.ok) {
-            throw new Error(`Candidate refresh failed with status ${r.status}`);
+            throw new Error(`Candidate refresh failed with status ${r.status} for branch ${selected}`);
           }
           const jj: { ok: boolean; candidates: Candidate[] } = await r.json();
           if (jj.ok) setCandidates(jj.candidates ?? []);
