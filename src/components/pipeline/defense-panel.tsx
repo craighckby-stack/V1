@@ -169,19 +169,25 @@ export function DefensePanel({ open, onClose }: Props) {
         if (!mounted) return;
 
         if (dRes.status === 'fulfilled' && dRes.value.ok) {
-            setDuress((await dRes.value.json()) as DuressStatus);
-        } else if (dRes.status === 'rejected' || (dRes.value && !dRes.value.ok)) {
-            // Log specific duress error context if needed, but avoid swallowing
+            const duressBody = await dRes.value.json();
+            setDuress(duressBody as DuressStatus);
+        } else if (dRes.status === 'rejected') {
+            console.error("Duress status fetch rejected:", dRes.reason);
+        } else if (dRes.value && !dRes.value.ok) {
+            console.error(`Duress status fetch failed with status: ${dRes.value.status}`);
         }
 
         if (rRes.status === 'fulfilled' && rRes.value.ok) {
-            setRtStatus((await rRes.value.json()) as RedTeamStatus);
-        } else if (rRes.status === 'rejected' || (rRes.value && !rRes.value.ok)) {
-            // Log specific red-team error context if needed
+            const rtBody = await rRes.value.json();
+            setRtStatus(rtBody as RedTeamStatus);
+        } else if (rRes.status === 'rejected') {
+            console.error("Red team status fetch rejected:", rRes.reason);
+        } else if (rRes.value && !rRes.value.ok) {
+            console.error(`Red team status fetch failed with status: ${rRes.value.status}`);
         }
       } catch (e) {
-        // Catch network/fetch errors, provide context instead of swallowing
-        console.error("Error during defense panel polling:", e);
+        // Catch network/fetch errors that prevent Promise.allSettled from completing successfully (e.g., DNS failure)
+        console.error("Critical error during defense panel polling cycle:", e);
       }
     }
     void poll();
