@@ -32,11 +32,15 @@ function ghHeaders(token: string | null, accept = "application/vnd.github.v3+jso
 
 /** Truncate + sanitize a GitHub error body into a safe message. */
 function ghError(status: number, body: unknown, fallback: string): string {
-  const msg =
-    typeof body === "object" && body !== null && typeof (body as { message?: unknown }).message === "string"
-      ? (body as { message: string }).message
-      : fallback;
-  return `GitHub API ${status}: ${msg.slice(0, 200)}`;
+  let msg: string;
+  if (typeof body === "object" && body !== null && typeof (body as { message?: unknown }).message === "string") {
+    msg = (body as { message: string }).message;
+  } else {
+    msg = fallback;
+  }
+  // Ensure msg is treated as string before slicing, though fallback should guarantee it.
+  const safeMsg = String(msg);
+  return `GitHub API ${status}: ${safeMsg.slice(0, 200)}`;
 }
 
 export interface TargetTreeFile {
