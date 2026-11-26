@@ -51,8 +51,9 @@ export function CurrentCycle() {
   }
 
   // Validate cycle status to handle unexpected values
-  const validStatuses = ["running", "completed", "halted"];
-  const status = validStatuses.includes(cycle.status) ? cycle.status : "unknown";
+  const status = cycle.status === "running" || cycle.status === "completed" || cycle.status === "halted"
+    ? cycle.status
+    : "unknown";
 
   const fileResults = cycle.fileResults || [];
   const totalFiles = fileResults.length;
@@ -99,7 +100,7 @@ export function CurrentCycle() {
               )}
               aria-hidden="true"
             />
-            Cycle #{cycle.cycleNumber ?? 0}
+            Cycle #{cycle.cycleNumber ?? 1}
             <span className="text-xs text-slate-400 font-normal uppercase tracking-widest hidden sm:inline ml-1">
               {cycle.mode ?? 'N/A'}
             </span>
