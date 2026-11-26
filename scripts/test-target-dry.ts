@@ -46,21 +46,17 @@ async function main() {
   line("[1/3] verifying reachability with stored token...");
   
   try {
-    // Fetch token and attempt initial branch fetch in parallel for latency reduction
-    const [token, branchWithoutToken] = await Promise.all([
-      resolveTargetToken(),
-      getRepoDefaultBranch(REPO, null),
-    ]);
-    
+    // Fetch token first
+    const token = await resolveTargetToken();
     line(`      token resolved: ${token ? `yes (len ${token.length})` : "no — anonymous"}`);
     
-    let finalBranch = branchWithoutToken;
+    // Attempt branch fetch without token first (faster, less overhead)
+    let finalBranch = await getRepoDefaultBranch(REPO, null);
     
     if (!finalBranch && token) {
       // If branch fetch failed without token, try again with token if available
       line("      retrying branch fetch with token...");
-      const branchWithToken = await getRepoDefaultBranch(REPO, token);
-      finalBranch = branchWithToken;
+      finalBranch = await getRepoDefaultBranch(REPO, token);
       line(`      default branch (with token): ${finalBranch ?? "(unreachable)"}`);
     }
 
