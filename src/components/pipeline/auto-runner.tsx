@@ -375,7 +375,7 @@ export function AutoPipelineRunner() {
             aria-label="Auto-push gate-passing survivors to the evolution branch"
           />
           <Label htmlFor="auto-push" className="text-xs text-slate-400">
-            auto-push survivors to <span className="font-mono text-cyan-400">{form.branch.trim() || "&lt;default&gt;"}-evolution</span> (never the target branch)
+            auto-push survivors to <span className="font-mono text-cyan-400">{form.branch.trim() || "default"}-evolution</span> (never the target branch)
           </Label>
         </div>
 
@@ -433,7 +433,6 @@ export function AutoPipelineRunner() {
                         <span className="text-slate-500"> — {gauntletSeconds}s (LLM reasoning + tribunal, the long one)</span>
                       )}
                     </div>
-                    {/* Per-phase detail lines */}
                     {p.id === "pick" && pickResult && (
                       <div className="text-slate-400 font-mono break-all mt-0.5">
                         picked <span className="text-cyan-300">{pickResult.pick.path}</span> · score {pickResult.pick.score} · scanned {pickResult.meta.candidatesFetched}/{pickResult.meta.candidatesRanked} candidates

@@ -24,11 +24,15 @@ export const runtime = "nodejs";
  *                       worker to stand its continuous loop down gracefully.
  *
  *   { frozen: false, pin } — UNLOCK. PIN required (operator PIN documented
- *                       mid-README, or the master PIN). The direction that
- *                       re-enables self-mutation is the one that must prove
- *                       operator presence. The PIN is validated here, never
- *                       logged, and the write itself is refused for test
- *                       origins inside markMutationFrozen.
+ *                       mid-README). The direction that re-enables self-
+ *                       mutation is the one that must prove operator
+ *                       presence. The master-PIN acceptance was RETIRED
+ *                       (2026-11-26) — one PIN, one meaning: this is the
+ *                       only PIN left in the system, and it guards exactly
+ *                       the dangerous-direction transition. The PIN is
+ *                       validated constant-time here, never logged, and
+ *                       the write itself is refused for test origins
+ *                       inside markMutationFrozen.
  *
  * The persisted tier (.git/info/loop-mutation-freeze.json) is wipe-proof
  * (never committed, survives restarts and sandbox rollbacks) and is read
@@ -56,24 +60,25 @@ export async function POST(req: Request) {
     }
     const reasonStr = typeof reason === "string" ? reason.trim() : "";
 
-    // ── UNFREEZE: PIN required ─────────────────────────────────────────
+    // ── UNFREEZE: operator PIN required ──────────────────────────
+    // The one remaining PIN in the system (2026-11-26): the master tier
+    // was retired, so ONLY the operator PIN (LOOP_UNLOCK_PIN) unfreezes.
     if (!frozen) {
       const operatorPin = (process.env.LOOP_UNLOCK_PIN ?? "").trim() || "691";
-      const masterPin = (process.env.LOOP_MASTER_PIN ?? "").trim() || "4444";
       const pinStr = typeof pin === "string" ? pin.trim() : "";
       if (!pinStr) {
         return NextResponse.json(
           {
             ok: false,
             error:
-              "pin is required to unfreeze — re-enabling self-mutation proves operator presence (operator PIN documented mid-README, or the master PIN)",
+              "pin is required to unfreeze — re-enabling self-mutation proves operator presence (operator PIN documented mid-README)",
           },
           { status: 400 }
         );
       }
-      // Constant-time compares (constantTimeEqual, 2026-11-25 audit): the
+      // Constant-time compare (constantTimeEqual, 2026-11-25 audit): the
       // old !== chain leaked PIN-prefix knowledge through response timing.
-      if (!constantTimeEqual(pinStr, operatorPin) && !constantTimeEqual(pinStr, masterPin)) {
+      if (!constantTimeEqual(pinStr, operatorPin)) {
         // Never log the submitted PIN — outcome only.
         console.warn("[FREEZE] unfreeze refused: wrong PIN");
         return NextResponse.json(

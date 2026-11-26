@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/pipeline/merge-back-panel.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
+  "evidence": "Original: 22941 bytes, Refactored: 22483 bytes. Errors: Verifier produced no output",
+  "constraints": "The previous refactor of src/components/pipeline/merge-back-panel.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "223d3351b290c60ea4b64383966d7c2219a65286a16885f77447712ca155ff52",
+  "hash": "14eb564a90780b744fb9bb3e826658d915715a0d29c44ec7434a03ddec7f6094",
+  "lastAttemptAt": "2026-11-26T03:33:02.737Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-26T03:33:02.738Z",
+  "updatedAt": "2026-11-26T03:33:02.738Z",
+  "schema": 2
+}

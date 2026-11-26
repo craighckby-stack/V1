@@ -163,14 +163,6 @@ async function main() {
             // two sources can never disagree for more than a poll.
             mutationFrozen: freezeState?.frozen === true,
             freezeState: freezeState?.frozen ? freezeState : null,
-            // Operator master-unlock flag (secret master PIN 4444 /
-            // LOOP_MASTER_PIN — NOT in the README). While true, the
-            // UI skips the per-file PIN prompt and unlocks directly.
-            // Survives worker restarts via the wipe-proof tier
-            // (2026-11-24, 10-day test); an explicit [STOP] clears it.
-            // See self-enhance-loop.ts `masterUnlocked` field comment
-            // for the full rationale.
-            masterUnlocked: loop.isMasterUnlocked(),
             // Network/outage state (10-day endurance test — net-status.ts).
             // offline=true means the loop is in OFFLINE mode: cycles idle,
             // deterministic SelfTasks still apply locally, pushes defer
@@ -323,33 +315,19 @@ async function main() {
           return json({ ok: true, ...scan });
         }
 
-        // Mirror of POST /api/self-enhance/unlock  body: { filePath, pin? }
-        // The PIN is validated HERE as well (not only at the Next edge
-        // route) because this port is reachable through the gateway's
-        // XTransformPort pattern — the edge route alone is not enough.
-        // Never log the submitted PIN; log only the outcome + path.
+        // Mirror of POST /api/self-enhance/unlock  body: { filePath }
         //
-        // TWO PIN TIERS (operator + master), 2026-11-17:
-        //   - operator PIN (LOOP_UNLOCK_PIN, default "691"): documented
-        //     ONCE mid-README. The friction gate. Unlocks one file per
-        //     entry.
-        //   - master PIN (LOOP_MASTER_PIN, default "4444"): NOT in the
-        //     README — operator-only secret. Entering it once flips
-        //     `loop.masterUnlocked` to true; while true, every subsequent
-        //     [unlock] request (with or without a PIN) auto-passes — the
-        //     operator's active management session no longer needs a
-        //     PIN per file.
-        //
-        // PERSISTENCE (operator, 2026-11-24 — 10-day endurance test):
-        //     master-unlock now lives in the wipe-proof tier (.git/info/
-        //     loop-master-unlocked.json) and SURVIVES worker restarts;
-        //     the constructor re-hydrates it at boot. An explicit [STOP]
-        //     (loop.stop()) deletes the file — the single deliberate end
-        //     of the bypass, per the operator's "unlocked until the
-        //     system is stopped" contract.
-        // The master PIN protects nothing the operator PIN doesn't
-        // already protect — the real code-safety boundary is
-        // protected-files + the gate chain, which no PIN can bypass.
+        // PINLESS BY DESIGN (operator, 2026-11-26): the two-tier PIN
+        // gate (operator 691 / master 4444 / persisted master mode)
+        // was retired — it was self-documented as "a speed bump, not
+        // a security boundary", and the real boundary (protected-files
+        // + the gate chain, which no PIN ever bypassed) is unchanged.
+        // Unlocking a saturated file is low-stakes: every subsequent
+        // write still passes mutation-guard → structural → AST diff →
+        // syntax → lint → typecheck, and the churn control is now the
+        // escalating auto-relock backoff (lockCount doubling, 24h cap)
+        // rather than PIN friction. A stale `pin` field in the body is
+        // accepted and ignored (old UI payloads keep working).
         if (url === "/unlock") {
           let body;
           try {
@@ -362,67 +340,14 @@ async function main() {
             return json({ ok: false, error: "filePath is required in request body" }, 400);
           }
 
-          const { filePath, pin } = body as { filePath?: unknown; pin?: unknown };
+          const { filePath } = body as { filePath?: unknown };
           if (!filePath || typeof filePath !== "string") {
             return json({ ok: false, error: "filePath must be a non-empty string" }, 400);
           }
 
-          const operatorPin = ((process.env.LOOP_UNLOCK_PIN ?? "").trim() || "691");
-          const masterPin = ((process.env.LOOP_MASTER_PIN ?? "").trim() || "4444");
-          const pinStr = typeof pin === "string" ? pin.trim() : "";
-
-          // Gate decision order:
-          //   1. master PIN submitted → activate master mode + unlock
-          //      (this is the "done once, passes the rest" entry).
-          //   2. master mode already active → unlock directly, PIN or
-          //      no PIN (the operator already proved knowledge this
-          //      session). Return masterUnlocked:true so the edge +
-          //      UI can sync their state.
-          //   3. operator PIN submitted → normal single-file unlock.
-          //   4. no PIN and master not active → 400 (pin required).
-          //   5. PIN present but matches neither → 403 (wrong PIN).
-          //
-          // Constant-time compares (2026-11-25 audit): the old direct ===
-          // leaked PIN-prefix knowledge through response timing. keyMatches
-          // (above, operator round 3) is the same digest trick this file
-          // already used for the x-loop-key gate — applied to both PIN tiers
-          // here. The explicit `pinStr &&` guard documents that an empty
-          // submission can never match (fail-closed), matching the old
-          // short-circuit semantics exactly.
-          if (pinStr && keyMatches(pinStr, masterPin)) {
-            loop.setMasterUnlocked();
-            const result = loop.unlockFile(filePath);
-            console.log(`[LOOP-WORKER] unlock (master) for ${filePath}: ${result.unlocked ? "ok" : result.reason}`);
-            return json({ ok: result.unlocked, ...result, masterUnlocked: true });
-          }
-          if (loop.isMasterUnlocked()) {
-            const result = loop.unlockFile(filePath);
-            console.log(`[LOOP-WORKER] unlock (master-auto) for ${filePath}: ${result.unlocked ? "ok" : result.reason}`);
-            return json({ ok: result.unlocked, ...result, masterUnlocked: true });
-          }
-          if (pinStr && keyMatches(pinStr, operatorPin)) {
-            const result = loop.unlockFile(filePath);
-            console.log(`[LOOP-WORKER] unlock (operator) for ${filePath}: ${result.unlocked ? "ok" : result.reason}`);
-            return json({ ok: result.unlocked, ...result });
-          }
-          if (!pinStr) {
-            console.warn(`[LOOP-WORKER] unlock refused for ${filePath}: no PIN and master mode not active`);
-            return json(
-              {
-                ok: false,
-                error: 'pin is required — the operator PIN is documented mid-README ("Why it can\'t go rogue")',
-              },
-              400
-            );
-          }
-          console.warn(`[LOOP-WORKER] unlock refused for ${filePath}: wrong PIN`);
-          return json(
-            {
-              ok: false,
-              error: 'wrong operator PIN — see the README\'s safety section ("Why it can\'t go rogue")',
-            },
-            403
-          );
+          const result = loop.unlockFile(filePath);
+          console.log(`[LOOP-WORKER] unlock for ${filePath}: ${result.unlocked ? "ok" : result.reason}`);
+          return json({ ok: result.unlocked, ...result });
         }
 
         // Mirror of POST /api/self-enhance/skip

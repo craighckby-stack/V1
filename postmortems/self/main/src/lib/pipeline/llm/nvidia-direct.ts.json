@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/llm/nvidia-direct.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/src/lib/pipeline/llm/nvidia-direct.ts:286:13 'jsonBody' is assigned a value but never used. Allowed unused vars must match /^_/u. (@typescript-eslint/no-unused-vars)",
+  "evidence": "Original: 22960 bytes, Refactored: 23541 bytes. Errors: /home/z/my-project/src/lib/pipeline/llm/nvidia-direct.ts:286:13 'jsonBody' is assigned a value but never used. Allowed unused vars must match /^_/u. (@typescript-eslint/no-unused-vars)",
+  "constraints": "The previous refactor of src/lib/pipeline/llm/nvidia-direct.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "f14168dc4479d5313810ea699fb63243e8ca56c2b9fb77c877627365ed8d3b98",
+  "hash": "223d3351b290c60ea4b64383966d7c2219a65286a16885f77447712ca155ff52",
+  "lastAttemptAt": "2026-11-26T03:32:32.516Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-26T03:32:32.517Z",
+  "updatedAt": "2026-11-26T03:32:32.517Z",
+  "schema": 2
+}

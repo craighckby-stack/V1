@@ -54,6 +54,7 @@ import {
   SCAN_SCOPES,
   SCHEMA_TARGET,
   getSaturationThreshold,
+  relockCooldownMs,
   type FileSaturation,
   type SaturationMap,
   classifyGrowth,
@@ -155,10 +156,6 @@ import {
 // applyTaskPlan — two independent writers previously raced (its rollback
 // could silently revert a gated, already-pushed enhancement).
 import { withTreeLock } from "../core/tree-lock";
-// Wipe-proof-tier atomic writes for the master-unlock persistence below
-// (same primitive armed-state/loop-stats use — a torn write must never
-// leave a half-written bypass record on disk).
-import { atomicWriteFileSync } from "../core/atomic-file";
 
 /** D4 (corpus): 16-hex sha of a source string — compact provenance for
  *  "what did the file look like when this was attempted". */
@@ -166,72 +163,30 @@ function sha16(s: string): string {
   return createHash("sha256").update(s).digest("hex").slice(0, 16);
 }
 
-// ── MASTER-UNLOCK PERSISTENCE (operator, 2026-11-24 — 10-day test) ────
-// The master-unlock flag used to be worker-process-memory only: every
-// worker restart (crash, OOM, respawn — observed 3 boots in 2h) cleared
-// it, forcing the operator to re-enter the master PIN mid-session. For
-// the sanctioned 10-day endurance run the operator explicitly asked for
-// the bypass to persist "until the system is stopped": this wipe-proof
-// tier (.git/info/ — never committed, survives sandbox restores) holds
-// it, stop() clears it, the constructor re-hydrates it. This does NOT
-// weaken the per-file operator-PIN (691) friction gate — that tier is
-// untouched — and the real code boundary (protected-files + the gate
-// chain) never honored any PIN anyway.
-const MASTER_UNLOCK_FILE = join(PROJECT_ROOT, ".git/info/loop-master-unlocked.json");
-
-interface MasterUnlockPersisted {
-  masterUnlocked: boolean;
-  at: string;
-  by: string;
+/** Human duration for auto-relock log lines: 5m / 40m / 6h 24m / 24h+.
+ *  Local + pure (no DB, no state). */
+function formatDuration(ms: number): string {
+  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))}s`;
+  const totalMin = Math.round(ms / 60_000);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-/** True iff the wipe-proof tier holds a well-formed master-unlock record.
- *  Malformed/absent → null (fail-closed: never fabricate a bypass from a
- *  bad read — same dual-layer contract as the armed tier). */
-function readMasterUnlockPersisted(): MasterUnlockPersisted | null {
-  try {
-    const parsed = JSON.parse(
-      readFileSync(MASTER_UNLOCK_FILE, "utf8")
-    ) as MasterUnlockPersisted;
-    if (parsed?.masterUnlocked === true && typeof parsed.at === "string") {
-      return parsed;
-    }
-    return null;
-  } catch {
-    return null; // absent/unreadable/torn — fail-closed
-  }
-}
-
-/** Persist the bypass. Best-effort: a write failure never fails the
- *  unlock that already succeeded in memory (the session keeps working;
- *  only the restart re-hydration is lost). */
-function persistMasterUnlock(): void {
-  try {
-    const entry: MasterUnlockPersisted = {
-      masterUnlocked: true,
-      at: new Date().toISOString(),
-      by: "operator-master-pin",
-    };
-    atomicWriteFileSync(MASTER_UNLOCK_FILE, JSON.stringify(entry, null, 2));
-  } catch (err) {
-    console.error(
-      "[SELF-ENHANCE] master-unlock persist failed (session continues; a restart will require the PIN again):",
-      err instanceof Error ? err.message : String(err)
-    );
-  }
-}
-
-/** Clear the persisted bypass — called ONLY from stop(), so an explicit
- *  [STOP] is the single deliberate way the bypass ends. Best-effort: an
- *  undeletable file re-hydrates on the next boot (the operator can
- *  [STOP] again or remove it by hand). */
-function clearMasterUnlockPersisted(): void {
-  try {
-    rmSync(MASTER_UNLOCK_FILE, { force: true });
-  } catch {
-    /* best-effort by contract */
-  }
-}
+// ── MASTER-PIN TIER — REMOVED (operator, 2026-11-26) ─────────────────
+// The two-tier PIN (operator 691 + master 4444 + a wipe-proof persistence
+// file + boot re-hydration + a [STOP] deletion hook + a worker mirror of
+// all of it) was retired as pure complexity: it was self-documented as
+// "protects nothing the operator PIN doesn't already protect" and as
+// "pure operator convenience". The saturated-file unlock is now PINless
+// (low-stakes: every write still passes the full gate chain; the churn
+// control is the escalating auto-relock backoff, see saturation.ts), and
+// the ONE PIN that remains guards the dangerous-direction transition —
+// unfreezing the mutation freeze (freeze needs no PIN; unfreeze proves
+// operator presence). No bypass mode, no session state, no persistence
+// tier. If a stale .git/info/loop-master-unlocked.json from an older run
+// is ever found on disk it is inert — nothing reads it anymore.
 
 /**
  * Find test files that cover the given source file.
@@ -622,24 +577,6 @@ class SelfEnhanceLoop {
   // no LLM calls, no quota burn. The user unlocks via the UI (or a server
   // restart resets everything, which is a natural "new pass" boundary).
   private saturation = new Map<string, FileSaturation>();
-  // MASTER UNLOCK (operator-only, secret — NOT in the README): once the
-  // operator enters the master PIN (4444 / LOOP_MASTER_PIN) on ANY
-  // saturation [unlock] prompt, this flips to true. While true, every
-  // subsequent [unlock] click bypasses the PIN prompt entirely — the
-  // operator's active management session no longer needs a PIN per file.
-  // This is a pure convenience: it protects nothing the operator PIN
-  // doesn't already protect, and the real code-safety boundary stays
-  // protected-files + the gate chain (no PIN can bypass those).
-  //
-  // PERSISTENCE (operator, 2026-11-24 — 10-day endurance test): the
-  // flag ALSO lives in the wipe-proof tier (.git/info/loop-master-
-  // unlocked.json) so worker restarts no longer clear it — the operator
-  // asked for "unlocked until the system is stopped". stop() deletes
-  // the file (explicit [STOP] is the ONLY way the bypass ends); the
-  // constructor re-hydrates from disk. The per-file operator-PIN (691)
-  // tier is untouched. See /unlock in loop-worker/index.ts + the edge
-  // route /api/self-enhance/unlock/route.ts for the gate logic.
-  private masterUnlocked = false;
   private stats = {
     totalScanned: 0,
     totalEnhanced: 0,
@@ -901,24 +838,6 @@ class SelfEnhanceLoop {
       }
     } catch {
       /* armed-state read failure must never block the constructor */
-    }
-
-    // ── MASTER-UNLOCK REHYDRATION (10-day endurance test) ────────────
-    // The wipe-proof tier says the operator entered the master PIN at
-    // some point and has not pressed [STOP] since. Re-hydrate the
-    // bypass so a worker respawn doesn't demand the PIN again
-    // mid-test. Fail-closed: absent/malformed tier → stays false.
-    try {
-      const persistedMaster = readMasterUnlockPersisted();
-      if (persistedMaster) {
-        this.masterUnlocked = true;
-        this.log(
-          `🔑 master unlock re-hydrated from persistent tier (activated ${persistedMaster.at}) — PIN prompt stays skipped until [STOP]`,
-          "info"
-        );
-      }
-    } catch {
-      /* master-unlock rehydration failure must never block the constructor */
     }
   }
 
@@ -2777,11 +2696,17 @@ ${schemaSystemTail}`;
       lockedAt: null,
       lastNoGrowthReason: null,
       enhancementsThisPass: 0,
+      lockCount: 0,
     };
     if (growth === "growth") {
       prev.consecutiveNoGrowth = 0;
       prev.lastNoGrowthReason = null;
       prev.enhancementsThisPass++;
+      // Growth is the one full reset: the file is producing again, so its
+      // auto-relock cooldown history (the escalation) starts over. This is
+      // what makes the backoff honest — it punishes repeated no-growth
+      // cycles, not files that periodically produce.
+      prev.lockCount = 0;
     } else if (growth === "no-growth") {
       prev.consecutiveNoGrowth++;
       prev.lastNoGrowthReason = reason;
@@ -2790,17 +2715,51 @@ ${schemaSystemTail}`;
       if (prev.consecutiveNoGrowth >= threshold && !prev.lockedOut) {
         prev.lockedOut = true;
         prev.lockedAt = new Date().toISOString();
+        prev.lockCount++;
         this.log(
           `🔒 ${relPath} LOCKED OUT — ${threshold} consecutive no-growth cycles (last: ${reason.slice(0, 80)})`,
           "warn"
         );
         this.log(
-          `Pass will skip ${relPath} until you unlock it (UI button) or restart the server for a fresh pass`,
+          `Auto-relock in ${formatDuration(relockCooldownMs(prev.lockCount))} (escalating per re-lock); [unlock] in the UI forces it now`,
           "info"
         );
       }
     }
     this.saturation.set(relPath, prev);
+  }
+
+  /** AUTO-RELOCK (operator, 2026-11-26 — replaces the unlock PIN as the
+   *  churn control): a locked-out file whose cooldown has expired re-
+   *  enters rotation ON ITS OWN — no operator, no PIN, no restart. The
+   *  cooldown doubles per accumulated lock (5m → 10m → 20m → … → 24h
+   *  cap), so a converged file settles into a once-a-day honest recheck
+   *  instead of either (a) burning an LLM call every cycle forever or
+   *  (b) waiting for a human to press [unlock].
+   *
+   *  Called at BOTH lockout checkpoints (the proactive-skip pre-pass and
+   *  the main loop) right before the skip decision, so the unlock lands
+   *  in the same cycle that consumes it — no wasted "unlocked but not
+   *  evaluated" gap. Returns true when the file was just re-opened
+   *  (caller proceeds as if unlocked); false when it stays locked. */
+  private maybeAutoRelock(relPath: string): boolean {
+    const state = this.saturation.get(relPath);
+    if (!state?.lockedOut || !state.lockedAt) return false;
+    const elapsed = Date.now() - Date.parse(state.lockedAt);
+    if (!Number.isFinite(elapsed) || elapsed < relockCooldownMs(state.lockCount)) {
+      return false;
+    }
+    const reLockNumber = state.lockCount;
+    state.lockedOut = false;
+    state.lockedAt = null;
+    state.consecutiveNoGrowth = 0;
+    state.lastNoGrowthReason = null;
+    state.enhancementsThisPass = 0;
+    this.log(
+      `🔓 ${relPath} auto-relocked — cooldown expired after lock #${reLockNumber}, re-evaluating this cycle`,
+      "info"
+    );
+    return true;
   }
 
   /**
@@ -3329,9 +3288,12 @@ ${schemaSystemTail}`;
       const proactiveProbes = new Set<string>();
       for (const file of files) {
         const relPath = relative(PROJECT_ROOT, file);
-        // Locked-out files are handled by the main loop's lockout check.
+        // Locked-out files are handled by the main loop's lockout check —
+        // unless their auto-relock cooldown just expired, in which case
+        // they re-enter rotation HERE (the unlock lands in the same cycle
+        // that consumes it).
         const sat = this.saturation.get(relPath);
-        if (sat?.lockedOut) continue;
+        if (sat?.lockedOut && !this.maybeAutoRelock(relPath)) continue;
         try {
           const skip = await shouldProactivelySkip(relPath);
           if (!skip.skip) continue;
@@ -3550,11 +3512,14 @@ ${schemaSystemTail}`;
         const relPath = relative(PROJECT_ROOT, file);
 
         // ── Saturation lockout skip ──────────────────────────────────
-        // A locked-out file is NOT mutated — no LLM call, no quota burn.
-        // The user unlocked it (or restarted the server) to re-open it.
-        // We count it so the cycle log shows "X/N (Y locked)" honestly.
+        // A locked-out file is NOT mutated — no LLM call, no quota burn —
+        // unless its auto-relock cooldown expired this cycle (then it
+        // re-enters rotation immediately: the loop re-evaluates it, and
+        // if it no-grows again it re-locks with a DOUBLED cooldown).
+        // We count the still-locked ones so the cycle log shows "X/N (Y
+        // locked)" honestly.
         const sat = this.saturation.get(relPath);
-        if (sat?.lockedOut) {
+        if (sat?.lockedOut && !this.maybeAutoRelock(relPath)) {
           lockedSkipped++;
           continue;
         }
@@ -3856,8 +3821,16 @@ ${schemaSystemTail}`;
         (f) => this.saturation.get(relative(PROJECT_ROOT, f))?.lockedOut
       ).length;
       if (eligibleCount > 0 && lockedCount >= eligibleCount) {
+        const nextRelock = files
+          .map((f) => this.saturation.get(relative(PROJECT_ROOT, f)))
+          .filter((s): s is FileSaturation => !!s?.lockedOut && !!s.lockedAt)
+          .map((s) => Date.parse(s.lockedAt as string) + relockCooldownMs(s.lockCount))
+          .filter((t) => Number.isFinite(t))
+          .sort((a, b) => a - b)[0];
         this.log(
-          `🎯 PASS COMPLETE — all ${eligibleCount} file(s) locked out. Review & unlock in the UI to start a new pass.`,
+          `🎯 PASS COMPLETE — all ${eligibleCount} file(s) locked out. Auto-relock${
+            nextRelock ? ` scheduled in ${formatDuration(Math.max(0, nextRelock - Date.now()))}` : "d"
+          }; [unlock] forces any file now, restart resets all cooldowns.`,
           "success"
         );
       }
@@ -4340,10 +4313,6 @@ ${schemaSystemTail}`;
     // cycle sharing currentCycleBranch / currentFile.
     this.continuous = false;
     this.runId++;
-    // Clear the persisted master-unlock tier: an explicit [STOP] is the
-    // single deliberate end of the PIN bypass (the 10-day-test
-    // contract — "unlocked until the system is stopped").
-    clearMasterUnlockPersisted();
     this.log("Self-enhance loop stop requested", "warn");
   }
 
@@ -4460,16 +4429,6 @@ ${schemaSystemTail}`;
     return out;
   }
 
-  /** Is the operator master-unlock active? While true, the saturation
-   *  [unlock] buttons in the UI skip the per-file PIN prompt and unlock
-   *  directly (the operator already proved they know the master PIN).
-   *  Survives worker restarts via the wipe-proof tier (10-day-test
-   *  contract); only an explicit [STOP] clears it. See the field comment
-   *  above for the full rationale. */
-  isMasterUnlocked(): boolean {
-    return this.masterUnlocked;
-  }
-
   /** Network/outage state for status payloads (10-day endurance test —
    *  net-status.ts). Exposed on the worker's /status (and mirrored by
    *  the app's /api/self-enhance/status proxy) so the dashboard and the
@@ -4481,26 +4440,18 @@ ${schemaSystemTail}`;
     return getNetStatus();
   }
 
-  /** Activate master-unlock mode. Called by the worker's /unlock handler
-   *  when the submitted PIN matches LOOP_MASTER_PIN. Idempotent — setting
-   *  again is a no-op in memory, but the wipe-proof tier is re-stamped
-   *  (fresh `at` timestamp) so the persistence never goes stale. */
-  setMasterUnlocked(): void {
-    if (!this.masterUnlocked) {
-      this.masterUnlocked = true;
-      this.log("🔑 master unlock active — PIN prompt skipped for this session", "info");
-    }
-    // Persist to the wipe-proof tier (10-day endurance test): the bypass
-    // must survive worker restarts; only stop() clears it.
-    persistMasterUnlock();
-  }
-
-  /** Unlock a locked-out file so it's eligible for the next cycle. Called
-   *  by the UI when the user clicks "unlock". Resets the no-growth counter
-   *  and the enhancements-this-pass counter — a fresh start. The file is
-   *  re-evaluated on the next cycle (its content may have changed since
-   *  lockout, so the LLM might find new improvements or might re-lock
-   *  immediately if nothing's changed in the underlying code).
+  /** Unlock a locked-out file so it's eligible for the next cycle — the
+   *  operator's IMMEDIATE override. Called by the UI when the user clicks
+   *  [unlock] (PINless since 2026-11-26 — the saturated-file unlock is a
+   *  low-stakes action: every subsequent write still passes the full gate
+   *  chain, and the churn control is the escalating auto-relock backoff,
+   *  not the PIN) and by the cycle's auto-relock when a cooldown expires.
+   *  Resets the no-growth counter and the enhancements-this-pass counter —
+   *  a fresh start. `lockCount` (the escalation history) is deliberately
+   *  NOT reset: a file the operator keeps force-unlocking only to re-lock
+   *  gets progressively longer cooldowns — the backoff replaces the old
+   *  PIN as the anti-churn friction. It resets on growth (an actual
+   *  enhancement) or on restart (the natural new-pass boundary).
    *
    *  Returns a discriminated reason so the UI can give honest feedback
    *  instead of a bare "not locked" for every failure case (the old code
