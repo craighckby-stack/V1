@@ -37,11 +37,11 @@ export async function GET(req: Request) {
   
   try {
     // Run seeding and querying in parallel to reduce latency.
-    // Only await the query result, allowing seeding to run concurrently.
-    const queryResultSequential = await Promise.all([
+    // Both operations are initiated concurrently.
+    const [_, queryResultSequential] = await Promise.all([
       emgRagInstance.ensureSeeded(),
       emgRagInstance.query(q),
-    ])[1];
+    ]);
 
     if (!queryResultSequential) {
       return NextResponse.json(
@@ -90,7 +90,7 @@ export async function GET(req: Request) {
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during RAG service operation.";
     
-    // Log the full error context internally for debugging, but return a safe, actionable message to the client.
+    // Log the full error context internally for debugging, including the query 'q'.
     console.error(`[MemoryQueryError] Failed to execute memory query for "${q}". Error: ${errorMessage}`, err);
     
     return NextResponse.json(
