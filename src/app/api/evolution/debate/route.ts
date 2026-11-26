@@ -58,10 +58,10 @@ export async function POST(req: Request) {
     );
   }
 
+  // Topic determination is fast and can proceed immediately after successful validation
+  const effectiveTopic = body.topic ?? `Code Review for ${body.filePath}`;
+  
   try {
-    // Determine topic immediately, this is fast and doesn't block LLM execution setup
-    const effectiveTopic = body.topic ?? `Code Review for ${body.filePath}`;
-    
     // Execute LLM debate
     const result = await conductLlmDebate(
       effectiveTopic,

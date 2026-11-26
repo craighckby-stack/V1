@@ -164,7 +164,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
               `Knowledge applied: ${ids.length} lesson(s) injected on cycle ${lastWithLessons.cycleNumber} (${ids.map((id) => id.slice(-LESSON_COUNT_DISPLAY)).join(", ")}).`,
             );
           }
-        } catch (e) {
+        } catch {
           // Malformed lessonIdsInjected — skip the trail line without logging a warning,
           // as this is expected transient data corruption, not a critical failure.
         }
