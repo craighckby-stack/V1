@@ -216,9 +216,6 @@ export async function ingestAutoFork(
   result.scanned = allSeeds.length;
 
   // Pick the seed: explicit repo override → first enabled seed.
-  // If a repo override is given, find it in the seed list (enabled or not —
-  // the operator explicitly asked for it). If not found, still try it as an
-  // ad-hoc repo (the operator can learn from any repo, not just seeded ones).
   let seed: SeedEntry | { repo: string; branch?: string; reason: string; enabled: boolean };
   if (targetRepo) {
     const found = allSeeds.find((s) => s.repo === targetRepo);
@@ -228,13 +225,19 @@ export async function ingestAutoFork(
     // Since allSeeds.length > 0, allSeeds[0] is safe.
     seed = allSeeds[0];
   }
-  // seed is guaranteed to be defined here because allSeeds.length > 0
+  
+  if (!seed || !seed.repo) {
+      result.errors.push("Could not determine a valid seed repository for scanning.");
+      return result;
+  }
+  
   result.reposScanned = 1;
 
   // Resolve the branch: explicit → default branch.
   let branch = seed.branch ?? "";
   if (!branch) {
-    // Run default branch fetch.
+    // Run default branch fetch in parallel with other initial setup if possible, 
+    // but here we must await it before tree fetching.
     branch = (await getRepoDefaultBranch(seed.repo, token)) ?? "main";
   }
 
@@ -272,9 +275,16 @@ export async function ingestAutoFork(
 
   // Fetch + distill up to MAX_FILES_PER_REPO files.
   const toFetch = newRanked.slice(0, MAX_FILES_PER_REPO);
-  for (const candidate of toFetch) {
+  
+  // Concurrently fetch all required files first to reduce I/O latency.
+  const fetchPromises = toFetch.map(candidate => 
+    fetchTargetFile(seed.repo, candidate.path, branch, token).then(fileRes => ({ candidate, fileRes }))
+  );
+  const fetchedResults = await Promise.all(fetchPromises);
+
+  for (const { candidate, fileRes } of fetchedResults) {
     const fileKey = `${seed.repo}/${candidate.path}`;
-    const fileRes = await fetchTargetFile(seed.repo, candidate.path, branch, token);
+    
     if (!fileRes.ok) {
       result.skipped.push(`${fileKey}: fetch failed (${fileRes.status})`);
       continue;
