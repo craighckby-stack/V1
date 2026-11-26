@@ -8,12 +8,12 @@
   "symptom": "Refactored code failed in-memory typecheck: mini-services/fleet-harvester/src/harvest/runner.ts(197,5): error TS2322: Type 'number' is not assignable to type 'Date'.; mini-services/fleet-harvester/src/harvest/runner.ts(198,5): error TS2322: Type 'number' is not assignable to type 'Date'.; mini-services/fleet-harvester/src/harvest/runner.ts(304,7): error TS2322: Type 'number' is not assignable to type 'Date'.",
   "evidence": "Original: 21982 bytes, Refactored: 21978 bytes. Errors: mini-services/fleet-harvester/src/harvest/runner.ts(197,5): error TS2322: Type 'number' is not assignable to type 'Date'.\nmini-services/fleet-harvester/src/harvest/runner.ts(198,5): error TS2322: Type 'number' is not assignable to type 'Date'.\nmini-services/fleet-harvester/src/harvest/runner.ts(304,7): error TS2322: Type 'number' is not assignable to type 'Date'.\nmini-services/fleet-harvester/src/harvest/runner.ts(305,27): error TS2362: The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.\nmini-services/fleet-harvester/src/harvest/runner.ts(554,5): error TS2322: Type 'number' is not assignable to type 'Date'.\nmini-services/fleet-harvester/src/harvest/runner.ts(555,25): error TS2362: The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.\nmini-services/fleet-harvester/src/harvest/runner.ts(566,5): error TS2322: Type 'number' is not assignable to type 'Date'.\nmini-services/fleet-harvester/src/harvest/runner.ts(567,25): error TS2362: The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.",
   "constraints": "The previous refactor of mini-services/fleet-harvester/src/harvest/runner.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
-  "attempts": 5,
-  "parentHash": "15a98350ec089a6d7aba00e198154719dd515c55885e47e39f8f5cad5d19f012",
-  "hash": "37264839f9f843e6c57461de1661fef253e1131526f648bc065afcab0301a2aa",
-  "lastAttemptAt": "2026-11-26T09:40:57.713Z",
+  "attempts": 6,
+  "parentHash": "574392478e38fab308b4e117ff7ad136d7cd71c7864283258425734c373cf1ac",
+  "hash": "92714a583bc01bb800d0874e15d727fe75395d271c1701a53193f0c70379baef",
+  "lastAttemptAt": "2026-11-26T10:39:11.023Z",
   "resolvedAt": null,
   "createdAt": "2026-11-26T06:45:07.381Z",
-  "updatedAt": "2026-11-26T09:40:57.713Z",
+  "updatedAt": "2026-11-26T10:39:11.023Z",
   "schema": 2
 }

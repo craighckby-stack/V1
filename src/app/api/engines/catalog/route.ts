@@ -46,45 +46,40 @@ export async function GET() {
   }
 
   const validationPromises = SIPHON_SOURCES.map((source, i) => {
-    return new Promise<ValidationResult>((resolve) => {
-      if (!source) {
-        resolve({ index: i, invalid: { index: i, reason: "Source element is null or undefined." } });
-        return;
-      }
+    // Synchronous validation logic, no need for Promise wrapper
+    if (!source) {
+      return { index: i, invalid: { index: i, reason: "Source element is null or undefined." } } as ValidationResult;
+    }
 
-      const patterns = source.patterns;
+    const patterns = source.patterns;
 
-      if (!patterns || !Array.isArray(patterns)) {
-        resolve({ index: i, invalid: { index: i, reason: "Source is missing 'patterns' array or 'patterns' is not an array." } });
-        return;
-      }
+    if (!patterns || !Array.isArray(patterns)) {
+      return { index: i, invalid: { index: i, reason: "Source is missing 'patterns' array or 'patterns' is not an array." } } as ValidationResult;
+    }
 
-      if (patterns.length === 0) {
-        resolve({ index: i, invalid: { index: i, reason: "Source patterns array is empty." } });
-        return;
-      }
+    if (patterns.length === 0) {
+      return { index: i, invalid: { index: i, reason: "Source patterns array is empty." } } as ValidationResult;
+    }
 
-      // Check all patterns for validity
-      const hasInvalidPattern = patterns.some(p => typeof p !== 'string');
-      if (hasInvalidPattern) {
-        resolve({ index: i, invalid: { index: i, reason: "One or more patterns in the source array are not strings." } });
-        return;
-      }
+    // Check all patterns for validity
+    const hasInvalidPattern = patterns.some(p => typeof p !== 'string');
+    if (hasInvalidPattern) {
+      return { index: i, invalid: { index: i, reason: "One or more patterns in the source array are not strings." } } as ValidationResult;
+    }
 
-      // Source is valid, construct CatalogEntry
-      resolve({
-        index: i,
-        entry: {
-          source: source as SiphonSource,
-          count: patterns.length,
-          complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
-          status: "configured",
-        },
-      });
-    });
+    // Source is valid, construct CatalogEntry
+    return {
+      index: i,
+      entry: {
+        source: source as SiphonSource,
+        count: patterns.length,
+        complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
+        status: "configured",
+      },
+    } as ValidationResult;
   });
 
-  const results = await Promise.all(validationPromises);
+  const results = validationPromises; // Already synchronous array
 
   const validSources: CatalogEntry[] = [];
   const invalidSources: InvalidSource[] = [];
