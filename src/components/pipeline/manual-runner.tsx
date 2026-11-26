@@ -35,12 +35,10 @@ export function ManualPipelineRunner() {
   const setInspectorFile = usePipelineStore((s) => s.setInspectorFile);
 
   const [form, setForm] = useState({
-    // No hardcoded default repo — a stale one 404s confusingly on first
-    // scan. The owner types their own target; the placeholder guides them.
     repo: "",
     branch: "main",
     token: "",
-    prompt: "Apply 5-pillar modular refactoring with AST retention and Shannon entropy sanitization.",
+    prompt: "Define the refactoring goal, target files, and constraints for the pipeline.",
     siphonSourceId: "pattern-optimizer-helper",
   });
   const [selectedPath, setSelectedPath] = useState<string>("");
