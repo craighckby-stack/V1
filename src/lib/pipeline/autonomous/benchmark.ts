@@ -178,7 +178,7 @@ export async function buildBenchmarkReport(): Promise<BenchmarkReport | null> {
         },
         experiments: [],
         generatedAt: new Date().toISOString(),
-      } as BenchmarkReport;
+      };
     }
 
     // ── 2. OVERALL LIFETIME + RECENT TREND ───────────────────────
@@ -298,7 +298,7 @@ export async function buildBenchmarkReport(): Promise<BenchmarkReport | null> {
           passRatePct: recentArm.passRatePct,
           trend,
         },
-        cyclesCompleted: Math.max(...rows.map((r) => r.cycleNumber ?? 0)),
+        cyclesCompleted: rows.reduce((max, r) => Math.max(max, r.cycleNumber ?? 0), 0),
       },
       experiments,
       generatedAt: new Date().toISOString(),
