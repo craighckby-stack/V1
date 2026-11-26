@@ -38,14 +38,13 @@ export function OracleTaskFeedPanel() {
   const lastFetchTimeRef = useRef<number>(0);
 
   const fetchTasks = useCallback(async (isInitialLoad: boolean = false) => {
-    // Implement backpressure: prevent rapid successive calls
     const now = Date.now();
     if (!isInitialLoad && now - lastFetchTimeRef.current < 1000) {
       return;
     }
     lastFetchTimeRef.current = now;
 
-    if (isRefreshing) return;
+    if (!isInitialLoad && isRefreshing) return;
     
     if (isInitialLoad) {
         setIsLoadingInitial(true);
@@ -97,9 +96,10 @@ export function OracleTaskFeedPanel() {
         setIsLoadingInitial(false);
       }
     }
-  }, [isRefreshing]);
+  }, []); // Removed isRefreshing from dependency array as state updates are managed internally
 
   useEffect(() => {
+    // Initial load runs first
     fetchTasks(true);
     
     // Set up polling with bounded interval
@@ -205,7 +205,7 @@ export function OracleTaskFeedPanel() {
                   </li>
                 );
               })}
-            </ul >
+            </ul>
           </ScrollArea>
         )}
       </CardContent>
