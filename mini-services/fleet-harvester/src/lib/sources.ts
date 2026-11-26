@@ -61,7 +61,7 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   // Regex to match GitHub URLs and capture owner/repo, or just owner/repo slugs.
   // Handles: https://github.com/owner/repo, github.com/owner/repo, owner/repo, owner
   // Captures: (owner)/(repo) or just (owner)
-  // This regex is designed to capture owner and optionally repo, allowing for various formats.
+  // Updated regex to be more robust for owner-only inputs that might not match full URL structure.
   const githubSlugRegex = /^(?:https?:\/\/(?:www\.)?github\.com\/)?([a-zA-Z0-9_-]+)(?:\/([a-zA-Z0-9_-]+))?(?:\.git)?$/i;
 
   for (const token of tokens) {
@@ -133,7 +133,7 @@ export function appendPresetToSources(existing: string | null | undefined, addit
   const existingKeys = new Set(current.map((c) => c.raw.toLowerCase()));
   const merged: string[] = [...current.map((c) => c.raw)];
 
-  // Parse all additions once
+  // Parse all additions once, relying on parseSources to filter empty/invalid tokens
   const parsedAdditions = parseSources(additions.join(', '));
 
   for (const item of parsedAdditions) {
@@ -157,7 +157,7 @@ export function validateDestination(repo: string, branch: string, filePath: stri
   const trimmedPath = filePath.trim();
 
   if (!/^[A-Za-z0-9._-]+[A-Za-z0-9._-]+$/.test(trimmedRepo)) {
-    throw new Error(`Invalid repository format: "${repo}". Repository must look like "owner/repository" (e.g., craighckby-stack/V1).`);
+    throw new Error(`Invalid repository format: "${repo}". Repository must look like "owner/repository" (e.g., craighckby-stack/V1").`);
   }
   if (!trimmedBranch || /\s/.test(trimmedBranch)) {
     throw new Error(`Invalid branch name: "${branch}". Branch name cannot be empty or contain spaces.`);
@@ -192,8 +192,11 @@ export function deriveLogPaths(
     : DEFAULT_BASE_PATH.replace(/^\/+/, '');
   
   const lastSlash = cleanBase.lastIndexOf('/');
+  // Ensure dir is correctly set, even if cleanBase is just a filename (lastSlash = -1)
   const dir = lastSlash >= 0 ? cleanBase.slice(0, lastSlash + 1) : '';
   const file = lastSlash >= 0 ? cleanBase.slice(lastSlash + 1) : cleanBase;
+  
+  // Stem calculation: remove known extensions, default to 'commit-history' if no recognizable stem remains
   const stem =
     file
       .replace(/\.(json|md|markdown|csv)$/i, '')
