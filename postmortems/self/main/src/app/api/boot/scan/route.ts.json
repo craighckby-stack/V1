@@ -8,12 +8,12 @@
   "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/src/app/api/boot/scan/route.ts:132:14 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
   "evidence": "Original: 11082 bytes, Refactored: 11086 bytes. Errors: /home/z/my-project/src/app/api/boot/scan/route.ts:132:14 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
   "constraints": "The previous refactor of src/app/api/boot/scan/route.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
-  "attempts": 16,
-  "parentHash": "c6e9b69ba0062a2365a0da617d71e1b4030b071bbf77b2a0e3e19349f437f81e",
-  "hash": "f4a57d60d7232e1b364e38e13b2e4c68034c29cb4621132d6a6742a7183d6d7a",
-  "lastAttemptAt": "2026-11-26T04:44:34.770Z",
+  "attempts": 17,
+  "parentHash": "83e571433e4b3ed51b96376879048aa984058d4ce285b754f37a62d85dc1ed14",
+  "hash": "47fbcef3f6e4c10e17fdd10d9c722c3009d506f434a9660501728a73e07eccd9",
+  "lastAttemptAt": "2026-11-26T05:42:34.659Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.409Z",
-  "updatedAt": "2026-11-26T04:44:34.770Z",
+  "updatedAt": "2026-11-26T05:42:34.659Z",
   "schema": 2
 }
