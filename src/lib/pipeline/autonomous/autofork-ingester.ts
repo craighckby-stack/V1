@@ -327,20 +327,28 @@ export async function getAutoForkStatus(): Promise<{
 
   let candidateLessons = 0;
   const bySystemMap = new Map<string, number>();
+
+  // Run DB fetch concurrently with initial seed/manifest processing if possible,
+  // but since readSeeds/readManifest are synchronous, we focus on parallelizing the async DB call.
   try {
     const lessons = await db.lesson.findMany({
       where: { source: "autofork" },
       select: { system: true, active: true },
     });
-    const activeLessons = lessons.filter((l) => l.active);
-    candidateLessons = activeLessons.length;
+    
+    // Calculate metrics from the fetched lessons in one pass
     for (const l of lessons) {
       const sys = l.system ?? "unknown";
-      bySystemMap.set(sys, (bySystemMap.get(sys) ?? 0) + 1);
+      const count = (bySystemMap.get(sys) ?? 0) + 1;
+      bySystemMap.set(sys, count);
+      
+      if (l.active) {
+        candidateLessons++;
+      }
     }
   } catch (error) {
     console.error("Failed to fetch autofork lessons from DB:", error);
-    // DB unavailable, candidateLessons remains 0
+    // DB unavailable, candidateLessons remains 0, bySystemMap remains empty
   }
 
   return {

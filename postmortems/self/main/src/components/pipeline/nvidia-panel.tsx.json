@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/pipeline/nvidia-panel.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/src/components/pipeline/nvidia-panel.tsx:282:16 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
+  "evidence": "Original: 20701 bytes, Refactored: 20955 bytes. Errors: /home/z/my-project/src/components/pipeline/nvidia-panel.tsx:282:16 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
+  "constraints": "The previous refactor of src/components/pipeline/nvidia-panel.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "01054646422d4021aec7a6d156e6d7b172eda5cff832506e723f9d6d671a874d",
+  "hash": "6f2fab468cbd8f5e66f7c9772cbf15700ead27502a466cc05528b07da188418e",
+  "lastAttemptAt": "2026-11-26T05:13:54.095Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-26T05:13:54.096Z",
+  "updatedAt": "2026-11-26T05:13:54.096Z",
+  "schema": 2
+}
