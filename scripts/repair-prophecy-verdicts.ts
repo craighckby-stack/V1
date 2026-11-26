@@ -81,7 +81,7 @@ async function main(): Promise<void> {
     // Same lookup semantics as the evaluator's retroactive check.
     let attempt: { cycleNumber: number; gateOutcome: string } | null = null;
     try {
-      if (meta.sameAttempt === true && typeof meta.cycleNumber === "number") {
+      if (meta.sameAttempt === true && typeof meta.cycleNumber === "number" && meta.cycleNumber > 0) {
         // Performance improvement: run both lookups in parallel for sameAttempt semantics
         const sameAttemptPromise = db.mutationCorpus.findFirst({
           where: { filePath: meta.filePath, cycleNumber: meta.cycleNumber },
