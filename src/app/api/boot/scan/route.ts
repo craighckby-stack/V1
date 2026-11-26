@@ -67,7 +67,7 @@ async function diskScarCount(): Promise<number> {
 
   while (stack.length > 0) {
     const dirPath = stack.pop();
-    if (!dirPath) continue;
+    if (typeof dirPath !== 'string') continue;
 
     try {
       const entries = await readdir(dirPath, { withFileTypes: true });
