@@ -182,6 +182,10 @@ export async function ingestAutoFork(
   //   ingestAutoFork(token, "deepseek-ai/deepseek-harness") — scan a specific repo
   // The curiosity drive calls the first; the operator's `autofork scan <repo>`
   // calls the second.
+  if (repoOverride && clientTokenOrRepo) {
+    // Ambiguous call: operator specified a repo AND a token. Prioritize repo context.
+    // We use the token if provided, but the repo context is primary for this path.
+  }
   const clientToken = clientTokenOrRepo;
   const targetRepo = repoOverride;
   const result: AutoForkResult = {
@@ -226,6 +230,8 @@ export async function ingestAutoFork(
   // Resolve the branch: explicit → default branch.
   let branch = seed.branch ?? "";
   if (!branch) {
+    // Run default branch fetch in parallel with other initial setup if possible,
+    // but here it's sequential dependency for tree fetch.
     branch = (await getRepoDefaultBranch(seed.repo, token)) ?? "main";
   }
 
