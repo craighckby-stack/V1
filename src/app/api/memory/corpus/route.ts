@@ -37,19 +37,16 @@ export async function GET(request: Request) {
   }
   
   try {
-    // Run status, digest, and search in parallel to reduce latency
-    const searchPromise = searchEngines(keyword, 3);
-    
-    // Wrap timeout in a promise that rejects after 5000ms
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Search operation timed out after 5000ms.")), SEARCH_TIMEOUT_MS)
-    );
-
-    // Execute status, digest, and the race (search vs timeout) in parallel
+    // Run status and digest in parallel with the search operation
     const [status, digest, searchResult] = await Promise.all([
       getCorpusStatus(),
       getFleetDigest(),
-      Promise.race([searchPromise, timeoutPromise])
+      Promise.race([
+        searchEngines(keyword, 3),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Search operation timed out after 5000ms.")), SEARCH_TIMEOUT_MS)
+        )
+      ])
     ]);
       
     // Validate search results before mapping
