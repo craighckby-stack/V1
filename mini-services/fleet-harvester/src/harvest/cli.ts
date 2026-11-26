@@ -37,7 +37,7 @@ function parseArgs(argv: string[]): CliArgs {
   const out: CliArgs = { noPush: false, dryRun: false, format: "json" };
   for (const arg of argv.slice(2)) {
     if (arg.startsWith("--repos=")) {
-      const reposValue = arg.slice("--repos=".length).trim();
+      const reposValue = arg.substring("--repos=".length).trim();
       if (reposValue) {
         out.repos = reposValue;
       }
@@ -46,7 +46,7 @@ function parseArgs(argv: string[]): CliArgs {
     } else if (arg === "--dry-run") {
       out.dryRun = true;
     } else if (arg.startsWith("--format=")) {
-      const fStr = arg.slice("--format=".length).trim();
+      const fStr = arg.substring("--format=".length).trim();
       const f = fStr as ArchiveFormat;
       if (f === "json" || f === "markdown" || f === "csv") {
         out.format = f;
