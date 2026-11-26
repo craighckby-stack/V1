@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/recent-cycles.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/autonomous/self-enhance-loop.ts(57,3): error TS2305: Module '\"./saturation\"' has no exported member 'relockCooldownMs'.; src/lib/pipeline/autonomous/self-enhance-loop.ts(2709,12): error TS2339: Property 'lockCount' does not exist on type 'FileSaturation | { consecutiveNoGrowth: number; lockedOut: false; lockedAt: null; lastNoGrowthReason: null; enhancementsThisPass: number; lockCount: number; }'.\n  Property 'lockCount' does not exist on type 'FileSaturation'.; src/lib/pipeline/autonomous/self-enhance-loop.ts(2718,14): error TS2339: Property 'lockCount' does not exist on type 'FileSaturation | { consecutiveNoGrowth: number; lockedOut: false; lockedAt: null; lastNoGrowthReason: null; enhancementsThisPass: number; lockCount: number; }'.\n  Property 'lockCount' does not exist on type 'FileSaturation'.",
@@ -12,8 +12,8 @@
   "parentHash": "30af6895c997ea5d42d24f130f55b4b35e5f6ce45407ad77f1f7933f22f3abf1",
   "hash": "01ee038846da8b3d5ee358841507a627f88dcad942a79ca3a76409ae246b6212",
   "lastAttemptAt": "2026-11-26T03:28:50.421Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T10:17:33.512Z",
   "createdAt": "2026-11-23T03:29:46.412Z",
-  "updatedAt": "2026-11-26T03:28:50.421Z",
+  "updatedAt": "2026-11-26T10:17:33.512Z",
   "schema": 2
 }

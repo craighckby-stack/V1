@@ -41,7 +41,7 @@
  * doesn't burn the LLM quota in one cycle.
  *
  * THE TRUST MODEL (identical to the dropbox)
- * ──────────────────────────────────────────
+ * ───────────────────────────────────────────
  * Candidate lessons seed as `source: "autofork"`, `system: <repo>`,
  * `kind: "judgment"`. The bandit scores them — helpful ones rise into
  * the prompt, harmful ones sink. Never PROCEDURE (permanent operating
