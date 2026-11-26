@@ -8,12 +8,12 @@
   "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/mini-services/fleet-harvester/index.ts:77:14 'module' is assigned a value but never used. Allowed unused vars must match /^_/u. (@typescript-eslint/no-unused-vars)",
   "evidence": "Original: 5278 bytes, Refactored: 5331 bytes. Errors: /home/z/my-project/mini-services/fleet-harvester/index.ts:77:14 'module' is assigned a value but never used. Allowed unused vars must match /^_/u. (@typescript-eslint/no-unused-vars)",
   "constraints": "The previous refactor of mini-services/fleet-harvester/index.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
-  "attempts": 6,
-  "parentHash": "92ff13861863c2f8c7b143533f81fc5e20aad2f26f151731a2aa7d7d193c65ce",
-  "hash": "b10b0e0773605a40d001bf5f144ac5a22ce05b37cf1e09130a9e12d5c6927a2e",
-  "lastAttemptAt": "2026-11-26T03:13:44.965Z",
+  "attempts": 7,
+  "parentHash": "b2d53de28a9046b136d99258a422724ff9da4121f1d50e849e85d54eb820f607",
+  "hash": "5b47bff8924793fc31dbc66dcd6b012e356c20349b794f643c0d76470b1f354c",
+  "lastAttemptAt": "2026-11-26T04:08:31.246Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.551Z",
-  "updatedAt": "2026-11-26T03:13:44.965Z",
+  "updatedAt": "2026-11-26T04:08:31.246Z",
   "schema": 2
 }
