@@ -137,7 +137,8 @@ function readSeeds(): SeedEntry[] {
     if (error instanceof SyntaxError) {
       console.error(`[autofork-ingester] Failed to parse JSON from seeds file ${SEEDS_PATH}. Check file syntax:`, error.message);
     } else if (error instanceof Error) {
-      console.error(`[autofork-ingester] Failed to read or process seeds file ${SEEDS_PATH}. Check file existence/permissions:`, error.message);
+      // Distinguish FS errors (e.g., permissions) from other runtime errors
+      console.error(`[autofork-ingester] Failed to read seeds file ${SEEDS_PATH}. Check file existence or permissions:`, error.message);
     } else {
       console.error(`[autofork-ingester] An unknown error occurred while reading seeds file ${SEEDS_PATH}:`, String(error));
     }
