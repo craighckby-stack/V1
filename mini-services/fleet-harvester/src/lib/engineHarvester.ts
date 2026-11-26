@@ -109,22 +109,20 @@ export function selectEngineTreePaths(treeNodes: GitTreeNode[], maxPerRepo = 12)
     throw new Error('maxPerRepo must be a non-negative number');
   }
 
-  const scored = treeNodes.reduce((acc, node) => {
-    if (node.type === 'blob' && node.path) {
-      const score = scoreEngineFilePath(node.path, node.size);
-      if (score >= 40) {
-        acc.push({ node, score });
-      }
-    }
-    return acc;
-  }, [] as { node: GitTreeNode; score: number }[]);
+  const scored = treeNodes
+    .filter(node => node.type === 'blob' && node.path)
+    .map(node => ({
+      node,
+      score: scoreEngineFilePath(node.path, node.size),
+    }))
+    .filter(item => item.score >= 40);
 
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     return (b.node.size ?? 0) - (a.node.size ?? 0);
   });
 
-  return scored.slice(0, Math.min(maxPerRepo, scored.length)).map((item) => item.node);
+  return scored.slice(0, maxPerRepo).map((item) => item.node);
 }
 
 export function inferEngineRole(filePath: string, fullCode: string): EngineRole {
