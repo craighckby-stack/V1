@@ -248,20 +248,29 @@ export function OraclePanel({ open, onClose }: Props) {
           `Judged ${data.judgedCount} prophecies (${data.skippedCount} skipped)`,
         );
       } else {
-        setError(data.error ?? "Evaluation failed");
+        setError(data.error ?? "Evaluation failed: API returned non-OK status");
       }
-      // Refresh both views
+      // Refresh both views in parallel
       const [sRes, pRes] = await Promise.all([
         fetch("/api/oracle/status"),
         fetch("/api/oracle/prophecies?limit=30"),
       ]);
-      if (sRes.ok) setStatus((await sRes.json()) as OracleStatus);
+
+      if (sRes.ok) {
+        const statusData = await sRes.json();
+        setStatus(statusData as OracleStatus);
+      } else {
+        setError(`Failed to fetch oracle status: ${sRes.statusText}`);
+      }
+
       if (pRes.ok) {
-        const p = (await pRes.json()) as { prophecies: Prophecy[] };
-        setProphecies(p.prophecies ?? []);
+        const pData = await pRes.json();
+        setProphecies(pData.prophecies ?? []);
+      } else {
+        setError(`Failed to fetch prophecies: ${pRes.statusText}`);
       }
     } catch (e) {
-      setError((e as Error).message);
+      setError((e as Error).message || "An unknown error occurred during oracle evaluation.");
     } finally {
       setLoading(false);
     }
