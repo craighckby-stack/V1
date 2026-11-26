@@ -145,15 +145,18 @@ function verdictFor(name: string, deltaPct: number, confidence: BenchmarkResult[
   if (confidence === "insufficient") {
     return `Insufficient data — need ${MIN_N_FOR_DELTA}+ attempts in each arm to call it. Accumulating as the loop runs.`;
   }
+  const absDelta = Math.abs(deltaPct);
   const sign = deltaPct > 0 ? "+" : "";
-  const abs = Math.abs(deltaPct).toFixed(1);
-  if (Math.abs(deltaPct) < 2) {
-    return `${name} shows no measurable effect (${sign}${abs}pp, ${confidence}). The complexity may be neutral here.`;
+  const absFormatted = absDelta.toFixed(1);
+
+  if (absDelta < 2) {
+    return `${name} shows no measurable effect (${sign}${absFormatted}pp, ${confidence}). The complexity may be neutral here.`;
   }
   if (deltaPct > 0) {
-    return `${name} HELPS — pass rate ${sign}${abs}pp higher when active (${confidence}). The complexity earns its keep on this axis.`;
+    return `${name} HELPS — pass rate ${sign}${absFormatted}pp higher when active (${confidence}). The complexity earns its keep on this axis.`;
   }
-  return `${name} HURTS — pass rate ${abs}pp lower when active (${confidence}). The complexity may be counterproductive on this axis. Investigate.`;
+  // deltaPct < 0
+  return `${name} HURTS — pass rate ${sign}${absFormatted}pp lower when active (${confidence}). The complexity may be counterproductive on this axis. Investigate.`;
 }
 
 /** Build the full benchmark report. Fail-soft: returns null on any
