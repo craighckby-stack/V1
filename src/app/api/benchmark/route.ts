@@ -29,8 +29,9 @@ export async function GET() {
     }
     return NextResponse.json(report);
   } catch (err: unknown) {
-    // Log the full error context server-side for debugging.
-    console.error("Benchmark Report Generation Failed:", err);
+    // Log the full error context server-side for debugging, safely handling unknown error types.
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error("Benchmark Report Generation Failed:", errorMessage, err);
 
     // Return a generic, actionable error to the client to prevent leaking internal stack traces or implementation details.
     return NextResponse.json(
