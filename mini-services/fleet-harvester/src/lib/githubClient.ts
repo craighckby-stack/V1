@@ -187,7 +187,12 @@ export async function discoverRepositories(
   const externalOwners = new Set<string>();
   const hasToken = Boolean(token.trim());
 
-  if (options.includeMine && hasToken) {
+  if (options.includeMine && !hasToken) {
+    onLog(
+      'No GitHub token verified — skipping private/personal repository discovery and scanning public sources.',
+      'info'
+    );
+  } else if (options.includeMine && hasToken) {
     let nextUrl: string | null =
       `/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member`;
     while (nextUrl) {
@@ -207,20 +212,18 @@ export async function discoverRepositories(
       nextUrl = parseNextLink(headers.get('Link'));
     }
     onLog(`Discovered ${repoMap.size} personal/member repositories.`, 'info');
-  } else if (options.includeMine && !hasToken) {
-    onLog(
-      'No GitHub token verified — skipping private/personal repository discovery and scanning public sources.',
-      'info'
-    );
   }
 
   const externalTargets = parseSources(options.sources);
-  for (const target of externalTargets) {
+  
+  const externalProcessingPromises = externalTargets.map(async (target) => {
     if (options.signal?.aborted) throw new Error('Operation cancelled.');
+    
     if (target.type === 'repo' && target.repo) {
       const slug = `${target.owner}/${target.repo}`;
-      if (!matchesRepoFilter(slug, options.repoFilter)) continue;
-      if (repoMap.has(slug.toLowerCase())) continue;
+      if (!matchesRepoFilter(slug, options.repoFilter)) return;
+      if (repoMap.has(slug.toLowerCase())) return;
+      
       try {
         const { data } = await ghRequest<RawGhRepo>(
           `/repos/${target.owner}/${target.repo}`,
@@ -228,10 +231,12 @@ export async function discoverRepositories(
           { signal: options.signal },
           { onLog }
         );
-        if (!options.includeForks && data.fork) continue;
-        if (!options.includePrivate && data.private) continue;
-        repoMap.set(data.full_name.toLowerCase(), toRepoSummary(data));
-        externalOwners.add(data.full_name.toLowerCase());
+        if (!options.includeForks && data.fork) return;
+        if (!options.includePrivate && data.private) return;
+        
+        const key = data.full_name.toLowerCase();
+        repoMap.set(key, toRepoSummary(data));
+        externalOwners.add(key);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         onLog(`Skipped ${slug}: ${msg}`, 'warn');
@@ -266,7 +271,9 @@ export async function discoverRepositories(
         onLog(`Could not list repos for ${target.owner}: ${msg}`, 'warn');
       }
     }
-  }
+  });
+
+  await Promise.all(externalProcessingPromises);
 
   return {
     repos: Array.from(repoMap.values()),
