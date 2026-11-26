@@ -370,10 +370,10 @@ SATURATION  ▪prophecy-evaluator.ts(2/3)  🔒prophecy-store.ts⚠[unlock]  ▪
 This is the **saturation / lockout panel**. Here's how to read it:
 
 - **`▪ filename`** — a file that's being evaluated normally. The `(2/3)` means it's had 2 consecutive "no growth" cycles; after 3 it locks.
-- **`🔒 filename`** — a file that's been **locked out** for the rest of the pass. The loop won't spend AI quota on it until you unlock it (or until the server restarts, which starts a fresh pass).
+- **`🔒 filename`** — a file that's been **locked out**. The loop won't spend AI quota on it — but since 2026-11-26 a lock is a checkpoint **with a timer, not a tombstone**: when the file's escalating cooldown expires it **auto-relocks** itself back into rotation (5m for the first lock, doubling per re-lock up to a 24h cap), no operator needed. A server restart also resets everything (fresh pass).
 - **`⚠`** next to a lock — the file is locked for a **deterministic** reason (it's too large, too small, or the self-model predicts zero diff). Unlocking it will re-lock on the next cycle **unless the underlying condition changes** (e.g. you shrink the file). The ⚠ is a warning that a bare unlock won't stick — it's not a broken button. Hover the `[unlock]` button for the exact reason.
-- **`[unlock]`** — click to request a fresh start for the file (resets its no-growth counter so the loop re-evaluates it next cycle). The click **does not unlock directly** — it opens the **operator-PIN prompt** first. The PIN is printed exactly once in this README, deliberately mid-document past the sections a skimmer reads, so you only know it if you've actually read the manual. That's the point: the unlock button re-exposes locked files to mutation, and it's for operators who have read the docs, not casual passers-by. See *Why it can't go rogue → The unlock PIN*. The console stream prints the outcome (unlocked / refused / reason).
-- **`🎯 PASS COMPLETE`** — every eligible file is locked out. The system has converged for this pass. Review the locks and unlock (operator PIN) the ones you want re-attempted to start a new pass.
+- **`[unlock]`** — click to force the file back into rotation NOW (resets its no-growth counter so the loop re-evaluates it next cycle). PINless and immediate: the click unlocks directly. Unlocking is low-stakes — every subsequent write still passes the full gate chain — and the churn control is the auto-relock backoff itself: each re-lock doubles the cooldown, so mashing [unlock] on a converged file buys it exponentially longer peace, not a PIN prompt. The console stream prints the outcome (unlocked / reason).
+- **`🎯 PASS COMPLETE`** — every eligible file is locked out. The system has converged for this pass — a transient state now: the header shows when the next auto-relock fires, and the pass restarts itself when it does. `[unlock]` any file to force it back immediately.
 
 > Why lock files at all? So the loop **converges**. Without lockout, a 40-file scope would re-review the same stable files forever, burning AI quota for no gain. Three unproductive cycles → lock → the loop moves on to files that might actually improve. It's the churn control that makes full-scope scanning affordable.
 
@@ -483,6 +483,8 @@ The loop's own brain is off-limits to itself. The single source of truth is `src
 A self-improving system must not be able to rewrite its own OFF switch, its own judges, or its own memory.
 
 > **v5 (2026-11-17) scope expansion.** `src/components/pipeline/` (the LOOP-authored display panels) was re-added to the mutation scope. It was rolled back at v4 because 88% of mutations there were convergent defensive no-ops burning quota. Two new friction layers now make it safe to re-expand: (1) the **operator-PIN gate** on every saturation `[unlock]` — a careless user can no longer mash `[unlock]` to reopen the churn (see *The unlock PIN* below); (2) the **convergent-move guard** (`mutation-guard.ts detectConvergentMove`) rejects the exact "Added input validation for `<prop>`" no-ops at the gate layer, before the debate LLM call. The 69 vendored shadcn primitives in `src/components/ui/` stay excluded (third-party code). The two control-surface components inside the re-expanded subtree (`api-unlock.tsx`, `boot-splash.tsx`) are protected individually so the loop still can't touch its own auth UI or its own boot entry.
+>
+> **Update (2026-11-26):** the unlock-PIN layer from (1) was RETIRED — the auto-relock backoff now provides the churn control (a force-unlocked file that no-grows again re-locks with a doubled cooldown, so unlock-spamming costs escalating time instead of a PIN), and the convergent-move guard from (2) remains the gate-layer defense. The safety posture is unchanged: protected-files + the gate chain never honored any PIN.
 
 ---
 
@@ -501,7 +503,7 @@ A self-improving system must not be able to rewrite its own OFF switch, its own 
 | **Secret scan** | `core/secret-scan.ts` | Pre-push scan of diff + commit message for ghp_/AIza/AKIA/sk-/xox/private keys |
 | **Debate tribunal** | `llm/debate-llm.ts` | 3 LLM reviewers (Security/Architecture/Lead); no fallback; validated stances + consensus |
 | **Halt governor** | `emg/halt.ts` | Self-stopping: tree-fingerprint-saturated, zero-diff-saturation, consecutive-failure-limit |
-| **Saturation lockout** | `autonomous/saturation.ts` | 3 consecutive no-growth cycles → file locked out for the rest of the pass (the `[unlock]` panel above) |
+| **Saturation lockout + auto-relock** | `autonomous/saturation.ts` | N consecutive no-growth cycles → file locked out; escalat­ing cooldown (5m doubling to 24h) auto-relocks it back into rotation — churn bounded without human intervention |
 | **Postmortem chain** | `postmortem/postmortem-store.ts` + `postmortem-repo.ts` | Tamper-evident sha256 chain; disk JSON is the source of truth; rehydrates from disk on DB wipe |
 | **Ancestral RAG** | `postmortem/ancestral-rag.ts` | Zero-LLM keyword search over all verified postmortems |
 | **Lessons** | `autonomous/lesson-store.ts` + `lapse-detector.ts`, `mutation-corpus.ts`, `meta-params.ts`, `meta-tuner.ts`, `dreamer.ts`, `reflection.ts` | Every N cycles, distill general rules from history; inject top-K by score; measure helped/hindered; prune low-scorers |
@@ -531,15 +533,15 @@ ARMED-PAUSED (sticky — only manual [START] releases it)
 
 **Stop-priority hierarchy (top wins):** operator `[STOP]` (sticky, wipe-proof) → crash-wall (3 same-class crashes, wipe-proof) → dead-man's switch (24h, wipe-proof) → quota gate (the only stop that AUTO-RECOVERS: throttle → 30s settle → resume, escalating 2/5/15/30min on consecutive 429s).
 
-### The unlock PIN
+### The operator PIN (unfreeze)
 
-The saturation panel's `[unlock]` buttons — the only control that re-exposes locked files to mutation — ask for the operator PIN before doing anything. The PIN is:
+There is exactly ONE PIN left in the system (2026-11-26), and it guards the single dangerous-direction transition: **unfreezing the mutation freeze**. Freezing costs nothing — locking down is the safe direction, so `[FREEZE]` never asks. Unfreezing re-enables self-mutation of a system that pushes to GitHub, so it must prove a human decided. The PIN is:
 
 > ### `691`
 
-Why a PIN on this one button? Because unlock is the human-controlled valve on the churn control. The lockout exists so a converged system stops burning quota; a careless user mashing `[unlock]` on every locked file re-opens all of them at once — quota burn, re-attempt floods, and a pass that never converges. The PIN turns an accidental one-click into a deliberate, documented action, and printing it here — mid-document, past the sections a skimmer reads — means you only get the key if you've read the manual.
+Why only this one? The saturation `[unlock]` PIN and the secret master PIN (with its persisted bypass session) were retired the same day: the unlock PIN was self-documented as "a speed bump, not a security boundary" — the code's safety comes from the protected-files list and the gate chain, which no PIN can bypass and the loop can never edit. Unlocking a saturated file is low-stakes (the gate chain still vets every write) and its churn control is now the escalating auto-relock backoff, which cannot be bypassed by mashing a button — only by waiting, growing, or restarting.
 
-Be clear about what this is: **a friction gate, not a security boundary.** It protects convergence and quota, not the code — the code's safety comes from the protected-files list and the gate chain, which no PIN can bypass and the loop can never edit. Both the edge route (`POST /api/self-enhance/unlock`) and the loop-worker's mirror endpoint validate the PIN (the worker port is reachable through the gateway's `XTransformPort` pattern, so the edge alone would not be enough). Override the value with `LOOP_UNLOCK_PIN` in `.env`; it defaults to the value above when unset.
+The unfreeze PIN is validated constant-time in `POST /api/self-enhance/freeze` (both the freeze route and the wipe-proof freeze tier itself are protected from loop mutation). Override the value with `LOOP_UNLOCK_PIN` in `.env`; it defaults to the value above when unset.
 
 ---
 
@@ -670,9 +672,9 @@ Set `LOOP_API_KEY` in `.env` to lock down mutating API routes (POST/PUT/PATCH/DE
 
 Paste a Gemini API key via the `[CONFIG]` modal (or `POST /api/self-enhance/llm-config`). The key is stored in the `LlmConfig` singleton row (DB, never returned to the client). Optionally deploy the `proxy/` to Fly.io for geo-bypass and set `GEMINI_PROXY_BASE_URL`.
 
-### The unlock PIN
+### The operator PIN (unfreeze)
 
-The saturation panel's `[unlock]` buttons ask for the operator PIN. Its value is documented mid-README (see *Why it can't go rogue → The unlock PIN*) — we don't repeat it here on purpose. Override it with `LOOP_UNLOCK_PIN` in `.env`; both the edge route (`/api/self-enhance/unlock`) and the loop-worker's mirror endpoint validate it.
+The saturation `[unlock]` buttons are PINless (2026-11-26) — the auto-relock backoff is the churn control now. The one remaining PIN guards unfreezing the mutation freeze; its value is documented mid-README (see *Why it can't go rogue → The operator PIN*). Override it with `LOOP_UNLOCK_PIN` in `.env`; the freeze route validates it constant-time.
 
 ---
 

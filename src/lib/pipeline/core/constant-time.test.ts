@@ -51,8 +51,10 @@ describe("constantTimeEqual", () => {
     expect(constantTimeEqual("pässwörd!", "password!")).toBe(false);
   });
 
-  test("typical PIN values (operator + master tiers)", () => {
-    // The real deployment uses operator PIN 691 and master PIN 4444.
+  test("typical PIN values (operator tier)", () => {
+    // The real deployment uses operator PIN 691 (the one remaining PIN —
+    // it guards unfreeze). 4444 (the retired master tier) stays here as a
+    // plain "different value" case for the comparison logic.
     expect(constantTimeEqual("691", "691")).toBe(true);
     expect(constantTimeEqual("4444", "4444")).toBe(true);
     expect(constantTimeEqual("691", "4444")).toBe(false);
