@@ -58,6 +58,11 @@ export async function GET(request: Request) {
       throw new Error(`Search returned invalid data format: expected array, got ${typeof searchResult}.`);
     }
     
+    // Optimization: If no results, return immediately without mapping overhead
+    if (searchResult.length === 0) {
+        return NextResponse.json({ ok: true, status, digest, sampleHits: [] });
+    }
+
     // Map results only after successful retrieval
     const mappedSample = searchResult.map((h: { engine: { id: string; role: string }; score: number; matchedTerms: string[] }) => {
       if (!h.engine || typeof h.engine.id !== "string" || typeof h.engine.role !== "string" || 

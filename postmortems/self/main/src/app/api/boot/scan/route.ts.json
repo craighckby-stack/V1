@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/boot/scan/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/src/app/api/boot/scan/route.ts:132:14 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
@@ -12,8 +12,8 @@
   "parentHash": "83e571433e4b3ed51b96376879048aa984058d4ce285b754f37a62d85dc1ed14",
   "hash": "47fbcef3f6e4c10e17fdd10d9c722c3009d506f434a9660501728a73e07eccd9",
   "lastAttemptAt": "2026-11-26T05:42:34.659Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T08:27:08.819Z",
   "createdAt": "2026-11-23T03:29:46.409Z",
-  "updatedAt": "2026-11-26T05:42:34.659Z",
+  "updatedAt": "2026-11-26T08:27:08.819Z",
   "schema": 2
 }
