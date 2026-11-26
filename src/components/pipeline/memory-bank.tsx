@@ -29,15 +29,17 @@ export function MemoryBank() {
     setIsMounted(true);
     
     return () => {
-      setIsMounted(false);
+      // Cleanup on unmount
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
       }
+      setIsMounted(false);
     };
   }, []);
 
   useEffect(() => {
+    // Only run if mounted and not already fetched and not currently fetching
     if (!isMounted || hasFetchedRef.current || isFetchingRef.current) return;
 
     const fetchMemoryEntries = async () => {
@@ -118,7 +120,7 @@ export function MemoryBank() {
     };
 
     fetchMemoryEntries();
-  }, [setEntries, isMounted]);
+  }, [setEntries]); // Removed isMounted from dependencies as its role is handled by the first useEffect cleanup
 
   const validEntries = entries.filter(entry => {
     return entry && 
