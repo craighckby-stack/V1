@@ -229,6 +229,13 @@ export function DefensePanel({ open, onClose }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ by: "operator" }),
       });
+
+      if (!res.ok) {
+        const errorBody = await res.text(); // Read as text first to avoid parsing errors on non-JSON errors
+        setMsg(`CLEAR FAILED (HTTP ${res.status}): ${errorBody.substring(0, 100)}`);
+        return;
+      }
+
       const data = await res.json();
       setMsg(data.ok ? "SAFE-MODE CLEARED — autonomous loop may resume." : `CLEAR FAILED: ${data.error}`);
     } catch (err) {
