@@ -261,12 +261,16 @@ export async function commitTargetFile(opts: {
     // Blob sha at the target branch (404 → file does not exist there → null sha = create).
     let sha: string | null = null;
     const existingRes = await fetch(`${url}?ref=${encodeURIComponent(branch)}`, { headers });
+    
     if (existingRes.ok) {
-      const data = (await existingRes.json()) as { sha?: string };
-      sha = data.sha ?? null;
-    } else if (existingRes.status !== 404) {
+      const data = await existingRes.json();
+      sha = (data as { sha?: string }).sha ?? null;
+    } else if (existingRes.status === 404) {
+      // File does not exist, sha remains null (create operation)
+    } else {
+      // Handle other HTTP errors (4xx/5xx)
       const body = await existingRes.json().catch(() => null);
-      return { ok: false, error: ghError(existingRes.status, body, "could not resolve existing file") };
+      return { ok: false, error: ghError(existingRes.status, body, `Failed to resolve existing file at ${path} on branch ${branch}`) };
     }
 
     const putRes = await fetch(url, {
@@ -279,14 +283,18 @@ export async function commitTargetFile(opts: {
         ...(sha ? { sha } : {}),
       }),
     });
+    
     if (!putRes.ok) {
       const body = await putRes.json().catch(() => null);
-      return { ok: false, error: ghError(putRes.status, body, "Contents PUT failed") };
+      return { ok: false, error: ghError(putRes.status, body, `Contents PUT failed for ${path} on branch ${branch}`) };
     }
-    const data = (await putRes.json()) as { commit?: { sha?: string } };
-    return { ok: true, commitSha: data.commit?.sha };
+    
+    const data = await putRes.json();
+    return { ok: true, commitSha: (data as { commit?: { sha?: string } }).commit?.sha };
   } catch (err) {
-    return { ok: false, error: `Commit failed: ${(err as Error).message}` };
+    // Catch network errors, JSON parsing errors, etc.
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Commit failed due to runtime error: ${errorMessage}` };
   }
 }
 

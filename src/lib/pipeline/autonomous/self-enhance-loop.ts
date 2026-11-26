@@ -37,6 +37,17 @@ import { db } from "@/lib/db";
 import { generateTasks, claimNextTask } from "./self-task-generator";
 import { executeTask, type TaskExecutionResult } from "./task-executor";
 import { detectTruncation, stripComments, stripLiteralsAndComments } from "./code-analysis";
+import {
+  planSectionMutation,
+  spliceSection,
+  sectionReplacementWithinBudget,
+  replacementLooksLikeWholeFile,
+  WHOLE_FILE_MAX_BYTES,
+  SECTION_MUTATION_MAX_FILE_BYTES,
+  SECTION_MAX_BYTES,
+  type SectionMutationPlan,
+  type CodeSection,
+} from "./section-mutation";
 import { autoProphecyAfterCycle, recordSelfProphecy, adjudicateSelfProphecies } from "../oracle/oracle-auto";
 import {
   TARGET_FILES,
@@ -1017,7 +1028,10 @@ class SelfEnhanceLoop {
         {
           cwd: PROJECT_ROOT,
           input: refactoredCode,
-          timeoutMs: 60000,
+          // Large-file headroom (section mutations): the tsc program for a
+          // 100-230KB candidate costs a few extra seconds over the ~10s
+          // baseline; 60s stays the cap for whole-file candidates (≤12KB).
+          timeoutMs: refactoredCode.length > 60_000 ? 120_000 : 60_000,
         }
       );
 
@@ -1137,7 +1151,8 @@ class SelfEnhanceLoop {
     filePath: string,
     originalCode: string,
     refactoredCode: string,
-    changeSummary: string
+    changeSummary: string,
+    sectionFocus?: { name: string; before: string; after: string }
   ): Promise<{ approved: boolean; reason: string; verdict?: string; deferred?: boolean }> {
     try {
       // GOAL ENGINE — the topic carries the active goal texts so the
@@ -1146,8 +1161,22 @@ class SelfEnhanceLoop {
       // pure-churn changes against the system's actual direction.
       // Fail-soft: an empty line on renderer failure is harmless here.
       const goalsLine = await renderGoalsTopicLine().catch(() => "");
-      const topic = `Proposed refactor of ${relative(PROJECT_ROOT, filePath)}: ${changeSummary.slice(0, 200)}\nActive system goals: ${goalsLine}`;
-      const result = await conductLlmDebate(topic, refactoredCode, filePath);
+      // SECTION-SCOPED FOCUS (critical for large files): conductLlmDebate
+      // reviews only the first 12KB of the candidate (MAX_REVIEW_CHARS).
+      // For a section mutation the assembled file is 100-230KB, so its
+      // first 12KB is byte-identical ORIGINAL code — the tribunal would
+      // review the WRONG bytes and never see the change. The section
+      // replacement (≤15KB, mostly ≤10KB) fits the review window, and the
+      // topic carries the before/after framing so the tribunal knows the
+      // scope contract (rest of file byte-identical by construction).
+      const topic = sectionFocus
+        ? `Proposed SECTION-SCOPED refactor of ${relative(PROJECT_ROOT, filePath)}: only ${sectionFocus.name} changes (${sectionFocus.before.length}b → ${sectionFocus.after.length}b; the rest of the file is byte-identical to the original): ${changeSummary.slice(0, 200)}\nActive system goals: ${goalsLine}`
+        : `Proposed refactor of ${relative(PROJECT_ROOT, filePath)}: ${changeSummary.slice(0, 200)}\nActive system goals: ${goalsLine}`;
+      const result = await conductLlmDebate(
+        topic,
+        sectionFocus ? sectionFocus.after : refactoredCode,
+        filePath
+      );
       const consensus = result.verdict.consensus;
 
       if (consensus === "APPROVED" || consensus === "CONDITIONAL_APPROVAL") {
@@ -1329,7 +1358,7 @@ class SelfEnhanceLoop {
    * Test files are write-once: the refactor scan excludes *.test.ts, so the
    * system can never weaken its own pins. The ratchet only tightens.
    */
-  private async writeTestsForFile(filePath: string): Promise<boolean> {
+  private async writeTestsForFile(filePath: string, section?: CodeSection): Promise<boolean> {
     const relPath = relative(PROJECT_ROOT, filePath);
     // STOP-interrupt (external audit F3): capture the run generation so a
     // [STOP] during the ratchet's LLM call / sandbox gates / debate aborts
@@ -1382,7 +1411,21 @@ class SelfEnhanceLoop {
       // the source against this SHA — the tests characterize THIS source, so
       // a source change during the ~1min gate chain invalidates the pin.
       const sourceSha = sha16(source);
-      if (source.length > 12000) return false; // too large for the LLM prompt
+      // SECTION-SCOPED RATCHET: files over the whole-file ceiling used to be
+      // skipped here ("too large for the LLM prompt") — no pins ever landed
+      // for the loop's own largest modules. Now the caller passes the section
+      // it's about to mutate, and the pin characterizes THAT member: the
+      // prompt embeds the section (bounded) + the file's REAL export list,
+      // so imports stay honest while the source stays small. Non-exported
+      // sections can't be pinned through module imports — leave those
+      // unpinned (testGate still runs any existing pins on every mutation).
+      let pinSource = source;
+      let pinFraming = "";
+      if (source.length > WHOLE_FILE_MAX_BYTES) {
+        if (!section || !section.exported) return false; // nothing importable to pin
+        pinSource = section.text;
+        pinFraming = ` (large file — ONE member is being pinned: ${section.name}, a ${section.kind} of this module; the rest of the source is not shown. Exercise it through the module's exported symbols listed below.)`;
+      }
 
       this.log(`Ratchet: writing characterization tests for ${relPath} (attempt ${(rec?.attempts ?? 0) + 1})...`, "info");
 
@@ -1417,17 +1460,17 @@ class SelfEnhanceLoop {
         ? `\nA DRAFT from the idle-time dreamer (speculative, NEVER trusted blindly — verify every import against the export list above and every expected value against the implementation; discard anything that doesn't check out):\n\`\`\`typescript\n${draftSafe}\n\`\`\`\n`
         : "";
 
-      const userPrompt = `Module to pin: ${relPath}
+      const userPrompt = `Module to pin: ${relPath}${pinFraming}
 
 This module exports EXACTLY these symbols (import ONLY from "./${base}", do NOT invent any other export names):
 ${exportList}
 
-Source:
+${source.length > WHOLE_FILE_MAX_BYTES ? "Member to pin (the ONLY part of the source shown):" : "Source:"}
 \`\`\`typescript
-${source}
+${pinSource}
 \`\`\`
 ${draftBlock}
-Write ${base}.test.ts — a bun:test characterization suite pinning this module's current observable behavior. Compute expected values yourself from the implementation (read the logic, work out the output, assert that exact value). Every test() must contain at least one expect(). Output the summary first, then the test file.`;
+Write ${base}.test.ts — a bun:test characterization suite pinning this ${source.length > WHOLE_FILE_MAX_BYTES ? `member's` : "module's"} current observable behavior. Compute expected values yourself from the implementation (read the logic, work out the output, assert that exact value). Every test() must contain at least one expect(). Output the summary first, then the test file.`;
 
       const llmResult = await llmComplete({
         systemPrompt: TEST_WRITER_SYSTEM,
@@ -1672,14 +1715,41 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
         branchNumber: thisN,
       };
 
-      // 1a. Skip files that are too large for the LLM to refactor without truncating.
-      // The model's output token limit means files over ~12KB often get cut off
-      // mid-comment, producing syntax errors that waste a full typecheck cycle.
-      const MAX_FILE_BYTES = 12000;
-      if (originalCode.length > MAX_FILE_BYTES) {
-        result.reason = `Skipped (file too large: ${originalCode.length}b > ${MAX_FILE_BYTES}b)`;
-        this.log(`Skipped ${relPath} (${originalCode.length}b — too large for LLM, would truncate)`, "info");
-        return result;
+      // 1a. MUTATION CEILING — tiered. Whole-file mutation asks the LLM to
+      // RE-EMIT the entire file, so it is bounded by the model's OUTPUT
+      // envelope (~12KB ≈ 3k tokens — the proven ceiling). Files beyond it
+      // used to be skipped outright, which locked 155 pipeline/mini-service
+      // files — loop-runtime (103KB), self-enhance-loop (230KB), 10/12 UI
+      // components — out of the loop's own mutation surface forever.
+      // Tiered now:
+      //   ≤ 12KB   → whole-file mutation (unchanged, proven path below)
+      //   ≤ 256KB  → SECTION-SCOPED mutation (section-mutation.ts): the LLM
+      //              rewrites ONE AST section (≤10KB), the replacement is
+      //              spliced back by byte offset, and the ASSEMBLED file
+      //              runs the SAME gate chain. Output stays inside the
+      //              proven envelope; the reachable surface grows ~21x.
+      //   > 256KB  → skip (AST/typecheck cost guard; nothing in the repo is
+      //              close — the largest file is self-enhance-loop at 230KB).
+      let sectionPlan: SectionMutationPlan | null = null;
+      if (originalCode.length > WHOLE_FILE_MAX_BYTES) {
+        if (originalCode.length > SECTION_MUTATION_MAX_FILE_BYTES) {
+          result.reason = `Skipped (file too large: ${originalCode.length}b > ${SECTION_MUTATION_MAX_FILE_BYTES}b — beyond even section-scoped mutation)`;
+          this.log(`Skipped ${relPath} (${originalCode.length}b — exceeds the 256KB section-mode ceiling)`, "info");
+          return result;
+        }
+        // Seed varies per attempt (branch slot) and per source sha, so
+        // successive cycles rotate through the file's sections instead of
+        // hammering the same one.
+        sectionPlan = planSectionMutation(originalCode, filePath, `${sha16(originalCode)}#${thisN}`);
+        if (!sectionPlan) {
+          result.reason = "Skipped (no eligible section: file has no AST section within the 300b-10kb mutation budget)";
+          this.log(`Skipped ${relPath} (${originalCode.length}b — no AST section within the 300b-10kb section budget)`, "info");
+          return result;
+        }
+        this.log(
+          `Section-scoped mutation: ${relPath} (${(originalCode.length / 1024).toFixed(1)}KB file) → section ${sectionPlan.section.name} (${sectionPlan.section.bytes}b ${sectionPlan.section.kind}${sectionPlan.section.parentClass ? ` of ${sectionPlan.section.parentClass}` : ""})`,
+          "info"
+        );
       }
       // 1a-ii. Skip files that are too SMALL to meaningfully enhance. A
       // sub-80-byte .ts/.tsx file is almost certainly a barrel re-export,
@@ -1707,7 +1777,11 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // Protected files are skipped: they're the gate itself (importing the
       // loop singleton in a test would have side effects).
       if (!PROTECTED_FILES.has(relPath)) {
-        await this.writeTestsForFile(filePath);
+        // Section-scoped ratchet: for large files, pin the section we're
+        // about to mutate (writeTestsForFile scopes its prompt) instead of
+        // skipping the module entirely — the pin and the mutation target
+        // the same code.
+        await this.writeTestsForFile(filePath, sectionPlan?.section);
       }
 
       // Run-token checkpoint (Fix C): if stop() fired during the ratchet,
@@ -1854,8 +1928,104 @@ ${systemTail}`;
 
       const visualPolishUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nImprove the visual presentation, accessibility, and responsiveness of this UI component. Do NOT change any logic or functionality — only styling, aria attributes, responsive breakpoints, and micro-interactions. If it already looks polished, return the file unchanged. Output the summary first, then the code.`;
 
-      const activeSystem = isVisualPolish ? visualPolishSystem : refactorSystem;
-      const activeUser = isVisualPolish ? visualPolishUser : refactorUser;
+      // ── SECTION-SCOPED PROMPTS (large files, section-mutation.ts) ────
+      // Same job categories and same gate chain as whole-file mode; only
+      // the OUTPUT CONTRACT differs: the model rewrites ONE bounded AST
+      // section, which the caller splices back by byte offset. Everything
+      // else in the file is byte-identical by construction.
+      let activeSystem: string;
+      let activeUser: string;
+      if (sectionPlan) {
+        const sec = sectionPlan.section;
+        const scopeNote = sec.parentClass
+          ? `${sec.kind} ${sec.name} of class ${sec.parentClass}`
+          : `${sec.kind} ${sec.name}`;
+        const sectionHeader = `File: ${relPath} (LARGE FILE — SECTION-SCOPED MUTATION)
+Section to improve: ${scopeNote}${sec.exported ? " (exported)" : ""}, ${sec.bytes} bytes.
+Everything else in this file stays byte-identical — your output replaces ONLY this section.`;
+        const importsBlock = sectionPlan.imports
+          ? `File imports (the ONLY identifiers available from other modules — do NOT add new imports):\n\`\`\`typescript\n${sectionPlan.imports}\n\`\`\`\n`
+          : "(The file has no imports.)\n";
+        const outlineBlock = `File outline (every other symbol in the file — do NOT redefine or rename them; call them only if they are in scope for this section):\n${sectionPlan.outline}\n`;
+        const sectionBlock = `Section to improve (replace exactly this):\n\`\`\`typescript\n${sec.text}\n\`\`\`\n`;
+
+        const sectionHardRules = `HARD RULES (violating any rule fails the pipeline):
+- Output ONLY the replacement code for the section shown — no imports, no other functions, no class wrapper, no file-level re-exports.
+- Preserve the section's exported status exactly: if it is exported, keep the export modifier; if not, do not add one.
+- Do NOT change the section's signature (name, parameter names/types, return type).
+- Use ONLY identifiers in scope: the file's imports listed above and the symbols in the file outline. If a fix would require a new import, do NOT make it — fix the issue another way, or note it in the summary and leave that issue alone.
+- Do NOT add header comments, banners, or branding.
+- Keep the change focused — only fix real issues in THIS section.
+- If there are NO real issues to fix, output the section unchanged.`;
+
+        if (isVisualPolish) {
+          const vpSectionSystem = `You are a senior frontend engineer improving ONE SECTION of a React/TypeScript UI component inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
+
+Your job: improve the VISUAL PRESENTATION and USER EXPERIENCE of this section only. Do NOT fix bugs or change logic — other cycles handle that. Focus on:
+
+1. STYLING CONSISTENCY: align spacing, padding, border-radius, font sizes with the surrounding design language. Use consistent Tailwind classes.
+2. ACCESSIBILITY: add aria-labels for icon-only buttons, ensure focus-visible states, check color contrast (avoid gray-on-gray for important text), add sr-only labels where a screen reader needs context.
+3. RESPONSIVE DESIGN: add mobile breakpoints (sm:, md:) where a layout would break on narrow screens. Ensure touch targets are ≥44px.
+4. MICRO-INTERACTIONS: add hover/focus transitions (transition-colors, duration-150), subtle scale on active states for buttons. Keep transitions short (≤200ms).
+5. VISUAL HIERARCHY: improve the information hierarchy — emphasize the primary action, de-emphasize secondary info, use consistent heading sizes.
+
+${sectionHardRules}
+- Do NOT change any event handler logic, state management, or data flow in the section — only className/style/presentation.
+
+OUTPUT FORMAT (mandatory):
+- First, write a SHORT summary (1-5 bullet points) of what you changed and why. Start with "## Changes" on its own line.
+- Then output the replacement section code in a single fenced \`\`\`typescript block.
+
+Example:
+## Changes
+- Added aria-label to icon-only close button for screen readers
+- Added focus-visible:ring-2 for keyboard navigation
+
+\`\`\`typescript
+// the replacement section ONLY
+\`\`\`
+${systemTail}`;
+          activeSystem = vpSectionSystem;
+          activeUser = `${sectionHeader}\n${importsBlock}\n${outlineBlock}\n${sectionBlock}\nImprove ONLY this section's visual presentation, accessibility, and responsiveness. Do NOT change any logic or functionality — only styling, aria attributes, responsive breakpoints, and micro-interactions. If it already looks polished, output the section unchanged. Output the summary first, then the code.`;
+        } else {
+          const refactorSectionSystem = `You are a senior code reviewer improving ONE SECTION of a large TypeScript file inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
+
+Your job: find and fix REAL issues in this section. Do NOT make cosmetic changes (type annotations, magic numbers, syntax modernization). Those are pointless. Instead, look for:
+
+1. BUGS: null/undefined crashes, missing error handling, unhandled edge cases, race conditions, off-by-one errors, resource leaks (unclosed handles)
+2. ERROR HANDLING: bare try/catch that swallows errors, missing error context, unhelpful error messages. Add actionable error messages with context.
+3. INPUT VALIDATION: functions that assume valid input and would crash or misbehave on bad input. Add guard clauses with clear errors.
+4. PERFORMANCE: obvious inefficiencies — O(n²) where O(n) works, repeated computations in loops, unnecessary allocations, synchronous I/O that could be async.
+5. SECURITY: injection risks, unsafe eval, hardcoded secrets, missing input sanitization.
+6. DEAD CODE: unused imports, unreachable branches, commented-out code.
+
+SYSTEM DIRECTION — higher-level goals (self-governed: seeded by the operator, owned, reviewed and updated by the loop's own goal review; rank above more hardening):
+This codebase is a live, long-running autonomous pipeline: a Next.js dashboard polling many APIs on timers, a background loop worker, and a WebSocket state stream. When the section offers the opportunity, spend your change budget moving these goals forward:
+${goalsBullets}
+Robustness budget rule: if this section ALREADY has its basic robustness in place (guards, error handling, validation present and correct), do NOT add more defensive null-checks — improve the design or performance instead. A fourth null-guard on already-guarded code is churn, not improvement.
+
+${sectionHardRules}
+
+OUTPUT FORMAT (mandatory):
+- First, write a SHORT summary (1-5 bullet points) of what you changed and why. Start with "## Changes" on its own line.
+- Then output the replacement section code in a single fenced \`\`\`typescript block.
+
+Example:
+## Changes
+- Added null check in parseX() — could crash on undefined input
+- Replaced bare catch with contextual error message in fetchY()
+
+\`\`\`typescript
+// the replacement section ONLY
+\`\`\`
+${systemTail}`;
+          activeSystem = refactorSectionSystem;
+          activeUser = `${sectionHeader}\n${importsBlock}\n${outlineBlock}\n${sectionBlock}${userTail}Find real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in THIS section. Fix them. Where the section's basic robustness is already in place, pursue the SYSTEM DIRECTION goals above instead (design or performance work) rather than adding more defensive checks. If nothing needs fixing, return the section unchanged. Use the file outline above to avoid breaking sibling symbols. Output the summary first, then the code.`;
+        }
+      } else {
+        activeSystem = isVisualPolish ? visualPolishSystem : refactorSystem;
+        activeUser = isVisualPolish ? visualPolishUser : refactorUser;
+      }
 
       const llmResult = await llmComplete({
         systemPrompt: activeSystem,
@@ -1924,9 +2094,69 @@ ${systemTail}`;
       // 3b. Mechanical guard: strip decorative banner comments the LLM
       // sometimes prepends to the code (defense-in-depth)
       const banner = this.stripBannerComments(refactoredCode);
-      const cleanCode = banner.code;
+      let cleanCode = banner.code;
       if (banner.stripped) {
         this.log(`Stripped decorative banner header from ${relPath} (LLM ignored the no-header rule)`, "warn");
+      }
+
+      // 3b-SECTION. Section-scoped mutations: gate the REPLACEMENT before
+      // splicing, then assemble the full file. The assembled file then
+      // flows through the unchanged pipeline below (truncation check,
+      // cosmetic check, typecheck, debate, test gate, push).
+      let sectionReplacement: string | null = null;
+      if (sectionPlan) {
+        const sec = sectionPlan.section;
+        // Whole-file-echo guard: a top-level `import` in a section
+        // replacement means the model ignored the scope contract (imports
+        // live OUTSIDE every section span). Catches the failure for the
+        // price of a regex instead of a full typecheck cycle.
+        if (replacementLooksLikeWholeFile(cleanCode)) {
+          result.reason = "Rejected (LLM echoed whole-file output for a section-scoped mutation — import statement in section replacement)";
+          this.log(`Rejected ${relPath} (section mutation returned import statements — model echoed whole-file scope)`, "warn");
+          return result;
+        }
+        // Budget guard: keeps the LLM's output inside the proven envelope
+        // (SECTION_MAX_BYTES * 1.5 ≈ 15KB) even when the fix grows the
+        // section.
+        if (!sectionReplacementWithinBudget(cleanCode)) {
+          result.reason = `Rejected (section replacement ${cleanCode.length}b exceeds the ${Math.floor(SECTION_MAX_BYTES * 1.5)}b budget)`;
+          this.log(`Rejected ${relPath} (section replacement ${cleanCode.length}b — over budget for section ${sec.name})`, "warn");
+          return result;
+        }
+        // Truncation pre-gate on the REPLACEMENT (vs the section's original
+        // text): a truncated section splices into a MID-FILE parse error
+        // that the assembled-file truncation check below cannot classify
+        // (its EOF-adjacent and length-ratio heuristics only see the whole
+        // file). Catching it here saves the full typecheck cycle and feeds
+        // the postmortem the honest root cause.
+        const secTrunc = this.checkTruncation(cleanCode, sec.text, filePath);
+        if (secTrunc.truncated) {
+          result.reason = `Rejected (LLM output truncated: ${secTrunc.reason})`;
+          this.log(`Rejected ${relPath} (section ${sec.name} replacement truncated: ${secTrunc.reason})`, "warn");
+          await postmortemStore.recordFailure({
+            repo: "self",
+            branch: "main",
+            filePath: relPath,
+            failureType: "COMPILE_ERROR",
+            symptom: `Section replacement truncated: ${secTrunc.reason}`,
+            evidence: `Section ${sec.name}: original ${sec.bytes}b, replacement ${cleanCode.length}b. The LLM hit its output token limit before finishing the section.`,
+            constraints: `The previous section-scoped refactor of ${relPath} (section ${sec.name}) was truncated. Make smaller, more targeted changes within the section.`,
+          });
+          return result;
+        }
+        // Empty-replacement guard: never splice a deletion in.
+        if (!cleanCode.trim()) {
+          result.reason = "LLM returned an empty section replacement";
+          this.log(`Rejected ${relPath} (empty replacement for section ${sec.name})`, "warn");
+          return result;
+        }
+        sectionReplacement = cleanCode;
+        const assembled = spliceSection(originalCode, sec, cleanCode);
+        this.log(
+          `Spliced ${relPath}: section ${sec.name} replaced (${sec.bytes}b → ${cleanCode.length}b); assembled file ${assembled.length}b (rest byte-identical by construction)`,
+          "info"
+        );
+        cleanCode = assembled;
       }
 
       result.llmUsed = true;
@@ -2001,7 +2231,15 @@ ${systemTail}`;
       // can't catch "added a null check that breaks the happy path." The debate
       // can. If REJECTED or REQUIRES_REWRITE, don't write.
       this.log(`Debating ${relPath} (second-LLM semantic review)...`, "info");
-      const debate = await this.debateGate(filePath, originalCode, cleanCode, changeSummary);
+      const debate = await this.debateGate(
+        filePath,
+        originalCode,
+        cleanCode,
+        changeSummary,
+        sectionPlan && sectionReplacement
+          ? { name: sectionPlan.section.name, before: sectionPlan.section.text, after: sectionReplacement }
+          : undefined
+      );
       if (!debate.approved) {
         if (debate.deferred) {
           // Tribunal unavailable — fail-closed defer (see debateGate). Not a
@@ -3183,15 +3421,15 @@ ${schemaSystemTail}`;
           // predictConfidence's visual-polish branch was dead code. Discover
           // the components directly from disk instead: the arm works without
           // widening the refactor scan scope.
-          // ELIGIBILITY FILTER (follow-up): the arm's first firing after the
-          // dead-arm fix targeted defense-panel.tsx (19.5KB) and was auto-
-          // skipped by enhanceFile's 12KB mutation ceiling — recorded as a
-          // "fail" for a file that never had a chance. 10 of the 12 pipeline
-          // components are over the ceiling, so most firings would burn
-          // their slot on a guaranteed skip. Filter to files under the SAME
-          // ceiling enhanceFile enforces (MAX_FILE_BYTES, see the enhance
-          // path) BEFORE rotating, so every firing targets a file the gate
-          // chain will actually run on. 11 components currently qualify.
+          // ELIGIBILITY FILTER (updated for section mode): the arm's first
+          // firing after the dead-arm fix targeted defense-panel.tsx (19.5KB)
+          // and was auto-skipped by enhanceFile's old 12KB whole-file ceiling
+          // — recorded as a "fail" for a file that never had a chance. 10 of
+          // the 12 pipeline components are over 12KB, so the filter kept the
+          // arm circling a 2-file island. Section-scoped mutation lifts the
+          // effective ceiling to 256KB (≤12KB files use whole-file mode,
+          // larger files get ONE AST section polished per firing), so every
+          // non-protected component is now reachable.
           const uiDir = join(PROJECT_ROOT, "src", "components", "pipeline");
           const uiFiles = existsSync(uiDir)
             ? readdirSync(uiDir)
@@ -3200,7 +3438,9 @@ ${schemaSystemTail}`;
                 .filter((f) => !isProtectedPath(relative(PROJECT_ROOT, f)))
                 .filter((f) => {
                   try {
-                    return statSync(f).size <= 12000; // match enhanceFile's MAX_FILE_BYTES
+                    // match enhanceFile's tiered ceiling: ≤12KB whole-file,
+                    // ≤256KB section-scoped
+                    return statSync(f).size <= SECTION_MUTATION_MAX_FILE_BYTES;
                   } catch {
                     return false;
                   }
@@ -3208,7 +3448,7 @@ ${schemaSystemTail}`;
             : [];
           if (uiFiles.length === 0) {
             this.log(
-              "Visual-polish pre-pass: no eligible UI component under the 12KB mutation ceiling — skipping this cycle",
+              "Visual-polish pre-pass: no eligible UI component under the 256KB mutation ceiling — skipping this cycle",
               "info"
             );
           } else {
@@ -3217,7 +3457,7 @@ ${schemaSystemTail}`;
             const pick = uiFiles[this.stats.cyclesCompleted % uiFiles.length];
             const pickRel = relative(PROJECT_ROOT, pick);
             this.log(
-              `Visual-polish mode: targeting ${pickRel} (${uiFiles.length} eligible component(s) under the 12KB ceiling)`,
+              `Visual-polish mode: targeting ${pickRel} (${uiFiles.length} eligible component(s) — small ones whole-file, large ones section-scoped)`,
               "info"
             );
             // SELF-MODEL (audit 7): open a prediction + record the outcome
