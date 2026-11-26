@@ -35,14 +35,14 @@ export function OracleTaskFeedPanel() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const lastFetchTimeRef = useRef<number>(0);
+  const _lastFetchTimeRef = useRef<number>(0);
 
   const fetchTasks = useCallback(async (isInitialLoad: boolean = false) => {
-    const now = Date.now();
-    if (!isInitialLoad && now - lastFetchTimeRef.current < 1000) {
+    const _now = Date.now();
+    if (!isInitialLoad && _now - _lastFetchTimeRef.current < 1000) {
       return;
     }
-    lastFetchTimeRef.current = now;
+    _lastFetchTimeRef.current = _now;
 
     if (!isInitialLoad && isRefreshing) return;
     
@@ -96,7 +96,7 @@ export function OracleTaskFeedPanel() {
         setIsLoadingInitial(false);
       }
     }
-  }, []); // Removed isRefreshing from dependency array as state updates are managed internally
+  }, []);
 
   useEffect(() => {
     // Initial load runs first

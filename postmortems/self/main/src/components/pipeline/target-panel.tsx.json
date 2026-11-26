@@ -8,12 +8,12 @@
   "symptom": "Refactored code failed in-memory typecheck: [AST_SYMBOL_DROPPED] Dropped 1 original symbol(s): btnStyle",
   "evidence": "Original: 10641 bytes, Refactored: 10939 bytes. Errors: [AST_SYMBOL_DROPPED] Dropped 1 original symbol(s): btnStyle",
   "constraints": "The previous refactor of src/components/pipeline/target-panel.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
-  "attempts": 31,
-  "parentHash": "4ccffe61b5bcd12b4723940e142c771fa76f6fab125d1dbf4f47766fa7a80fdd",
-  "hash": "a95e70ace09e1c256ceddbf5f74a946cb787aa9296f9a62f0aa0b8f5daefe7cd",
-  "lastAttemptAt": "2026-11-26T09:54:28.868Z",
+  "attempts": 32,
+  "parentHash": "8663aade2fda45d406ff409acf8712eb12d4f9abb02d2c4d08ffe145a73c7bd7",
+  "hash": "c21b19e53215c9a7d6faee9abda8dbcc0f4b5272cc132c1de0bd6ac156c5ff83",
+  "lastAttemptAt": "2026-11-26T10:54:18.896Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.441Z",
-  "updatedAt": "2026-11-26T09:54:28.868Z",
+  "updatedAt": "2026-11-26T10:54:18.896Z",
   "schema": 2
 }
