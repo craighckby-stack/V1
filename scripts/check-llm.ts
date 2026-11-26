@@ -11,14 +11,14 @@ async function main() {
       console.warn("LLM configuration record with id 'singleton' not found in the database.");
     }
   } catch (e: unknown) {
-    let errorMessage = "An unknown error occurred during LLM configuration check.";
+    let errorMessage: string;
     
     if (e instanceof Error) {
       errorMessage = e.message;
     } else if (typeof e === 'string') {
       errorMessage = e;
     } else {
-      // Handle other types (e.g., objects without Error interface) safely
+      // Handle other types (e.g., objects without Error interface) safely by stringifying
       errorMessage = String(e);
     }
     
