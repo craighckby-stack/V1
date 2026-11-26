@@ -85,11 +85,12 @@ export function BranchesPanel({ open, onClose }: Props) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    (async () => {
+    
+    const fetchData = async () => {
       try {
         const res = await fetch("/api/branches?details=1", { cache: "no-store" });
         if (!res.ok) {
-          throw new Error(`Failed to fetch branches: HTTP status ${res.status}`);
+          throw new Error(`Failed to fetch branches: HTTP status ${res.status} for endpoint /api/branches`);
         }
         const json = (await res.json()) as BranchesData;
         if (!cancelled) {
@@ -97,11 +98,14 @@ export function BranchesPanel({ open, onClose }: Props) {
           setLastFetchAt(Date.now());
         }
       } catch (err) {
-        if (!cancelled) setError((err as Error).message);
+        if (!cancelled) setError(`Error fetching branches: ${(err as Error).message}`);
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
+    };
+
+    fetchData();
+
     return () => {
       cancelled = true;
     };
