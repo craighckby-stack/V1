@@ -14,6 +14,8 @@ async function main() {
     let errorMessage = "An unknown error occurred during LLM configuration check.";
     if (e instanceof Error) {
       errorMessage = e.message;
+    } else if (typeof e === 'string') {
+      errorMessage = e;
     }
     // Improved error context for database operation failure
     console.error("CRITICAL: Error during LLM configuration check (DB access failed). Ensure database connection is active and schema is correct.", errorMessage);
