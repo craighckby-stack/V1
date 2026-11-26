@@ -29,7 +29,6 @@ export interface TargetRepoConfig {
   repo: string;
   /** Base branch mutations are derived from. null = repo default. */
   branch: string | null;
-  updatedAt: string;
 }
 
 export type TargetRunStatus =
@@ -87,7 +86,7 @@ export async function getTargetConfig(): Promise<TargetRepoConfig | null> {
     const parsed = JSON.parse(row.value) as TargetRepoConfig;
     
     // Validate parsed object structure and required fields
-    if (!parsed || typeof parsed !== 'object' || !parsed.repo || !parsed.updatedAt || !validTargetRepoFormat(parsed.repo)) {
+    if (!parsed || typeof parsed !== 'object' || !parsed.repo || !validTargetRepoFormat(parsed.repo)) {
       console.error(`Target config found but invalid format for key ${CONFIG_KEY}. Missing required fields or invalid repo format. Parsed data:`, parsed);
       return null;
     }
@@ -136,7 +135,6 @@ export async function setTargetConfig(
   const config: TargetRepoConfig = {
     repo,
     branch: branchValue,
-    updatedAt: new Date().toISOString(),
   };
 
   // Use transaction to ensure atomic update
@@ -149,7 +147,6 @@ export async function setTargetConfig(
           value: JSON.stringify(config),
           setBy: "target-mode",
           reason: "operator set target repository",
-          updatedAt: config.updatedAt,
         },
       });
     } else {
@@ -159,7 +156,6 @@ export async function setTargetConfig(
           value: JSON.stringify(config),
           setBy: "target-mode",
           reason: "operator set target repository",
-          updatedAt: config.updatedAt,
         },
       });
     }
@@ -225,9 +221,12 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
     const now = new Date().toISOString();
     await db.$transaction(async (tx) => {
       const existing = await tx.systemFlag.findUnique({ where: { key: LAST_RUN_KEY } });
-      const dataToStore = {
+      
+      // Create a copy of rec and add necessary audit fields, ensuring we only add fields defined in TargetRunRecord
+      const dataToStore: TargetRunRecord = {
         ...rec,
-        updatedAt: now, // Ensure consistent timestamp
+        at: rec.at, // Preserve original 'at' from input record
+        reason: rec.reason || `run ${rec.status}`, // Use provided reason or default
       };
       
       if (existing) {
@@ -237,7 +236,7 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
             value: JSON.stringify(dataToStore),
             setBy: "target-mode",
             reason: `run ${rec.status}`,
-            updatedAt: now,
+            updatedAt: now, // Keep updatedAt for DB tracking, even if not in TargetRunRecord interface
           },
         });
       } else {
