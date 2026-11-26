@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/oracle-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 20 → evolved 22), no behavioral signal, 24 changed lines — mutations must change observable behavior, not add guards to code that already works",
@@ -12,8 +12,8 @@
   "parentHash": "3fd8a4fa40fb8134cbf60083237df555f9ce627c1a3b939a3dbd8a3260217366",
   "hash": "14b83cb8e52f5b9e173fdd9b3f4d2f3ee56ea08f92ccf61b19bbbe7ac95e72cc",
   "lastAttemptAt": "2026-11-26T07:06:32.762Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T08:02:43.563Z",
   "createdAt": "2026-11-26T06:45:07.480Z",
-  "updatedAt": "2026-11-26T07:06:32.762Z",
+  "updatedAt": "2026-11-26T08:02:43.563Z",
   "schema": 2
 }

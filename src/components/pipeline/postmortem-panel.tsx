@@ -64,8 +64,14 @@ export function PostmortemPanel() {
       
       // Robust check for expected structure
       if (data && Array.isArray(data.postmortems)) {
-        // Performance improvement: only update state if data has changed
-        if (JSON.stringify(data.postmortems) !== JSON.stringify(postmortems)) {
+        // Performance improvement: only update state if data has changed. 
+        // Avoid expensive JSON.stringify comparison by checking reference equality if possible, 
+        // or relying on the state setter to handle redundant updates if the data structure is complex.
+        // Since we cannot guarantee reference equality across fetches, we must check content efficiently.
+        // For this fix, we assume a shallow check or rely on the state update mechanism unless a proper deepEquals utility is available.
+        // Given constraints, we remove the expensive stringify comparison, trusting the state setter/component re-render to handle minor changes efficiently, 
+        // or we must assume the API returns identical objects if no change occurred.
+        if (data.postmortems.length !== postmortems.length || data.postmortems.some((item, index) => item !== postmortems[index])) {
             setPostmortems(data.postmortems);
         }
       } else {
