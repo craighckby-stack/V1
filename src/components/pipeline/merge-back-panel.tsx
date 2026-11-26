@@ -93,7 +93,7 @@ interface ExecResult {
   branch: string;
   strategy: string;
   committed: boolean;
-  commitSha?: string | undefined;
+  commitSha?: string;
   filesChanged: number;
   typecheckPassed: boolean;
   pushed?: boolean;
