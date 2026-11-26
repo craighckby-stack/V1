@@ -186,17 +186,15 @@ export function deriveLogPaths(
   const ext = extMap[format];
   
   // Clean basePath if provided, otherwise use DEFAULT_BASE_PATH
-  const cleanBase = (basePath && basePath.trim().length > 0) 
-    ? basePath.trim().replace(/^\/+/, '') 
-    : DEFAULT_BASE_PATH.replace(/^\/+/, '');
+  const inputBase = basePath && basePath.trim().length > 0 ? basePath.trim() : DEFAULT_BASE_PATH;
   
-  // If cleanBase is empty after cleaning (e.g., input was just slashes), use DEFAULT_BASE_PATH cleaned version
-  const finalBase = cleanBase || DEFAULT_BASE_PATH.replace(/^\/+/, '');
-
-  const lastSlash = finalBase.lastIndexOf('/');
-  // Ensure dir is correctly set, even if finalBase is just a filename (lastSlash = -1)
-  const dir = lastSlash >= 0 ? finalBase.slice(0, lastSlash + 1) : '';
-  const file = lastSlash >= 0 ? finalBase.slice(lastSlash + 1) : finalBase;
+  // Ensure no leading slashes are present for consistent path manipulation
+  const cleanBase = inputBase.replace(/^\/+/, '');
+  
+  const lastSlash = cleanBase.lastIndexOf('/');
+  // Ensure dir is correctly set, even if cleanBase is just a filename (lastSlash = -1)
+  const dir = lastSlash >= 0 ? cleanBase.slice(0, lastSlash + 1) : '';
+  const file = lastSlash >= 0 ? cleanBase.slice(lastSlash + 1) : cleanBase;
   
   // Stem calculation: remove known extensions, default to 'commit-history' if no recognizable stem remains
   const stem =
