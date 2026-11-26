@@ -440,7 +440,7 @@ Output the COMPLETE new content for this file with the improvement applied.`;
     say(`creating branch ${branchName} from ${baseRef}...`);
     const ensured = await ensureTargetBranch(repo, branchName, baseRef, token);
     if (!ensured.ok) {
-      const errorReason = ensured.error || "Unknown branch creation error";
+      const errorReason = ensured.error ?? "Unknown branch creation error";
       await recordTargetRun({ at: new Date().toISOString(), repo, status: "failed", file, branch: branchName, reason: errorReason });
       return { ok: false, status: "failed", repo, file, branch: branchName, error: errorReason, log };
     }
