@@ -268,6 +268,10 @@ export async function seedCandidateLesson(
   systemTag: string,
   source: "dropbox" | "autofork",
 ): Promise<string | null> {
+  if (!content || content.trim().length === 0) {
+    console.error(`Cannot seed candidate lesson: content is empty for source ${source} with system tag ${systemTag}.`);
+    return null;
+  }
   try {
     const row = await db.lesson.create({
       data: {
@@ -284,8 +288,8 @@ export async function seedCandidateLesson(
     });
     return row.id;
   } catch (error) {
-    // Log the specific error for debugging pipeline failures, but return null as per signature contract.
-    console.error(`Failed to seed candidate lesson from source ${source} with system tag ${systemTag}:`, error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to seed candidate lesson from source ${source} with system tag ${systemTag}. Error: ${errorMessage}`);
     return null;
   }
 }

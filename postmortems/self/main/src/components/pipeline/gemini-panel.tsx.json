@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/gemini-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/src/components/pipeline/gemini-panel.tsx:234:16 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
@@ -12,8 +12,8 @@
   "parentHash": "406b22b9abbb0c2f20ef9e2917b6f4de23742f6cea7b312796f22949de095e1f",
   "hash": "f0ca22d6503c379115d79d2a5b80829673428c1d2444090c395b84584a1648cc",
   "lastAttemptAt": "2026-11-26T04:24:14.236Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T05:18:41.878Z",
   "createdAt": "2026-11-26T04:24:14.237Z",
-  "updatedAt": "2026-11-26T04:24:14.237Z",
+  "updatedAt": "2026-11-26T05:18:41.878Z",
   "schema": 2
 }
