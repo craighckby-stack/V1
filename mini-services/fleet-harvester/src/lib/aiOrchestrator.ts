@@ -82,11 +82,11 @@ function buildSystemInstruction(): string {
   return (
     "You are an automated git commit history classifier. Determine whether " +
     "each commit represents a healthy/successful change (\"successful\") " +
-    "or a broken/reverted/WIP/failing change (\"failed\"). Return concise " +
-    "reasons and short engineering footprint labels. " +
-    "Return valid JSON matching " +
+    "or a broken/reverted/WIP/failing change (\"failed\"). " +
+    "Provide concise reasons and short engineering footprint labels for each commit. " +
+    "You MUST return a single, valid JSON object matching the following schema: " +
     "{\"verdicts\":[{\"sha\":\"...\",\"classification\":\"successful|failed\"," +
-    "\"confidence\":\"high|medium|low\",\"footprint\":\"...\",\"reason\":\"...\"}]}."
+    "\"confidence\":\"high|medium|low\",\"footprint\":\"...\",\"reason\":\"...\"}]}"
   );
 }
 
