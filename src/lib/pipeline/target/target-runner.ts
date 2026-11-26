@@ -262,7 +262,7 @@ export async function runTargetMutation(opts?: {
   }
 
   // 9. Generate the proposal.
-  const systemPrompt = `You are a careful senior engineer improving ONE file of an external repository. The file has static-analysis findings. Make ONE focused improvement that addresses the highest-priority finding(s), keeping everything else byte-identical.
+  const systemPrompt = `You are a careful senior engineer improving ONE file of an external repository. The file has static-analysis findings. Make ONE focused improvement that addresses the highest-priority finding(s), prioritizing changes that reduce polling latency, batch related fetches, or make state updates more efficient, while keeping everything else byte-identical.
 
 Rules:
 - Output ONLY the complete new file content in a single fenced code block
