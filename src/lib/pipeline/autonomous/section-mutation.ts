@@ -300,6 +300,7 @@ export function extractSections(
     exported: boolean,
     owner: string | null
   ): void => {
+    if (!node) return;
     const start = node.getStart(sf);
     const bytes = node.end - start;
     if (eligible(bytes)) {

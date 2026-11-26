@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/defense-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 16 → evolved 18), no behavioral signal, 8 changed lines — mutations must change observable behavior, not add guards to code that already works",
@@ -12,8 +12,8 @@
   "parentHash": "c83fdbc13b464cc1d0d1a8954839a635a835fb3b8567c81347073441b3b83930",
   "hash": "21347e7bc26e1972a3cc3e84daee805140241f88e445c3dfe5b428ec5bac1b16",
   "lastAttemptAt": "2026-11-26T07:10:20.591Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T08:05:44.101Z",
   "createdAt": "2026-11-26T06:45:07.476Z",
-  "updatedAt": "2026-11-26T07:10:20.591Z",
+  "updatedAt": "2026-11-26T08:05:44.101Z",
   "schema": 2
 }
