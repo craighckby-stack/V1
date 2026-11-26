@@ -410,7 +410,7 @@ export function NvidiaPanel({ open, onClose }: Props) {
               value={key}
               onChange={(e) => setKey(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !loading) void save();
+                if (e.key === "Enter" && !loading) save();
               }}
               placeholder="nvapi-... (from build.nvidia.com)"
               autoComplete="off"
@@ -454,7 +454,7 @@ export function NvidiaPanel({ open, onClose }: Props) {
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
           <button
             type="button"
-            onClick={() => void save()}
+            onClick={save}
             disabled={loading}
             style={{
               ...btnStyle,
@@ -469,7 +469,7 @@ export function NvidiaPanel({ open, onClose }: Props) {
           {nvCfg?.configured && (
             <button
               type="button"
-              onClick={() => void rebootNow()}
+              onClick={rebootNow}
               disabled={loading || rebooting}
               style={{
                 ...btnStyle,
@@ -485,7 +485,7 @@ export function NvidiaPanel({ open, onClose }: Props) {
           {nvCfg?.configured && (
             <button
               type="button"
-              onClick={() => void clear()}
+              onClick={clear}
               disabled={loading}
               style={{
                 ...btnStyle,
