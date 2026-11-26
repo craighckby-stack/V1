@@ -8,12 +8,12 @@
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/self-model-panel.tsx(482,31): error TS2551: Property 'failss' does not exist on type '{ attempts: number; passes: number; fails: number; zeroDiffs: number; }'. Did you mean 'fails'?",
   "evidence": "Original: 23083 bytes, Refactored: 23082 bytes. Errors: src/components/pipeline/self-model-panel.tsx(482,31): error TS2551: Property 'failss' does not exist on type '{ attempts: number; passes: number; fails: number; zeroDiffs: number; }'. Did you mean 'fails'?",
   "constraints": "The previous refactor of src/components/pipeline/self-model-panel.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
-  "attempts": 1,
-  "parentHash": "6f2fab468cbd8f5e66f7c9772cbf15700ead27502a466cc05528b07da188418e",
-  "hash": "5a6585c41b7a02902868e4fee6095c9272ea0cfc68b81664799bbe2f63dfcce0",
-  "lastAttemptAt": "2026-11-26T05:15:21.174Z",
+  "attempts": 2,
+  "parentHash": "9bbc033c61cd71deaa8628ccdadffd47bc8fda0f077388662895f5dade6b5d78",
+  "hash": "7f4ed2ccefd383f05faa37437c8cce7155dd7330266c416c2eca2aadeaa822d2",
+  "lastAttemptAt": "2026-11-26T06:14:01.433Z",
   "resolvedAt": null,
   "createdAt": "2026-11-26T05:15:21.175Z",
-  "updatedAt": "2026-11-26T05:15:21.175Z",
+  "updatedAt": "2026-11-26T06:14:01.433Z",
   "schema": 2
 }

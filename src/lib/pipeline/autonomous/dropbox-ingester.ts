@@ -412,13 +412,17 @@ export async function getDropboxStatus(): Promise<{
       where: { source: "dropbox" },
       select: { system: true, active: true },
     });
-    candidateLessons = lessons.filter((l) => l.active).length;
+    
+    const activeLessons = lessons.filter((l) => l.active);
+    candidateLessons = activeLessons.length;
+
     for (const l of lessons) {
       const sys = l.system ?? "untitled";
       bySystemMap.set(sys, (bySystemMap.get(sys) ?? 0) + 1);
     }
-  } catch {
-    /* DB unavailable */
+  } catch (error) {
+    // Log error context instead of silently swallowing it
+    console.error("Error fetching Dropbox lessons from DB:", error instanceof Error ? error.message : String(error));
   }
 
   return {
