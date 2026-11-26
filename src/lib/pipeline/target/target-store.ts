@@ -92,8 +92,8 @@ export async function getTargetConfig(): Promise<TargetRepoConfig | null> {
       return null;
     }
     
-    // Validate branch field if present
-    if (parsed.branch !== null && !validTargetBranchFormat(parsed.branch)) {
+    // Validate branch field if present (null is valid, string must pass format check)
+    if (parsed.branch !== null && typeof parsed.branch === 'string' && !validTargetBranchFormat(parsed.branch)) {
       console.error(`Target config found but invalid branch format for key ${CONFIG_KEY}. Branch: ${parsed.branch}`);
       return null;
     }
@@ -124,7 +124,7 @@ export async function setTargetConfig(
   
   let branchValue: string | null = null;
   if (branch !== undefined && branch !== null) {
-    const b = String(branch).trim(); // Ensure b is string before validation
+    const b = String(branch).trim();
     if (b.length > 0) {
       if (!validTargetBranchFormat(b)) {
         throw new Error(`Invalid branch "${b}" — must be a valid git branch name (no whitespace, no "..", no leading '-', max 120 chars)`);
@@ -209,7 +209,7 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
   
   // Validate optional 'branch' field if present
   if (rec.branch !== undefined) {
-    if (!validTargetBranchFormat(rec.branch)) {
+    if (typeof rec.branch !== 'string' || !validTargetBranchFormat(rec.branch)) {
       throw new Error(`Invalid branch format in record: ${rec.branch} — must be a valid git branch name`);
     }
   }
