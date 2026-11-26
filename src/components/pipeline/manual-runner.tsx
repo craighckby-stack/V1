@@ -455,13 +455,15 @@ export function ManualPipelineRunner() {
               variant="outline"
               size="sm"
               onClick={() => {
-                const r = usePipelineStore.getState().pipelineReport!;
-                setInspectorFile({
-                  path: r.config.filePath,
-                  original: r.originalCode,
-                  evolved: r.evolvedCode,
-                  report: r,
-                });
+                const r = usePipelineStore.getState().pipelineReport;
+                if (r) {
+                  setInspectorFile({
+                    path: r.config.filePath,
+                    original: r.originalCode,
+                    evolved: r.evolvedCode,
+                    report: r,
+                  });
+                }
               }}
               className="bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-200"
             >
@@ -478,7 +480,7 @@ export function ManualPipelineRunner() {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = selectedPath.split("/").pop() || "snippet.txt";
+                a.download = selectedPath?.split("/").pop() || "snippet.txt";
                 a.click();
                 URL.revokeObjectURL(url);
               }}
