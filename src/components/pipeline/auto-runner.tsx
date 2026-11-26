@@ -163,7 +163,7 @@ export function AutoPipelineRunner() {
   }
 
   async function runAuto() {
-    if (!form.repo.trim()) {
+    if (!form.repo?.trim()) {
       toast({
         title: "No repository",
         description: "Enter the target repository (owner/repo).",
@@ -207,7 +207,8 @@ export function AutoPipelineRunner() {
       });
       const pickData = (await pickRes.json()) as PickResponse | { ok: false; error: string };
       if (!pickRes.ok || !("ok" in pickData) || pickData.ok !== true) {
-        throw new Error(("error" in pickData && pickData.error) || `Pick failed (HTTP ${pickRes.status})`);
+        const errorMessage = ("error" in pickData && pickData.error) || `Pick failed (HTTP ${pickRes.status})`;
+        throw new Error(errorMessage);
       }
       setPickResult(pickData);
       setPhase("pick", "done");
