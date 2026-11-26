@@ -39,8 +39,8 @@ async function main() {
   for (const t of p2) console.log(`  [${t.kind}] ${t.filePath}:${t.line} deferred=${t.deferred}`);
 }
 main().catch(e => {
-  // Improved error logging to include context about the pipeline failure
   const errorMessage = e instanceof Error ? e.message : String(e);
-  console.error(`Error executing main pipeline function: ${errorMessage}. Check database connection or query logic. Stack: ${e instanceof Error ? e.stack : 'N/A'}`);
+  const stack = e instanceof Error ? e.stack || 'N/A' : 'N/A';
+  console.error(`Error executing main pipeline function: ${errorMessage}. Check database connection or query logic. Stack: ${stack}`);
   process.exit(1);
 });
