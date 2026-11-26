@@ -135,11 +135,11 @@ function readSeeds(): SeedEntry[] {
     return parsed.filter((s): s is SeedEntry => typeof s.repo === "string" && s.enabled !== false);
   } catch (error) {
     if (error instanceof SyntaxError) {
-      console.error(`[autofork-ingester] Failed to parse JSON from seeds file ${SEEDS_PATH}:`, error.message);
+      console.error(`[autofork-ingester] Failed to parse JSON from seeds file ${SEEDS_PATH}. Check file syntax:`, error.message);
     } else if (error instanceof Error) {
-      console.error(`[autofork-ingester] Failed to read or process seeds file ${SEEDS_PATH}:`, error.message);
+      console.error(`[autofork-ingester] Failed to read or process seeds file ${SEEDS_PATH}. Check file existence/permissions:`, error.message);
     } else {
-      console.error(`[autofork-ingester] Failed to read or process seeds file ${SEEDS_PATH}:`, String(error));
+      console.error(`[autofork-ingester] An unknown error occurred while reading seeds file ${SEEDS_PATH}:`, String(error));
     }
     return [];
   }
