@@ -218,14 +218,14 @@ export async function probeConnectivity(): Promise<boolean> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 4000);
   try {
-    const res = await fetch("https://api.github.com", {
+    await fetch("https://api.github.com", {
       method: "HEAD",
       signal: ctrl.signal,
       headers: { "User-Agent": "LOOP-net-status-probe" },
       cache: "no-store",
     });
     clearTimeout(timer);
-    return res.status >= 0;
+    return true;
   } catch {
     clearTimeout(timer);
     // Catch aborts, network errors, etc.
@@ -253,7 +253,6 @@ export async function ensureOnlineForPush(): Promise<boolean> {
   if (recovered) {
     return true;
   }
-  // If not recovered, we return the result of the probe (up).
-  // If recovered is false, the state is still offline, and we return the probe result.
+  // If not recovered, the state is still offline. We return the probe result (up).
   return up;
 }
