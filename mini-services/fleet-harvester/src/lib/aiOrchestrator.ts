@@ -240,10 +240,6 @@ async function callZaiBatch(
     raceWithTimeout(
       zai.chat.completions.create({
         messages: [
-          // role: "system" (not "assistant") — the original Gemini version
-          // used a system-instruction channel; stuffing the same text into an
-          // assistant pre-message degraded instruction adherence. The SDK
-          // accepts role: "system" and passes it through to the chat API.
           { role: "system", content: buildSystemInstruction() },
           { role: "user", content: `Classify these git commits:\n${userPrompt}` },
         ],
@@ -254,7 +250,12 @@ async function callZaiBatch(
     ),
   );
 
-  const rawText = (completion?.choices?.[0]?.message?.content ?? "").trim();
+  if (!completion?.choices?.[0]?.message?.content) {
+    // Handle case where completion succeeded but content is missing (e.g., empty response body)
+    return { verdicts: [], modelUsed: "unknown", parseError: "LLM returned a successful response but no content was present." };
+  }
+
+  const rawText = (completion.choices[0].message.content ?? "").trim();
   // The SDK may expose completion.model; fall back to a named constant.
   const FALLBACK_MODEL_ID = "zai-web-dev";
   const modelUsed =
