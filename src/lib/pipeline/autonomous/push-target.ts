@@ -243,7 +243,15 @@ interface StoredTarget {
 /** Serialize pushes — the loop and manual pushes share one repo. */
 let pushInProgress = false;
 
-/** GitHub REST helper — authenticated requests use their own (high) quota. */
+/** GitHub REST helper — authenticated requests use their own (high) quota.
+ *  AUDIT C (2026-11-26): every GitHub fetch now carries a 15s timeout
+ *  (AbortSignal.timeout). The old bare fetch could hang INDEFINITELY on
+ *  a stalled TCP connection — the loop's push path stalls behind it, the
+ *  cycle never completes, the heartbeat goes stale, and the extinction
+ *  alert fires on what is actually one wedged socket. 15s covers a normal
+ *  REST round trip (~200-800ms) with 20x headroom. No ghFetch caller
+ *  passes its own signal (verified — /user, /repos, repo-create POSTs),
+ *  so the timeout can be applied unconditionally. */
 async function ghFetch(
   path: string,
   token: string,
@@ -258,6 +266,7 @@ async function ghFetch(
       "X-GitHub-Api-Version": "2022-11-28",
       ...(init?.headers ?? {}),
     },
+    signal: AbortSignal.timeout(15_000),
   });
 }
 
@@ -1580,6 +1589,9 @@ export async function reconcileBranchNumberFromGitHub(): Promise<number> {
             Accept: "application/vnd.github.v3+json",
             "User-Agent": "Architecture-Helper-Pipeline",
           },
+          // AUDIT C (2026-11-26): 15s timeout — a hung branch-list page
+          // wedges the whole mutation-branch reconciliation loop.
+          signal: AbortSignal.timeout(15_000),
         }
       );
       if (!res.ok) return max > 0 ? max : 0;
@@ -1653,6 +1665,9 @@ async function fetchLiveLoopBranches(): Promise<
             Accept: "application/vnd.github.v3+json",
             "User-Agent": "Architecture-Helper-Pipeline",
           },
+          // AUDIT C (2026-11-26): 15s timeout — same as above; this is the
+          // branch-enumeration variant that feeds branch retention.
+          signal: AbortSignal.timeout(15_000),
         }
       );
       if (!res.ok) return Object.assign(out, { maxNumber, truncated });
@@ -1755,6 +1770,9 @@ async function fetchBranchCommitDate(
           Accept: "application/vnd.github.v3+json",
           "User-Agent": "Architecture-Helper-Pipeline",
         },
+        // AUDIT C (2026-11-26): 15s timeout — the commit-date lookup feeds
+        // the retention drain; a wedged one stalls branch cleanup forever.
+        signal: AbortSignal.timeout(15_000),
       }
     );
     if (!res.ok) return { fetched: false, date: null };
@@ -2183,6 +2201,10 @@ export async function pruneOldLoopBranches(
           Accept: "application/vnd.github.v3+json",
           "User-Agent": "Architecture-Helper-Pipeline",
         },
+        // AUDIT C (2026-11-26): 30s timeout — DELETEs are slower than reads
+        // (ref-lock contention on GitHub's side); 2x the read budget. A
+        // hung DELETE wedged the whole sequential drain loop.
+        signal: AbortSignal.timeout(30_000),
       });
     } catch (err) {
       result.failed.push({ branch, status: 0, error: (err as Error).message.slice(0, 200) });

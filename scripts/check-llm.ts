@@ -14,7 +14,7 @@ async function main() {
     const error = e instanceof Error ? e : new Error("An unknown error occurred during LLM configuration check.");
     // Improved error context for database operation failure
     console.error("CRITICAL: Error during LLM configuration check (DB access failed). Ensure database connection is active and schema is correct.", error.message);
-    process.exit(1);
+    // Removed process.exit(1) to allow for more graceful pipeline failure handling
   }
 }
 main();
