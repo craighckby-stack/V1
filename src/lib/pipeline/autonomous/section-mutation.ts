@@ -216,14 +216,17 @@ export function extractSections(
   ): { name: string; kind: string } | null => {
     const at = lineOf(stmt.getStart(sf));
     if (ts.isVariableStatement(stmt)) {
-      const d = stmt.declarationList.declarations[0];
-      if (d && ts.isIdentifier(d.name)) {
-        return {
-          name: d.name.text,
-          kind: d.initializer && (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
-            ? "arrow-fn"
-            : "const",
-        };
+      const declarations = stmt.declarationList.declarations;
+      if (declarations.length > 0) {
+        const d = declarations[0];
+        if (d && ts.isIdentifier(d.name)) {
+          return {
+            name: d.name.text,
+            kind: d.initializer && (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
+              ? "arrow-fn"
+              : "const",
+          };
+        }
       }
       return { name: `var@L${at}`, kind: "const" };
     }
