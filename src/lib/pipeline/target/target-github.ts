@@ -370,7 +370,8 @@ export function nextTargetBranchNumber(branches: string[]): number {
 type DiffOp = { op: " " | "-" | "+"; text: string };
 
 function lcsDiff(a: string[], b: string[]): DiffOp[] {
-  // Size guard: ~10M-cell DP is too slow — fall back to a replace hunk.
+  // Heuristic guard: If the product exceeds a threshold where O(MN) DP becomes prohibitively slow/memory intensive.
+  // 10M is a reasonable practical limit for typical Node.js heap constraints in a pipeline context.
   if (a.length * b.length > 10_000_000) {
     return [
       ...a.map((t) => ({ op: "-" as const, text: t })),
@@ -383,7 +384,8 @@ function lcsDiff(a: string[], b: string[]): DiffOp[] {
   const dp = new Int32Array((m + 1) * (n + 1));
   for (let i = m - 1; i >= 0; i--) {
     for (let j = n - 1; j >= 0; j--) {
-      dp[i * (n + 1) + j] =
+      const idx = i * (n + 1) + j;
+      dp[idx] =
         a[i] === b[j]
           ? dp[(i + 1) * (n + 1) + j + 1] + 1
           : Math.max(dp[(i + 1) * (n + 1) + j], dp[i * (n + 1) + j + 1]);
