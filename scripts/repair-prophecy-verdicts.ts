@@ -69,12 +69,6 @@ async function main(): Promise<void> {
       continue;
     }
 
-    // Validate essential metadata before proceeding to DB lookups
-    if (typeof meta.cycleNumber !== "number" && meta.sameAttempt === true) {
-        // If sameAttempt is true but cycleNumber is missing/invalid, we treat it as a general search case below,
-        // but we must ensure we don't proceed with sameAttempt logic if cycleNumber is unusable.
-    }
-
     // Same lookup semantics as the evaluator's retroactive check.
     let attempt: { cycleNumber: number; gateOutcome: string } | null = null;
     try {
