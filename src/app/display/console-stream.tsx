@@ -324,7 +324,7 @@ export function ConsoleStream({ lines, logRef, onScroll }: ConsoleStreamProps) {
             {line.type === "log" && typeof line.ts === "string" && line.ts.length > 0 && (
               <span style={{ color: DIM_COLOR }}>[{formatTs(line.ts)}]{" "}</span>
             )}
-            {line.text || "\u00a0"}
+            {line.text ?? "\u00a0"}
           </div>
         );
       })}
