@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/defense-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/src/components/pipeline/defense-panel.tsx:284:18 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
@@ -12,8 +12,8 @@
   "parentHash": "05d246240e6ff781c826117f9d08201a3b7aad64f61122c70163f83d660c8147",
   "hash": "0f72cd67ff0393d2163b7bd730c44a3b388b66bc827da06812dab73afadd1211",
   "lastAttemptAt": "2026-11-26T09:32:37.821Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T10:32:13.139Z",
   "createdAt": "2026-11-26T06:45:07.476Z",
-  "updatedAt": "2026-11-26T09:32:37.821Z",
+  "updatedAt": "2026-11-26T10:32:13.139Z",
   "schema": 2
 }

@@ -113,14 +113,17 @@ export function PostmortemPanel() {
       });
       if (!res.ok) {
         const errorBody = await res.text();
-        throw new Error(`Failed to dismiss postmortem (Status: ${res.status}). Server response: ${errorBody.substring(0, 100)}`);
+        // Provide actionable error context from the server response
+        throw new Error(`Failed to dismiss postmortem (Status: ${res.status}). Server details: ${errorBody.substring(0, 100)}`);
       }
+      // State update only on successful response
       setPostmortems((prev) => prev.filter((p) => p.id !== id));
       toast({
         title: "Postmortem dismissed",
         description: `Constraints for ${filePath} removed.`,
       });
     } catch (e) {
+      // Use the specific error message from the thrown error, or a generic one if it's not an Error object
       const errorMessage = e instanceof Error ? e.message : "An unknown error occurred during dismissal.";
       toast({
         title: "Dismiss failed",
