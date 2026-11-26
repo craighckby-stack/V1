@@ -38,7 +38,10 @@ export async function GET(req: Request) {
   try {
     // Run seeding and querying in parallel to reduce latency.
     // Assuming emgRagInstance handles concurrent access safely.
-    const [seeded, queryResultSequential] = await Promise.all([
+    // (seeded result is intentionally unused — the side effect of
+    // ensureSeeded() warming the RAG index is what matters; the query
+    // below is the return path.)
+    const [, queryResultSequential] = await Promise.all([
       emgRagInstance.ensureSeeded(),
       emgRagInstance.query(q),
     ]);

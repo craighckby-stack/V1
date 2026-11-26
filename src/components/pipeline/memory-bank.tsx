@@ -70,7 +70,7 @@ export function MemoryBank() {
         let data;
         try {
             data = await res.json();
-        } catch (e) {
+        } catch {
             throw new Error(`Failed to parse JSON response from /api/memory/entries. Response body was not valid JSON.`);
         }
         

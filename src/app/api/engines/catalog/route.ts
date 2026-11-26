@@ -51,7 +51,9 @@ export async function GET() {
       }
 
       // Check for required structure properties directly on the source object
-      const patterns = (source as any).patterns;
+      // (SiphonSource.patterns is typed as string[]; the old `as any` cast
+      // was a lint-suppression leftover that hid the real type.)
+      const patterns = source.patterns;
 
       if (!patterns || !Array.isArray(patterns)) {
         acc.invalidSources.push({

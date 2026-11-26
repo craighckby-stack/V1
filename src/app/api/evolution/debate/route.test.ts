@@ -19,7 +19,7 @@ describe("route constants", () => {
 
 describe("POST handler", () => {
   // Helper to create a mock request object
-  const createMockRequest = (body: any): Request => ({
+  const createMockRequest = (body: unknown): Request => ({
     json: async () => body,
   } as unknown as Request);
 

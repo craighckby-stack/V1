@@ -226,7 +226,7 @@ export async function probeConnectivity(): Promise<boolean> {
     });
     clearTimeout(timer);
     return res.status >= 0;
-  } catch (e) {
+  } catch {
     clearTimeout(timer);
     // Catch aborts, network errors, etc.
     return false;

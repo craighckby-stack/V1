@@ -151,7 +151,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
         try {
           const ids = JSON.parse(a.lessonIdsInjected);
           return Array.isArray(ids) && ids.length > 0;
-        } catch (e) {
+        } catch {
           return false;
         }
       });
@@ -164,7 +164,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
               `Knowledge applied: ${ids.length} lesson(s) injected on cycle ${lastWithLessons.cycleNumber} (${ids.map((id) => id.slice(-LESSON_COUNT_DISPLAY)).join(", ")}).`,
             );
           }
-        } catch (e) {
+        } catch {
           // malformed lessonIdsInjected — skip the trail line
           console.warn(`[ProvenanceDigest] Malformed lessonIdsInjected for cycle ${lastWithLessons.cycleNumber}. Skipping knowledge trail.`);
         }
@@ -196,7 +196,7 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     lines.push(footer);
 
     // Enforce the byte cap.
-    let result = lines.join("\n");
+    const result = lines.join("\n");
     
     if (result.length > PROVENANCE_BLOCK_BUDGET) {
       const footerIndex = result.lastIndexOf(footer);

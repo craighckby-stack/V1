@@ -20,7 +20,7 @@ const MAX_AUTO_WAIT_MS = 120_000;
  * Computes pacing and rate-limit recovery cooldowns for GitHub REST API requests.
  */
 export function computeGitHubCooldown(input: GitHubRateInput): CooldownDecision {
-  if (input === null || typeof input === 'undefined') {
+  if (!input) {
     throw new Error("GitHubRateInput must be provided to computeGitHubCooldown.");
   }
   const now = input.nowMs ?? Date.now();
@@ -148,7 +148,10 @@ export async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<
     throw new Error(`Sleep duration must be non-negative, got ${ms}ms`);
   }
   if (ms <= 0) return;
-  if (signal?.aborted) throw new Error('Operation cancelled.');
+  
+  if (signal?.aborted) {
+    throw new Error('Operation cancelled.');
+  }
   
   try {
     await new Promise<void>((resolve, reject) => {

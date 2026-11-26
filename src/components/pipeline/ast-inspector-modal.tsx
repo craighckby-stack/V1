@@ -17,32 +17,11 @@ import { usePipelineStore } from "@/lib/pipeline-store";
 import { cn } from "@/lib/utils";
 import React from "react";
 
-interface InspectorFile {
-  path: string;
-  original: string | any;
-  evolved: string | any;
-  report: {
-    proofCommitHash?: string;
-    status: "COMPLETED" | "REJECTED" | "RUNNING";
-    astDiffResult: {
-      astScore: number;
-      symbolMap: {
-        originalCount: number;
-        proposedCount: number;
-        retainedCount: number;
-      };
-      structuralDriftRatio: number;
-      violations?: Array<{ severity: "high" | "medium" | "low"; message: string }>;
-    };
-    sanitizerResult: {
-      clean: boolean;
-      violations?: Array<{ message: string }>;
-      highEntropyTokensFound: number;
-    };
-  };
-}
+// The `inspectorFile` shape is declared in pipeline-store.ts (the single
+// source of truth for the Zustand slice). A local interface here was dead
+// code — removed in the 2026-11-26 lint fix.
 
-export const AstInspectorModal = React.memo(() => {
+export const AstInspectorModal = React.memo(function AstInspectorModal() {
   const inspectorFile = usePipelineStore((s) => s.inspectorFile);
   const setInspectorFile = usePipelineStore((s) => s.setInspectorFile);
   const { toast } = useToast();
