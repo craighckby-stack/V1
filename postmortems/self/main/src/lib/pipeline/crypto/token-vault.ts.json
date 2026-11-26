@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/lib/pipeline/crypto/token-vault.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/src/lib/pipeline/crypto/token-vault.ts:74:16 'e' is defined but never used. (@typescript-eslint/no-unused-vars); /home/z/my-project/src/lib/pipeline/crypto/token-vault.ts:192:14 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
@@ -12,8 +12,8 @@
   "parentHash": "e31dc7401856c5e18badb43aaf199832af5c229a1130aafae7dc08f1585f3f9d",
   "hash": "60df9c1f38b2d37118403c622b148283bcdd810d64575aa1dc241f769de87139",
   "lastAttemptAt": "2026-11-26T06:00:18.973Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T07:48:22.889Z",
   "createdAt": "2026-11-23T03:29:46.336Z",
-  "updatedAt": "2026-11-26T06:00:18.973Z",
+  "updatedAt": "2026-11-26T07:48:22.889Z",
   "schema": 2
 }
