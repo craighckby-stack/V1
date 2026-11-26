@@ -103,7 +103,7 @@ export function scoreEngineFilePath(filePath: string, size?: number): number {
  */
 export function selectEngineTreePaths(treeNodes: GitTreeNode[], maxPerRepo = 12): GitTreeNode[] {
   if (!Array.isArray(treeNodes)) {
-    throw new Error('Input treeNodes must be an array of GitTreeNode');
+    throw new Error('Input treeNodes must be an array of GitTreeNode, received non-array input.');
   }
   if (maxPerRepo < 0) {
     throw new Error('maxPerRepo must be a non-negative number');
@@ -175,7 +175,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
   functionNames: string[];
   imports: string[];
 } {
-  if (!fullCode) {
+  if (!fullCode || typeof fullCode !== 'string') {
     return {
       language: detectEngineLanguage(filePath) || 'Source',
       role: 'core-runtime',
