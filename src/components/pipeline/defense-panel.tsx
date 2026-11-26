@@ -162,32 +162,28 @@ export function DefensePanel({ open, onClose }: Props) {
     let mounted = true;
     async function poll() : Promise<void> {
       try {
-        const [dRes, rRes] = await Promise.allSettled([
+        const [dRes, rRes] = await Promise.all([
           fetch("/api/duress/status"),
           fetch("/api/red-team/status"),
         ]);
         if (!mounted) return;
 
-        if (dRes.status === 'fulfilled' && dRes.value.ok) {
-            const duressBody = await dRes.value.json();
+        if (dRes.ok) {
+            const duressBody = await dRes.json();
             setDuress(duressBody as DuressStatus);
-        } else if (dRes.status === 'rejected') {
-            console.error("Duress status fetch rejected:", dRes.reason);
-        } else if (dRes.value && !dRes.value.ok) {
-            console.error(`Duress status fetch failed with status: ${dRes.value.status}`);
+        } else {
+            console.error(`Duress status fetch failed with status: ${dRes.status}`);
         }
 
-        if (rRes.status === 'fulfilled' && rRes.value.ok) {
-            const rtBody = await rRes.value.json();
+        if (rRes.ok) {
+            const rtBody = await rRes.json();
             setRtStatus(rtBody as RedTeamStatus);
-        } else if (rRes.status === 'rejected') {
-            console.error("Red team status fetch rejected:", rRes.reason);
-        } else if (rRes.value && !rRes.value.ok) {
-            console.error(`Red team status fetch failed with status: ${rRes.value.status}`);
+        } else {
+            console.error(`Red team status fetch failed with status: ${rRes.status}`);
         }
       } catch (e) {
-        // Catch network/fetch errors that prevent Promise.allSettled from completing successfully (e.g., DNS failure)
-        console.error("Critical error during defense panel polling cycle:", e);
+        // Catch network/fetch errors that prevent Promise.all from completing successfully (e.g., DNS failure)
+        console.error("Critical error during defense panel polling cycle (network/fetch failure):", e);
       }
     }
     void poll();
