@@ -131,10 +131,12 @@ export function LoopControlPanel() {
     setToggling(true);
     try {
       const res = await fetch("/api/autonomous/start", { method: "POST" });
+      
       if (!res.ok) {
         const errorBody = await res.text();
-        throw new Error(`Failed to start loop. Status: ${res.status}. Response: ${errorBody.substring(0, 200)}`);
+        throw new Error(`Failed to start loop. Status: ${res.status}. Response snippet: ${errorBody.substring(0, 200)}`);
       }
+      
       const data = await res.json();
       
       // Input validation: Ensure essential data structure exists before proceeding
