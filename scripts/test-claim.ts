@@ -46,10 +46,10 @@ main().catch((e) => {
     stackTrace = e.stack;
   } else {
     // Safely convert non-Error objects to string for logging context
-    errorMessage = String(e);
+    errorMessage = `Non-Error object caught: ${String(e)}`;
   }
 
-  console.error(`Error during task claim peek: Failed to retrieve next task state. Context: ${errorMessage}`);
+  console.error(`Error during task claim peek: Failed to retrieve next task state. Type: ${e instanceof Error ? e.name : 'Unknown'}. Context: ${errorMessage}`);
   if (stackTrace) {
     console.error("Full stack trace:", stackTrace);
   }
