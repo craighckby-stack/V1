@@ -248,7 +248,7 @@ export function GeminiPanel({ open, onClose }: Props) {
       }
       const rbData = (await rb.json()) as { rebooted?: boolean; message?: string; error?: string };
       setMsg({
-        kind: rbData.rebooted ? "ok" : "err",
+        kind: rbData.rebooted === true ? "ok" : "err",
         text: rbData.rebooted
           ? `Loop rebooted — ${rbData.message ?? "running with the new provider chain."}`
           : `Reboot failed: ${rbData.error ?? "unknown error from API response"}`,
