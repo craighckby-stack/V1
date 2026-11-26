@@ -110,7 +110,12 @@ export function selectEngineTreePaths(treeNodes: GitTreeNode[], maxPerRepo = 12)
   }
 
   const scored = treeNodes
-    .filter(node => node.type === 'blob' && node.path)
+    .filter(node => 
+      node && 
+      node.type === 'blob' && 
+      typeof node.path === 'string' && 
+      node.path.length > 0
+    )
     .map(node => ({
       node,
       score: scoreEngineFilePath(node.path, node.size),
@@ -175,7 +180,7 @@ export function scanEngineAst(fullCode: string, filePath: string): {
   functionNames: string[];
   imports: string[];
 } {
-  if (!fullCode || typeof fullCode !== 'string') {
+  if (typeof fullCode !== 'string' || !fullCode) {
     return {
       language: detectEngineLanguage(filePath) || 'Source',
       role: 'core-runtime',
