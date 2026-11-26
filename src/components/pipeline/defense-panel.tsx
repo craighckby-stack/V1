@@ -162,15 +162,26 @@ export function DefensePanel({ open, onClose }: Props) {
     let mounted = true;
     async function poll() : Promise<void> {
       try {
-        const [dRes, rRes] = await Promise.all([
+        const [dRes, rRes] = await Promise.allSettled([
           fetch("/api/duress/status"),
           fetch("/api/red-team/status"),
         ]);
         if (!mounted) return;
-        if (dRes.ok) setDuress((await dRes.json()) as DuressStatus);
-        if (rRes.ok) setRtStatus((await rRes.json()) as RedTeamStatus);
-      } catch {
-        /* best-effort */
+
+        if (dRes.status === 'fulfilled' && dRes.value.ok) {
+            setDuress((await dRes.value.json()) as DuressStatus);
+        } else if (dRes.status === 'rejected' || (dRes.value && !dRes.value.ok)) {
+            // Log specific duress error context if needed, but avoid swallowing
+        }
+
+        if (rRes.status === 'fulfilled' && rRes.value.ok) {
+            setRtStatus((await rRes.value.json()) as RedTeamStatus);
+        } else if (rRes.status === 'rejected' || (rRes.value && !rRes.value.ok)) {
+            // Log specific red-team error context if needed
+        }
+      } catch (e) {
+        // Catch network/fetch errors, provide context instead of swallowing
+        console.error("Error during defense panel polling:", e);
       }
     }
     void poll();
