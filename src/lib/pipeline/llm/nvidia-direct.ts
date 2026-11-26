@@ -143,8 +143,8 @@ export async function getNvidiaConfig(): Promise<NvidiaConfig | null> {
     if (!row.nvidiaApiKey) return null;
     return { apiKey: row.nvidiaApiKey, model: row.nvidiaModel || "nvidia/nemotron-3.5-bolt-e4b" };
   } catch (error) {
-    // Throw a contextual error on DB failure instead of silently returning null
-    throw new Error(`Database error retrieving NVIDIA configuration for ID ${SINGLETON_ID}: ${(error as Error).message}`);
+    // Throw a contextual error on DB failure with full error information
+    throw new Error(`Database error retrieving NVIDIA configuration for ID ${SINGLETON_ID}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
