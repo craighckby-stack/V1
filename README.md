@@ -1,5 +1,3 @@
-plateaued at 0.7% yield after 900 cycles
-
 # LOOP
 
 > A Next.js app that **reads its own source code, asks an AI to improve one file at a time, runs every proposed change through a compiler + AST + debate gate chain, and pushes the survivors to GitHub** as one `loop-NN` branch per winning mutation. Failures become postmortems that constrain the next attempt. The loop can't rewrite its own OFF switch.
@@ -248,7 +246,7 @@ The honest framing: this is not the loop becoming sentient of its own docs. It's
 identity: "A self-improving Next.js app that rewrites its own source code"
 architecture:
   framework: "Next.js 16 App Router + React 19 + TypeScript 5"
-  database: "Prisma 6 + SQLite (12+ models)"
+  database: "Prisma 6 + SQLite (17 models)"
   llm: "z-ai-web-dev-sdk (primary), Gemini (optional), NVIDIA NIM (optional tier-1)"
   side_processes: ["loop-ws-service:3003", "loop-worker:3004", "dev-watchdog:3005", "fleet-harvester:3010"]
 core_cycle:
@@ -261,12 +259,15 @@ core_cycle:
   - "pass: commit + push to loop-NN branch. fail: write postmortem + feed lesson"
   - "repeat forever (bounded by crash-wall, dead-man's switch, quota gate, [STOP])"
 safety:
-  protected_files: "59 exact paths + 18 prefix subtrees (the loop's own brain is off-limits to itself)"
+  protected_files: "55 exact paths + 21 prefix subtrees (the loop's own brain is off-limits to itself)"
   mutation_guard: "synchronous fail-closed: eval, child_process, path-traversal, MD5/SHA1, protected-path"
   dead_mans_switch: "24h without operator touch → ARMED-PAUSED"
   crash_wall: "3 consecutive same-class crashes → ARMED-PAUSED"
   quota_gate: "429 escalation: 2/5/15/30min cooldowns"
   offline_mode: "network outage → 3-strike tripwire → idle cycles + local commits + probe backoff (15s→5min); network push failures exempt from the 5-strike breaker; recovery automatic"
+  auto_relock: "saturated files re-enter rotation on their own; each no-growth re-lock doubles the cooldown (5m base → 24h cap) — churn control without PIN friction (2026-11-26)"
+  single_pin: "ONE PIN remains (2026-11-26): unfreezing the mutation freeze. Freeze is free (safe direction); saturation [unlock] buttons are PINless"
+  mutation_reach: "whole-file path ≤ 12KB; section-scoped path ≤ 256KB (2026-11-25) — reaches every TS/TSX file that isn't protected, incl. the 2171/4402-line core files"
 alive_behaviors:
   curiosity_drive: "flag-gated (default OFF); when overconfident + health flat, boosts unpredictable files"
   health_metrics: "snapshot every 10 cycles (test/tsc/lint counts)"
@@ -562,10 +563,10 @@ The unfreeze PIN is validated constant-time in `POST /api/self-enhance/freeze` (
 
 ## Architecture & file inventory
 
-### Prisma schema (12 models)
-`prisma/schema.prisma` — the schema is mutated **additive-only** by `schema-gate.ts` (the loop can add fields/models, never drop or rename). Models: `PipelineRun`, `AutonomousCycle`, `MutationCorpus`, `Postmortem`, `Lesson`, `Prophecy`, `LlmConfig`, `MemoryEntry`, `SelfTask`, `SelfModelEntry`, `HotSwapJournal`, `RedTeamRun`.
+### Prisma schema (17 models)
+`prisma/schema.prisma` — the schema is mutated **additive-only** by `schema-gate.ts` (the loop can add fields/models, never drop or rename). Models: `PipelineRun`, `AutonomousCycle`, `MemoryEntry`, `Postmortem`, `GitPushTarget`, `SelfTask`, `LlmConfig`, `Prophecy`, `SystemFlag`, `Lesson`, `MutationCorpus`, `MetaParam`, `SelfModelFile`, `SelfPrediction`, `LoopGoal`, `CodebaseHealth`, `OperatorQuestion`.
 
-### API routes (50)
+### API routes (78)
 `src/app/api/**` — grouped: `self-enhance/*` (start/stop/status/unlock/skip/trigger/push/push-target/merge-back/prune-branches/archaeology/rescan/llm-config/tasks), `autonomous/*`, `oracle/*`, `postmortems/*`, `red-team/*`, `github/*`, `hot-swap/*`, `duress/*`, `emg/*`, `memory/*`, `secret-scan/*`, `evolution/*`, `pipeline/*`, `branches/*`, `engines/*`, `boot/*`, `health`, `healthz`. POST/PUT/PATCH/DELETE are gated by `src/middleware.ts`.
 
 ### `src/middleware.ts`
@@ -575,10 +576,10 @@ API-key gate for mutating routes. `LOOP_API_KEY` env var must equal the `x-loop-
 Next.js instrumentation hook. Auto-injects the Z.ai SDK at server boot. Installs `unhandledRejection`/`uncaughtException` swallowers (Bun kills the process otherwise). Spawns the loop-ws sidecar and the loop-worker.
 
 ### `src/lib/pipeline/` — the engine room
-- **`autonomous/`** (43 files) — the brain: `self-enhance-loop.ts`, `loop-runtime.ts`, `self-task-generator.ts`, `task-executor.ts`, `push-target.ts`, `protected-files.ts`, `schema-gate.ts`, `lesson-store.ts`, `meta-params.ts`, `meta-tuner.ts`, `saturation.ts`, `dreamer.ts`, `self-model.ts`, `chat-task.ts`, `merge-back.ts`, `archaeology.ts`, `crash-budget.ts`, `operator-touch.ts`, `armed-state.ts`, `route-cooldown.ts`, `loop-event-bus.ts`, `loop-stats.ts`, `in-memory-typecheck.ts`, `structural-validator.ts`, `verify-refactor.ts`, `loop-worker-client.ts`, `mutation-corpus.ts`, `lapse-detector.ts`, `reflection.ts`, `retention.ts`, etc.
-- **`core/`** (13 files) — the gate machinery: `mutation-guard.ts`, `ast-diff-gate.ts`, `sanitizer-bridge.ts`, `secret-scan.ts`, `duress.ts`, `hot-swap.ts`, `sandbox-test.ts`, `tree-lock.ts`, `unified-pipeline.ts`, `hash.ts`, `prompt-scrub.ts`, etc.
+- **`autonomous/`** (47 files) — the brain: `self-enhance-loop.ts`, `loop-runtime.ts`, `self-task-generator.ts`, `task-executor.ts`, `push-target.ts`, `protected-files.ts`, `schema-gate.ts`, `lesson-store.ts`, `meta-params.ts`, `meta-tuner.ts`, `saturation.ts`, `dreamer.ts`, `self-model.ts`, `chat-task.ts`, `merge-back.ts`, `archaeology.ts`, `crash-budget.ts`, `operator-touch.ts`, `armed-state.ts`, `route-cooldown.ts`, `loop-event-bus.ts`, `loop-stats.ts`, `in-memory-typecheck.ts`, `structural-validator.ts`, `verify-refactor.ts`, `loop-worker-client.ts`, `mutation-corpus.ts`, `lapse-detector.ts`, `reflection.ts`, `retention.ts`, etc.
+- **`core/`** (21 files) — the gate machinery: `mutation-guard.ts`, `ast-diff-gate.ts`, `sanitizer-bridge.ts`, `secret-scan.ts`, `duress.ts`, `hot-swap.ts`, `sandbox-test.ts`, `tree-lock.ts`, `unified-pipeline.ts`, `hash.ts`, `prompt-scrub.ts`, etc.
 - **`emg/`** (4 files) — `sanitizer.ts`, `halt.ts`, `emg-rag.ts`, debate types.
-- **`llm/`** (3 files) — `agent-llm.ts` (the cortex caller + circuit breakers), `debate-llm.ts` (3-reviewer tribunal), `gemini-direct.ts` (direct REST + Retry-After parsing).
+- **`llm/`** (4 files) — `agent-llm.ts` (the cortex caller + circuit breakers), `debate-llm.ts` (3-reviewer tribunal), `gemini-direct.ts` (direct REST + Retry-After parsing), `nvidia-direct.ts` (NIM direct REST, tier-1 candidate).
 - **`oracle/`** (8 files) — `prophecy-generator.ts`, `prophecy-evaluator.ts`, `prophecy-store.ts`, `oracle-scheduler.ts`, `oracle-auto.ts`, `oracle-task-feed.ts`, `commit-archaeology.ts`, `dreamer.ts`.
 - **`red-team/`** (4 files) — `red-team-suite.ts` (7 probes), `red-team-runner.ts`, `gate-integrity-probe.ts` (15 self-audits).
 - **`postmortem/`** (3 files) — `postmortem-store.ts`, `postmortem-repo.ts`, `ancestral-rag.ts`.
@@ -586,26 +587,28 @@ Next.js instrumentation hook. Auto-injects the Z.ai SDK at server boot. Installs
 - **`api/`** (1 file) — `validate.ts`.
 - **`engines/`** (1 file) — `clean-room-runtime.ts` (ReAct loop).
 
-### `src/components/pipeline/` (18 panels)
+### `src/components/pipeline/` (43 panels)
 `boot-splash.tsx`, `console-stream.tsx`, `api-unlock.tsx`, `gemini-panel.tsx`, `nvidia-panel.tsx`, `defense-panel.tsx`, `branches-panel.tsx`, `merge-back-panel.tsx`, `postmortem-panel.tsx`, `oracle-panel.tsx`, `pipeline-stages.tsx`, etc. **v5 (2026-11-17):** the LOOP-authored panels here are back in the mutation scope (see the boundary note above). Three exceptions stay protected individually: `boot-splash.tsx` and `api-unlock.tsx` are control-surface (entry ceremony + auth UI), and `pipeline-stages.tsx` is unused dead display code (the loop already failed to refactor it once and would just deterministically re-lock it). The `src/components/ui/` vendored primitives next door are NOT in scope.
 
-### `src/components/ui/` (48 shadcn/ui New York primitives)
+### `src/components/ui/` (69 shadcn/ui New York primitives)
 Vendored third-party — outside the loop's scan scope (the loop has no business polishing vendored components).
 
 ### Side processes
 - `mini-services/loop-ws-service/` (:3003) — Socket.IO state relay.
 - `mini-services/loop-worker/` (:3004) — the self-enhancement loop runs here, isolated from the Next.js server process so the loop's in-memory state survives Next HMR.
+- `mini-services/dev-watchdog/` (:3005) — 30s supervision: probes dev-server + worker, 2-strike respawn (prefix-protected).
+- `mini-services/fleet-harvester/` (:3010) — the sibling-fleet digest harvester (GitHub + Dropbox corpora).
 - `proxy/` — Gemini geo-bypass on Fly.io (sgp).
 - `Caddyfile` (:81) — reverse proxy with the `?XTransformPort` pattern for cross-port routing.
 
 ### Other
-- `scripts/` — operator tooling (`q.ts`, `check-llm.ts`, etc.) — outside scan scope.
+- `scripts/` — operator tooling (`q.ts`, `check-llm.ts`, etc.) — IN the mutation scope since v7 (2026-11-22); the credential/supervision/instrument files stay individually protected (`push-now`, `seal-push-token`, `dev-daemon.py`, `audit-remote`, `inspect-target-tree`, `state-probe`, `loop-db-tier`, `run-batch`, `loop-state`).
 - `tests/` — the sandbox-gate test harness.
 - `build-guide/` — the LOOP-Build-Record.pdf derivation pipeline.
 - `docs/` — screenshots.
 - `memory/` — exported lessons / memory snapshots.
-- `postmortems/` — 105 JSON files + 1 archaeology report (the tamper-evident failure chain).
-- `screenshots/` — 44 PNG files.
+- `postmortems/` — 246 JSON files + 1 archaeology report (the tamper-evident failure chain).
+- `screenshots/` — 66 PNG files.
 - `examples/` — reference snippets.
 - `download/` — exported artifacts.
 - `test-repo/src/` — 5 files for sandbox-gate isolation tests.
@@ -733,7 +736,7 @@ Saving an NVIDIA or Gemini key used to fire `POST /api/self-enhance/reboot`, whi
 - **The intelligence is outsourced.** The LLM does the generation; the system's actual cleverness is in the gating. The system is a well-built scaffold around an LLM that proposes diffs.
 - **The postmortem chain is the system vouching for itself.** "Verified" means the LLM checked its own work and the validator passed — not external verification. Same with the Oracle: it predicts its own operational outcomes, which is a neat closed loop but self-referential.
 - **Push target has to be configured to see branches on GitHub.** Without a configured PAT + repo, the loop falls back to commit-only (local commits, no `loop-NN` branches on a remote).
-- **Unlocking a deterministic-skip lock won't stick.** A file locked because it's too large (or too small, or the self-model predicts zero diff) will re-lock on the next cycle unless the underlying condition changes. The ⚠ marker in the saturation panel warns you, and the operator-PIN prompt makes every unlock a deliberate act. The fix is to shrink the file (or raise the size limit), not to keep clicking `[unlock]`.
+- **Unlocking a deterministic-skip lock won't stick.** A file locked because it's too large (or too small, or the self-model predicts zero diff) will re-lock on the next cycle unless the underlying condition changes. The ⚠ marker in the saturation panel warns you, and the auto-relock backoff makes unlock-spamming self-defeating (each re-lock doubles the cooldown, 5m → 24h cap). The fix is to shrink the file (or raise the size limit), not to keep clicking `[unlock]`.
 
 ---
 
