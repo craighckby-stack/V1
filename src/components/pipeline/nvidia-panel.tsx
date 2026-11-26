@@ -128,18 +128,21 @@ export function NvidiaPanel({ open, onClose }: Props) {
     try {
       const res = await fetch("/api/self-enhance/llm-config", { cache: "no-store" });
       if (!res.ok) {
-        throw new Error(`Failed to fetch LLM config: HTTP status ${res.status}`);
+        throw new Error(`Failed to fetch LLM config: HTTP status ${res.status} for endpoint /api/self-enhance/llm-config`);
       }
-      const data = (await res.json()) as LlmConfigView;
-      setCfg(data);
-      setNvCfg(data.nvidia ?? null);
-      if (!syncedModelRef.current && data.nvidia?.model && MODEL_OPTIONS.includes(data.nvidia.model)) {
+      const data = await res.json();
+      const llmConfig = data as LlmConfigView;
+
+      setCfg(llmConfig);
+      setNvCfg(llmConfig.nvidia ?? null);
+
+      if (!syncedModelRef.current && llmConfig.nvidia?.model && MODEL_OPTIONS.includes(llmConfig.nvidia.model)) {
         syncedModelRef.current = true;
-        setModel(data.nvidia.model);
+        setModel(llmConfig.nvidia.model);
       }
     } catch (error) {
-      console.error("Error during LLM config polling:", error);
-      // Poll failure is non-fatal — keep the last snapshot on screen.
+      // Log error with context, but do not crash or overwrite existing state on transient API failure.
+      console.error("Error during LLM config polling:", error instanceof Error ? error.message : "Unknown error");
     }
   }, []);
 
