@@ -23,7 +23,7 @@ export async function GET() {
     if (report === null) {
       // Explicitly 503 if the report generation logic returns null, indicating data unavailability.
       return NextResponse.json(
-        { error: "benchmark unavailable — corpus read failed or report generation returned null" },
+        { error: "benchmark unavailable: corpus read failed or report generation returned null" },
         { status: 503 },
       );
     }
