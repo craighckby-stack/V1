@@ -63,22 +63,22 @@ interface Prophecy {
 
 interface OracleStatus {
   ok: boolean;
-  counts?: {
+  counts: {
     pending: number;
     fulfilled: number;
     failed: number;
     retired: number;
     total: number;
   };
-  calibration?: Array<{
+  calibration: Array<{
     threshold: number;
     total: number;
     fulfilled: number;
-    fraction: number | null;
+    fraction: number;
     wellCalibratedIf: number;
   }>;
-  brierScore?: number | null;
-  judgedCount?: number;
+  brierScore: number;
+  judgedCount: number;
   error?: string;
 }
 
