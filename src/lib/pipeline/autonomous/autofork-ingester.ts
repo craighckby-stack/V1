@@ -222,18 +222,19 @@ export async function ingestAutoFork(
   let seed: SeedEntry | { repo: string; branch?: string; reason: string; enabled: boolean };
   if (targetRepo) {
     const found = allSeeds.find((s) => s.repo === targetRepo);
+    // If found, use it. If not found, treat it as an ad-hoc repo, ensuring it's treated as enabled for scanning.
     seed = found ?? { repo: targetRepo, branch: undefined, reason: "ad-hoc (not in seed list)", enabled: true };
   } else {
+    // Since allSeeds.length > 0, allSeeds[0] is safe.
     seed = allSeeds[0];
   }
-  if (!seed) return result;
+  // seed is guaranteed to be defined here because allSeeds.length > 0
   result.reposScanned = 1;
 
   // Resolve the branch: explicit → default branch.
   let branch = seed.branch ?? "";
   if (!branch) {
-    // Run default branch fetch in parallel with other initial setup if possible,
-    // but here it's sequential dependency for tree fetch.
+    // Run default branch fetch.
     branch = (await getRepoDefaultBranch(seed.repo, token)) ?? "main";
   }
 
