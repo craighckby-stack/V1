@@ -138,7 +138,6 @@ export async function setTargetConfig(
     branch: branchValue,
     updatedAt: new Date().toISOString(),
   };
-  const now = new Date().toISOString();
 
   // Use transaction to ensure atomic update
   await db.$transaction(async (tx) => {
@@ -150,7 +149,7 @@ export async function setTargetConfig(
           value: JSON.stringify(config),
           setBy: "target-mode",
           reason: "operator set target repository",
-          updatedAt: now,
+          updatedAt: config.updatedAt,
         },
       });
     } else {
@@ -160,7 +159,7 @@ export async function setTargetConfig(
           value: JSON.stringify(config),
           setBy: "target-mode",
           reason: "operator set target repository",
-          updatedAt: now,
+          updatedAt: config.updatedAt,
         },
       });
     }
