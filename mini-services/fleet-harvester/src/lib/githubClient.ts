@@ -320,6 +320,9 @@ async function fetchRawEngineSource(
   filePath: string,
   signal?: AbortSignal
 ): Promise<{ rawUrl: string; fullCode: string }> {
+  if (!repo.full_name || !filePath || !branch) {
+    throw new Error('Invalid input: repo.full_name, filePath, or branch cannot be empty.');
+  }
   const encodedBranch = encodeURIComponent(branch);
   const encodedPath = encodeRepoFilePath(filePath);
   const rawUrl = `https://raw.githubusercontent.com/${repo.full_name}/${encodedBranch}/${encodedPath}`;
@@ -347,7 +350,7 @@ async function fetchRawEngineSource(
     GITHUB_REQUEST_TIMEOUT_MS
   );
   if (!apiRes.ok) {
-    throw new Error(`HTTP ${apiRes.status} fetching ${filePath}`);
+    throw new Error(`HTTP ${apiRes.status} fetching raw source for ${filePath} in ${repo.full_name}`);
   }
   return { rawUrl, fullCode: await apiRes.text() };
 }
