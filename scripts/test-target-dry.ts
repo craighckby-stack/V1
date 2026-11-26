@@ -25,7 +25,7 @@ function line(s: string) {
 
 async function main() {
   // Input validation: Check if providedRepo was present but resulted in an empty string after trimming.
-  if (providedRepo !== undefined && providedRepo.trim() === "") {
+  if (providedRepo !== undefined && REPO === DEFAULT_REPO && providedRepo.trim() === "") {
     line(`Error: Repository argument provided is empty or whitespace. Please provide a valid owner/repo string.`);
     process.exitCode = 1;
     return;
