@@ -60,12 +60,14 @@ async function main(): Promise<void> {
     let meta: ProphecyMeta = {};
     try {
       meta = p.historySnapshot ? (JSON.parse(p.historySnapshot) as ProphecyMeta) : {};
-    } catch {
+    } catch (e) {
       skippedUnparseable++;
+      console.error(`  Skipped prophecy ID ${p.id}: Failed to parse historySnapshot. Error: ${(e as Error).message}`);
       continue;
     }
     if (typeof meta.filePath !== "string" || meta.filePath.length === 0) {
       skippedUnparseable++;
+      console.error(`  Skipped prophecy ID ${p.id}: Missing or invalid filePath in snapshot.`);
       continue;
     }
 
@@ -73,7 +75,7 @@ async function main(): Promise<void> {
     let attempt: { cycleNumber: number; gateOutcome: string } | null = null;
     try {
       if (meta.sameAttempt === true && typeof meta.cycleNumber === "number") {
-        // Performance improvement: run both lookups in parallel
+        // Performance improvement: run both lookups in parallel for sameAttempt semantics
         const sameAttemptPromise = db.mutationCorpus.findFirst({
           where: { filePath: meta.filePath, cycleNumber: meta.cycleNumber },
           orderBy: { createdAt: "desc" },
