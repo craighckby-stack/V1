@@ -47,20 +47,20 @@ export function MemoryBank() {
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
       
-      const timeoutPromise = new Promise<Response>((_, reject) => {
-        const timeoutId = setTimeout(() => {
-          abortController.abort();
-          reject(new Error("Request timeout after 10 seconds"));
-        }, 10000);
-
-        return () => clearTimeout(timeoutId);
-      });
-      
       try {
         const fetchPromise = fetch("/api/memory/entries", {
           signal: abortController.signal
         });
         
+        // Use Promise.race with a timeout wrapper for cleaner concurrency
+        const timeoutPromise = new Promise<Response>((_, reject) => {
+          const timeoutId = setTimeout(() => {
+            abortController.abort();
+            reject(new Error("Request timeout after 10 seconds"));
+          }, 10000);
+          return () => clearTimeout(timeoutId);
+        });
+
         const res = await Promise.race([fetchPromise, timeoutPromise]);
         
         if (!res.ok) {
