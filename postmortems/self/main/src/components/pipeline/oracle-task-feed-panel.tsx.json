@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/oracle-task-feed-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/src/components/pipeline/oracle-task-feed-panel.tsx:38:9 'lastFetchTimeRef' is assigned a value but never used. Allowed unused vars must match /^_/u. (@typescript-eslint/no-unused-vars); /home/z/my-project/src/components/pipeline/oracle-task-feed-panel.tsx:41:11 'now' is assigned a value but never used. Allowed unused vars must match /^_/u. (@typescript-eslint/no-unused-vars)",
@@ -12,8 +12,8 @@
   "parentHash": "be85af9046f3b6892dd0fbeba80da3888f4b19a476ccd63345ef0d27d78f0b55",
   "hash": "d727a5d5582b12c5b448b73978d7ba030cced2e95d35394e7f7b7ceb89971bbd",
   "lastAttemptAt": "2026-11-26T09:53:48.790Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T10:58:30.501Z",
   "createdAt": "2026-11-23T03:29:46.450Z",
-  "updatedAt": "2026-11-26T09:53:48.790Z",
+  "updatedAt": "2026-11-26T10:58:30.501Z",
   "schema": 2
 }

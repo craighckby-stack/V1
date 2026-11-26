@@ -18,25 +18,13 @@ export const runtime = "nodejs";
  * `benchmark` console command renders this for the operator.
  */
 export async function GET() {
-  try {
-    const report = await buildBenchmarkReport();
-    if (report === null) {
-      // Explicitly 503 if the report generation logic returns null, indicating data unavailability.
-      return NextResponse.json(
-        { error: "benchmark unavailable: corpus read failed or report generation returned null" },
-        { status: 503 },
-      );
-    }
-    return NextResponse.json(report);
-  } catch (err: unknown) {
-    // Log the full error context server-side for debugging, safely handling unknown error types.
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error("Benchmark Report Generation Failed:", errorMessage, err);
-
-    // Return a generic, actionable error to the client to prevent leaking internal stack traces or implementation details.
+  const report = await buildBenchmarkReport();
+  if (report === null) {
+    // Explicitly 503 if the report generation logic returns null, indicating data unavailability.
     return NextResponse.json(
-      { error: "Internal server error while generating benchmark report. Please check server logs for details." },
-      { status: 500 },
+      { error: "benchmark unavailable: corpus read failed or report generation returned null" },
+      { status: 503 },
     );
   }
+  return NextResponse.json(report);
 }
