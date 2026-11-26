@@ -63,21 +63,12 @@ export function MemoryBank() {
         
         const res = await Promise.race([fetchPromise, timeoutPromise]);
         
-        if (!(res instanceof Response)) {
-            throw new Error("Fetch promise did not resolve to a Response object.");
-        }
-
         if (!res.ok) {
           throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
         
         // Attempt to parse JSON, handling potential parsing errors explicitly
-        let data;
-        try {
-            data = await res.json();
-        } catch (e) {
-            throw new Error(`Failed to parse JSON response from /api/memory/entries. Response body was not valid JSON. Original error: ${e instanceof Error ? e.message : String(e)}`);
-        }
+        const data = await res.json();
         
         if (!data || !Array.isArray(data.entries)) {
           throw new Error("Invalid API response structure: expected 'entries' array in response body. Received: " + JSON.stringify(data));
@@ -120,7 +111,7 @@ export function MemoryBank() {
     };
 
     fetchMemoryEntries();
-  }, [setEntries]); // Removed isMounted from dependencies as its role is handled by the first useEffect cleanup
+  }, [isMounted]);
 
   const validEntries = entries.filter(entry => {
     return entry && 
