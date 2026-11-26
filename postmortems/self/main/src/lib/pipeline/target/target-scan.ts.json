@@ -8,12 +8,12 @@
   "symptom": "Test gate failed: test failed (sandboxed): src/lib/pipeline/target/target-scan.test.ts — \nsrc/lib/pipeline/target/target-scan.test.ts:\n41 |     expect(kinds.has(\"magic-number\")).toBe(true);\n42 |     expect(kinds.has(\"non-null-assertion\")).toBe(true);\n43 |     expect(kinds.has(\"unused-impo",
   "evidence": "1 test file(s) checked. The refactor broke existing behavior.",
   "constraints": "The previous refactor of src/lib/pipeline/target/target-scan.ts broke existing tests. Do not change observable behavior.",
-  "attempts": 32,
+  "attempts": 33,
   "parentHash": "5571206842bed110122b45620bd193d6ec7cc2cdf634b0759804d019eb1fe3ad",
-  "hash": "d47d22df96a6ca91703406f9edbbbd3d8acd4a1a53cb36c23ffe17522f6c43c3",
-  "lastAttemptAt": "2026-11-26T04:14:03.605Z",
+  "hash": "82034ab436dc2257579f75ba4b80893f447c4b4e2549a0b9f0ddb4ca6a222037",
+  "lastAttemptAt": "2026-11-26T05:00:39.985Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.202Z",
-  "updatedAt": "2026-11-26T04:14:03.605Z",
+  "updatedAt": "2026-11-26T05:00:39.985Z",
   "schema": 2
 }

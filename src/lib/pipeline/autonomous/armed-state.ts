@@ -40,7 +40,7 @@
  * to load from anywhere (loop-runtime, API routes, instrumentation).
  */
 
-import { readFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, mkdirSync } from "fs";
 import { atomicWriteFileSync } from "../core/atomic-file";
 import { join, dirname } from "path";
 import { PROJECT_ROOT } from "../core/paths";
@@ -111,10 +111,8 @@ export function markArmed(armed: boolean, by: string): void {
 
   try {
     const entry: ArmedState = { armed, at: new Date().toISOString(), by };
-    // Ensure directory exists before attempting to write
-    if (!existsSync(ARMED_STATE_DIR)) {
-      mkdirSync(ARMED_STATE_DIR, { recursive: true });
-    }
+    // Ensure directory exists before attempting to write. recursive: true handles existence check internally.
+    mkdirSync(ARMED_STATE_DIR, { recursive: true });
     atomicWriteFileSync(ARMED_STATE_FILE, JSON.stringify(entry, null, 2));
   } catch (error) {
     // Log the error for debugging but don't throw to maintain the contract

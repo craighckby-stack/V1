@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "scripts/test-claim.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: scripts/test-claim.ts(46,5): error TS2322: Type 'string | undefined' is not assignable to type 'null'.\n  Type 'undefined' is not assignable to type 'null'.",
@@ -12,8 +12,8 @@
   "parentHash": "48a2bbeff8f02c85bee29fe5b602d1377927c9462d7321db2fb2677db75c07c0",
   "hash": "fe7f44a40b80a99705ff1aa8b0b56f55270697c5bec089425ca71171531aa2ef",
   "lastAttemptAt": "2026-11-26T03:08:05.626Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T04:59:27.153Z",
   "createdAt": "2026-11-23T03:29:46.530Z",
-  "updatedAt": "2026-11-26T03:08:05.626Z",
+  "updatedAt": "2026-11-26T04:59:27.153Z",
   "schema": 2
 }
