@@ -103,9 +103,10 @@ export interface TargetRunResult {
 }
 
 function kindSummary(findings: TargetFinding[], max = 3): string {
-  const kinds = [...new Set(findings.map((f) => f.kind))].sort(
-    (a, b) => TARGET_KIND_PRIORITY[a] - TARGET_KIND_PRIORITY[b]
-  );
+  const kinds = Array.from(new Set(findings.map((f) => f.kind)))
+    .sort(
+      (a, b) => TARGET_KIND_PRIORITY[a] - TARGET_KIND_PRIORITY[b]
+    );
   const head = kinds.slice(0, max).join("+");
   return kinds.length > max ? `${head}+${kinds.length - max}more` : head;
 }
