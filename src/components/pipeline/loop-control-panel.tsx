@@ -481,6 +481,9 @@ function StatBlock({
   accent: string;
   mono?: boolean;
 }) {
+  if (!label || label.trim() === "") {
+    return null;
+  }
   return (
     <div className="rounded-md bg-slate-900/40 border border-slate-800/50 px-3 py-2">
       <div className="text-[10px] uppercase tracking-widest text-slate-500">{label}</div>
