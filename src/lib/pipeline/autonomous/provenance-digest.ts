@@ -85,7 +85,7 @@ const MAX_OPERATOR_MSG_LENGTH = 100;
  *  uses for `filePath` and the same form `git log --follow` expects. */
 export async function buildProvenanceDigestForPrompt(filePath: string): Promise<string> {
   if (!filePath || typeof filePath !== 'string' || filePath.trim() === '') {
-    console.error(`[ProvenanceDigest] Invalid filePath provided. Must be a non-empty string.`);
+    // Input validation: Guard clause for invalid filePath
     return "";
   }
 
@@ -98,9 +98,8 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
       getRecentAttemptsForFile(filePath, ATTEMPTS_TAKE),
     ]);
 
-    // Ensure results are arrays before proceeding.
+    // Ensure results are arrays before proceeding. If not, fail soft.
     if (!Array.isArray(gitLog) || !Array.isArray(attempts)) {
-        console.error(`[ProvenanceDigest] Git log or attempts data was not an array for ${filePath}. Failing soft.`);
         return "";
     }
 
@@ -213,8 +212,9 @@ export async function buildProvenanceDigestForPrompt(filePath: string): Promise<
     return result;
   } catch (error) {
     // Fail-soft: any error → empty string. Log the error context for debugging
-    // without crashing the pipeline.
+    // without crashing the pipeline, adhering strictly to the contract.
     const errorMessage = error instanceof Error ? error.message : String(error);
+    // Log context for debugging, but return "" to satisfy fail-soft contract.
     console.error(`[ProvenanceDigest] Failed to build provenance digest for ${filePath}. Failing soft. Error: ${errorMessage}`);
     return "";
   }
