@@ -122,7 +122,8 @@ export function selectEngineTreePaths(treeNodes: GitTreeNode[], maxPerRepo = 12)
     return (b.node.size ?? 0) - (a.node.size ?? 0);
   });
 
-  return scored.slice(0, maxPerRepo).map((item) => item.node);
+  const limit = Math.min(maxPerRepo, scored.length);
+  return scored.slice(0, limit).map((item) => item.node);
 }
 
 export function inferEngineRole(filePath: string, fullCode: string): EngineRole {
