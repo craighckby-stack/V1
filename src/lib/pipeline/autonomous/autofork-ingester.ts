@@ -318,13 +318,15 @@ export async function getAutoForkStatus(): Promise<{
       where: { source: "autofork" },
       select: { system: true, active: true },
     });
-    candidateLessons = lessons.filter((l) => l.active).length;
+    const activeLessons = lessons.filter((l) => l.active);
+    candidateLessons = activeLessons.length;
     for (const l of lessons) {
       const sys = l.system ?? "unknown";
       bySystemMap.set(sys, (bySystemMap.get(sys) ?? 0) + 1);
     }
-  } catch {
-    /* DB unavailable */
+  } catch (error) {
+    console.error("Failed to fetch autofork lessons from DB:", error);
+    // DB unavailable, candidateLessons remains 0
   }
 
   return {
