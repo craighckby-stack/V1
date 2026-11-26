@@ -109,17 +109,22 @@ export function GeminiPanel({ open, onClose }: Props) {
     try {
       const res = await fetch("/api/self-enhance/llm-config", { cache: "no-store" });
       if (!res.ok) {
-        throw new Error(`Failed to fetch LLM config: HTTP status ${res.status}`);
+        throw new Error(`Failed to fetch LLM config: HTTP status ${res.status} for endpoint /api/self-enhance/llm-config`);
       }
-      const data = (await res.json()) as LlmConfigView;
-      setCfg(data);
-      if (!syncedModelRef.current && data.model && MODEL_OPTIONS.includes(data.model)) {
+      const data = await res.json();
+      if (typeof data !== 'object' || data === null) {
+        throw new Error("API response was not a valid JSON object.");
+      }
+      const typedData = data as LlmConfigView;
+
+      setCfg(typedData);
+      if (!syncedModelRef.current && typedData.model && MODEL_OPTIONS.includes(typedData.model)) {
         syncedModelRef.current = true;
-        setModel(data.model);
+        setModel(typedData.model);
       }
     } catch (error) {
       // Poll failure is non-fatal — keep the last snapshot on screen, but log the error for debugging.
-      console.error("Error during LLM config polling:", error);
+      console.error("Error during LLM config polling:", error instanceof Error ? error.message : String(error));
     }
   }, []);
 
