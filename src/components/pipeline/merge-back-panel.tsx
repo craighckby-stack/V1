@@ -197,8 +197,9 @@ export function MergeBackPanel({ open, onClose }: Props) {
           const jj: { ok: boolean; candidates: Candidate[] } = await r.json();
           if (jj.ok) setCandidates(jj.candidates ?? []);
         } catch (e) {
-          // Log candidate refresh error but don't override main execution error state
-          console.error("Failed to refresh candidates after merge:", e);
+          // Log candidate refresh error with context, ensuring e is treated as an Error if possible
+          const errorMessage = e instanceof Error ? e.message : String(e);
+          console.error(`Failed to refresh candidates after merge for branch ${selected}: ${errorMessage}`);
         } finally {
           setLoadingCandidates(false);
         }
