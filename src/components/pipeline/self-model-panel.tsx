@@ -159,7 +159,8 @@ export function SelfModelPanel({ open, onClose }: Props) {
           return;
         }
         const data = (await res.json()) as SelfModelStatus;
-        if (active) {
+        // Optimization: Skip state update if data hasn't changed (assuming status comparison is cheap/sufficient)
+        if (active && JSON.stringify(data) !== JSON.stringify(status)) {
           setStatus(data);
           setError(null);
         }
@@ -179,8 +180,10 @@ export function SelfModelPanel({ open, onClose }: Props) {
       }
     }
 
+    // Run initial fetches in parallel to reduce initial latency
     poll();
     pollGoals();
+
     const timer = setInterval(poll, 8000);
     const goalsTimer = setInterval(pollGoals, 8000);
     return () => {
@@ -188,7 +191,7 @@ export function SelfModelPanel({ open, onClose }: Props) {
       clearInterval(timer);
       clearInterval(goalsTimer);
     };
-  }, [open]);
+  }, [open, status]);
 
   async function rebootstrap() {
     setLoading(true);
