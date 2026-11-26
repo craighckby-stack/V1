@@ -71,6 +71,13 @@ async function main(): Promise<void> {
       continue;
     }
 
+    // Input validation for createdAt before using it in DB queries
+    if (!p.createdAt || !(p.createdAt instanceof Date) || isNaN(p.createdAt.getTime())) {
+        console.error(`  Skipped prophecy ID ${p.id}: Invalid or missing createdAt timestamp.`);
+        leftAsIs++;
+        continue;
+    }
+
     // Same lookup semantics as the evaluator's retroactive check.
     let attempt: { cycleNumber: number; gateOutcome: string } | null = null;
     try {
@@ -93,6 +100,7 @@ async function main(): Promise<void> {
           generalAttemptPromise,
         ]);
 
+        // Prioritize sameAttemptResult if found, otherwise use generalAttemptResult
         attempt = sameAttemptResult || generalAttemptResult;
       } else {
         // If sameAttempt is false or cycleNumber is missing/invalid, fall back to general search
