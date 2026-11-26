@@ -150,7 +150,7 @@ function sanitizeVerdicts(items: unknown, modelName: string): LlmVerdict[] {
  */
 async function withRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
   let attempt = 0;
-  let lastError: unknown;
+  let lastError: Error | unknown = new Error("Retry mechanism failed to execute function.");
   while (attempt <= retries) {
     try {
       return await fn();
@@ -161,12 +161,15 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
         msg,
       );
       if (!retryable || attempt === retries) break;
-      const cooldownMs = Math.min(15000, 1500 * Math.pow(2, attempt));
-      await new Promise((resolve) => setTimeout(resolve, cooldownMs));
+      const cooldownMs = computeAiBatchCooldownMs(attempt);
+      await sleepWithAbort(cooldownMs);
     }
     attempt += 1;
   }
-  throw lastError;
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw lastError as Error;
 }
 
 /**
