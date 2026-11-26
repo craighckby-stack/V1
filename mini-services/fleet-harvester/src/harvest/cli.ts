@@ -140,7 +140,7 @@ async function main() {
   if (args.repos) {
     reposArray = args.repos.split(",").map((s) => s.trim()).filter(Boolean);
     if (reposArray.length === 0) {
-      console.error("ERROR: --repos= provided but resulted in no valid repository names after parsing. Ensure names are comma-separated and non-empty.");
+      console.error("ERROR: --repos= was provided but resulted in no valid repository names after parsing. Ensure names are comma-separated and non-empty.");
       process.exit(2);
     }
     log(`Smoke-test repos: ${reposArray.length} (${reposArray.join(", ")})`);
