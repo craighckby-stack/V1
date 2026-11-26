@@ -193,6 +193,12 @@ export function isDeadMansTripped(
   // Since readOperatorTouch validated the timestamp, we can use it directly
   const lastTouchTime = Date.parse(state.at);
 
-  // Removed redundant isNaN check as readOperatorTouch guarantees validity if state is not null.
+  // If readOperatorTouch returned a state, lastTouchTime should not be NaN due to internal validation.
+  // However, for absolute safety against internal logic divergence, we check again.
+  if (Number.isNaN(lastTouchTime)) {
+    console.error(`isDeadMansTripped: State read successfully but timestamp parsing failed for state: ${JSON.stringify(state)}`);
+    return true; // Treat as tripped if timestamp is invalid despite readOperatorTouch checks
+  }
+
   return nowTime - lastTouchTime > thresholdMs;
 }
