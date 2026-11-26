@@ -85,14 +85,14 @@ export function RecentCycles() {
   
   // Process WS data first to ensure precedence
   cyclesFromStore.forEach((c) => {
-    if (c?.id) { 
+    if (c && c.id) { 
       seen.set(c.id, c);
     }
   });
   
   // Process API data, only adding if not already seen (i.e., not in WS store)
   fetched.forEach((c) => {
-    if (c?.id && !seen.has(c.id)) {
+    if (c && c.id && !seen.has(c.id)) {
       seen.set(c.id, c);
     }
   });
