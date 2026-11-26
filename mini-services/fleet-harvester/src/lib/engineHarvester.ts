@@ -316,6 +316,10 @@ export function buildUnredactedEngineRecord(params: {
   repoCommits: RawCommit[];
   harvestedAt?: string;
 }): SiphonedEngine {
+  if (!params.repo || !params.branch || !params.filePath || !params.rawUrl || !params.repoCommits) {
+    throw new Error('buildUnredactedEngineRecord requires repo, branch, filePath, rawUrl, and repoCommits to be defined.');
+  }
+  
   const ast = scanEngineAst(params.fullCode, params.filePath);
   const relatedCommitShas = linkCommitsToEngine(
     params.filePath,
