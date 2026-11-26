@@ -58,29 +58,22 @@ export function PostmortemPanel() {
     try {
       const res = await fetch("/api/postmortems");
       if (!res.ok) {
+        // Throw with context including status for better error reporting
         throw new Error(`Failed to fetch postmortems: ${res.status} ${res.statusText}`);
       }
       const data = await res.json();
       
       // Robust check for expected structure
       if (data && Array.isArray(data.postmortems)) {
-        // Performance improvement: only update state if data has changed. 
-        // Avoid expensive JSON.stringify comparison by checking reference equality if possible, 
-        // or relying on the state setter to handle redundant updates if the data structure is complex.
-        // Since we cannot guarantee reference equality across fetches, we must check content efficiently.
-        // For this fix, we assume a shallow check or rely on the state update mechanism unless a proper deepEquals utility is available.
-        // Given constraints, we remove the expensive stringify comparison, trusting the state setter/component re-render to handle minor changes efficiently, 
-        // or we must assume the API returns identical objects if no change occurred.
-        if (data.postmortems.length !== postmortems.length || data.postmortems.some((item, index) => item !== postmortems[index])) {
-            setPostmortems(data.postmortems);
-        }
+        // Performance/Bug Fix: Removed flawed object reference comparison (item !== postmortems[index]).
+        // Relying on the state setter to handle redundant updates is safer than an incorrect deep/shallow check without a utility.
+        setPostmortems(data.postmortems);
       } else {
         // Improved error context for invalid structure
-        const dataString = JSON.stringify(data).substring(0, 100);
-        console.error("API response structure invalid: expected { postmortems: [...] }", data, "Received snippet:", dataString);
+        console.error("API response structure invalid: expected { postmortems: [...] }", data);
         toast({
           title: "Data Error",
-          description: `Invalid postmortem data received from server. Expected an array under 'postmortems'. Received structure snippet: ${dataString}`,
+          description: `Invalid postmortem data received from server. Expected an array under 'postmortems'.`,
           variant: "destructive",
         });
       }
