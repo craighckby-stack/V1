@@ -61,7 +61,8 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   // Regex to match GitHub URLs and capture owner/repo, or just owner/repo slugs.
   // Handles: https://github.com/owner/repo, github.com/owner/repo, owner/repo, owner
   // Captures: (owner)/(repo) or just (owner)
-  const githubSlugRegex = /^(?:https?:\/\/(?:www\.)?github\.com\/)?([a-zA-Z0-9_-]+)(?:\/([a-zA-Z0-9_-]+))?(?:\.git)?$/i;
+  // Modified to be more permissive on the end, allowing just 'owner' without a trailing slash/dotgit
+  const githubSlugRegex = /^(?:https?:\/\/(?:www\.)?github\.com\/)?([a-zA-Z0-9_-]+)(?:\/([a-zA-Z0-9_-]+))?$/i;
 
   for (const token of tokens) {
     let cleanToken = token;
@@ -132,7 +133,7 @@ export function appendPresetToSources(existing: string | null | undefined, addit
   const existingKeys = new Set(current.map((c) => c.raw.toLowerCase()));
   const merged: string[] = [...current.map((c) => c.raw)];
 
-  // Parse all additions once, relying on parseSources to filter empty/invalid tokens
+  // Parse all additions once, joining them with a separator that parseSources handles
   const parsedAdditions = parseSources(additions.join(', '));
 
   for (const item of parsedAdditions) {
