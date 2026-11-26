@@ -244,9 +244,10 @@ export async function runTargetMutation(opts?: {
   }
   const chosen = probes.find((p) => p.path === pick.file);
   if (!chosen) {
-    // This path should theoretically not be reached if pick is not null, but handle defensively.
-    await recordTargetRun({ at: new Date().toISOString(), repo, status: "failed", reason: "Internal logic error: pick found but probe not found" });
-    return { ok: false, status: "failed", repo, error: "Internal logic error: pick found but probe not found", log };
+    // If pickTargetFinding returned null/undefined, we cannot proceed with mutation.
+    const errorMessage = "Internal logic error: pickTargetFinding was null/undefined despite successful probe execution.";
+    await recordTargetRun({ at: new Date().toISOString(), repo, status: "failed", reason: errorMessage });
+    return { ok: false, status: "failed", repo, error: errorMessage, log };
   }
   const file = chosen.path;
   const originalCode = chosen.content;
