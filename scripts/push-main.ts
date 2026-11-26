@@ -34,7 +34,15 @@ async function main() {
     console.log("[push-main] PUSH OK:", String(out).slice(0, 300));
     process.exit(0);
   } catch (err) {
-    console.error("[push-main] PUSH FAILED:", String((err as { stderr?: string }).stderr ?? (err as Error).message).slice(0, 500));
+    const error = err as NodeJS.ErrnoException | Error;
+    const stderr = (error as { stderr?: string }).stderr || (error as Error).message;
+    console.error(`[push-main] PUSH FAILED: git push origin main failed.`);
+    console.error("--- Error Details ---");
+    console.error(String(stderr).slice(0, 500));
+    if (error instanceof Error) {
+        console.error("--- Full Error Stack ---");
+        console.error(error.stack);
+    }
     process.exit(1);
   }
 }
