@@ -184,9 +184,9 @@ export async function ingestAutoFork(
   //   ingestAutoFork(token, "deepseek-ai/deepseek-harness") — scan a specific repo
   // The curiosity drive calls the first; the operator's `autofork scan <repo>`
   // calls the second.
-  if (repoOverride && clientTokenOrRepo) {
-    // Ambiguous call: operator specified a repo AND a token. Prioritize repo context.
-    // We use the token if provided, but the repo context is primary for this path.
+  if (repoOverride && !clientTokenOrRepo) {
+    // Operator specified a repo but no token was provided. We must resolve the token later,
+    // but we proceed with repo context.
   }
   const clientToken = clientTokenOrRepo;
   const targetRepo = repoOverride;
