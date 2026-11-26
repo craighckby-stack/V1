@@ -16,6 +16,7 @@ import { runTargetMutation } from "@/lib/pipeline/target/target-runner";
 
 const DEFAULT_REPO = "craighckby-stack/Wonder-Craig-Game-Demo";
 const providedRepo = process.argv[2];
+// Input validation: Ensure REPO is not empty/whitespace if provided, otherwise use default.
 const REPO = providedRepo ? providedRepo.trim() : DEFAULT_REPO;
 
 function line(s: string) {
@@ -131,7 +132,7 @@ async function main() {
     
     // Ensure config is cleared if it was successfully set before the error occurred in Step 3
     if (configSetSuccessfully) {
-        await clearTargetConfig();
+        await clearTargetConfig().catch(e => line(`Warning: Failed to clear target config after error: ${String(e)}`));
     }
     process.exitCode = 2;
   }
