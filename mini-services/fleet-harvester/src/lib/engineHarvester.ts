@@ -53,7 +53,7 @@ export function scoreEngineFilePath(filePath: string, size?: number): number {
   const lang = detectEngineLanguage(clean);
   if (!lang) return 0;
 
-  const numericSize = typeof size === 'number' && size >= 0 ? size : undefined;
+  const numericSize = (typeof size === 'number' && size >= 0) ? size : undefined;
 
   if (numericSize !== undefined && (numericSize <= 40 || numericSize > MAX_ENGINE_FILE_BYTES)) {
     return 0;
