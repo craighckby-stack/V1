@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       clean: result.clean,
       sanitizedCode: result.sanitizedCode,
-      violations: Array.from(result.violations),
+      violations: Array.from(result.violations || []), // Guard against null/undefined violations
       errorClass: result.errorClass,
       highEntropyTokensFound: result.highEntropyTokensFound,
     });

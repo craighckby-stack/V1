@@ -8,12 +8,12 @@
   "symptom": "Test gate failed: test failed (sandboxed): src/lib/pipeline/autonomous/loop-stats.test.ts — \nsrc/lib/pipeline/autonomous/loop-stats.test.ts:\nwriteLoopStats: Invalid numeric value for field totalScanned: undefined. Must be a finite, non-negative integer.\n(pass) loop-stats validation and contr",
   "evidence": "1 test file(s) checked. The refactor broke existing behavior.",
   "constraints": "The previous refactor of src/lib/pipeline/autonomous/loop-stats.ts broke existing tests. Do not change observable behavior.",
-  "attempts": 38,
-  "parentHash": "c8e8a9be9bbad45ac1d084a7585c4921bab51255332151c24a9fb6d004955d41",
-  "hash": "e35abd72d92a3d60a2100b7cce880a1af8d86ec906e4f07f66c7949997632d9e",
-  "lastAttemptAt": "2026-11-26T07:47:17.492Z",
+  "attempts": 39,
+  "parentHash": "c264bb0589be2b02505d49a3adead180cc9465b8f4530cda1dd07c4a6116fd74",
+  "hash": "41ab882cfc36e95ddd069e6ee59634bcee3864aa841d0c18a518978d51a1109f",
+  "lastAttemptAt": "2026-11-26T08:42:49.826Z",
   "resolvedAt": null,
   "createdAt": "2026-11-23T03:29:46.250Z",
-  "updatedAt": "2026-11-26T07:47:17.492Z",
+  "updatedAt": "2026-11-26T08:42:49.826Z",
   "schema": 2
 }
