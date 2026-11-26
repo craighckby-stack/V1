@@ -370,27 +370,33 @@ export function nextTargetBranchNumber(branches: string[]): number {
 type DiffOp = { op: " " | "-" | "+"; text: string };
 
 function lcsDiff(a: string[], b: string[]): DiffOp[] {
-  // Heuristic guard: If the product exceeds a threshold where O(MN) DP becomes prohibitively slow/memory intensive.
-  // 10M is a reasonable practical limit for typical Node.js heap constraints in a pipeline context.
-  if (a.length * b.length > 10_000_000) {
+  // Check if the required DP table size (M+1)*(N+1) exceeds a safe allocation limit (e.g., 10M elements for Int32Array).
+  const m = a.length;
+  const n = b.length;
+  if ((m + 1) * (n + 1) > 10_000_000) {
     return [
       ...a.map((t) => ({ op: "-" as const, text: t })),
       ...b.map((t) => ({ op: "+" as const, text: t })),
     ];
   }
-  const m = a.length;
-  const n = b.length;
+  
   // dp[i][j] = LCS length of a[i..], b[j..]
   const dp = new Int32Array((m + 1) * (n + 1));
+  
   for (let i = m - 1; i >= 0; i--) {
     for (let j = n - 1; j >= 0; j--) {
       const idx = i * (n + 1) + j;
+      const idx_diag = (i + 1) * (n + 1) + j + 1;
+      const idx_down = (i + 1) * (n + 1) + j;
+      const idx_right = i * (n + 1) + j + 1;
+      
       dp[idx] =
         a[i] === b[j]
-          ? dp[(i + 1) * (n + 1) + j + 1] + 1
-          : Math.max(dp[(i + 1) * (n + 1) + j], dp[i * (n + 1) + j + 1]);
+          ? dp[idx_diag] + 1
+          : Math.max(dp[idx_down], dp[idx_right]);
     }
   }
+  
   const ops: DiffOp[] = [];
   let i = 0;
   let j = 0;
