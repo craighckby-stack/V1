@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/merge-back-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 3 net new guard-lexicon line(s) (original 30 → evolved 33), no behavioral signal, 29 changed lines — mutations must change observable behavior, not add guards to code that already works",
@@ -12,8 +12,8 @@
   "parentHash": "75248fd6093b22455802201e85d551e4fe927da928ecb782c08c4b33d80f508d",
   "hash": "a5883a71f018005c8a6936e2b60be03373ac109b1caf77a953c24ceee210728c",
   "lastAttemptAt": "2026-11-26T10:22:10.225Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T11:19:21.829Z",
   "createdAt": "2026-11-26T06:45:07.506Z",
-  "updatedAt": "2026-11-26T10:22:10.225Z",
+  "updatedAt": "2026-11-26T11:19:21.829Z",
   "schema": 2
 }
