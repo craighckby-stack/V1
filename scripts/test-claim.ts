@@ -40,5 +40,8 @@ async function main() {
 main().catch((e) => {
   const errorMessage = e instanceof Error ? e.message : String(e);
   console.error(`Error during task claim peek: Failed to retrieve next task state. Context: ${errorMessage}`);
+  if (e instanceof Error) {
+    console.error("Full stack trace:", e.stack);
+  }
   process.exit(1);
 });
