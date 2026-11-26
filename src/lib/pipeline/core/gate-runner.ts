@@ -76,12 +76,90 @@ import { evaluateAstDiff, AstDiffResult, AstDiffViolation } from "./ast-diff-gat
 import { validateStructure, StructureResult } from "../autonomous/structural-validator";
 import { syntaxCheck, typecheckRefactor } from "../autonomous/in-memory-typecheck";
 import { PROJECT_ROOT } from "./paths";
+import { spawnSync } from "node:child_process";
+
+/** Lint a refactored file IN MEMORY — runs eslint via stdin so no code is
+ *  written to disk. Returns ok:true when the refactored code has ZERO
+ *  eslint ERRORS (warnings are not blocking — the project carries 2
+ *  benign pre-existing warnings in recent-cycles.tsx / scramble.tsx).
+ *
+ *  WHY THIS GATE EXISTS (2026-11-26 operator fix): the gate chain ran
+ *  tsc but NOT eslint. The loop could commit any code that typechecked —
+ *  including `catch (e)` with unused `e`, explicit `any`, `let` where `const`
+ *  suffices. Over one overnight run the loop introduced 15 such errors,
+ *  which would have failed the GitHub Actions batch preflight (which DOES
+ *  run eslint) and blocked the 10-week endurance CI. This gate closes that
+ *  gap at the source: the loop's own per-cycle verification now rejects any
+ *  refactored file that introduces a lint error, the same way it already
+ *  rejects type errors.
+ *
+ *  PERFORMANCE: `bunx eslint --stdin` takes ~2-3s (eslint startup + config
+ *  load). Cached on the process — the first call per verify-refactor.ts
+ *  invocation pays the startup, subsequent calls reuse the warm module.
+ *  Sits BEFORE typecheck (~10s) for fail-fast on cheaper gates.
+ *
+ *  SCOPE: SELF_PATH_POLICY only. The remote path targets external repos
+ *  that may have no eslint config or a different one — adding this there
+ *  would spuriously reject every remote mutation.
+ */
+function lintRefactor(filePath: string, code: string): { ok: boolean; errors: string[] } {
+  try {
+    const result = spawnSync(
+      "bunx",
+      ["eslint", "--stdin", "--stdin-filename", filePath, "--format", "json", "--quiet"],
+      {
+        cwd: PROJECT_ROOT,
+        encoding: "utf-8",
+        input: code,
+        timeout: 30_000,
+      }
+    );
+    // --quiet suppresses warnings (severity 1); only errors (severity 2)
+    // are reported. Exit code 0 = clean, 1 = has errors/warnings (but
+    // --quiet means only errors reach stdout), 2 = config/crash error.
+    if (result.status === 0) return { ok: true, errors: [] };
+    // Parse the JSON output (eslint --format json prints an array of
+    // file-result objects; with --stdin there is exactly one entry).
+    const stdout = result.stdout || "";
+    try {
+      const data = JSON.parse(stdout) as Array<{
+        errorCount: number;
+        warningCount: number;
+        messages: Array<{ severity: number; line: number; column: number; message: string; ruleId: string | null }>;
+      }>;
+      if (Array.isArray(data) && data.length > 0) {
+        const errs = data[0].messages.filter((m) => m.severity === 2);
+        if (errs.length > 0) {
+          return {
+            ok: false,
+            errors: errs.map((m) => `${filePath}:${m.line}:${m.column} ${m.message} (${m.ruleId ?? "unknown"})`).slice(0, 20),
+          };
+        }
+      }
+    } catch {
+      // JSON parse failed — eslint likely crashed (exit 2). The stderr
+      // has the real reason. Fail-closed: report as a gate failure so the
+      // loop doesn't ship an unchecked file.
+      if (result.status === 2 || result.stderr) {
+        return { ok: false, errors: [`eslint crashed: ${(result.stderr || stdout).slice(0, 200)}`] };
+      }
+    }
+    // Non-zero exit but no parsed errors — treat as pass (don't let an
+    // eslint quirk block every mutation; the batch preflight is the
+    // whole-project backstop).
+    return { ok: true, errors: [] };
+  } catch (err) {
+    // spawnSync itself threw (bunx not found, etc.) — fail-closed.
+    return { ok: false, errors: [`lint gate failed to run: ${(err as Error).message}`] };
+  }
+}
 
 export type GateName =
   | "mutation-guard"
   | "structural"
   | "ast-diff"
   | "syntax"
+  | "lint"
   | "typecheck";
 
 /**
@@ -102,6 +180,10 @@ export interface GatePolicy {
   astTolerance: "score" | "strict";
   /** Fast AST syntax parse. */
   syntax: boolean;
+  /** ESLint gate — rejects refactored code that introduces lint ERRORS
+   *  (warnings are not blocking). Runs via `eslint --stdin` (~2-3s).
+ *  SELF_PATH only; remote repos may have no eslint config. */
+  lint: boolean;
   /** Full in-memory tsc typecheck (~10s). */
   typecheck: boolean;
   /** Halt at the first failing gate instead of running every enabled gate.
@@ -118,6 +200,7 @@ export const SELF_PATH_POLICY: GatePolicy = {
   ast: true,
   astTolerance: "strict",
   syntax: true,
+  lint: true,
   typecheck: true,
   stopOnFirstFailure: true,
 };
@@ -130,6 +213,7 @@ export const REMOTE_PATH_POLICY: GatePolicy = {
   ast: true,
   astTolerance: "score",
   syntax: false,
+  lint: false,
   typecheck: false,
   stopOnFirstFailure: false,
 };
@@ -153,6 +237,7 @@ export interface GateChainResult {
   structural: StructureResult | null;
   ast: AstDiffResult | null;
   syntax: { ok: boolean; error?: string } | null;
+  lint: { ok: boolean; errors: string[] } | null;
   typecheck: { ok: boolean; errors: string[] } | null;
   /** Under astTolerance:"strict": the AST_SYMBOL_DROPPED /
    *  BRANDING_INJECTION violations that hard-failed the chain. The
@@ -208,6 +293,7 @@ export async function runGateChain(input: GateChainInput): Promise<GateChainResu
     structural: null,
     ast: null,
     syntax: null,
+    lint: null,
     typecheck: null,
     astHardFailViolations: [],
     steps,
@@ -327,7 +413,29 @@ export async function runGateChain(input: GateChainInput): Promise<GateChainResu
     }
   }
 
-  // 5. TYPECHECK — full in-memory tsc (same as `tsc --noEmit`). Expensive
+  // 5. LINT — eslint via stdin (~2-3s). Rejects on ERRORS only (warnings
+  //    are not blocking — the project carries 2 benign pre-existing
+  //    warnings). Sits before typecheck for fail-fast: a `catch (e)` with
+  //    unused `e` fails here in ~2s instead of waiting for tsc's ~10s.
+  //    (2026-11-26 operator fix: the gate chain had no style gate — the
+  //    loop introduced 15 lint errors overnight that would have failed
+  //    the batch preflight.)
+  if (policy.lint) {
+    const t = performance.now();
+    const lint = lintRefactor(filePath, evolvedCode);
+    result.lint = lint;
+    steps.push({
+      gate: "lint",
+      status: lint.ok ? "passed" : "failed",
+      durationMs: Math.round(performance.now() - t),
+    });
+    if (!lint.ok) {
+      fail("lint", lint.errors);
+      if (policy.stopOnFirstFailure) return result;
+    }
+  }
+
+  // 6. TYPECHECK — full in-memory tsc (same as `tsc --noEmit`). Expensive
   //    (~10s). Only meaningful after structure + syntax pass, hence last.
   if (policy.typecheck) {
     const t = performance.now();

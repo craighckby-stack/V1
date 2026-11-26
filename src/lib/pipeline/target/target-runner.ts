@@ -73,6 +73,7 @@ export const TARGET_PATH_POLICY: GatePolicy = {
   ast: true,
   astTolerance: "strict",
   syntax: true,
+  lint: false, // External target repo — may have no eslint config (2026-11-26)
   typecheck: false,
   stopOnFirstFailure: false,
 };
