@@ -40,10 +40,7 @@ async function main() {
 }
 main().catch(e => {
   // Improved error logging to include context about the pipeline failure
-  if (e instanceof Error) {
-    console.error(`Error executing main pipeline function: ${e.message}. Check database connection or query logic. Stack: ${e.stack}`);
-  } else {
-    console.error("Error executing main pipeline function: An unknown non-Error object was caught.", e);
-  }
+  const errorMessage = e instanceof Error ? e.message : String(e);
+  console.error(`Error executing main pipeline function: ${errorMessage}. Check database connection or query logic. Stack: ${e instanceof Error ? e.stack : 'N/A'}`);
   process.exit(1);
 });
