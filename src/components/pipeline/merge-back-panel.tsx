@@ -93,11 +93,12 @@ interface ExecResult {
   branch: string;
   strategy: string;
   committed: boolean;
-  commitSha?: string;
+  commitSha?: string | undefined;
   filesChanged: number;
   typecheckPassed: boolean;
   pushed?: boolean;
   error?: string;
+  errorDetails?: { code: string; message: string };
   skippedProtected?: string[];
   /** src files skipped because main also changed them since the branch
    *  forked (fast-forward-only merge-back). */
