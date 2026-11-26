@@ -10,7 +10,7 @@ async function main() {
     } else {
       console.warn("LLM configuration record with id 'singleton' not found in the database.");
     }
-  } catch (e) {
+  } catch (e: unknown) {
     let errorMessage = "An unknown error occurred during LLM configuration check.";
     
     if (e instanceof Error) {
