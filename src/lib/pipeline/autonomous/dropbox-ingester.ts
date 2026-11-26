@@ -283,7 +283,9 @@ export async function seedCandidateLesson(
       },
     });
     return row.id;
-  } catch {
+  } catch (error) {
+    // Log the specific error for debugging pipeline failures, but return null as per signature contract.
+    console.error(`Failed to seed candidate lesson from source ${source} with system tag ${systemTag}:`, error);
     return null;
   }
 }
