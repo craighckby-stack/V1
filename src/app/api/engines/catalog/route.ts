@@ -23,14 +23,14 @@ interface InvalidSource {
 export async function GET() {
   if (!SIPHON_SOURCES) {
     return NextResponse.json(
-      { error: "Catalog sources not available: SIPHON_SOURCES is undefined or null." },
+      { error: "Catalog sources not available: SIPHON_SOURCES is undefined or null. Check pipeline initialization." },
       { status: 500 }
     );
   }
 
   if (!Array.isArray(SIPHON_SOURCES)) {
     return NextResponse.json(
-      { error: "SIPHON_SOURCES must be an array." },
+      { error: "SIPHON_SOURCES must be an array, received type: " + typeof SIPHON_SOURCES },
       { status: 500 }
     );
   }
@@ -51,8 +51,6 @@ export async function GET() {
       }
 
       // Check for required structure properties directly on the source object
-      // (SiphonSource.patterns is typed as string[]; the old `as any` cast
-      // was a lint-suppression leftover that hid the real type.)
       const patterns = source.patterns;
 
       if (!patterns || !Array.isArray(patterns)) {
