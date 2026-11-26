@@ -174,12 +174,16 @@ export function LoopControlPanel() {
     setToggling(true);
     try {
       const res = await fetch("/api/autonomous/stop", { method: "POST" });
+      if (!res.ok) {
+        const errorBody = await res.text();
+        throw new Error(`Failed to stop loop. Status: ${res.status}. Details: ${errorBody.substring(0, 200)}`);
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? "Failed to stop loop");
       setLoopState(data);
       toast({ title: "Autonomous loop stopped", description: "No further cycles will run until re-enabled." });
     } catch (e) {
-      toast({ title: "Stop failed", description: (e as Error).message, variant: "destructive" });
+      const errorMessage = e instanceof Error ? e.message : "An unknown error occurred during loop stop.";
+      toast({ title: "Stop failed", description: errorMessage, variant: "destructive" });
     } finally {
       setToggling(false);
     }
