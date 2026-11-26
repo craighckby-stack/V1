@@ -148,20 +148,38 @@ export function MergeBackPanel({ open, onClose }: Props) {
   // Fetch the plan when selection changes.
   useEffect(() => {
     if (!open || !selected) return;
-    let cancelled = false;
+    const controller = new AbortController();
+    const signal = controller.signal;
+
     setLoadingPlan(true);
     setResult(null);
     setError(null);
-    fetch(`/api/self-enhance/merge-back?branch=${encodeURIComponent(selected)}`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j: { ok: boolean; plan: Plan; error?: string }) => {
-        if (cancelled) return;
-        if (j.ok) setPlan(j.plan);
-        else setError(j.error || "Could not load plan.");
+
+    fetch(`/api/self-enhance/merge-back?branch=${encodeURIComponent(selected)}`, { cache: "no-store", signal })
+      .then((r) => {
+        if (!r.ok) {
+          // Throw an error with status for better catch handling
+          throw new Error(`API request failed with status ${r.status}`);
+        }
+        return r.json();
       })
-      .catch((e) => !cancelled && setError((e as Error).message))
-      .finally(() => !cancelled && setLoadingPlan(false));
-    return () => { cancelled = true; };
+      .then((j: { ok: boolean; plan: Plan; error?: string }) => {
+        if (j.ok) {
+          setPlan(j.plan);
+        } else {
+          setError(j.error || "Failed to load merge plan from API.");
+        }
+      })
+      .catch((e) => {
+        if (e instanceof Error && e.name === 'AbortError') {
+          // Request was intentionally cancelled, do nothing
+          return;
+        }
+        setError(`Error fetching merge plan for branch ${selected}: ${(e as Error).message}`);
+      })
+      .finally(() => setLoadingPlan(false));
+
+    return () => controller.abort();
   }, [open, selected]);
 
   if (!open) return null;
