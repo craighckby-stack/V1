@@ -30,17 +30,17 @@ export async function GET() {
 
 export async function POST(req: Request) {
   let body: { repo?: string; branch?: string };
-  let contextRepo: string = 'unknown';
+  let repoContext: string = 'unknown';
 
   try {
     body = (await req.json()) as { repo?: string; branch?: string };
     
     if (!body?.repo || typeof body.repo !== "string") {
-      contextRepo = 'unknown'; // Ensure context is set even if repo is missing
+      repoContext = 'unknown';
       return NextResponse.json({ ok: false, error: "repo is required (owner/name)" }, { status: 400 });
     }
     
-    contextRepo = body.repo;
+    repoContext = body.repo;
 
     // Validate repo format (should be in owner/name format)
     if (!body.repo.includes("/")) {
@@ -96,7 +96,7 @@ export async function POST(req: Request) {
       // Differentiate between input validation errors (400) and internal system errors (500)
       // Input validation (missing repo) is handled above (400).
       // Errors from req.json() or store operations are typically internal system errors (500).
-      return NextResponse.json({ ok: false, error: `Configuration update failed for repo ${contextRepo}: ${err.message}` }, { status: 500 });
+      return NextResponse.json({ ok: false, error: `Configuration update failed for repo ${repoContext}: ${err.message}` }, { status: 500 });
     }
     // Handle non-Error objects gracefully
     return NextResponse.json({ ok: false, error: "An unknown system error occurred during configuration update." }, { status: 500 });
