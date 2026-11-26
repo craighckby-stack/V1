@@ -51,8 +51,6 @@ export async function GET() {
       }
 
       // Check for required structure properties directly on the source object
-      // (SiphonSource.patterns is typed as string[]; the old `as any` cast
-      // was a lint-suppression leftover that hid the real type.)
       const patterns = source.patterns;
 
       if (!patterns || !Array.isArray(patterns)) {
@@ -83,7 +81,7 @@ export async function GET() {
 
       // Source is valid, construct CatalogEntry
       acc.validSources.push({
-        source: source as SiphonSource,
+        source: source, // Type assertion removed as validation passed
         count: patterns.length,
         complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
         status: "configured",
