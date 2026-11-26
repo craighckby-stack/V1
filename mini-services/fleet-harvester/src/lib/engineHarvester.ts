@@ -335,12 +335,12 @@ export function linkCommitsToEngine(
   const matched: string[] = [];
   for (const commit of repoCommits) {
     const msg = commit.message.toLowerCase();
-    for (const term of terms) {
-      if (msg.includes(term)) {
-        matched.push(commit.sha);
-        break;
-      }
+    const isMatch = Array.from(terms).some(term => msg.includes(term));
+    
+    if (isMatch) {
+      matched.push(commit.sha);
     }
+
     if (matched.length >= 25) break;
   }
 

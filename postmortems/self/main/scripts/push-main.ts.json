@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "scripts/push-main.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/scripts/push-main.ts:42:19 Unexpected any. Specify a different type. (@typescript-eslint/no-explicit-any); /home/z/my-project/scripts/push-main.ts:43:26 Unexpected any. Specify a different type. (@typescript-eslint/no-explicit-any)",
@@ -12,8 +12,8 @@
   "parentHash": "d1a375ae7a96888d0b51233f9af0f9f4223af5cdfd13039db2c41603dd1773e3",
   "hash": "1e430192a5fbbc12fb67a0f21d3c32fbdf548f979542c5f203f9fbb03c53d1c0",
   "lastAttemptAt": "2026-11-26T05:28:16.177Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T07:05:01.142Z",
   "createdAt": "2026-11-26T03:47:22.970Z",
-  "updatedAt": "2026-11-26T05:28:16.177Z",
+  "updatedAt": "2026-11-26T07:05:01.142Z",
   "schema": 2
 }
