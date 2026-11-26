@@ -64,11 +64,11 @@ interface Prophecy {
 interface OracleStatus {
   ok: boolean;
   counts?: {
-    pending: number;
-    fulfilled: number;
-    failed: number;
-    retired: number;
-    total: number;
+    pending: number | undefined;
+    fulfilled: number | undefined;
+    failed: number | undefined;
+    retired: number | undefined;
+    total: number | undefined;
   };
   calibration?: Array<{
     threshold: number;
@@ -78,7 +78,7 @@ interface OracleStatus {
     wellCalibratedIf: number;
   }>;
   brierScore?: number | null;
-  judgedCount?: number;
+  judgedCount?: number | undefined;
   error?: string;
 }
 
