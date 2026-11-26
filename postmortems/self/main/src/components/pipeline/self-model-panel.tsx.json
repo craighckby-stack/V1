@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/pipeline/self-model-panel.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/self-model-panel.tsx(482,31): error TS2551: Property 'failss' does not exist on type '{ attempts: number; passes: number; fails: number; zeroDiffs: number; }'. Did you mean 'fails'?",
+  "evidence": "Original: 23083 bytes, Refactored: 23082 bytes. Errors: src/components/pipeline/self-model-panel.tsx(482,31): error TS2551: Property 'failss' does not exist on type '{ attempts: number; passes: number; fails: number; zeroDiffs: number; }'. Did you mean 'fails'?",
+  "constraints": "The previous refactor of src/components/pipeline/self-model-panel.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 2,
+  "parentHash": "9bbc033c61cd71deaa8628ccdadffd47bc8fda0f077388662895f5dade6b5d78",
+  "hash": "7f4ed2ccefd383f05faa37437c8cce7155dd7330266c416c2eca2aadeaa822d2",
+  "lastAttemptAt": "2026-11-26T06:14:01.433Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-26T05:15:21.175Z",
+  "updatedAt": "2026-11-26T06:14:01.433Z",
+  "schema": 2
+}

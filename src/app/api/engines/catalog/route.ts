@@ -23,14 +23,14 @@ interface InvalidSource {
 export async function GET() {
   if (!SIPHON_SOURCES) {
     return NextResponse.json(
-      { error: "Catalog sources not available: SIPHON_SOURCES is undefined or null." },
+      { error: "Catalog sources not available: SIPHON_SOURCES is undefined or null. Check pipeline initialization." },
       { status: 500 }
     );
   }
 
   if (!Array.isArray(SIPHON_SOURCES)) {
     return NextResponse.json(
-      { error: "SIPHON_SOURCES must be an array." },
+      { error: "SIPHON_SOURCES must be an array, received type: " + typeof SIPHON_SOURCES },
       { status: 500 }
     );
   }
@@ -81,7 +81,7 @@ export async function GET() {
 
       // Source is valid, construct CatalogEntry
       acc.validSources.push({
-        source: source, // Type assertion removed as validation passed
+        source: source as SiphonSource,
         count: patterns.length,
         complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
         status: "configured",

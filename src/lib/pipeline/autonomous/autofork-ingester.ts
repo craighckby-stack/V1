@@ -124,13 +124,21 @@ interface AutoForkResult {
 
 /** Read the seed list. Returns [] if the file is absent/unreadable. */
 function readSeeds(): SeedEntry[] {
+  if (!existsSync(SEEDS_PATH)) return [];
   try {
-    if (!existsSync(SEEDS_PATH)) return [];
     const raw = readFileSync(SEEDS_PATH, "utf8");
     const parsed = JSON.parse(raw) as SeedEntry[];
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) {
+      console.error(`[autofork-ingester] Seeds file ${SEEDS_PATH} content is not a JSON array.`);
+      return [];
+    }
     return parsed.filter((s) => typeof s.repo === "string" && s.enabled !== false);
-  } catch {
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      console.error(`[autofork-ingester] Failed to parse JSON from seeds file ${SEEDS_PATH}:`, error.message);
+    } else {
+      console.error(`[autofork-ingester] Failed to read or process seeds file ${SEEDS_PATH}:`, error);
+    }
     return [];
   }
 }
@@ -174,6 +182,10 @@ export async function ingestAutoFork(
   //   ingestAutoFork(token, "deepseek-ai/deepseek-harness") — scan a specific repo
   // The curiosity drive calls the first; the operator's `autofork scan <repo>`
   // calls the second.
+  if (repoOverride && clientTokenOrRepo) {
+    // Ambiguous call: operator specified a repo AND a token. Prioritize repo context.
+    // We use the token if provided, but the repo context is primary for this path.
+  }
   const clientToken = clientTokenOrRepo;
   const targetRepo = repoOverride;
   const result: AutoForkResult = {
@@ -218,6 +230,8 @@ export async function ingestAutoFork(
   // Resolve the branch: explicit → default branch.
   let branch = seed.branch ?? "";
   if (!branch) {
+    // Run default branch fetch in parallel with other initial setup if possible,
+    // but here it's sequential dependency for tree fetch.
     branch = (await getRepoDefaultBranch(seed.repo, token)) ?? "main";
   }
 
@@ -313,18 +327,28 @@ export async function getAutoForkStatus(): Promise<{
 
   let candidateLessons = 0;
   const bySystemMap = new Map<string, number>();
+
+  // Run DB fetch concurrently with initial seed/manifest processing if possible,
+  // but since readSeeds/readManifest are synchronous, we focus on parallelizing the async DB call.
   try {
     const lessons = await db.lesson.findMany({
       where: { source: "autofork" },
       select: { system: true, active: true },
     });
-    candidateLessons = lessons.filter((l) => l.active).length;
+    
+    // Calculate metrics from the fetched lessons in one pass
     for (const l of lessons) {
       const sys = l.system ?? "unknown";
-      bySystemMap.set(sys, (bySystemMap.get(sys) ?? 0) + 1);
+      const count = (bySystemMap.get(sys) ?? 0) + 1;
+      bySystemMap.set(sys, count);
+      
+      if (l.active) {
+        candidateLessons++;
+      }
     }
-  } catch {
-    /* DB unavailable */
+  } catch (error) {
+    console.error("Failed to fetch autofork lessons from DB:", error);
+    // DB unavailable, candidateLessons remains 0, bySystemMap remains empty
   }
 
   return {

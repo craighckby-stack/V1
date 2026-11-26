@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/autonomous/dropbox-ingester.ts",
+  "status": "resolved",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/autonomous/dropbox-ingester.ts(331,47): error TS2367: This comparison appears to be unintentional because the types 'Date' and 'number' have no overlap.; src/lib/pipeline/autonomous/dropbox-ingester.ts(373,9): error TS2322: Type 'number' is not assignable to type 'Date'.; src/lib/pipeline/autonomous/dropbox-ingester.ts(374,9): error TS2322: Type 'string' is not assignable to type 'Date'.",
+  "evidence": "Original: 15147 bytes, Refactored: 15143 bytes. Errors: src/lib/pipeline/autonomous/dropbox-ingester.ts(331,47): error TS2367: This comparison appears to be unintentional because the types 'Date' and 'number' have no overlap.\nsrc/lib/pipeline/autonomous/dropbox-ingester.ts(373,9): error TS2322: Type 'number' is not assignable to type 'Date'.\nsrc/lib/pipeline/autonomous/dropbox-ingester.ts(374,9): error TS2322: Type 'string' is not assignable to type 'Date'.",
+  "constraints": "The previous refactor of src/lib/pipeline/autonomous/dropbox-ingester.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 2,
+  "parentHash": "97185fb5f8fe5604e4258d4083a9c4275d2d454d0e7b62400dac76c383fcefa2",
+  "hash": "be78a12954b434b29156b04d6bfa6ba9442d21b6019b374f3f0cb2e7cb2e53ba",
+  "lastAttemptAt": "2026-11-26T03:49:44.856Z",
+  "resolvedAt": "2026-11-26T04:33:26.731Z",
+  "createdAt": "2026-11-26T02:47:02.749Z",
+  "updatedAt": "2026-11-26T04:33:26.731Z",
+  "schema": 2
+}

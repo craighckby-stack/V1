@@ -6,15 +6,17 @@ async function main() {
     if (row) {
       console.log("configured:", true);
       // Narrowed payload to essential configuration details
-      console.log("model:", row.geminiModel, "hasKey:", !!row.geminiApiKey, "lastError:", row.lastError || "N/A");
+      console.log("model:", row.geminiModel, "hasKey:", !!row.geminiApiKey, "lastError:", row.lastError ?? "N/A");
     } else {
       console.warn("LLM configuration record with id 'singleton' not found in the database.");
     }
   } catch (e) {
-    const error = e instanceof Error ? e : new Error("An unknown error occurred during LLM configuration check.");
+    let errorMessage = "An unknown error occurred during LLM configuration check.";
+    if (e instanceof Error) {
+      errorMessage = e.message;
+    }
     // Improved error context for database operation failure
-    console.error("CRITICAL: Error during LLM configuration check (DB access failed). Ensure database connection is active and schema is correct.", error.message);
-    throw error;
+    console.error("CRITICAL: Error during LLM configuration check (DB access failed). Ensure database connection is active and schema is correct.", errorMessage);
   }
 }
-main().catch(() => process.exit(1));
+main();

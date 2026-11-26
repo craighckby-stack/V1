@@ -35,12 +35,10 @@ export function ManualPipelineRunner() {
   const setInspectorFile = usePipelineStore((s) => s.setInspectorFile);
 
   const [form, setForm] = useState({
-    // No hardcoded default repo — a stale one 404s confusingly on first
-    // scan. The owner types their own target; the placeholder guides them.
     repo: "",
     branch: "main",
     token: "",
-    prompt: "Apply 5-pillar modular refactoring with AST retention and Shannon entropy sanitization.",
+    prompt: "Define the refactoring goal, target files, and constraints for the pipeline.",
     siphonSourceId: "pattern-optimizer-helper",
   });
   const [selectedPath, setSelectedPath] = useState<string>("");
@@ -224,19 +222,24 @@ export function ManualPipelineRunner() {
           triggeredBy: "manual",
         }),
       });
-      const data = (await res.json()) as PipelineReport;
-      if (!res.ok) throw new Error((data as unknown as { error?: string }).error ?? "Pipeline failed");
-      setPipelineReport(data);
+      const data = await res.json();
+      if (!res.ok) {
+        const errorBody = data as { error?: string };
+        throw new Error(errorBody.error ?? `Pipeline API returned status ${res.status} without a specific error message.`);
+      }
+      const pipelineReport = data as PipelineReport;
+      setPipelineReport(pipelineReport);
       // Labeled feedback (operator decision "B"): record the run's outcome
       // as a sandbox postmortem (source: "manual") — retrievable for
       // analysis, excluded from the autonomous lesson distiller.
       void finishManual({ pushed: false });
       toast({
-        title: `Pipeline ${data.status}`,
-        description: `AST ${data.astScore} · ${data.consensus} · proof ${data.proofCommitHash}`,
+        title: `Pipeline ${pipelineReport.status}`,
+        description: `AST ${pipelineReport.astScore} · ${pipelineReport.consensus} · proof ${pipelineReport.proofCommitHash}`,
       });
     } catch (e) {
-      toast({ title: "Pipeline failed", description: (e as Error).message, variant: "destructive" });
+      const errorMessage = e instanceof Error ? e.message : "An unknown error occurred during pipeline execution.";
+      toast({ title: "Pipeline failed", description: errorMessage, variant: "destructive" });
     } finally {
       setPipelineRunning(false);
     }
@@ -450,13 +453,15 @@ export function ManualPipelineRunner() {
               variant="outline"
               size="sm"
               onClick={() => {
-                const r = usePipelineStore.getState().pipelineReport!;
-                setInspectorFile({
-                  path: r.config.filePath,
-                  original: r.originalCode,
-                  evolved: r.evolvedCode,
-                  report: r,
-                });
+                const r = usePipelineStore.getState().pipelineReport;
+                if (r) {
+                  setInspectorFile({
+                    path: r.config.filePath,
+                    original: r.originalCode,
+                    evolved: r.evolvedCode,
+                    report: r,
+                  });
+                }
               }}
               className="bg-slate-900/60 border-slate-700 hover:bg-slate-800 text-slate-200"
             >
@@ -473,7 +478,7 @@ export function ManualPipelineRunner() {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = selectedPath.split("/").pop() || "snippet.txt";
+                a.download = selectedPath?.split("/").pop() || "snippet.txt";
                 a.click();
                 URL.revokeObjectURL(url);
               }}

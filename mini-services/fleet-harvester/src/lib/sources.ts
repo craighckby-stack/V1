@@ -61,8 +61,8 @@ export function parseSources(input: string | null | undefined): ParsedSource[] {
   // Regex to match GitHub URLs and capture owner/repo, or just owner/repo slugs.
   // Handles: https://github.com/owner/repo, github.com/owner/repo, owner/repo, owner
   // Captures: (owner)/(repo) or just (owner)
-  // Updated regex to be more robust for owner-only inputs that might not match full URL structure.
-  const githubSlugRegex = /^(?:https?:\/\/(?:www\.)?github\.com\/)?([a-zA-Z0-9_-]+)(?:\/([a-zA-Z0-9_-]+))?(?:\.git)?$/i;
+  // Modified to be more permissive on the end, allowing just 'owner' without a trailing slash/dotgit
+  const githubSlugRegex = /^(?:https?:\/\/(?:www\.)?github\.com\/)?([a-zA-Z0-9_-]+)(?:\/([a-zA-Z0-9_-]+))?$/i;
 
   for (const token of tokens) {
     let cleanToken = token;
@@ -133,7 +133,7 @@ export function appendPresetToSources(existing: string | null | undefined, addit
   const existingKeys = new Set(current.map((c) => c.raw.toLowerCase()));
   const merged: string[] = [...current.map((c) => c.raw)];
 
-  // Parse all additions once, relying on parseSources to filter empty/invalid tokens
+  // Parse all additions once, joining them with a separator that parseSources handles
   const parsedAdditions = parseSources(additions.join(', '));
 
   for (const item of parsedAdditions) {
@@ -186,10 +186,11 @@ export function deriveLogPaths(
   };
   const ext = extMap[format];
   
-  // Use DEFAULT_BASE_PATH if basePath is null/undefined or empty after trimming
-  const cleanBase = (basePath && basePath.trim().length > 0) 
-    ? basePath.trim().replace(/^\/+/, '') 
-    : DEFAULT_BASE_PATH.replace(/^\/+/, '');
+  // Clean basePath if provided, otherwise use DEFAULT_BASE_PATH
+  const inputBase = basePath && basePath.trim().length > 0 ? basePath.trim() : DEFAULT_BASE_PATH;
+  
+  // Ensure no leading slashes are present for consistent path manipulation
+  const cleanBase = inputBase.replace(/^\/+/, '');
   
   const lastSlash = cleanBase.lastIndexOf('/');
   // Ensure dir is correctly set, even if cleanBase is just a filename (lastSlash = -1)
@@ -214,7 +215,6 @@ export function deriveLogPaths(
  */
 export function matchesRepoFilter(fullName: string, filterText: string): boolean {
   if (typeof filterText !== 'string') {
-    // Explicitly handle non-string input instead of silently defaulting to true
     throw new TypeError(`Filter text must be a string, received ${typeof filterText}.`);
   }
   

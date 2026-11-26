@@ -29,30 +29,14 @@ export async function GET() {
     }
     return NextResponse.json(report);
   } catch (err: unknown) {
-    let errorMessage = "An unknown error occurred during benchmark report generation.";
-    let errorName = "UnknownError";
-    const statusCode = 500;
+    // Log the full error context server-side for debugging, safely handling unknown error types.
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error("Benchmark Report Generation Failed:", errorMessage, err);
 
-    if (err instanceof Error) {
-      errorMessage = err.message;
-      errorName = err.name;
-    } else if (typeof err === 'object' && err !== null && 'message' in err && typeof (err as { message: string }).message === 'string') {
-      // Handle non-Error objects that might have a message property safely
-      errorMessage = (err as { message: string }).message;
-      errorName = 'ObjectError';
-    } else {
-      // Fallback for truly malformed/uninspectable errors
-      errorMessage = "Received non-Error object without a discernible message.";
-      errorName = 'MalformedError';
-    }
-
-    // Log the full error context server-side for debugging, but return a sanitized message to the client.
-    console.error("Benchmark Report Generation Failed:", err);
-
-    // Return 500 for unexpected runtime exceptions during report generation.
+    // Return a generic, actionable error to the client to prevent leaking internal stack traces or implementation details.
     return NextResponse.json(
-      { error: `benchmark failed (${errorName}): ${errorMessage}` },
-      { status: statusCode },
+      { error: "Internal server error while generating benchmark report. Please check server logs for details." },
+      { status: 500 },
     );
   }
 }

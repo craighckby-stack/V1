@@ -138,7 +138,7 @@ export function LogStream() {
             ) : (
               processedLogs.map((entry) => {
                 // Robust key generation: prioritize stable ID, fallback to composite key
-                const key = entry.id || `${entry.timestamp}-${entry.source}`;
+                const key = entry.id || `${entry.timestamp || 'no-ts'}-${entry.source}`;
                 return (
                   <LogEntryComponent 
                     key={key} 

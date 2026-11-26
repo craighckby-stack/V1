@@ -29,15 +29,17 @@ export function MemoryBank() {
     setIsMounted(true);
     
     return () => {
-      setIsMounted(false);
+      // Cleanup on unmount
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
       }
+      setIsMounted(false);
     };
   }, []);
 
   useEffect(() => {
+    // Only run if mounted and not already fetched and not currently fetching
     if (!isMounted || hasFetchedRef.current || isFetchingRef.current) return;
 
     const fetchMemoryEntries = async () => {
@@ -45,27 +47,27 @@ export function MemoryBank() {
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
       
-      const TIMEOUT_MS = 10000;
-
-      const fetchPromise = fetch("/api/memory/entries", {
-        signal: abortController.signal
-      });
-
       const timeoutPromise = new Promise<Response>((_, reject) => {
         const timeoutId = setTimeout(() => {
           abortController.abort();
           reject(new Error("Request timeout after 10 seconds"));
-        }, TIMEOUT_MS);
+        }, 10000);
+
         return () => clearTimeout(timeoutId);
       });
       
       try {
+        const fetchPromise = fetch("/api/memory/entries", {
+          signal: abortController.signal
+        });
+        
         const res = await Promise.race([fetchPromise, timeoutPromise]);
         
-        if (res instanceof Response && !res.ok) {
+        if (!res.ok) {
           throw new Error(`Failed to fetch memory entries: HTTP status ${res.status} for endpoint /api/memory/entries`);
         }
         
+        // Attempt to parse JSON, handling potential parsing errors explicitly
         const data = await res.json();
         
         if (!data || !Array.isArray(data.entries)) {
@@ -109,7 +111,7 @@ export function MemoryBank() {
     };
 
     fetchMemoryEntries();
-  }, [setEntries, isMounted]);
+  }, [isMounted]);
 
   const validEntries = entries.filter(entry => {
     return entry && 

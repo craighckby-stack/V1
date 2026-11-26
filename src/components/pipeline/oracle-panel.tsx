@@ -64,11 +64,11 @@ interface Prophecy {
 interface OracleStatus {
   ok: boolean;
   counts?: {
-    pending: number;
-    fulfilled: number;
-    failed: number;
-    retired: number;
-    total: number;
+    pending: number | undefined;
+    fulfilled: number | undefined;
+    failed: number | undefined;
+    retired: number | undefined;
+    total: number | undefined;
   };
   calibration?: Array<{
     threshold: number;
@@ -78,7 +78,7 @@ interface OracleStatus {
     wellCalibratedIf: number;
   }>;
   brierScore?: number | null;
-  judgedCount?: number;
+  judgedCount?: number | undefined;
   error?: string;
 }
 
@@ -189,6 +189,15 @@ export function OraclePanel({ open, onClose }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ count: 1 }),
       });
+      
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => ({ failures: [{ reason: "Unknown API error", error: `HTTP status ${res.status}` }] }));
+        const f = errorBody.failures?.[0];
+        setError(f ? `${f.reason}: ${f.error}` : `Generation failed with status ${res.status}`);
+        setLoading(false);
+        return;
+      }
+
       const data = await res.json();
       if (data.ok) {
         setActionMsg(
@@ -198,17 +207,27 @@ export function OraclePanel({ open, onClose }: Props) {
         );
       } else {
         const f = data.failures?.[0];
-        setError(f ? `${f.reason}: ${f.error}` : "Generation failed");
+        setError(f ? `${f.reason}: ${f.error}` : "Generation failed due to internal data error");
       }
-      // Refresh both views
+      
+      // Refresh both views in parallel
       const [sRes, pRes] = await Promise.all([
         fetch("/api/oracle/status"),
         fetch("/api/oracle/prophecies?limit=30"),
       ]);
-      if (sRes.ok) setStatus((await sRes.json()) as OracleStatus);
+      
+      if (sRes.ok) {
+        const statusData = await sRes.json();
+        setStatus(statusData as OracleStatus);
+      } else {
+        setError(prev => prev ? `${prev} | Failed to fetch status: ${sRes.status}` : `Failed to fetch status: ${sRes.status}`);
+      }
+
       if (pRes.ok) {
         const p = (await pRes.json()) as { prophecies: Prophecy[] };
         setProphecies(p.prophecies ?? []);
+      } else {
+        setError(prev => prev ? `${prev} | Failed to fetch prophecies: ${pRes.status}` : `Failed to fetch prophecies: ${pRes.status}`);
       }
     } catch (e) {
       setError((e as Error).message);
@@ -256,30 +275,48 @@ export function OraclePanel({ open, onClose }: Props) {
       // Resolve the configured push-target so archaeology mines the SAME
       // repo the loop is mutating — no manual repo entry needed.
       const ptRes = await fetch("/api/self-enhance/push-target");
-      const pt = ptRes.ok ? await ptRes.json() : null;
+      let pt: { repo: string; branch: string } | null = null;
+      if (ptRes.ok) {
+        pt = await ptRes.json();
+      } else {
+        setError(`Failed to fetch push target configuration. Status: ${ptRes.status}`);
+        return;
+      }
+      
       const repo = pt?.repo;
       const branch = pt?.branch ?? "main";
       if (!repo) {
         setError("No push target configured — archaeology needs a repo to mine. Set one via the push command first.");
         return;
       }
+      
       const res = await fetch(
         `/api/oracle/archaeology?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&maxCommits=100`,
         { method: "POST" }
       );
-      const data = await res.json();
+      
+      let data: { pairs?: { correct: boolean }[], seeded?: number, error?: string } | null = null;
       if (res.ok) {
+        data = await res.json();
+      } else {
+        // Attempt to read error from body if available, otherwise use status
+        const errorBody = await res.json().catch(() => ({ error: `HTTP Error ${res.status}` }));
+        setError(errorBody.error ?? `Archaeology failed with status ${res.status}`);
+        return;
+      }
+
+      if (data) {
         setActionMsg(
           `Archaeology: mined ${data.pairs?.length ?? 0} wrong/correct pair(s) from ${repo}:${branch}, seeded ${data.seeded ?? 0} archaeology prophecies.`,
         );
-        // Refresh prophecies + chain to show the new ones.
+        // Refresh prophecies + chain to show the new ones in parallel
         const [pRes2] = await Promise.all([fetch("/api/oracle/prophecies?limit=30")]);
         if (pRes2.ok) {
           const p = (await pRes2.json()) as { prophecies: Prophecy[] };
           setProphecies(p.prophecies ?? []);
+        } else {
+          setError(`Failed to refresh prophecies after archaeology: ${pRes2.statusText}`);
         }
-      } else {
-        setError(data.error ?? "Archaeology failed");
       }
     } catch (e) {
       setError((e as Error).message);

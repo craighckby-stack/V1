@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/target/target-github.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 18 → evolved 20), no behavioral signal, 14 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "evidence": "Original: 18027 bytes, Refactored: 18524 bytes. Errors: [mutation-guard/finalAuthority] convergent-move rejected: 2 net new guard-lexicon line(s) (original 18 → evolved 20), no behavioral signal, 14 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "constraints": "The previous refactor of src/lib/pipeline/target/target-github.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 3,
+  "parentHash": "c5aa370fd5fb6bcbb3ec4d11e70c5939d009d2d82ef2ebffe0629a76b42cd561",
+  "hash": "056f9a7023c911c93e08d12e16f8e186cf8663ecb3175ff513f59409aa0e5278",
+  "lastAttemptAt": "2026-11-26T06:45:23.154Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-26T06:45:07.453Z",
+  "updatedAt": "2026-11-26T06:45:23.154Z",
+  "schema": 2
+}

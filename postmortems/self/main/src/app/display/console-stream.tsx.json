@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/display/console-stream.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "REVIEW_REJECTED",
   "symptom": "Debate rejected the refactor: Debate rejected (REQUIRES_REWRITE): Both reviewers endorse the change in principle (robustness), but the Architecture Reviewer correctly identified this as low-value churn because the existing code already handles the necessary validation via `Number.isNaN()`. Since the change does not advance any active system goals (latency, back-pressure, efficiency) and merely adds redundant defensive hardening, it should be rejected in favor of not introducing churn. The existing implementation is sufficient.",
@@ -12,8 +12,8 @@
   "parentHash": "92fca5263d505761fcb05e8846e0b2257881066ff80f9d5bff259f370a881404",
   "hash": "8776cfaf3c658caf37130028fcc22f75b1c8538b725e906cbed82904ad60ac6e",
   "lastAttemptAt": "2026-11-19T15:57:18.005Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T02:48:12.669Z",
   "createdAt": "2026-11-19T13:59:58.605Z",
-  "updatedAt": "2026-11-19T15:57:18.005Z",
+  "updatedAt": "2026-11-26T02:48:12.669Z",
   "schema": 2
 }

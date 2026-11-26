@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "mini-services/fleet-harvester/src/lib/formatter.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "OTHER",
+  "symptom": "Test gate failed: test failed (sandboxed): mini-services/fleet-harvester/src/lib/formatter.test.ts — The following filters did not match any test files:\n mini-services/fleet-harvester/src/lib/formatter.test.ts\n485 files were searched [23.00ms]\n\nnote: Tests need \".test\", \"_test_\", \".spec\" or \"_spec_\" ",
+  "evidence": "1 test file(s) checked. The refactor broke existing behavior.",
+  "constraints": "The previous refactor of mini-services/fleet-harvester/src/lib/formatter.ts broke existing tests. Do not change observable behavior.",
+  "attempts": 3,
+  "parentHash": "9c5409c4bddecaedf67bb4ca8140e39111d8620bf120a34dbc647217146f8051",
+  "hash": "f05003ccf9e056aed5ffadf6de87cfb12ffd31dc8b2c5a6d3130b033b3a3c6f7",
+  "lastAttemptAt": "2026-11-26T05:26:22.226Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-26T02:53:53.155Z",
+  "updatedAt": "2026-11-26T05:26:22.226Z",
+  "schema": 2
+}

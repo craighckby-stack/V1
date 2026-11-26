@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/pipeline/auto-runner.tsx",
+  "status": "resolved",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/src/components/pipeline/auto-runner.tsx:211:16 'e' is defined but never used. (@typescript-eslint/no-unused-vars); /home/z/my-project/src/components/pipeline/auto-runner.tsx:243:16 'e' is defined but never used. (@typescript-eslint/no-unused-vars); /home/z/my-project/src/components/pipeline/auto-runner.tsx:273:16 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
+  "evidence": "Original: 21393 bytes, Refactored: 22230 bytes. Errors: /home/z/my-project/src/components/pipeline/auto-runner.tsx:211:16 'e' is defined but never used. (@typescript-eslint/no-unused-vars)\n/home/z/my-project/src/components/pipeline/auto-runner.tsx:243:16 'e' is defined but never used. (@typescript-eslint/no-unused-vars)\n/home/z/my-project/src/components/pipeline/auto-runner.tsx:273:16 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
+  "constraints": "The previous refactor of src/components/pipeline/auto-runner.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "b80be9d4e69b07ec99eda49dde03691abc3f6bf8a007fed0179903ee0e74e74f",
+  "hash": "406b22b9abbb0c2f20ef9e2917b6f4de23742f6cea7b312796f22949de095e1f",
+  "lastAttemptAt": "2026-11-26T04:23:45.635Z",
+  "resolvedAt": "2026-11-26T05:17:45.309Z",
+  "createdAt": "2026-11-26T04:23:45.635Z",
+  "updatedAt": "2026-11-26T05:17:45.309Z",
+  "schema": 2
+}

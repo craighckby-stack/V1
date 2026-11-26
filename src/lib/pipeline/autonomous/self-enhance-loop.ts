@@ -37,12 +37,24 @@ import { db } from "@/lib/db";
 import { generateTasks, claimNextTask } from "./self-task-generator";
 import { executeTask, type TaskExecutionResult } from "./task-executor";
 import { detectTruncation, stripComments, stripLiteralsAndComments } from "./code-analysis";
+import {
+  planSectionMutation,
+  spliceSection,
+  sectionReplacementWithinBudget,
+  replacementLooksLikeWholeFile,
+  WHOLE_FILE_MAX_BYTES,
+  SECTION_MUTATION_MAX_FILE_BYTES,
+  SECTION_MAX_BYTES,
+  type SectionMutationPlan,
+  type CodeSection,
+} from "./section-mutation";
 import { autoProphecyAfterCycle, recordSelfProphecy, adjudicateSelfProphecies } from "../oracle/oracle-auto";
 import {
   TARGET_FILES,
   SCAN_SCOPES,
   SCHEMA_TARGET,
   getSaturationThreshold,
+  relockCooldownMs,
   type FileSaturation,
   type SaturationMap,
   classifyGrowth,
@@ -144,10 +156,6 @@ import {
 // applyTaskPlan — two independent writers previously raced (its rollback
 // could silently revert a gated, already-pushed enhancement).
 import { withTreeLock } from "../core/tree-lock";
-// Wipe-proof-tier atomic writes for the master-unlock persistence below
-// (same primitive armed-state/loop-stats use — a torn write must never
-// leave a half-written bypass record on disk).
-import { atomicWriteFileSync } from "../core/atomic-file";
 
 /** D4 (corpus): 16-hex sha of a source string — compact provenance for
  *  "what did the file look like when this was attempted". */
@@ -155,72 +163,30 @@ function sha16(s: string): string {
   return createHash("sha256").update(s).digest("hex").slice(0, 16);
 }
 
-// ── MASTER-UNLOCK PERSISTENCE (operator, 2026-11-24 — 10-day test) ────
-// The master-unlock flag used to be worker-process-memory only: every
-// worker restart (crash, OOM, respawn — observed 3 boots in 2h) cleared
-// it, forcing the operator to re-enter the master PIN mid-session. For
-// the sanctioned 10-day endurance run the operator explicitly asked for
-// the bypass to persist "until the system is stopped": this wipe-proof
-// tier (.git/info/ — never committed, survives sandbox restores) holds
-// it, stop() clears it, the constructor re-hydrates it. This does NOT
-// weaken the per-file operator-PIN (691) friction gate — that tier is
-// untouched — and the real code boundary (protected-files + the gate
-// chain) never honored any PIN anyway.
-const MASTER_UNLOCK_FILE = join(PROJECT_ROOT, ".git/info/loop-master-unlocked.json");
-
-interface MasterUnlockPersisted {
-  masterUnlocked: boolean;
-  at: string;
-  by: string;
+/** Human duration for auto-relock log lines: 5m / 40m / 6h 24m / 24h+.
+ *  Local + pure (no DB, no state). */
+function formatDuration(ms: number): string {
+  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))}s`;
+  const totalMin = Math.round(ms / 60_000);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-/** True iff the wipe-proof tier holds a well-formed master-unlock record.
- *  Malformed/absent → null (fail-closed: never fabricate a bypass from a
- *  bad read — same dual-layer contract as the armed tier). */
-function readMasterUnlockPersisted(): MasterUnlockPersisted | null {
-  try {
-    const parsed = JSON.parse(
-      readFileSync(MASTER_UNLOCK_FILE, "utf8")
-    ) as MasterUnlockPersisted;
-    if (parsed?.masterUnlocked === true && typeof parsed.at === "string") {
-      return parsed;
-    }
-    return null;
-  } catch {
-    return null; // absent/unreadable/torn — fail-closed
-  }
-}
-
-/** Persist the bypass. Best-effort: a write failure never fails the
- *  unlock that already succeeded in memory (the session keeps working;
- *  only the restart re-hydration is lost). */
-function persistMasterUnlock(): void {
-  try {
-    const entry: MasterUnlockPersisted = {
-      masterUnlocked: true,
-      at: new Date().toISOString(),
-      by: "operator-master-pin",
-    };
-    atomicWriteFileSync(MASTER_UNLOCK_FILE, JSON.stringify(entry, null, 2));
-  } catch (err) {
-    console.error(
-      "[SELF-ENHANCE] master-unlock persist failed (session continues; a restart will require the PIN again):",
-      err instanceof Error ? err.message : String(err)
-    );
-  }
-}
-
-/** Clear the persisted bypass — called ONLY from stop(), so an explicit
- *  [STOP] is the single deliberate way the bypass ends. Best-effort: an
- *  undeletable file re-hydrates on the next boot (the operator can
- *  [STOP] again or remove it by hand). */
-function clearMasterUnlockPersisted(): void {
-  try {
-    rmSync(MASTER_UNLOCK_FILE, { force: true });
-  } catch {
-    /* best-effort by contract */
-  }
-}
+// ── MASTER-PIN TIER — REMOVED (operator, 2026-11-26) ─────────────────
+// The two-tier PIN (operator 691 + master 4444 + a wipe-proof persistence
+// file + boot re-hydration + a [STOP] deletion hook + a worker mirror of
+// all of it) was retired as pure complexity: it was self-documented as
+// "protects nothing the operator PIN doesn't already protect" and as
+// "pure operator convenience". The saturated-file unlock is now PINless
+// (low-stakes: every write still passes the full gate chain; the churn
+// control is the escalating auto-relock backoff, see saturation.ts), and
+// the ONE PIN that remains guards the dangerous-direction transition —
+// unfreezing the mutation freeze (freeze needs no PIN; unfreeze proves
+// operator presence). No bypass mode, no session state, no persistence
+// tier. If a stale .git/info/loop-master-unlocked.json from an older run
+// is ever found on disk it is inert — nothing reads it anymore.
 
 /**
  * Find test files that cover the given source file.
@@ -611,24 +577,6 @@ class SelfEnhanceLoop {
   // no LLM calls, no quota burn. The user unlocks via the UI (or a server
   // restart resets everything, which is a natural "new pass" boundary).
   private saturation = new Map<string, FileSaturation>();
-  // MASTER UNLOCK (operator-only, secret — NOT in the README): once the
-  // operator enters the master PIN (4444 / LOOP_MASTER_PIN) on ANY
-  // saturation [unlock] prompt, this flips to true. While true, every
-  // subsequent [unlock] click bypasses the PIN prompt entirely — the
-  // operator's active management session no longer needs a PIN per file.
-  // This is a pure convenience: it protects nothing the operator PIN
-  // doesn't already protect, and the real code-safety boundary stays
-  // protected-files + the gate chain (no PIN can bypass those).
-  //
-  // PERSISTENCE (operator, 2026-11-24 — 10-day endurance test): the
-  // flag ALSO lives in the wipe-proof tier (.git/info/loop-master-
-  // unlocked.json) so worker restarts no longer clear it — the operator
-  // asked for "unlocked until the system is stopped". stop() deletes
-  // the file (explicit [STOP] is the ONLY way the bypass ends); the
-  // constructor re-hydrates from disk. The per-file operator-PIN (691)
-  // tier is untouched. See /unlock in loop-worker/index.ts + the edge
-  // route /api/self-enhance/unlock/route.ts for the gate logic.
-  private masterUnlocked = false;
   private stats = {
     totalScanned: 0,
     totalEnhanced: 0,
@@ -891,24 +839,6 @@ class SelfEnhanceLoop {
     } catch {
       /* armed-state read failure must never block the constructor */
     }
-
-    // ── MASTER-UNLOCK REHYDRATION (10-day endurance test) ────────────
-    // The wipe-proof tier says the operator entered the master PIN at
-    // some point and has not pressed [STOP] since. Re-hydrate the
-    // bypass so a worker respawn doesn't demand the PIN again
-    // mid-test. Fail-closed: absent/malformed tier → stays false.
-    try {
-      const persistedMaster = readMasterUnlockPersisted();
-      if (persistedMaster) {
-        this.masterUnlocked = true;
-        this.log(
-          `🔑 master unlock re-hydrated from persistent tier (activated ${persistedMaster.at}) — PIN prompt stays skipped until [STOP]`,
-          "info"
-        );
-      }
-    } catch {
-      /* master-unlock rehydration failure must never block the constructor */
-    }
   }
 
   private log(message: string, type: "info" | "success" | "warn" | "error" = "info") {
@@ -1017,7 +947,10 @@ class SelfEnhanceLoop {
         {
           cwd: PROJECT_ROOT,
           input: refactoredCode,
-          timeoutMs: 60000,
+          // Large-file headroom (section mutations): the tsc program for a
+          // 100-230KB candidate costs a few extra seconds over the ~10s
+          // baseline; 60s stays the cap for whole-file candidates (≤12KB).
+          timeoutMs: refactoredCode.length > 60_000 ? 120_000 : 60_000,
         }
       );
 
@@ -1137,7 +1070,8 @@ class SelfEnhanceLoop {
     filePath: string,
     originalCode: string,
     refactoredCode: string,
-    changeSummary: string
+    changeSummary: string,
+    sectionFocus?: { name: string; before: string; after: string }
   ): Promise<{ approved: boolean; reason: string; verdict?: string; deferred?: boolean }> {
     try {
       // GOAL ENGINE — the topic carries the active goal texts so the
@@ -1146,8 +1080,22 @@ class SelfEnhanceLoop {
       // pure-churn changes against the system's actual direction.
       // Fail-soft: an empty line on renderer failure is harmless here.
       const goalsLine = await renderGoalsTopicLine().catch(() => "");
-      const topic = `Proposed refactor of ${relative(PROJECT_ROOT, filePath)}: ${changeSummary.slice(0, 200)}\nActive system goals: ${goalsLine}`;
-      const result = await conductLlmDebate(topic, refactoredCode, filePath);
+      // SECTION-SCOPED FOCUS (critical for large files): conductLlmDebate
+      // reviews only the first 12KB of the candidate (MAX_REVIEW_CHARS).
+      // For a section mutation the assembled file is 100-230KB, so its
+      // first 12KB is byte-identical ORIGINAL code — the tribunal would
+      // review the WRONG bytes and never see the change. The section
+      // replacement (≤15KB, mostly ≤10KB) fits the review window, and the
+      // topic carries the before/after framing so the tribunal knows the
+      // scope contract (rest of file byte-identical by construction).
+      const topic = sectionFocus
+        ? `Proposed SECTION-SCOPED refactor of ${relative(PROJECT_ROOT, filePath)}: only ${sectionFocus.name} changes (${sectionFocus.before.length}b → ${sectionFocus.after.length}b; the rest of the file is byte-identical to the original): ${changeSummary.slice(0, 200)}\nActive system goals: ${goalsLine}`
+        : `Proposed refactor of ${relative(PROJECT_ROOT, filePath)}: ${changeSummary.slice(0, 200)}\nActive system goals: ${goalsLine}`;
+      const result = await conductLlmDebate(
+        topic,
+        sectionFocus ? sectionFocus.after : refactoredCode,
+        filePath
+      );
       const consensus = result.verdict.consensus;
 
       if (consensus === "APPROVED" || consensus === "CONDITIONAL_APPROVAL") {
@@ -1329,7 +1277,7 @@ class SelfEnhanceLoop {
    * Test files are write-once: the refactor scan excludes *.test.ts, so the
    * system can never weaken its own pins. The ratchet only tightens.
    */
-  private async writeTestsForFile(filePath: string): Promise<boolean> {
+  private async writeTestsForFile(filePath: string, section?: CodeSection): Promise<boolean> {
     const relPath = relative(PROJECT_ROOT, filePath);
     // STOP-interrupt (external audit F3): capture the run generation so a
     // [STOP] during the ratchet's LLM call / sandbox gates / debate aborts
@@ -1382,7 +1330,21 @@ class SelfEnhanceLoop {
       // the source against this SHA — the tests characterize THIS source, so
       // a source change during the ~1min gate chain invalidates the pin.
       const sourceSha = sha16(source);
-      if (source.length > 12000) return false; // too large for the LLM prompt
+      // SECTION-SCOPED RATCHET: files over the whole-file ceiling used to be
+      // skipped here ("too large for the LLM prompt") — no pins ever landed
+      // for the loop's own largest modules. Now the caller passes the section
+      // it's about to mutate, and the pin characterizes THAT member: the
+      // prompt embeds the section (bounded) + the file's REAL export list,
+      // so imports stay honest while the source stays small. Non-exported
+      // sections can't be pinned through module imports — leave those
+      // unpinned (testGate still runs any existing pins on every mutation).
+      let pinSource = source;
+      let pinFraming = "";
+      if (source.length > WHOLE_FILE_MAX_BYTES) {
+        if (!section || !section.exported) return false; // nothing importable to pin
+        pinSource = section.text;
+        pinFraming = ` (large file — ONE member is being pinned: ${section.name}, a ${section.kind} of this module; the rest of the source is not shown. Exercise it through the module's exported symbols listed below.)`;
+      }
 
       this.log(`Ratchet: writing characterization tests for ${relPath} (attempt ${(rec?.attempts ?? 0) + 1})...`, "info");
 
@@ -1417,17 +1379,17 @@ class SelfEnhanceLoop {
         ? `\nA DRAFT from the idle-time dreamer (speculative, NEVER trusted blindly — verify every import against the export list above and every expected value against the implementation; discard anything that doesn't check out):\n\`\`\`typescript\n${draftSafe}\n\`\`\`\n`
         : "";
 
-      const userPrompt = `Module to pin: ${relPath}
+      const userPrompt = `Module to pin: ${relPath}${pinFraming}
 
 This module exports EXACTLY these symbols (import ONLY from "./${base}", do NOT invent any other export names):
 ${exportList}
 
-Source:
+${source.length > WHOLE_FILE_MAX_BYTES ? "Member to pin (the ONLY part of the source shown):" : "Source:"}
 \`\`\`typescript
-${source}
+${pinSource}
 \`\`\`
 ${draftBlock}
-Write ${base}.test.ts — a bun:test characterization suite pinning this module's current observable behavior. Compute expected values yourself from the implementation (read the logic, work out the output, assert that exact value). Every test() must contain at least one expect(). Output the summary first, then the test file.`;
+Write ${base}.test.ts — a bun:test characterization suite pinning this ${source.length > WHOLE_FILE_MAX_BYTES ? `member's` : "module's"} current observable behavior. Compute expected values yourself from the implementation (read the logic, work out the output, assert that exact value). Every test() must contain at least one expect(). Output the summary first, then the test file.`;
 
       const llmResult = await llmComplete({
         systemPrompt: TEST_WRITER_SYSTEM,
@@ -1672,14 +1634,41 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
         branchNumber: thisN,
       };
 
-      // 1a. Skip files that are too large for the LLM to refactor without truncating.
-      // The model's output token limit means files over ~12KB often get cut off
-      // mid-comment, producing syntax errors that waste a full typecheck cycle.
-      const MAX_FILE_BYTES = 12000;
-      if (originalCode.length > MAX_FILE_BYTES) {
-        result.reason = `Skipped (file too large: ${originalCode.length}b > ${MAX_FILE_BYTES}b)`;
-        this.log(`Skipped ${relPath} (${originalCode.length}b — too large for LLM, would truncate)`, "info");
-        return result;
+      // 1a. MUTATION CEILING — tiered. Whole-file mutation asks the LLM to
+      // RE-EMIT the entire file, so it is bounded by the model's OUTPUT
+      // envelope (~12KB ≈ 3k tokens — the proven ceiling). Files beyond it
+      // used to be skipped outright, which locked 155 pipeline/mini-service
+      // files — loop-runtime (103KB), self-enhance-loop (230KB), 10/12 UI
+      // components — out of the loop's own mutation surface forever.
+      // Tiered now:
+      //   ≤ 12KB   → whole-file mutation (unchanged, proven path below)
+      //   ≤ 256KB  → SECTION-SCOPED mutation (section-mutation.ts): the LLM
+      //              rewrites ONE AST section (≤10KB), the replacement is
+      //              spliced back by byte offset, and the ASSEMBLED file
+      //              runs the SAME gate chain. Output stays inside the
+      //              proven envelope; the reachable surface grows ~21x.
+      //   > 256KB  → skip (AST/typecheck cost guard; nothing in the repo is
+      //              close — the largest file is self-enhance-loop at 230KB).
+      let sectionPlan: SectionMutationPlan | null = null;
+      if (originalCode.length > WHOLE_FILE_MAX_BYTES) {
+        if (originalCode.length > SECTION_MUTATION_MAX_FILE_BYTES) {
+          result.reason = `Skipped (file too large: ${originalCode.length}b > ${SECTION_MUTATION_MAX_FILE_BYTES}b — beyond even section-scoped mutation)`;
+          this.log(`Skipped ${relPath} (${originalCode.length}b — exceeds the 256KB section-mode ceiling)`, "info");
+          return result;
+        }
+        // Seed varies per attempt (branch slot) and per source sha, so
+        // successive cycles rotate through the file's sections instead of
+        // hammering the same one.
+        sectionPlan = planSectionMutation(originalCode, filePath, `${sha16(originalCode)}#${thisN}`);
+        if (!sectionPlan) {
+          result.reason = "Skipped (no eligible section: file has no AST section within the 300b-10kb mutation budget)";
+          this.log(`Skipped ${relPath} (${originalCode.length}b — no AST section within the 300b-10kb section budget)`, "info");
+          return result;
+        }
+        this.log(
+          `Section-scoped mutation: ${relPath} (${(originalCode.length / 1024).toFixed(1)}KB file) → section ${sectionPlan.section.name} (${sectionPlan.section.bytes}b ${sectionPlan.section.kind}${sectionPlan.section.parentClass ? ` of ${sectionPlan.section.parentClass}` : ""})`,
+          "info"
+        );
       }
       // 1a-ii. Skip files that are too SMALL to meaningfully enhance. A
       // sub-80-byte .ts/.tsx file is almost certainly a barrel re-export,
@@ -1707,7 +1696,11 @@ Write ${base}.test.ts — a bun:test characterization suite pinning this module'
       // Protected files are skipped: they're the gate itself (importing the
       // loop singleton in a test would have side effects).
       if (!PROTECTED_FILES.has(relPath)) {
-        await this.writeTestsForFile(filePath);
+        // Section-scoped ratchet: for large files, pin the section we're
+        // about to mutate (writeTestsForFile scopes its prompt) instead of
+        // skipping the module entirely — the pin and the mutation target
+        // the same code.
+        await this.writeTestsForFile(filePath, sectionPlan?.section);
       }
 
       // Run-token checkpoint (Fix C): if stop() fired during the ratchet,
@@ -1854,8 +1847,104 @@ ${systemTail}`;
 
       const visualPolishUser = `File: ${relPath}\n\n\`\`\`typescript\n${originalCode}\n\`\`\`\n\nImprove the visual presentation, accessibility, and responsiveness of this UI component. Do NOT change any logic or functionality — only styling, aria attributes, responsive breakpoints, and micro-interactions. If it already looks polished, return the file unchanged. Output the summary first, then the code.`;
 
-      const activeSystem = isVisualPolish ? visualPolishSystem : refactorSystem;
-      const activeUser = isVisualPolish ? visualPolishUser : refactorUser;
+      // ── SECTION-SCOPED PROMPTS (large files, section-mutation.ts) ────
+      // Same job categories and same gate chain as whole-file mode; only
+      // the OUTPUT CONTRACT differs: the model rewrites ONE bounded AST
+      // section, which the caller splices back by byte offset. Everything
+      // else in the file is byte-identical by construction.
+      let activeSystem: string;
+      let activeUser: string;
+      if (sectionPlan) {
+        const sec = sectionPlan.section;
+        const scopeNote = sec.parentClass
+          ? `${sec.kind} ${sec.name} of class ${sec.parentClass}`
+          : `${sec.kind} ${sec.name}`;
+        const sectionHeader = `File: ${relPath} (LARGE FILE — SECTION-SCOPED MUTATION)
+Section to improve: ${scopeNote}${sec.exported ? " (exported)" : ""}, ${sec.bytes} bytes.
+Everything else in this file stays byte-identical — your output replaces ONLY this section.`;
+        const importsBlock = sectionPlan.imports
+          ? `File imports (the ONLY identifiers available from other modules — do NOT add new imports):\n\`\`\`typescript\n${sectionPlan.imports}\n\`\`\`\n`
+          : "(The file has no imports.)\n";
+        const outlineBlock = `File outline (every other symbol in the file — do NOT redefine or rename them; call them only if they are in scope for this section):\n${sectionPlan.outline}\n`;
+        const sectionBlock = `Section to improve (replace exactly this):\n\`\`\`typescript\n${sec.text}\n\`\`\`\n`;
+
+        const sectionHardRules = `HARD RULES (violating any rule fails the pipeline):
+- Output ONLY the replacement code for the section shown — no imports, no other functions, no class wrapper, no file-level re-exports.
+- Preserve the section's exported status exactly: if it is exported, keep the export modifier; if not, do not add one.
+- Do NOT change the section's signature (name, parameter names/types, return type).
+- Use ONLY identifiers in scope: the file's imports listed above and the symbols in the file outline. If a fix would require a new import, do NOT make it — fix the issue another way, or note it in the summary and leave that issue alone.
+- Do NOT add header comments, banners, or branding.
+- Keep the change focused — only fix real issues in THIS section.
+- If there are NO real issues to fix, output the section unchanged.`;
+
+        if (isVisualPolish) {
+          const vpSectionSystem = `You are a senior frontend engineer improving ONE SECTION of a React/TypeScript UI component inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
+
+Your job: improve the VISUAL PRESENTATION and USER EXPERIENCE of this section only. Do NOT fix bugs or change logic — other cycles handle that. Focus on:
+
+1. STYLING CONSISTENCY: align spacing, padding, border-radius, font sizes with the surrounding design language. Use consistent Tailwind classes.
+2. ACCESSIBILITY: add aria-labels for icon-only buttons, ensure focus-visible states, check color contrast (avoid gray-on-gray for important text), add sr-only labels where a screen reader needs context.
+3. RESPONSIVE DESIGN: add mobile breakpoints (sm:, md:) where a layout would break on narrow screens. Ensure touch targets are ≥44px.
+4. MICRO-INTERACTIONS: add hover/focus transitions (transition-colors, duration-150), subtle scale on active states for buttons. Keep transitions short (≤200ms).
+5. VISUAL HIERARCHY: improve the information hierarchy — emphasize the primary action, de-emphasize secondary info, use consistent heading sizes.
+
+${sectionHardRules}
+- Do NOT change any event handler logic, state management, or data flow in the section — only className/style/presentation.
+
+OUTPUT FORMAT (mandatory):
+- First, write a SHORT summary (1-5 bullet points) of what you changed and why. Start with "## Changes" on its own line.
+- Then output the replacement section code in a single fenced \`\`\`typescript block.
+
+Example:
+## Changes
+- Added aria-label to icon-only close button for screen readers
+- Added focus-visible:ring-2 for keyboard navigation
+
+\`\`\`typescript
+// the replacement section ONLY
+\`\`\`
+${systemTail}`;
+          activeSystem = vpSectionSystem;
+          activeUser = `${sectionHeader}\n${importsBlock}\n${outlineBlock}\n${sectionBlock}\nImprove ONLY this section's visual presentation, accessibility, and responsiveness. Do NOT change any logic or functionality — only styling, aria attributes, responsive breakpoints, and micro-interactions. If it already looks polished, output the section unchanged. Output the summary first, then the code.`;
+        } else {
+          const refactorSectionSystem = `You are a senior code reviewer improving ONE SECTION of a large TypeScript file inside an autonomous self-improvement pipeline. Your changes will be typechecked and pushed to GitHub as the system's live state.
+
+Your job: find and fix REAL issues in this section. Do NOT make cosmetic changes (type annotations, magic numbers, syntax modernization). Those are pointless. Instead, look for:
+
+1. BUGS: null/undefined crashes, missing error handling, unhandled edge cases, race conditions, off-by-one errors, resource leaks (unclosed handles)
+2. ERROR HANDLING: bare try/catch that swallows errors, missing error context, unhelpful error messages. Add actionable error messages with context.
+3. INPUT VALIDATION: functions that assume valid input and would crash or misbehave on bad input. Add guard clauses with clear errors.
+4. PERFORMANCE: obvious inefficiencies — O(n²) where O(n) works, repeated computations in loops, unnecessary allocations, synchronous I/O that could be async.
+5. SECURITY: injection risks, unsafe eval, hardcoded secrets, missing input sanitization.
+6. DEAD CODE: unused imports, unreachable branches, commented-out code.
+
+SYSTEM DIRECTION — higher-level goals (self-governed: seeded by the operator, owned, reviewed and updated by the loop's own goal review; rank above more hardening):
+This codebase is a live, long-running autonomous pipeline: a Next.js dashboard polling many APIs on timers, a background loop worker, and a WebSocket state stream. When the section offers the opportunity, spend your change budget moving these goals forward:
+${goalsBullets}
+Robustness budget rule: if this section ALREADY has its basic robustness in place (guards, error handling, validation present and correct), do NOT add more defensive null-checks — improve the design or performance instead. A fourth null-guard on already-guarded code is churn, not improvement.
+
+${sectionHardRules}
+
+OUTPUT FORMAT (mandatory):
+- First, write a SHORT summary (1-5 bullet points) of what you changed and why. Start with "## Changes" on its own line.
+- Then output the replacement section code in a single fenced \`\`\`typescript block.
+
+Example:
+## Changes
+- Added null check in parseX() — could crash on undefined input
+- Replaced bare catch with contextual error message in fetchY()
+
+\`\`\`typescript
+// the replacement section ONLY
+\`\`\`
+${systemTail}`;
+          activeSystem = refactorSectionSystem;
+          activeUser = `${sectionHeader}\n${importsBlock}\n${outlineBlock}\n${sectionBlock}${userTail}Find real bugs, error handling gaps, input validation issues, performance problems, security risks, or dead code in THIS section. Fix them. Where the section's basic robustness is already in place, pursue the SYSTEM DIRECTION goals above instead (design or performance work) rather than adding more defensive checks. If nothing needs fixing, return the section unchanged. Use the file outline above to avoid breaking sibling symbols. Output the summary first, then the code.`;
+        }
+      } else {
+        activeSystem = isVisualPolish ? visualPolishSystem : refactorSystem;
+        activeUser = isVisualPolish ? visualPolishUser : refactorUser;
+      }
 
       const llmResult = await llmComplete({
         systemPrompt: activeSystem,
@@ -1924,9 +2013,69 @@ ${systemTail}`;
       // 3b. Mechanical guard: strip decorative banner comments the LLM
       // sometimes prepends to the code (defense-in-depth)
       const banner = this.stripBannerComments(refactoredCode);
-      const cleanCode = banner.code;
+      let cleanCode = banner.code;
       if (banner.stripped) {
         this.log(`Stripped decorative banner header from ${relPath} (LLM ignored the no-header rule)`, "warn");
+      }
+
+      // 3b-SECTION. Section-scoped mutations: gate the REPLACEMENT before
+      // splicing, then assemble the full file. The assembled file then
+      // flows through the unchanged pipeline below (truncation check,
+      // cosmetic check, typecheck, debate, test gate, push).
+      let sectionReplacement: string | null = null;
+      if (sectionPlan) {
+        const sec = sectionPlan.section;
+        // Whole-file-echo guard: a top-level `import` in a section
+        // replacement means the model ignored the scope contract (imports
+        // live OUTSIDE every section span). Catches the failure for the
+        // price of a regex instead of a full typecheck cycle.
+        if (replacementLooksLikeWholeFile(cleanCode)) {
+          result.reason = "Rejected (LLM echoed whole-file output for a section-scoped mutation — import statement in section replacement)";
+          this.log(`Rejected ${relPath} (section mutation returned import statements — model echoed whole-file scope)`, "warn");
+          return result;
+        }
+        // Budget guard: keeps the LLM's output inside the proven envelope
+        // (SECTION_MAX_BYTES * 1.5 ≈ 15KB) even when the fix grows the
+        // section.
+        if (!sectionReplacementWithinBudget(cleanCode)) {
+          result.reason = `Rejected (section replacement ${cleanCode.length}b exceeds the ${Math.floor(SECTION_MAX_BYTES * 1.5)}b budget)`;
+          this.log(`Rejected ${relPath} (section replacement ${cleanCode.length}b — over budget for section ${sec.name})`, "warn");
+          return result;
+        }
+        // Truncation pre-gate on the REPLACEMENT (vs the section's original
+        // text): a truncated section splices into a MID-FILE parse error
+        // that the assembled-file truncation check below cannot classify
+        // (its EOF-adjacent and length-ratio heuristics only see the whole
+        // file). Catching it here saves the full typecheck cycle and feeds
+        // the postmortem the honest root cause.
+        const secTrunc = this.checkTruncation(cleanCode, sec.text, filePath);
+        if (secTrunc.truncated) {
+          result.reason = `Rejected (LLM output truncated: ${secTrunc.reason})`;
+          this.log(`Rejected ${relPath} (section ${sec.name} replacement truncated: ${secTrunc.reason})`, "warn");
+          await postmortemStore.recordFailure({
+            repo: "self",
+            branch: "main",
+            filePath: relPath,
+            failureType: "COMPILE_ERROR",
+            symptom: `Section replacement truncated: ${secTrunc.reason}`,
+            evidence: `Section ${sec.name}: original ${sec.bytes}b, replacement ${cleanCode.length}b. The LLM hit its output token limit before finishing the section.`,
+            constraints: `The previous section-scoped refactor of ${relPath} (section ${sec.name}) was truncated. Make smaller, more targeted changes within the section.`,
+          });
+          return result;
+        }
+        // Empty-replacement guard: never splice a deletion in.
+        if (!cleanCode.trim()) {
+          result.reason = "LLM returned an empty section replacement";
+          this.log(`Rejected ${relPath} (empty replacement for section ${sec.name})`, "warn");
+          return result;
+        }
+        sectionReplacement = cleanCode;
+        const assembled = spliceSection(originalCode, sec, cleanCode);
+        this.log(
+          `Spliced ${relPath}: section ${sec.name} replaced (${sec.bytes}b → ${cleanCode.length}b); assembled file ${assembled.length}b (rest byte-identical by construction)`,
+          "info"
+        );
+        cleanCode = assembled;
       }
 
       result.llmUsed = true;
@@ -2001,7 +2150,15 @@ ${systemTail}`;
       // can't catch "added a null check that breaks the happy path." The debate
       // can. If REJECTED or REQUIRES_REWRITE, don't write.
       this.log(`Debating ${relPath} (second-LLM semantic review)...`, "info");
-      const debate = await this.debateGate(filePath, originalCode, cleanCode, changeSummary);
+      const debate = await this.debateGate(
+        filePath,
+        originalCode,
+        cleanCode,
+        changeSummary,
+        sectionPlan && sectionReplacement
+          ? { name: sectionPlan.section.name, before: sectionPlan.section.text, after: sectionReplacement }
+          : undefined
+      );
       if (!debate.approved) {
         if (debate.deferred) {
           // Tribunal unavailable — fail-closed defer (see debateGate). Not a
@@ -2539,11 +2696,17 @@ ${schemaSystemTail}`;
       lockedAt: null,
       lastNoGrowthReason: null,
       enhancementsThisPass: 0,
+      lockCount: 0,
     };
     if (growth === "growth") {
       prev.consecutiveNoGrowth = 0;
       prev.lastNoGrowthReason = null;
       prev.enhancementsThisPass++;
+      // Growth is the one full reset: the file is producing again, so its
+      // auto-relock cooldown history (the escalation) starts over. This is
+      // what makes the backoff honest — it punishes repeated no-growth
+      // cycles, not files that periodically produce.
+      prev.lockCount = 0;
     } else if (growth === "no-growth") {
       prev.consecutiveNoGrowth++;
       prev.lastNoGrowthReason = reason;
@@ -2552,17 +2715,51 @@ ${schemaSystemTail}`;
       if (prev.consecutiveNoGrowth >= threshold && !prev.lockedOut) {
         prev.lockedOut = true;
         prev.lockedAt = new Date().toISOString();
+        prev.lockCount++;
         this.log(
           `🔒 ${relPath} LOCKED OUT — ${threshold} consecutive no-growth cycles (last: ${reason.slice(0, 80)})`,
           "warn"
         );
         this.log(
-          `Pass will skip ${relPath} until you unlock it (UI button) or restart the server for a fresh pass`,
+          `Auto-relock in ${formatDuration(relockCooldownMs(prev.lockCount))} (escalating per re-lock); [unlock] in the UI forces it now`,
           "info"
         );
       }
     }
     this.saturation.set(relPath, prev);
+  }
+
+  /** AUTO-RELOCK (operator, 2026-11-26 — replaces the unlock PIN as the
+   *  churn control): a locked-out file whose cooldown has expired re-
+   *  enters rotation ON ITS OWN — no operator, no PIN, no restart. The
+   *  cooldown doubles per accumulated lock (5m → 10m → 20m → … → 24h
+   *  cap), so a converged file settles into a once-a-day honest recheck
+   *  instead of either (a) burning an LLM call every cycle forever or
+   *  (b) waiting for a human to press [unlock].
+   *
+   *  Called at BOTH lockout checkpoints (the proactive-skip pre-pass and
+   *  the main loop) right before the skip decision, so the unlock lands
+   *  in the same cycle that consumes it — no wasted "unlocked but not
+   *  evaluated" gap. Returns true when the file was just re-opened
+   *  (caller proceeds as if unlocked); false when it stays locked. */
+  private maybeAutoRelock(relPath: string): boolean {
+    const state = this.saturation.get(relPath);
+    if (!state?.lockedOut || !state.lockedAt) return false;
+    const elapsed = Date.now() - Date.parse(state.lockedAt);
+    if (!Number.isFinite(elapsed) || elapsed < relockCooldownMs(state.lockCount)) {
+      return false;
+    }
+    const reLockNumber = state.lockCount;
+    state.lockedOut = false;
+    state.lockedAt = null;
+    state.consecutiveNoGrowth = 0;
+    state.lastNoGrowthReason = null;
+    state.enhancementsThisPass = 0;
+    this.log(
+      `🔓 ${relPath} auto-relocked — cooldown expired after lock #${reLockNumber}, re-evaluating this cycle`,
+      "info"
+    );
+    return true;
   }
 
   /**
@@ -3091,9 +3288,12 @@ ${schemaSystemTail}`;
       const proactiveProbes = new Set<string>();
       for (const file of files) {
         const relPath = relative(PROJECT_ROOT, file);
-        // Locked-out files are handled by the main loop's lockout check.
+        // Locked-out files are handled by the main loop's lockout check —
+        // unless their auto-relock cooldown just expired, in which case
+        // they re-enter rotation HERE (the unlock lands in the same cycle
+        // that consumes it).
         const sat = this.saturation.get(relPath);
-        if (sat?.lockedOut) continue;
+        if (sat?.lockedOut && !this.maybeAutoRelock(relPath)) continue;
         try {
           const skip = await shouldProactivelySkip(relPath);
           if (!skip.skip) continue;
@@ -3183,15 +3383,15 @@ ${schemaSystemTail}`;
           // predictConfidence's visual-polish branch was dead code. Discover
           // the components directly from disk instead: the arm works without
           // widening the refactor scan scope.
-          // ELIGIBILITY FILTER (follow-up): the arm's first firing after the
-          // dead-arm fix targeted defense-panel.tsx (19.5KB) and was auto-
-          // skipped by enhanceFile's 12KB mutation ceiling — recorded as a
-          // "fail" for a file that never had a chance. 10 of the 12 pipeline
-          // components are over the ceiling, so most firings would burn
-          // their slot on a guaranteed skip. Filter to files under the SAME
-          // ceiling enhanceFile enforces (MAX_FILE_BYTES, see the enhance
-          // path) BEFORE rotating, so every firing targets a file the gate
-          // chain will actually run on. 11 components currently qualify.
+          // ELIGIBILITY FILTER (updated for section mode): the arm's first
+          // firing after the dead-arm fix targeted defense-panel.tsx (19.5KB)
+          // and was auto-skipped by enhanceFile's old 12KB whole-file ceiling
+          // — recorded as a "fail" for a file that never had a chance. 10 of
+          // the 12 pipeline components are over 12KB, so the filter kept the
+          // arm circling a 2-file island. Section-scoped mutation lifts the
+          // effective ceiling to 256KB (≤12KB files use whole-file mode,
+          // larger files get ONE AST section polished per firing), so every
+          // non-protected component is now reachable.
           const uiDir = join(PROJECT_ROOT, "src", "components", "pipeline");
           const uiFiles = existsSync(uiDir)
             ? readdirSync(uiDir)
@@ -3200,7 +3400,9 @@ ${schemaSystemTail}`;
                 .filter((f) => !isProtectedPath(relative(PROJECT_ROOT, f)))
                 .filter((f) => {
                   try {
-                    return statSync(f).size <= 12000; // match enhanceFile's MAX_FILE_BYTES
+                    // match enhanceFile's tiered ceiling: ≤12KB whole-file,
+                    // ≤256KB section-scoped
+                    return statSync(f).size <= SECTION_MUTATION_MAX_FILE_BYTES;
                   } catch {
                     return false;
                   }
@@ -3208,7 +3410,7 @@ ${schemaSystemTail}`;
             : [];
           if (uiFiles.length === 0) {
             this.log(
-              "Visual-polish pre-pass: no eligible UI component under the 12KB mutation ceiling — skipping this cycle",
+              "Visual-polish pre-pass: no eligible UI component under the 256KB mutation ceiling — skipping this cycle",
               "info"
             );
           } else {
@@ -3217,7 +3419,7 @@ ${schemaSystemTail}`;
             const pick = uiFiles[this.stats.cyclesCompleted % uiFiles.length];
             const pickRel = relative(PROJECT_ROOT, pick);
             this.log(
-              `Visual-polish mode: targeting ${pickRel} (${uiFiles.length} eligible component(s) under the 12KB ceiling)`,
+              `Visual-polish mode: targeting ${pickRel} (${uiFiles.length} eligible component(s) — small ones whole-file, large ones section-scoped)`,
               "info"
             );
             // SELF-MODEL (audit 7): open a prediction + record the outcome
@@ -3310,11 +3512,14 @@ ${schemaSystemTail}`;
         const relPath = relative(PROJECT_ROOT, file);
 
         // ── Saturation lockout skip ──────────────────────────────────
-        // A locked-out file is NOT mutated — no LLM call, no quota burn.
-        // The user unlocked it (or restarted the server) to re-open it.
-        // We count it so the cycle log shows "X/N (Y locked)" honestly.
+        // A locked-out file is NOT mutated — no LLM call, no quota burn —
+        // unless its auto-relock cooldown expired this cycle (then it
+        // re-enters rotation immediately: the loop re-evaluates it, and
+        // if it no-grows again it re-locks with a DOUBLED cooldown).
+        // We count the still-locked ones so the cycle log shows "X/N (Y
+        // locked)" honestly.
         const sat = this.saturation.get(relPath);
-        if (sat?.lockedOut) {
+        if (sat?.lockedOut && !this.maybeAutoRelock(relPath)) {
           lockedSkipped++;
           continue;
         }
@@ -3616,8 +3821,16 @@ ${schemaSystemTail}`;
         (f) => this.saturation.get(relative(PROJECT_ROOT, f))?.lockedOut
       ).length;
       if (eligibleCount > 0 && lockedCount >= eligibleCount) {
+        const nextRelock = files
+          .map((f) => this.saturation.get(relative(PROJECT_ROOT, f)))
+          .filter((s): s is FileSaturation => !!s?.lockedOut && !!s.lockedAt)
+          .map((s) => Date.parse(s.lockedAt as string) + relockCooldownMs(s.lockCount))
+          .filter((t) => Number.isFinite(t))
+          .sort((a, b) => a - b)[0];
         this.log(
-          `🎯 PASS COMPLETE — all ${eligibleCount} file(s) locked out. Review & unlock in the UI to start a new pass.`,
+          `🎯 PASS COMPLETE — all ${eligibleCount} file(s) locked out. Auto-relock${
+            nextRelock ? ` scheduled in ${formatDuration(Math.max(0, nextRelock - Date.now()))}` : "d"
+          }; [unlock] forces any file now, restart resets all cooldowns.`,
           "success"
         );
       }
@@ -4100,10 +4313,6 @@ ${schemaSystemTail}`;
     // cycle sharing currentCycleBranch / currentFile.
     this.continuous = false;
     this.runId++;
-    // Clear the persisted master-unlock tier: an explicit [STOP] is the
-    // single deliberate end of the PIN bypass (the 10-day-test
-    // contract — "unlocked until the system is stopped").
-    clearMasterUnlockPersisted();
     this.log("Self-enhance loop stop requested", "warn");
   }
 
@@ -4220,16 +4429,6 @@ ${schemaSystemTail}`;
     return out;
   }
 
-  /** Is the operator master-unlock active? While true, the saturation
-   *  [unlock] buttons in the UI skip the per-file PIN prompt and unlock
-   *  directly (the operator already proved they know the master PIN).
-   *  Survives worker restarts via the wipe-proof tier (10-day-test
-   *  contract); only an explicit [STOP] clears it. See the field comment
-   *  above for the full rationale. */
-  isMasterUnlocked(): boolean {
-    return this.masterUnlocked;
-  }
-
   /** Network/outage state for status payloads (10-day endurance test —
    *  net-status.ts). Exposed on the worker's /status (and mirrored by
    *  the app's /api/self-enhance/status proxy) so the dashboard and the
@@ -4241,26 +4440,18 @@ ${schemaSystemTail}`;
     return getNetStatus();
   }
 
-  /** Activate master-unlock mode. Called by the worker's /unlock handler
-   *  when the submitted PIN matches LOOP_MASTER_PIN. Idempotent — setting
-   *  again is a no-op in memory, but the wipe-proof tier is re-stamped
-   *  (fresh `at` timestamp) so the persistence never goes stale. */
-  setMasterUnlocked(): void {
-    if (!this.masterUnlocked) {
-      this.masterUnlocked = true;
-      this.log("🔑 master unlock active — PIN prompt skipped for this session", "info");
-    }
-    // Persist to the wipe-proof tier (10-day endurance test): the bypass
-    // must survive worker restarts; only stop() clears it.
-    persistMasterUnlock();
-  }
-
-  /** Unlock a locked-out file so it's eligible for the next cycle. Called
-   *  by the UI when the user clicks "unlock". Resets the no-growth counter
-   *  and the enhancements-this-pass counter — a fresh start. The file is
-   *  re-evaluated on the next cycle (its content may have changed since
-   *  lockout, so the LLM might find new improvements or might re-lock
-   *  immediately if nothing's changed in the underlying code).
+  /** Unlock a locked-out file so it's eligible for the next cycle — the
+   *  operator's IMMEDIATE override. Called by the UI when the user clicks
+   *  [unlock] (PINless since 2026-11-26 — the saturated-file unlock is a
+   *  low-stakes action: every subsequent write still passes the full gate
+   *  chain, and the churn control is the escalating auto-relock backoff,
+   *  not the PIN) and by the cycle's auto-relock when a cooldown expires.
+   *  Resets the no-growth counter and the enhancements-this-pass counter —
+   *  a fresh start. `lockCount` (the escalation history) is deliberately
+   *  NOT reset: a file the operator keeps force-unlocking only to re-lock
+   *  gets progressively longer cooldowns — the backoff replaces the old
+   *  PIN as the anti-churn friction. It resets on growth (an actual
+   *  enhancement) or on restart (the natural new-pass boundary).
    *
    *  Returns a discriminated reason so the UI can give honest feedback
    *  instead of a bare "not locked" for every failure case (the old code

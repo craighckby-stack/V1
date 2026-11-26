@@ -50,7 +50,12 @@ export async function POST(req: Request) {
         );
     }
     
-    const errorMessage = e instanceof Error ? e.message : "Unknown input error during request parsing.";
+    let errorMessage = "Unknown input error during request parsing.";
+    if (e instanceof Error) {
+        errorMessage = e.message;
+    } else if (typeof e === 'string') {
+        errorMessage = e;
+    }
     
     return NextResponse.json(
       { error: `Invalid request body: ${errorMessage}` },

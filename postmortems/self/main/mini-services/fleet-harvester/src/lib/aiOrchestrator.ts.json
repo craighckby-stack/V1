@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "mini-services/fleet-harvester/src/lib/aiOrchestrator.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Section replacement truncated: parse error at end of output: Unterminated regular expression literal.",
+  "evidence": "Section extractJsonArray: original 530b, replacement 177b. The LLM hit its output token limit before finishing the section.",
+  "constraints": "The previous section-scoped refactor of mini-services/fleet-harvester/src/lib/aiOrchestrator.ts (section extractJsonArray) was truncated. Make smaller, more targeted changes within the section.",
+  "attempts": 2,
+  "parentHash": "1f3baa2e91705d0baccd23fd55c584002467635b92ec11aac4ed33e38cc643ea",
+  "hash": "32dadb7aa1d712baf8c163029dded0a81a31fda357b72af4a8c31c5e15900649",
+  "lastAttemptAt": "2026-11-26T04:27:05.039Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-26T02:46:52.614Z",
+  "updatedAt": "2026-11-26T04:27:05.039Z",
+  "schema": 2
+}

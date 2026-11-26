@@ -223,7 +223,9 @@ export async function fetchWithTimeout(
       if (err.name === 'AbortError') {
         if (timedOut) {
           throw new Error(`Request to ${url} timed out after ${Math.round(timeoutMs / 1000)}s`);
-        } else if (callerSignal?.aborted) {
+        } 
+        // If AbortError occurred but not due to timeout, check caller signal state
+        if (callerSignal?.aborted) {
           throw new Error(`Operation cancelled by caller during request to ${url}`);
         } else {
           throw new Error(`Request to ${url} was aborted unexpectedly (AbortError received without timeout or caller signal being set)`);

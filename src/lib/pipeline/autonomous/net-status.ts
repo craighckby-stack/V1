@@ -226,9 +226,13 @@ export async function probeConnectivity(): Promise<boolean> {
     });
     clearTimeout(timer);
     return true;
-  } catch {
+  } catch (e) {
     clearTimeout(timer);
-    // Catch aborts, network errors, etc.
+    // Check if the error was due to abortion (timeout) or a genuine network/fetch error.
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      return false; // Timeout/Abort counts as failure for probe scheduling
+    }
+    // All other errors (network failure, DNS, etc.) count as failure.
     return false;
   }
 }
@@ -253,6 +257,6 @@ export async function ensureOnlineForPush(): Promise<boolean> {
   if (recovered) {
     return true;
   }
-  // If not recovered, the state is still offline. We return the probe result (up).
-  return up;
+  // If not recovered, the state is still offline. We return false to block the push.
+  return false;
 }

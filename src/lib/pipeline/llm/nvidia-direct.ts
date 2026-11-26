@@ -135,12 +135,18 @@ interface NvidiaConfig {
 
 /** Read the stored NVIDIA config (with key) — server-side only. */
 export async function getNvidiaConfig(): Promise<NvidiaConfig | null> {
-  const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } }).catch(() => null);
-  if (!row) return null;
-  // Empty key = not configured (the column has @default("")). Treat the
-  // same as no row — agent-llm.ts falls through to the next provider.
-  if (!row.nvidiaApiKey) return null;
-  return { apiKey: row.nvidiaApiKey, model: row.nvidiaModel || "nvidia/nemotron-3.5-bolt-e4b" };
+  try {
+    const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } });
+    if (!row) return null;
+    // Empty key = not configured (the column has @default("")). Treat the
+    // same as no row — agent-llm.ts falls through to the next provider.
+    if (!row.nvidiaApiKey) return null;
+    return { apiKey: row.nvidiaApiKey, model: row.nvidiaModel || "nvidia/nemotron-3.5-bolt-e4b" };
+  } catch (error) {
+    // Log the error with context instead of silently returning null on DB failure
+    console.error(`Failed to retrieve NVIDIA configuration for ID ${SINGLETON_ID} from database:`, error);
+    return null;
+  }
 }
 
 /** Public view (key never included) — for the UI status indicator. */
@@ -150,7 +156,7 @@ export async function getNvidiaConfigPublic(): Promise<{
   lastUsedAt?: string | null;
   lastError?: string | null;
 }> {
-  const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } }).catch(() => null);
+  const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } });
   if (!row || !row.nvidiaApiKey) return { configured: false };
   return {
     configured: true,

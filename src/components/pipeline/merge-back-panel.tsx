@@ -93,11 +93,12 @@ interface ExecResult {
   branch: string;
   strategy: string;
   committed: boolean;
-  commitSha?: string;
+  commitSha?: string | undefined;
   filesChanged: number;
   typecheckPassed: boolean;
   pushed?: boolean;
   error?: string;
+  errorDetails?: { code: string; message: string };
   skippedProtected?: string[];
   /** src files skipped because main also changed them since the branch
    *  forked (fast-forward-only merge-back). */
@@ -176,17 +177,31 @@ export function MergeBackPanel({ open, onClose }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ branch: selected, strategy }),
       });
+
+      if (!res.ok) {
+        const errorBody = await res.text();
+        throw new Error(`Merge back failed with status ${res.status}: ${errorBody.substring(0, 100)}`);
+      }
+
       const j: ExecResult = await res.json();
       setResult(j);
+
       if (j.committed) {
         // Refresh candidates after a successful commit (commitsAhead changes).
         setLoadingCandidates(true);
-        fetch("/api/self-enhance/merge-back", { cache: "no-store" })
-          .then((r) => r.json())
-          .then((jj: { ok: boolean; candidates: Candidate[] }) => {
-            if (jj.ok) setCandidates(jj.candidates ?? []);
-          })
-          .finally(() => setLoadingCandidates(false));
+        try {
+          const r = await fetch("/api/self-enhance/merge-back", { cache: "no-store" });
+          if (!r.ok) {
+            throw new Error(`Candidate refresh failed with status ${r.status}`);
+          }
+          const jj: { ok: boolean; candidates: Candidate[] } = await r.json();
+          if (jj.ok) setCandidates(jj.candidates ?? []);
+        } catch (e) {
+          // Log candidate refresh error but don't override main execution error state
+          console.error("Failed to refresh candidates after merge:", e);
+        } finally {
+          setLoadingCandidates(false);
+        }
       }
     } catch (e) {
       setError((e as Error).message);

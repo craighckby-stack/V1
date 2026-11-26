@@ -17,15 +17,29 @@
  *   - Enhanced — growth (resets the counter)
  *
  * After SATURATION_THRESHOLD (3) consecutive no-growth cycles on a file,
- * the file is LOCKED OUT for the rest of the pass. The user reviews the
- * lockout in the UI and can unlock it for the next pass. Lockout is a
- * checkpoint, not a tombstone — a file that's stable today might unlock
- * new improvements next pass when the landscape has changed.
+ * the file is LOCKED OUT for the rest of the pass — and, since 2026-11-26,
+ * it AUTO-RELOCKS itself: the cooldown doubles per accumulated lock
+ * (5m → 10m → 20m → … → 24h cap), so a converged file settles into a
+ * once-a-day honest recheck with no operator involvement. The operator's
+ * [unlock] (PINless) forces a file back immediately; a restart resets all
+ * cooldowns — the natural "new pass" boundary. Lockout is a checkpoint
+ * with a timer, not a tombstone.
+ *
+ * The old operator-PIN gate on [unlock] was RETIRED in the same change:
+ * it was self-documented as "a speed bump, not a security boundary" —
+ * the real code boundary was always protected-files + the gate chain.
+ * The escalating auto-relock backoff now provides the churn control the
+ * PIN used to pretend to provide: a force-unlocked file that no-grows
+ * again re-locks with a longer cooldown, so mashing [unlock] costs
+ * escalating waiting time instead of a PIN entry.
  *
  * TARGET_FILES is the FOCUS control (see below). Saturation is the churn
  * control that makes full-scope scanning safe: every file earns its own
- * lockout after 3 unproductive cycles, so a 40-file scope converges to
- * zero quota burn without human intervention.
+ * lockout after 3 unproductive cycles, and the escalating auto-relock
+ * backoff bounds the re-check cost of a converged file to one LLM call
+ * per cooldown interval — a 40-file scope converges to near-zero quota
+ * burn without human intervention, then re-examines itself on a
+ * schedule.
  */
 
 /** Files the loop is allowed to mutate — FOCUS MODE. When NON-empty,
@@ -175,6 +189,33 @@ export const SCHEMA_TARGET = "prisma/schema.prisma";
  *  The UI in src/app/page.tsx reads this value for the (n/N) display. */
 export const SATURATION_THRESHOLD = 2;
 
+/** AUTO-RELOCK (2026-11-26): the cooldown before a locked-out file re-
+ *  enters rotation on its own. DOUBLES per accumulated lock (lockCount),
+ *  capped at SATURATION_RELOCK_CAP_MS. The escalation is the churn
+ *  control that replaced the retired unlock PIN: repeated no-growth on
+ *  the same file buys exponentially longer peace, while a file that
+ *  produces (growth) resets the history entirely.
+ *
+ *  First lock = 5m, then 10m, 20m, 40m, 1h20m, 2h40m, 5h20m, 10h40m,
+ *  21h20m → 24h cap from lock #9 on. Deterministic-skip files (file
+ *  too large / self-model zero-diff) ride the same ladder — they re-
+ *  lock immediately on recheck, but the doubling turns the waste into
+ *  at most one probe per interval. */
+export const SATURATION_RELOCK_BASE_MS = 5 * 60 * 1000;
+
+/** The cooldown ceiling: a converged file is rechecked at most once a
+ *  day, forever, until it grows or the process restarts. */
+export const SATURATION_RELOCK_CAP_MS = 24 * 60 * 60 * 1000;
+
+/** The cooldown for a file with `lockCount` accumulated locks: base ×
+ *  2^(lockCount-1), clamped to the cap. Pure function — the caller owns
+ *  the lockout timestamp. */
+export function relockCooldownMs(lockCount: number): number {
+  const n = Math.max(1, Math.min(lockCount, 30)); // 2^30 × 5m is far past the cap
+  const ms = SATURATION_RELOCK_BASE_MS * 2 ** (n - 1);
+  return Math.min(ms, SATURATION_RELOCK_CAP_MS);
+}
+
 /** The live lockout threshold (D8). Reads through the meta-params cache;
  *  resolves to the SEED before the first boot seeds the table. Kept in
  *  saturation.ts (not meta-params) so the churn-control semantics stay
@@ -192,11 +233,19 @@ export interface FileSaturation {
    *  any enhancement or on an explicit user unlock. */
   consecutiveNoGrowth: number;
   /** True once the file hit SATURATION_THRESHOLD. Stays true until the
-   *  user unlocks it (or the server restarts). A locked file is skipped
-   *  by runCycle — no LLM calls, no quota burn, no churn. */
+   *  cooldown expires (auto-relock), the user unlocks it, or the server
+   *  restarts. A locked file is skipped by runCycle — no LLM calls, no
+   *  quota burn, no churn. */
   lockedOut: boolean;
-  /** When the file was locked out (ISO string). UI shows "locked Xm ago". */
+  /** When the file was locked out (ISO string). UI shows "locked Xm ago";
+   *  the auto-relock reads it as the cooldown origin. */
   lockedAt: string | null;
+  /** Times this file has been locked out (cumulative, this process). Each
+   *  lock doubles the auto-relock cooldown (see relockCooldownMs). Resets
+   *  on growth (a real enhancement) and on restart; deliberately NOT
+   *  reset by a manual [unlock] — the escalation IS the anti-churn
+   *  friction that replaced the unlock PIN (2026-11-26). */
+  lockCount: number;
   /** Last reason the file was deferred/rejected/no-growth. UI shows it
    *  so the user knows WHY the system gave up on this file. */
   lastNoGrowthReason: string | null;

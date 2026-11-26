@@ -83,6 +83,10 @@ export interface EnhanceContext {
   /** The lesson IDs injected this cycle (for the verdict feedback loop
    *  in runCycle — the wrapper after the enhanceFile call). */
   lessonIds: string[];
+  /** The content of the file being processed. */
+  fileContent?: string;
+  /** The path of the file being processed. */
+  filePath?: string;
 }
 
 /** Build the enhance context for one file. One DB/git call per block

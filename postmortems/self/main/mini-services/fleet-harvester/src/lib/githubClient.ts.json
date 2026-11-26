@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "mini-services/fleet-harvester/src/lib/githubClient.ts",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/mini-services/fleet-harvester/src/lib/githubClient.ts:98:14 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
+  "evidence": "Original: 23405 bytes, Refactored: 23908 bytes. Errors: /home/z/my-project/mini-services/fleet-harvester/src/lib/githubClient.ts:98:14 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
+  "constraints": "The previous refactor of mini-services/fleet-harvester/src/lib/githubClient.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 2,
+  "parentHash": "f9d2d3bdec76a29e4bd93338b7f5d3d626c0e2ce08d2f30ebb130a8613be9e19",
+  "hash": "218bdc0acbd6502726e6e20a6f0cd06fa675f94be45409190e3fe622206050f0",
+  "lastAttemptAt": "2026-11-26T06:16:34.959Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-26T02:46:05.724Z",
+  "updatedAt": "2026-11-26T06:16:34.959Z",
+  "schema": 2
+}

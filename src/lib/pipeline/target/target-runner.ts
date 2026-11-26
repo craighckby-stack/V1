@@ -103,9 +103,10 @@ export interface TargetRunResult {
 }
 
 function kindSummary(findings: TargetFinding[], max = 3): string {
-  const kinds = [...new Set(findings.map((f) => f.kind))].sort(
-    (a, b) => TARGET_KIND_PRIORITY[a] - TARGET_KIND_PRIORITY[b]
-  );
+  const kinds = Array.from(new Set(findings.map((f) => f.kind)))
+    .sort(
+      (a, b) => TARGET_KIND_PRIORITY[a] - TARGET_KIND_PRIORITY[b]
+    );
   const head = kinds.slice(0, max).join("+");
   return kinds.length > max ? `${head}+${kinds.length - max}more` : head;
 }
@@ -434,8 +435,9 @@ Output the COMPLETE new content for this file with the improvement applied.`;
     say(`creating branch ${branchName} from ${baseRef}...`);
     const ensured = await ensureTargetBranch(repo, branchName, baseRef, token);
     if (!ensured.ok) {
-      await recordTargetRun({ at: new Date().toISOString(), repo, status: "failed", file, branch: branchName, reason: ensured.error });
-      return { ok: false, status: "failed", repo, file, branch: branchName, error: ensured.error, log };
+      const errorReason = ensured.error || "Unknown branch creation error";
+      await recordTargetRun({ at: new Date().toISOString(), repo, status: "failed", file, branch: branchName, reason: errorReason });
+      return { ok: false, status: "failed", repo, file, branch: branchName, error: errorReason, log };
     }
   }
   const commit = await commitTargetFile({

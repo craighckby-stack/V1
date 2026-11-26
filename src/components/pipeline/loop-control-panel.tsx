@@ -131,15 +131,27 @@ export function LoopControlPanel() {
     setToggling(true);
     try {
       const res = await fetch("/api/autonomous/start", { method: "POST" });
+      
+      if (!res.ok) {
+        const errorBody = await res.text();
+        throw new Error(`Failed to start loop. Status: ${res.status}. Response snippet: ${errorBody.substring(0, 200)}`);
+      }
+      
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? "Failed to start loop");
+      
+      // Input validation: Ensure essential data structure exists before proceeding
+      if (!data || !data.config || !data.stats) {
+        throw new Error("API response missing required configuration or statistics data.");
+      }
+
       setLoopState(data);
       toast({
         title: "Autonomous loop started",
         description: `Running in ${data.config.mode.toUpperCase()} mode. Next cycle: ${data.stats.nextRunAt ?? "immediate"}`,
       });
     } catch (e) {
-      toast({ title: "Start failed", description: (e as Error).message, variant: "destructive" });
+      const errorMessage = (e as Error).message || "An unknown error occurred while starting the loop.";
+      toast({ title: "Start failed", description: errorMessage, variant: "destructive" });
     } finally {
       setToggling(false);
     }
@@ -469,6 +481,9 @@ function StatBlock({
   accent: string;
   mono?: boolean;
 }) {
+  if (!label || label.trim() === "") {
+    return null;
+  }
   return (
     <div className="rounded-md bg-slate-900/40 border border-slate-800/50 px-3 py-2">
       <div className="text-[10px] uppercase tracking-widest text-slate-500">{label}</div>

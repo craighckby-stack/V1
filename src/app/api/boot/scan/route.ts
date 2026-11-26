@@ -131,10 +131,11 @@ async function checkGitHubAuth(
       return { ok: true, login: user.login as string };
     } catch {
       // Failed to parse JSON response from GitHub API (response body might be empty or malformed).
+      clearTimeout(timeoutId); // Ensure timeout is cleared even on JSON parse failure
       return { ok: false, error: "Failed to parse JSON response from GitHub API (response body might be empty or malformed)" };
     }
   } catch (e) {
-    clearTimeout(timeoutId);
+    clearTimeout(timeoutId); // Ensure timeout is cleared on network/abort error
     if (e instanceof Error) {
       if (e.name === "AbortError") {
         return { ok: false, error: "Request timed out after 3.5s" };

@@ -26,15 +26,18 @@ export interface LlmGate {
 
 /** Per-file saturation state (phase 1: lockout-on-stable). Keyed by
  *  repo-relative file path. A file is `lockedOut` after
- *  SATURATION_THRESHOLD (3) consecutive no-growth cycles. The UI shows
- *  a [unlock] button for locked files and "PASS COMPLETE" when all
- *  eligible files are locked. */
+ *  SATURATION_THRESHOLD (3) consecutive no-growth cycles. Since
+ *  2026-11-26 the lockout AUTO-RELOCKS when its escalating cooldown
+ *  expires; [unlock] is PINless. */
 export interface FileSaturation {
   consecutiveNoGrowth: number;
   lockedOut: boolean;
   lockedAt: string | null;
   lastNoGrowthReason: string | null;
   enhancementsThisPass: number;
+  /** Times locked out this process — doubles the auto-relock cooldown.
+   *  Optional: absent in older worker payloads (treated as 1). */
+  lockCount?: number;
 }
 export type SaturationMap = Record<string, FileSaturation>;
 

@@ -1,5 +1,3 @@
-plateaued at 0.7% yield after 900 cycles
-
 # LOOP
 
 > A Next.js app that **reads its own source code, asks an AI to improve one file at a time, runs every proposed change through a compiler + AST + debate gate chain, and pushes the survivors to GitHub** as one `loop-NN` branch per winning mutation. Failures become postmortems that constrain the next attempt. The loop can't rewrite its own OFF switch.
@@ -248,7 +246,7 @@ The honest framing: this is not the loop becoming sentient of its own docs. It's
 identity: "A self-improving Next.js app that rewrites its own source code"
 architecture:
   framework: "Next.js 16 App Router + React 19 + TypeScript 5"
-  database: "Prisma 6 + SQLite (12+ models)"
+  database: "Prisma 6 + SQLite (17 models)"
   llm: "z-ai-web-dev-sdk (primary), Gemini (optional), NVIDIA NIM (optional tier-1)"
   side_processes: ["loop-ws-service:3003", "loop-worker:3004", "dev-watchdog:3005", "fleet-harvester:3010"]
 core_cycle:
@@ -261,12 +259,15 @@ core_cycle:
   - "pass: commit + push to loop-NN branch. fail: write postmortem + feed lesson"
   - "repeat forever (bounded by crash-wall, dead-man's switch, quota gate, [STOP])"
 safety:
-  protected_files: "59 exact paths + 18 prefix subtrees (the loop's own brain is off-limits to itself)"
+  protected_files: "55 exact paths + 21 prefix subtrees (the loop's own brain is off-limits to itself)"
   mutation_guard: "synchronous fail-closed: eval, child_process, path-traversal, MD5/SHA1, protected-path"
   dead_mans_switch: "24h without operator touch → ARMED-PAUSED"
   crash_wall: "3 consecutive same-class crashes → ARMED-PAUSED"
   quota_gate: "429 escalation: 2/5/15/30min cooldowns"
   offline_mode: "network outage → 3-strike tripwire → idle cycles + local commits + probe backoff (15s→5min); network push failures exempt from the 5-strike breaker; recovery automatic"
+  auto_relock: "saturated files re-enter rotation on their own; each no-growth re-lock doubles the cooldown (5m base → 24h cap) — churn control without PIN friction (2026-11-26)"
+  single_pin: "ONE PIN remains (2026-11-26): unfreezing the mutation freeze. Freeze is free (safe direction); saturation [unlock] buttons are PINless"
+  mutation_reach: "whole-file path ≤ 12KB; section-scoped path ≤ 256KB (2026-11-25) — reaches every TS/TSX file that isn't protected, incl. the 2171/4402-line core files"
 alive_behaviors:
   curiosity_drive: "flag-gated (default OFF); when overconfident + health flat, boosts unpredictable files"
   health_metrics: "snapshot every 10 cycles (test/tsc/lint counts)"
@@ -370,10 +371,10 @@ SATURATION  ▪prophecy-evaluator.ts(2/3)  🔒prophecy-store.ts⚠[unlock]  ▪
 This is the **saturation / lockout panel**. Here's how to read it:
 
 - **`▪ filename`** — a file that's being evaluated normally. The `(2/3)` means it's had 2 consecutive "no growth" cycles; after 3 it locks.
-- **`🔒 filename`** — a file that's been **locked out** for the rest of the pass. The loop won't spend AI quota on it until you unlock it (or until the server restarts, which starts a fresh pass).
+- **`🔒 filename`** — a file that's been **locked out**. The loop won't spend AI quota on it — but since 2026-11-26 a lock is a checkpoint **with a timer, not a tombstone**: when the file's escalating cooldown expires it **auto-relocks** itself back into rotation (5m for the first lock, doubling per re-lock up to a 24h cap), no operator needed. A server restart also resets everything (fresh pass).
 - **`⚠`** next to a lock — the file is locked for a **deterministic** reason (it's too large, too small, or the self-model predicts zero diff). Unlocking it will re-lock on the next cycle **unless the underlying condition changes** (e.g. you shrink the file). The ⚠ is a warning that a bare unlock won't stick — it's not a broken button. Hover the `[unlock]` button for the exact reason.
-- **`[unlock]`** — click to request a fresh start for the file (resets its no-growth counter so the loop re-evaluates it next cycle). The click **does not unlock directly** — it opens the **operator-PIN prompt** first. The PIN is printed exactly once in this README, deliberately mid-document past the sections a skimmer reads, so you only know it if you've actually read the manual. That's the point: the unlock button re-exposes locked files to mutation, and it's for operators who have read the docs, not casual passers-by. See *Why it can't go rogue → The unlock PIN*. The console stream prints the outcome (unlocked / refused / reason).
-- **`🎯 PASS COMPLETE`** — every eligible file is locked out. The system has converged for this pass. Review the locks and unlock (operator PIN) the ones you want re-attempted to start a new pass.
+- **`[unlock]`** — click to force the file back into rotation NOW (resets its no-growth counter so the loop re-evaluates it next cycle). PINless and immediate: the click unlocks directly. Unlocking is low-stakes — every subsequent write still passes the full gate chain — and the churn control is the auto-relock backoff itself: each re-lock doubles the cooldown, so mashing [unlock] on a converged file buys it exponentially longer peace, not a PIN prompt. The console stream prints the outcome (unlocked / reason).
+- **`🎯 PASS COMPLETE`** — every eligible file is locked out. The system has converged for this pass — a transient state now: the header shows when the next auto-relock fires, and the pass restarts itself when it does. `[unlock]` any file to force it back immediately.
 
 > Why lock files at all? So the loop **converges**. Without lockout, a 40-file scope would re-review the same stable files forever, burning AI quota for no gain. Three unproductive cycles → lock → the loop moves on to files that might actually improve. It's the churn control that makes full-scope scanning affordable.
 
@@ -483,6 +484,8 @@ The loop's own brain is off-limits to itself. The single source of truth is `src
 A self-improving system must not be able to rewrite its own OFF switch, its own judges, or its own memory.
 
 > **v5 (2026-11-17) scope expansion.** `src/components/pipeline/` (the LOOP-authored display panels) was re-added to the mutation scope. It was rolled back at v4 because 88% of mutations there were convergent defensive no-ops burning quota. Two new friction layers now make it safe to re-expand: (1) the **operator-PIN gate** on every saturation `[unlock]` — a careless user can no longer mash `[unlock]` to reopen the churn (see *The unlock PIN* below); (2) the **convergent-move guard** (`mutation-guard.ts detectConvergentMove`) rejects the exact "Added input validation for `<prop>`" no-ops at the gate layer, before the debate LLM call. The 69 vendored shadcn primitives in `src/components/ui/` stay excluded (third-party code). The two control-surface components inside the re-expanded subtree (`api-unlock.tsx`, `boot-splash.tsx`) are protected individually so the loop still can't touch its own auth UI or its own boot entry.
+>
+> **Update (2026-11-26):** the unlock-PIN layer from (1) was RETIRED — the auto-relock backoff now provides the churn control (a force-unlocked file that no-grows again re-locks with a doubled cooldown, so unlock-spamming costs escalating time instead of a PIN), and the convergent-move guard from (2) remains the gate-layer defense. The safety posture is unchanged: protected-files + the gate chain never honored any PIN.
 
 ---
 
@@ -501,7 +504,7 @@ A self-improving system must not be able to rewrite its own OFF switch, its own 
 | **Secret scan** | `core/secret-scan.ts` | Pre-push scan of diff + commit message for ghp_/AIza/AKIA/sk-/xox/private keys |
 | **Debate tribunal** | `llm/debate-llm.ts` | 3 LLM reviewers (Security/Architecture/Lead); no fallback; validated stances + consensus |
 | **Halt governor** | `emg/halt.ts` | Self-stopping: tree-fingerprint-saturated, zero-diff-saturation, consecutive-failure-limit |
-| **Saturation lockout** | `autonomous/saturation.ts` | 3 consecutive no-growth cycles → file locked out for the rest of the pass (the `[unlock]` panel above) |
+| **Saturation lockout + auto-relock** | `autonomous/saturation.ts` | N consecutive no-growth cycles → file locked out; escalat­ing cooldown (5m doubling to 24h) auto-relocks it back into rotation — churn bounded without human intervention |
 | **Postmortem chain** | `postmortem/postmortem-store.ts` + `postmortem-repo.ts` | Tamper-evident sha256 chain; disk JSON is the source of truth; rehydrates from disk on DB wipe |
 | **Ancestral RAG** | `postmortem/ancestral-rag.ts` | Zero-LLM keyword search over all verified postmortems |
 | **Lessons** | `autonomous/lesson-store.ts` + `lapse-detector.ts`, `mutation-corpus.ts`, `meta-params.ts`, `meta-tuner.ts`, `dreamer.ts`, `reflection.ts` | Every N cycles, distill general rules from history; inject top-K by score; measure helped/hindered; prune low-scorers |
@@ -531,15 +534,15 @@ ARMED-PAUSED (sticky — only manual [START] releases it)
 
 **Stop-priority hierarchy (top wins):** operator `[STOP]` (sticky, wipe-proof) → crash-wall (3 same-class crashes, wipe-proof) → dead-man's switch (24h, wipe-proof) → quota gate (the only stop that AUTO-RECOVERS: throttle → 30s settle → resume, escalating 2/5/15/30min on consecutive 429s).
 
-### The unlock PIN
+### The operator PIN (unfreeze)
 
-The saturation panel's `[unlock]` buttons — the only control that re-exposes locked files to mutation — ask for the operator PIN before doing anything. The PIN is:
+There is exactly ONE PIN left in the system (2026-11-26), and it guards the single dangerous-direction transition: **unfreezing the mutation freeze**. Freezing costs nothing — locking down is the safe direction, so `[FREEZE]` never asks. Unfreezing re-enables self-mutation of a system that pushes to GitHub, so it must prove a human decided. The PIN is:
 
 > ### `691`
 
-Why a PIN on this one button? Because unlock is the human-controlled valve on the churn control. The lockout exists so a converged system stops burning quota; a careless user mashing `[unlock]` on every locked file re-opens all of them at once — quota burn, re-attempt floods, and a pass that never converges. The PIN turns an accidental one-click into a deliberate, documented action, and printing it here — mid-document, past the sections a skimmer reads — means you only get the key if you've read the manual.
+Why only this one? The saturation `[unlock]` PIN and the secret master PIN (with its persisted bypass session) were retired the same day: the unlock PIN was self-documented as "a speed bump, not a security boundary" — the code's safety comes from the protected-files list and the gate chain, which no PIN can bypass and the loop can never edit. Unlocking a saturated file is low-stakes (the gate chain still vets every write) and its churn control is now the escalating auto-relock backoff, which cannot be bypassed by mashing a button — only by waiting, growing, or restarting.
 
-Be clear about what this is: **a friction gate, not a security boundary.** It protects convergence and quota, not the code — the code's safety comes from the protected-files list and the gate chain, which no PIN can bypass and the loop can never edit. Both the edge route (`POST /api/self-enhance/unlock`) and the loop-worker's mirror endpoint validate the PIN (the worker port is reachable through the gateway's `XTransformPort` pattern, so the edge alone would not be enough). Override the value with `LOOP_UNLOCK_PIN` in `.env`; it defaults to the value above when unset.
+The unfreeze PIN is validated constant-time in `POST /api/self-enhance/freeze` (both the freeze route and the wipe-proof freeze tier itself are protected from loop mutation). Override the value with `LOOP_UNLOCK_PIN` in `.env`; it defaults to the value above when unset.
 
 ---
 
@@ -560,10 +563,10 @@ Be clear about what this is: **a friction gate, not a security boundary.** It pr
 
 ## Architecture & file inventory
 
-### Prisma schema (12 models)
-`prisma/schema.prisma` — the schema is mutated **additive-only** by `schema-gate.ts` (the loop can add fields/models, never drop or rename). Models: `PipelineRun`, `AutonomousCycle`, `MutationCorpus`, `Postmortem`, `Lesson`, `Prophecy`, `LlmConfig`, `MemoryEntry`, `SelfTask`, `SelfModelEntry`, `HotSwapJournal`, `RedTeamRun`.
+### Prisma schema (17 models)
+`prisma/schema.prisma` — the schema is mutated **additive-only** by `schema-gate.ts` (the loop can add fields/models, never drop or rename). Models: `PipelineRun`, `AutonomousCycle`, `MemoryEntry`, `Postmortem`, `GitPushTarget`, `SelfTask`, `LlmConfig`, `Prophecy`, `SystemFlag`, `Lesson`, `MutationCorpus`, `MetaParam`, `SelfModelFile`, `SelfPrediction`, `LoopGoal`, `CodebaseHealth`, `OperatorQuestion`.
 
-### API routes (50)
+### API routes (78)
 `src/app/api/**` — grouped: `self-enhance/*` (start/stop/status/unlock/skip/trigger/push/push-target/merge-back/prune-branches/archaeology/rescan/llm-config/tasks), `autonomous/*`, `oracle/*`, `postmortems/*`, `red-team/*`, `github/*`, `hot-swap/*`, `duress/*`, `emg/*`, `memory/*`, `secret-scan/*`, `evolution/*`, `pipeline/*`, `branches/*`, `engines/*`, `boot/*`, `health`, `healthz`. POST/PUT/PATCH/DELETE are gated by `src/middleware.ts`.
 
 ### `src/middleware.ts`
@@ -573,10 +576,10 @@ API-key gate for mutating routes. `LOOP_API_KEY` env var must equal the `x-loop-
 Next.js instrumentation hook. Auto-injects the Z.ai SDK at server boot. Installs `unhandledRejection`/`uncaughtException` swallowers (Bun kills the process otherwise). Spawns the loop-ws sidecar and the loop-worker.
 
 ### `src/lib/pipeline/` — the engine room
-- **`autonomous/`** (43 files) — the brain: `self-enhance-loop.ts`, `loop-runtime.ts`, `self-task-generator.ts`, `task-executor.ts`, `push-target.ts`, `protected-files.ts`, `schema-gate.ts`, `lesson-store.ts`, `meta-params.ts`, `meta-tuner.ts`, `saturation.ts`, `dreamer.ts`, `self-model.ts`, `chat-task.ts`, `merge-back.ts`, `archaeology.ts`, `crash-budget.ts`, `operator-touch.ts`, `armed-state.ts`, `route-cooldown.ts`, `loop-event-bus.ts`, `loop-stats.ts`, `in-memory-typecheck.ts`, `structural-validator.ts`, `verify-refactor.ts`, `loop-worker-client.ts`, `mutation-corpus.ts`, `lapse-detector.ts`, `reflection.ts`, `retention.ts`, etc.
-- **`core/`** (13 files) — the gate machinery: `mutation-guard.ts`, `ast-diff-gate.ts`, `sanitizer-bridge.ts`, `secret-scan.ts`, `duress.ts`, `hot-swap.ts`, `sandbox-test.ts`, `tree-lock.ts`, `unified-pipeline.ts`, `hash.ts`, `prompt-scrub.ts`, etc.
+- **`autonomous/`** (47 files) — the brain: `self-enhance-loop.ts`, `loop-runtime.ts`, `self-task-generator.ts`, `task-executor.ts`, `push-target.ts`, `protected-files.ts`, `schema-gate.ts`, `lesson-store.ts`, `meta-params.ts`, `meta-tuner.ts`, `saturation.ts`, `dreamer.ts`, `self-model.ts`, `chat-task.ts`, `merge-back.ts`, `archaeology.ts`, `crash-budget.ts`, `operator-touch.ts`, `armed-state.ts`, `route-cooldown.ts`, `loop-event-bus.ts`, `loop-stats.ts`, `in-memory-typecheck.ts`, `structural-validator.ts`, `verify-refactor.ts`, `loop-worker-client.ts`, `mutation-corpus.ts`, `lapse-detector.ts`, `reflection.ts`, `retention.ts`, etc.
+- **`core/`** (21 files) — the gate machinery: `mutation-guard.ts`, `ast-diff-gate.ts`, `sanitizer-bridge.ts`, `secret-scan.ts`, `duress.ts`, `hot-swap.ts`, `sandbox-test.ts`, `tree-lock.ts`, `unified-pipeline.ts`, `hash.ts`, `prompt-scrub.ts`, etc.
 - **`emg/`** (4 files) — `sanitizer.ts`, `halt.ts`, `emg-rag.ts`, debate types.
-- **`llm/`** (3 files) — `agent-llm.ts` (the cortex caller + circuit breakers), `debate-llm.ts` (3-reviewer tribunal), `gemini-direct.ts` (direct REST + Retry-After parsing).
+- **`llm/`** (4 files) — `agent-llm.ts` (the cortex caller + circuit breakers), `debate-llm.ts` (3-reviewer tribunal), `gemini-direct.ts` (direct REST + Retry-After parsing), `nvidia-direct.ts` (NIM direct REST, tier-1 candidate).
 - **`oracle/`** (8 files) — `prophecy-generator.ts`, `prophecy-evaluator.ts`, `prophecy-store.ts`, `oracle-scheduler.ts`, `oracle-auto.ts`, `oracle-task-feed.ts`, `commit-archaeology.ts`, `dreamer.ts`.
 - **`red-team/`** (4 files) — `red-team-suite.ts` (7 probes), `red-team-runner.ts`, `gate-integrity-probe.ts` (15 self-audits).
 - **`postmortem/`** (3 files) — `postmortem-store.ts`, `postmortem-repo.ts`, `ancestral-rag.ts`.
@@ -584,26 +587,28 @@ Next.js instrumentation hook. Auto-injects the Z.ai SDK at server boot. Installs
 - **`api/`** (1 file) — `validate.ts`.
 - **`engines/`** (1 file) — `clean-room-runtime.ts` (ReAct loop).
 
-### `src/components/pipeline/` (18 panels)
+### `src/components/pipeline/` (43 panels)
 `boot-splash.tsx`, `console-stream.tsx`, `api-unlock.tsx`, `gemini-panel.tsx`, `nvidia-panel.tsx`, `defense-panel.tsx`, `branches-panel.tsx`, `merge-back-panel.tsx`, `postmortem-panel.tsx`, `oracle-panel.tsx`, `pipeline-stages.tsx`, etc. **v5 (2026-11-17):** the LOOP-authored panels here are back in the mutation scope (see the boundary note above). Three exceptions stay protected individually: `boot-splash.tsx` and `api-unlock.tsx` are control-surface (entry ceremony + auth UI), and `pipeline-stages.tsx` is unused dead display code (the loop already failed to refactor it once and would just deterministically re-lock it). The `src/components/ui/` vendored primitives next door are NOT in scope.
 
-### `src/components/ui/` (48 shadcn/ui New York primitives)
+### `src/components/ui/` (69 shadcn/ui New York primitives)
 Vendored third-party — outside the loop's scan scope (the loop has no business polishing vendored components).
 
 ### Side processes
 - `mini-services/loop-ws-service/` (:3003) — Socket.IO state relay.
 - `mini-services/loop-worker/` (:3004) — the self-enhancement loop runs here, isolated from the Next.js server process so the loop's in-memory state survives Next HMR.
+- `mini-services/dev-watchdog/` (:3005) — 30s supervision: probes dev-server + worker, 2-strike respawn (prefix-protected).
+- `mini-services/fleet-harvester/` (:3010) — the sibling-fleet digest harvester (GitHub + Dropbox corpora).
 - `proxy/` — Gemini geo-bypass on Fly.io (sgp).
 - `Caddyfile` (:81) — reverse proxy with the `?XTransformPort` pattern for cross-port routing.
 
 ### Other
-- `scripts/` — operator tooling (`q.ts`, `check-llm.ts`, etc.) — outside scan scope.
+- `scripts/` — operator tooling (`q.ts`, `check-llm.ts`, etc.) — IN the mutation scope since v7 (2026-11-22); the credential/supervision/instrument files stay individually protected (`push-now`, `seal-push-token`, `dev-daemon.py`, `audit-remote`, `inspect-target-tree`, `state-probe`, `loop-db-tier`, `run-batch`, `loop-state`).
 - `tests/` — the sandbox-gate test harness.
 - `build-guide/` — the LOOP-Build-Record.pdf derivation pipeline.
-- `docs/` — screenshots.
+- `docs/` — screenshots + the standing specs (`SECURITY-AUDIT.md`, `HOT-SWAP.md`, `CONCEPTS-GRAFTED.md`, `POST-ENDURANCE-SPEC.md`).
 - `memory/` — exported lessons / memory snapshots.
-- `postmortems/` — 105 JSON files + 1 archaeology report (the tamper-evident failure chain).
-- `screenshots/` — 44 PNG files.
+- `postmortems/` — 246 JSON files + 1 archaeology report (the tamper-evident failure chain).
+- `screenshots/` — 66 PNG files.
 - `examples/` — reference snippets.
 - `download/` — exported artifacts.
 - `test-repo/src/` — 5 files for sandbox-gate isolation tests.
@@ -631,6 +636,8 @@ Three read-only audits ran in parallel. The honest findings:
 **Audit 5 — breaking the ZERO_DIFF_SATURATION wall + retention P1-P3.** Investigated the 72% zero-diff wall: detection in `emg/halt.ts:36-41` (comments stripped, whitespace collapsed, string-equal); the refactor prompt was near-vacuous; the top zero-diff files were genuinely finished trivial files; the SelfTask pipeline was fully built but never wired in. Fixes: narrowed the autonomous loop's file scope (excludes `scripts/`, `build-guide/`, `proxy/`, `mini-services/`, top-level config stubs); wired SelfTask consumption into `runCycle` (a pre-pass drains up to 3 SelfTasks before the whole-file scan — deterministic kinds first, no LLM call); P1-P3 retention fixes (`pruneResolvedPostmortems`, `pruneHighAttemptPostmortems`, `pruneTerminalSelfTasks`, `pruneMemoryEntries`, `pruneOldLessons`).
 
 **Audit 6 — visual-polish mode + API route unprotection.** The loop touched UI `.tsx` files but only made null-safety fixes (its prompt forbade cosmetic changes). 60 of 61 API route files were protected. Fixes: a new `mode: "refactor" | "visual-polish"` on `enhanceFile` — every 5th cycle the loop picks a `.tsx` component and runs visual-polish mode (styling consistency, accessibility, responsive design, micro-interactions — same gate chain applies). Removed `api/memory/` and `api/engines/` from `PROTECTED_PREFIXES` (pure data/utility endpoints) — the loop can now add JSDoc, input validation, and error handling to these. Control/security/PAT-using APIs stay protected.
+
+**Audit 7 — the endurance-run audit drive (A–G, closeout 2026-11-26).** A seven-item audit opened during the endurance run. **A** (constant-time PIN compare — the old `!==` chain leaked PIN-prefix knowledge through response timing) and **B** (test-origin refusal on freeze writes) shipped with **D + E** (root-caused fixes, commit `0d04b2ab`) plus the lint-gate root cause (`773238ba`). Closed in the 2026-11-26 pass: **C** — the five bare `fetch` calls in `push-target.ts` now carry `AbortSignal.timeout` (15s/30s), killing the indefinite-hang class; **F** — test coverage for the named gaps (secret-scan, mutation-guard, constant-time, saturation, `target/*`, nvidia-direct — 19+ test files, and the loop writes its own tests now, 34 and counting); **G** — **closed as superseded**: `/status` already exposes the full `net` block and the dashboard carries the amber OFFLINE banner, so a dedicated `/api/offline-status` route would add surface, not visibility. The same-pass simplifications (master-PIN retirement, PINless unlock + auto-relock backoff, section-scoped mutation ≤256KB) are documented at their own sections above and in `docs/POST-ENDURANCE-SPEC.md`.
 
 ---
 
@@ -670,9 +677,9 @@ Set `LOOP_API_KEY` in `.env` to lock down mutating API routes (POST/PUT/PATCH/DE
 
 Paste a Gemini API key via the `[CONFIG]` modal (or `POST /api/self-enhance/llm-config`). The key is stored in the `LlmConfig` singleton row (DB, never returned to the client). Optionally deploy the `proxy/` to Fly.io for geo-bypass and set `GEMINI_PROXY_BASE_URL`.
 
-### The unlock PIN
+### The operator PIN (unfreeze)
 
-The saturation panel's `[unlock]` buttons ask for the operator PIN. Its value is documented mid-README (see *Why it can't go rogue → The unlock PIN*) — we don't repeat it here on purpose. Override it with `LOOP_UNLOCK_PIN` in `.env`; both the edge route (`/api/self-enhance/unlock`) and the loop-worker's mirror endpoint validate it.
+The saturation `[unlock]` buttons are PINless (2026-11-26) — the auto-relock backoff is the churn control now. The one remaining PIN guards unfreezing the mutation freeze; its value is documented mid-README (see *Why it can't go rogue → The operator PIN*). Override it with `LOOP_UNLOCK_PIN` in `.env`; the freeze route validates it constant-time.
 
 ---
 
@@ -731,7 +738,7 @@ Saving an NVIDIA or Gemini key used to fire `POST /api/self-enhance/reboot`, whi
 - **The intelligence is outsourced.** The LLM does the generation; the system's actual cleverness is in the gating. The system is a well-built scaffold around an LLM that proposes diffs.
 - **The postmortem chain is the system vouching for itself.** "Verified" means the LLM checked its own work and the validator passed — not external verification. Same with the Oracle: it predicts its own operational outcomes, which is a neat closed loop but self-referential.
 - **Push target has to be configured to see branches on GitHub.** Without a configured PAT + repo, the loop falls back to commit-only (local commits, no `loop-NN` branches on a remote).
-- **Unlocking a deterministic-skip lock won't stick.** A file locked because it's too large (or too small, or the self-model predicts zero diff) will re-lock on the next cycle unless the underlying condition changes. The ⚠ marker in the saturation panel warns you, and the operator-PIN prompt makes every unlock a deliberate act. The fix is to shrink the file (or raise the size limit), not to keep clicking `[unlock]`.
+- **Unlocking a deterministic-skip lock won't stick.** A file locked because it's too large (or too small, or the self-model predicts zero diff) will re-lock on the next cycle unless the underlying condition changes. The ⚠ marker in the saturation panel warns you, and the auto-relock backoff makes unlock-spamming self-defeating (each re-lock doubles the cooldown, 5m → 24h cap). The fix is to shrink the file (or raise the size limit), not to keep clicking `[unlock]`.
 
 ---
 

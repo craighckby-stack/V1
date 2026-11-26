@@ -32,11 +32,15 @@ function ghHeaders(token: string | null, accept = "application/vnd.github.v3+jso
 
 /** Truncate + sanitize a GitHub error body into a safe message. */
 function ghError(status: number, body: unknown, fallback: string): string {
-  const msg =
-    typeof body === "object" && body !== null && typeof (body as { message?: unknown }).message === "string"
-      ? (body as { message: string }).message
-      : fallback;
-  return `GitHub API ${status}: ${msg.slice(0, 200)}`;
+  let msg: string;
+  if (typeof body === "object" && body !== null && typeof (body as { message?: unknown }).message === "string") {
+    msg = (body as { message: string }).message;
+  } else {
+    msg = fallback;
+  }
+  // Ensure msg is treated as string before slicing, though fallback should guarantee it.
+  const safeMsg = String(msg);
+  return `GitHub API ${status}: ${safeMsg.slice(0, 200)}`;
 }
 
 export interface TargetTreeFile {
@@ -261,12 +265,16 @@ export async function commitTargetFile(opts: {
     // Blob sha at the target branch (404 → file does not exist there → null sha = create).
     let sha: string | null = null;
     const existingRes = await fetch(`${url}?ref=${encodeURIComponent(branch)}`, { headers });
+    
     if (existingRes.ok) {
-      const data = (await existingRes.json()) as { sha?: string };
-      sha = data.sha ?? null;
-    } else if (existingRes.status !== 404) {
+      const data = await existingRes.json();
+      sha = (data as { sha?: string }).sha ?? null;
+    } else if (existingRes.status === 404) {
+      // File does not exist, sha remains null (create operation)
+    } else {
+      // Handle other HTTP errors (4xx/5xx)
       const body = await existingRes.json().catch(() => null);
-      return { ok: false, error: ghError(existingRes.status, body, "could not resolve existing file") };
+      return { ok: false, error: ghError(existingRes.status, body, `Failed to resolve existing file at ${path} on branch ${branch}`) };
     }
 
     const putRes = await fetch(url, {
@@ -279,14 +287,18 @@ export async function commitTargetFile(opts: {
         ...(sha ? { sha } : {}),
       }),
     });
+    
     if (!putRes.ok) {
       const body = await putRes.json().catch(() => null);
-      return { ok: false, error: ghError(putRes.status, body, "Contents PUT failed") };
+      return { ok: false, error: ghError(putRes.status, body, `Contents PUT failed for ${path} on branch ${branch}`) };
     }
-    const data = (await putRes.json()) as { commit?: { sha?: string } };
-    return { ok: true, commitSha: data.commit?.sha };
+    
+    const data = await putRes.json();
+    return { ok: true, commitSha: (data as { commit?: { sha?: string } }).commit?.sha };
   } catch (err) {
-    return { ok: false, error: `Commit failed: ${(err as Error).message}` };
+    // Catch network errors, JSON parsing errors, etc.
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Commit failed due to runtime error: ${errorMessage}` };
   }
 }
 
@@ -296,19 +308,41 @@ export async function listTargetBranches(
   token: string | null
 ): Promise<string[]> {
   const names: string[] = [];
-  try {
-    for (let page = 1; page <= 3; page++) {
+  let page = 1;
+  let hasMore = true;
+
+  while (hasMore) {
+    try {
       const res = await fetch(
         `${GH_API}/repos/${repo}/branches?per_page=100&page=${page}`,
         { headers: ghHeaders(token) }
       );
-      if (!res.ok) break;
+      if (!res.ok) {
+        // Use ghError for structured error reporting if possible, otherwise log context
+        console.error(`Failed to fetch branches for ${repo} on page ${page}: Status ${res.status}`);
+        break;
+      }
       const data = (await res.json()) as Array<{ name?: string }>;
-      for (const b of data) if (b.name) names.push(b.name);
-      if (data.length < 100) break;
+
+      if (data.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      for (const b of data) {
+        if (b.name) names.push(b.name);
+      }
+
+      if (data.length < 100) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    } catch (error) {
+      console.error(`Network or parsing error while listing branches for ${repo} at page ${page}:`, error);
+      // Network hiccup: return what we have, but stop trying to fetch more pages
+      hasMore = false;
     }
-  } catch {
-    /* network hiccup — return what we have; numbering falls back to 1 */
   }
   return names;
 }
@@ -336,7 +370,8 @@ export function nextTargetBranchNumber(branches: string[]): number {
 type DiffOp = { op: " " | "-" | "+"; text: string };
 
 function lcsDiff(a: string[], b: string[]): DiffOp[] {
-  // Size guard: ~10M-cell DP is too slow — fall back to a replace hunk.
+  // Heuristic guard: If the product exceeds a threshold where O(MN) DP becomes prohibitively slow/memory intensive.
+  // 10M is a reasonable practical limit for typical Node.js heap constraints in a pipeline context.
   if (a.length * b.length > 10_000_000) {
     return [
       ...a.map((t) => ({ op: "-" as const, text: t })),
@@ -349,7 +384,8 @@ function lcsDiff(a: string[], b: string[]): DiffOp[] {
   const dp = new Int32Array((m + 1) * (n + 1));
   for (let i = m - 1; i >= 0; i--) {
     for (let j = n - 1; j >= 0; j--) {
-      dp[i * (n + 1) + j] =
+      const idx = i * (n + 1) + j;
+      dp[idx] =
         a[i] === b[j]
           ? dp[(i + 1) * (n + 1) + j + 1] + 1
           : Math.max(dp[(i + 1) * (n + 1) + j], dp[i * (n + 1) + j + 1]);

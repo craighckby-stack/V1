@@ -127,6 +127,9 @@ export function NvidiaPanel({ open, onClose }: Props) {
   const poll = useCallback(async () => {
     try {
       const res = await fetch("/api/self-enhance/llm-config", { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error(`Failed to fetch LLM config: HTTP status ${res.status}`);
+      }
       const data = (await res.json()) as LlmConfigView;
       setCfg(data);
       setNvCfg(data.nvidia ?? null);
@@ -134,7 +137,8 @@ export function NvidiaPanel({ open, onClose }: Props) {
         syncedModelRef.current = true;
         setModel(data.nvidia.model);
       }
-    } catch {
+    } catch (error) {
+      console.error("Error during LLM config polling:", error);
       // Poll failure is non-fatal — keep the last snapshot on screen.
     }
   }, []);
@@ -147,7 +151,7 @@ export function NvidiaPanel({ open, onClose }: Props) {
     // The useState initializer is 0 to avoid the hydration mismatch
     // described above; this is where the real time enters the state.
     setNowTick(Date.now());
-    void poll();
+    (void poll(), Promise.resolve()); // Run poll and ensure initial state update is not blocked
     const pollIv = setInterval(() => void poll(), 5000);
     const tickIv = setInterval(() => setNowTick(Date.now()), 1000);
     return () => {
@@ -159,10 +163,7 @@ export function NvidiaPanel({ open, onClose }: Props) {
   // Reset transient state when the panel reopens.
   useEffect(() => {
     if (open) {
-      setMsg(null);
-      setKey("");
-      setShowKey(false);
-      // BUG-4 fix: clear any stale auto-close timer from a prior save so it
+      // Clear stale auto-close timer from a prior save so it
       // can't fire onClose on the freshly re-opened panel.
       if (autoCloseTimer.current) {
         clearTimeout(autoCloseTimer.current);
@@ -283,9 +284,9 @@ export function NvidiaPanel({ open, onClose }: Props) {
         return;
       }
       setMsg({ kind: "ok", text: "NVIDIA config cleared — provider chain is Gemini → Z.AI again." });
-      void poll();
+      await poll();
     } catch (e) {
-      setMsg({ kind: "err", text: `Clear request failed: ${(e as Error).message} — the key may still be stored.` });
+      setMsg({ kind: "err", text: `Clear request failed due to network or parsing error: ${(e as Error).message} — the key may still be stored.` });
     } finally {
       setLoading(false);
     }

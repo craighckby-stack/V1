@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/lib/pipeline/target/target-runner.ts",
+  "status": "resolved",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: src/lib/pipeline/target/target-runner.ts(245,5): error TS2741: Property 'log' is missing in type '{ ok: false; status: \"failed\"; repo: string; error: string; }' but required in type 'TargetRunResult'.",
+  "evidence": "Original: 19926 bytes, Refactored: 19938 bytes. Errors: src/lib/pipeline/target/target-runner.ts(245,5): error TS2741: Property 'log' is missing in type '{ ok: false; status: \"failed\"; repo: string; error: string; }' but required in type 'TargetRunResult'.",
+  "constraints": "The previous refactor of src/lib/pipeline/target/target-runner.ts did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 2,
+  "parentHash": "9990311d4cc803c4e33db6f9b3c5a047c5953f652235e78a4abfe19df08c1d1a",
+  "hash": "47afa72d22d4fd968ba591a683ff82c5f8a19f680a13eb088e9c5ac269f89845",
+  "lastAttemptAt": "2026-11-26T03:51:06.519Z",
+  "resolvedAt": "2026-11-26T04:34:19.757Z",
+  "createdAt": "2026-11-26T02:47:40.471Z",
+  "updatedAt": "2026-11-26T04:34:19.757Z",
+  "schema": 2
+}

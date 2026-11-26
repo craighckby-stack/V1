@@ -46,11 +46,12 @@ function parseArgs(argv: string[]): CliArgs {
     } else if (arg === "--dry-run") {
       out.dryRun = true;
     } else if (arg.startsWith("--format=")) {
-      const f = arg.slice("--format=".length).trim() as ArchiveFormat;
+      const fStr = arg.slice("--format=".length).trim();
+      const f = fStr as ArchiveFormat;
       if (f === "json" || f === "markdown" || f === "csv") {
         out.format = f;
       } else {
-        console.error(`ERROR: Invalid format "${f}". Supported formats: json, markdown, csv`);
+        console.error(`ERROR: Invalid format "${fStr}". Supported formats: json, markdown, csv`);
         process.exit(2);
       }
     }

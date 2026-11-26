@@ -79,7 +79,11 @@ export function classifyOutcome(enhanced: boolean, reason: string): SelfOutcome 
   // it) was recorded as a gate rejection for that file: a fake fail in
   // the bandit's empirical rate AND the calibration curve. No-verdict
   // outcomes belong with "deferred" — excluded, not knowledge.
+  // Section mode added two more no-verdict skips (beyond the 256KB
+  // section ceiling; no eligible AST section in the 300b-10kb budget) —
+  // same class, same exclusion.
   if (r.startsWith("skipped (file too large")) return "excluded";
+  if (r.startsWith("skipped (no eligible section")) return "excluded";
   // PROACTIVE-SKIP EXCLUSION (audit 8): "Skipped (self-model predicts
   // zero-diff: ...)" is the SAME no-verdict class — the loop never ran a
   // prompt or a gate; it ACTED on a prediction. Before this, every

@@ -92,8 +92,8 @@ export async function getTargetConfig(): Promise<TargetRepoConfig | null> {
       return null;
     }
     
-    // Validate branch field if present
-    if (parsed.branch !== null && !validTargetBranchFormat(parsed.branch)) {
+    // Validate branch field if present (null is valid, string must pass format check)
+    if (parsed.branch !== null && typeof parsed.branch === 'string' && !validTargetBranchFormat(parsed.branch)) {
       console.error(`Target config found but invalid branch format for key ${CONFIG_KEY}. Branch: ${parsed.branch}`);
       return null;
     }
@@ -123,8 +123,8 @@ export async function setTargetConfig(
   }
   
   let branchValue: string | null = null;
-  if (branch !== undefined && branch !== null) {
-    const b = String(branch).trim(); // Ensure b is string before validation
+  if (branch !== undefined && branch !== null && typeof branch === 'string') {
+    const b = branch.trim();
     if (b.length > 0) {
       if (!validTargetBranchFormat(b)) {
         throw new Error(`Invalid branch "${b}" — must be a valid git branch name (no whitespace, no "..", no leading '-', max 120 chars)`);
@@ -209,7 +209,7 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
   
   // Validate optional 'branch' field if present
   if (rec.branch !== undefined) {
-    if (!validTargetBranchFormat(rec.branch)) {
+    if (typeof rec.branch !== 'string' || !validTargetBranchFormat(rec.branch)) {
       throw new Error(`Invalid branch format in record: ${rec.branch} — must be a valid git branch name`);
     }
   }
@@ -225,11 +225,16 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
     const now = new Date().toISOString();
     await db.$transaction(async (tx) => {
       const existing = await tx.systemFlag.findUnique({ where: { key: LAST_RUN_KEY } });
+      const dataToStore = {
+        ...rec,
+        updatedAt: now, // Ensure consistent timestamp
+      };
+      
       if (existing) {
         await tx.systemFlag.update({
           where: { key: LAST_RUN_KEY },
           data: {
-            value: JSON.stringify(rec),
+            value: JSON.stringify(dataToStore),
             setBy: "target-mode",
             reason: `run ${rec.status}`,
             updatedAt: now,
@@ -239,7 +244,7 @@ export async function recordTargetRun(rec: TargetRunRecord): Promise<void> {
         await tx.systemFlag.create({
           data: {
             key: LAST_RUN_KEY,
-            value: JSON.stringify(rec),
+            value: JSON.stringify(dataToStore),
             setBy: "target-mode",
             reason: `run ${rec.status}`,
             updatedAt: now,

@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/pipeline/merge-back-panel.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: [mutation-guard/finalAuthority] convergent-move rejected: 3 net new guard-lexicon line(s) (original 27 → evolved 30), no behavioral signal, 21 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "evidence": "Original: 23005 bytes, Refactored: 23259 bytes. Errors: [mutation-guard/finalAuthority] convergent-move rejected: 3 net new guard-lexicon line(s) (original 27 → evolved 30), no behavioral signal, 21 changed lines — mutations must change observable behavior, not add guards to code that already works",
+  "constraints": "The previous refactor of src/components/pipeline/merge-back-panel.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 4,
+  "parentHash": "157f2736c431e4faf721d463d9ac9801bbe5195c8dacc4e20c449fa4839454e8",
+  "hash": "f43670ceabe917abf1bae86dac3c19c1abc9cdf1f4e41177bbe8dcb4b244de69",
+  "lastAttemptAt": "2026-11-26T06:18:57.044Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-26T03:33:02.738Z",
+  "updatedAt": "2026-11-26T06:18:57.044Z",
+  "schema": 2
+}

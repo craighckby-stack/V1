@@ -39,11 +39,10 @@ export async function GET(request: Request) {
   try {
     // Run status, digest, and search in parallel to reduce latency
     const searchPromise = searchEngines(keyword, 3);
-    const timeoutError = new Error("Search operation timed out after 5000ms.");
     
     // Wrap timeout in a promise that rejects after 5000ms
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(timeoutError), SEARCH_TIMEOUT_MS)
+      setTimeout(() => reject(new Error("Search operation timed out after 5000ms.")), SEARCH_TIMEOUT_MS)
     );
 
     // Execute status, digest, and the race (search vs timeout) in parallel

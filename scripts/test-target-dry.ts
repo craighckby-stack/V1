@@ -16,6 +16,7 @@ import { runTargetMutation } from "@/lib/pipeline/target/target-runner";
 
 const DEFAULT_REPO = "craighckby-stack/Wonder-Craig-Game-Demo";
 const providedRepo = process.argv[2];
+// Input validation: Ensure REPO is not empty/whitespace if provided, otherwise use default.
 const REPO = providedRepo ? providedRepo.trim() : DEFAULT_REPO;
 
 function line(s: string) {
@@ -24,8 +25,8 @@ function line(s: string) {
 
 async function main() {
   // Input validation: Check if providedRepo was present but resulted in an empty string after trimming.
-  if (providedRepo !== undefined && REPO === "" && providedRepo.trim() === "") {
-    line(`Error: Repository argument provided is empty or whitespace.`);
+  if (providedRepo !== undefined && providedRepo.trim() === "") {
+    line(`Error: Repository argument provided is empty or whitespace. Please provide a valid owner/repo string.`);
     process.exitCode = 1;
     return;
   }
@@ -46,17 +47,21 @@ async function main() {
   line("[1/3] verifying reachability with stored token...");
   
   try {
-    // Fetch token first
-    const token = await resolveTargetToken();
+    // Fetch token and attempt initial branch fetch in parallel for latency reduction
+    const [token, branchWithoutToken] = await Promise.all([
+      resolveTargetToken(),
+      getRepoDefaultBranch(REPO, null),
+    ]);
+    
     line(`      token resolved: ${token ? `yes (len ${token.length})` : "no — anonymous"}`);
     
-    // Attempt branch fetch without token first (faster, less overhead)
-    let finalBranch = await getRepoDefaultBranch(REPO, null);
+    let finalBranch = branchWithoutToken;
     
     if (!finalBranch && token) {
       // If branch fetch failed without token, try again with token if available
       line("      retrying branch fetch with token...");
-      finalBranch = await getRepoDefaultBranch(REPO, token);
+      const branchWithToken = await getRepoDefaultBranch(REPO, token);
+      finalBranch = branchWithToken;
       line(`      default branch (with token): ${finalBranch ?? "(unreachable)"}`);
     }
 
@@ -127,7 +132,7 @@ async function main() {
     
     // Ensure config is cleared if it was successfully set before the error occurred in Step 3
     if (configSetSuccessfully) {
-        await clearTargetConfig();
+        await clearTargetConfig().catch(e => line(`Warning: Failed to clear target config after error: ${String(e)}`));
     }
     process.exitCode = 2;
   }

@@ -108,14 +108,18 @@ export function GeminiPanel({ open, onClose }: Props) {
   const poll = useCallback(async () => {
     try {
       const res = await fetch("/api/self-enhance/llm-config", { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error(`Failed to fetch LLM config: HTTP status ${res.status}`);
+      }
       const data = (await res.json()) as LlmConfigView;
       setCfg(data);
       if (!syncedModelRef.current && data.model && MODEL_OPTIONS.includes(data.model)) {
         syncedModelRef.current = true;
         setModel(data.model);
       }
-    } catch {
-      // Poll failure is non-fatal — keep the last snapshot on screen.
+    } catch (error) {
+      // Poll failure is non-fatal — keep the last snapshot on screen, but log the error for debugging.
+      console.error("Error during LLM config polling:", error);
     }
   }, []);
 
@@ -173,6 +177,13 @@ export function GeminiPanel({ open, onClose }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ geminiApiKey: trimmed, model }),
       });
+      
+      if (!res.ok) {
+        // Attempt to read error body for better context before parsing as JSON
+        const errorText = await res.text();
+        throw new Error(`API save failed with status ${res.status}: ${errorText.substring(0, 100)}`);
+      }
+
       const data = (await res.json()) as {
         ok?: boolean;
         error?: string;
@@ -180,8 +191,9 @@ export function GeminiPanel({ open, onClose }: Props) {
         locationBlocked?: boolean;
         model?: string;
       };
+      
       if (!data.ok) {
-        setMsg({ kind: "err", text: data.error ?? "Save failed" });
+        setMsg({ kind: "err", text: data.error ?? "Save failed due to unknown API response." });
         return;
       }
 
@@ -204,7 +216,7 @@ export function GeminiPanel({ open, onClose }: Props) {
       if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current);
       autoCloseTimer.current = setTimeout(() => onClose(), 2000);
     } catch (e) {
-      setMsg({ kind: "err", text: (e as Error).message });
+      setMsg({ kind: "err", text: (e instanceof Error ? e.message : "An unknown error occurred during save.") });
     } finally {
       setLoading(false);
     }
@@ -220,17 +232,23 @@ export function GeminiPanel({ open, onClose }: Props) {
     setMsg(null);
     try {
       const rb = await fetch("/api/self-enhance/reboot", { method: "POST" });
+      if (!rb.ok) {
+        // Only attempt to read text if the response was not OK
+        const errorText = await rb.text();
+        throw new Error(`HTTP error! Status: ${rb.status}. Response body snippet: ${errorText.substring(0, 100)}`);
+      }
       const rbData = (await rb.json()) as { rebooted?: boolean; message?: string; error?: string };
       setMsg({
         kind: rbData.rebooted ? "ok" : "err",
         text: rbData.rebooted
           ? `Loop rebooted — ${rbData.message ?? "running with the new provider chain."}`
-          : `Reboot failed: ${rbData.error ?? "unknown error"}`,
+          : `Reboot failed: ${rbData.error ?? "unknown error from API response"}`,
       });
       // SMELL-12 fix: refresh the panel's status after a successful reboot.
-      if (rbData.rebooted) void poll();
+      if (rbData.rebooted === true) void poll();
     } catch (e) {
-      setMsg({ kind: "err", text: `Reboot request failed: ${(e as Error).message}` });
+      // Provide more actionable context on the failure
+      setMsg({ kind: "err", text: `Failed to initiate reboot request to /api/self-enhance/reboot. Check network or API availability. Details: ${(e as Error).message}` });
     } finally {
       setRebooting(false);
     }
