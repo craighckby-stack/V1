@@ -203,13 +203,14 @@ export function SelfModelPanel({ open, onClose }: Props) {
         body: JSON.stringify({ force: true }),
       });
       if (!res.ok) {
-        setError(`HTTP ${res.status}`);
+        const errorBody = await res.text();
+        setError(`Failed to rebootstrap self-model. HTTP ${res.status}. Details: ${errorBody.substring(0, 100)}`);
         return;
       }
       const data = (await res.json()) as SelfModelStatus;
       setStatus(data);
     } catch (e) {
-      setError((e as Error).message);
+      setError(`Network or parsing error during self-model rebootstrap: ${(e as Error).message}`);
     } finally {
       setLoading(false);
     }
