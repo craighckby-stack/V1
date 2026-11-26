@@ -246,18 +246,28 @@ export function NvidiaPanel({ open, onClose }: Props) {
     setMsg(null);
     try {
       const rb = await fetch("/api/self-enhance/reboot", { method: "POST" });
+      
+      if (!rb.ok) {
+        const errorText = await rb.text().catch(() => `HTTP error ${rb.status}`);
+        setMsg({ kind: "err", text: `Reboot request failed with status ${rb.status}: ${errorText}` });
+        return;
+      }
+
       const rbData = (await rb.json()) as { rebooted?: boolean; message?: string; error?: string };
+      
       setMsg({
         kind: rbData.rebooted ? "ok" : "err",
         text: rbData.rebooted
           ? `Loop rebooted — ${rbData.message ?? "running with the new NVIDIA provider chain."}`
           : `Reboot failed: ${rbData.error ?? "unknown error"}`,
       });
+      
       // SMELL-12 fix: refresh the panel's status after a successful reboot
       // so the operator sees the post-reboot state immediately (not 5s later).
       if (rbData.rebooted) void poll();
     } catch (e) {
-      setMsg({ kind: "err", text: `Reboot request failed: ${(e as Error).message}` });
+      // Catch network errors or JSON parsing errors
+      setMsg({ kind: "err", text: `Reboot request failed due to network or parsing error: ${(e as Error).message}` });
     } finally {
       setRebooting(false);
     }
