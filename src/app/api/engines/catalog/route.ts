@@ -39,58 +39,56 @@ export async function GET() {
     return NextResponse.json({ sources: [] });
   }
 
-  // Use reduce for a single pass to build both valid and invalid lists efficiently
-  const { validSources, invalidSources } = SIPHON_SOURCES.reduce(
-    (acc, source, i) => {
-      if (!source) {
-        acc.invalidSources.push({
-          index: i,
-          reason: "Source element is null or undefined.",
-        });
-        return acc;
-      }
+  const validSources: CatalogEntry[] = [];
+  const invalidSources: InvalidSource[] = [];
 
-      // Check for required structure properties directly on the source object
-      const patterns = source.patterns;
-
-      if (!patterns || !Array.isArray(patterns)) {
-        acc.invalidSources.push({
-          index: i,
-          reason: "Source is missing 'patterns' array or 'patterns' is not an array.",
-        });
-        return acc;
-      }
-
-      if (patterns.length === 0) {
-        acc.invalidSources.push({
-          index: i,
-          reason: "Source patterns array is empty.",
-        });
-        return acc;
-      }
-
-      // Check all patterns for validity
-      const hasInvalidPattern = patterns.some(p => typeof p !== 'string');
-      if (hasInvalidPattern) {
-        acc.invalidSources.push({
-          index: i,
-          reason: "One or more patterns in the source array are not strings.",
-        });
-        return acc;
-      }
-
-      // Source is valid, construct CatalogEntry
-      acc.validSources.push({
-        source: source as SiphonSource,
-        count: patterns.length,
-        complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
-        status: "configured",
+  SIPHON_SOURCES.forEach((source, i) => {
+    if (!source) {
+      invalidSources.push({
+        index: i,
+        reason: "Source element is null or undefined.",
       });
-      
-      return acc;
-    },
-    { validSources: [] as CatalogEntry[], invalidSources: [] as InvalidSource[] }
-  );
+      return;
+    }
+
+    // Check for required structure properties directly on the source object
+    const patterns = source.patterns;
+
+    if (!patterns || !Array.isArray(patterns)) {
+      invalidSources.push({
+        index: i,
+        reason: "Source is missing 'patterns' array or 'patterns' is not an array.",
+      });
+      return;
+    }
+
+    if (patterns.length === 0) {
+      invalidSources.push({
+        index: i,
+        reason: "Source patterns array is empty.",
+      });
+      return;
+    }
+
+    // Check all patterns for validity
+    const hasInvalidPattern = patterns.some(p => typeof p !== 'string');
+    if (hasInvalidPattern) {
+      invalidSources.push({
+        index: i,
+        reason: "One or more patterns in the source array are not strings.",
+      });
+      return;
+    }
+
+    // Source is valid, construct CatalogEntry
+    // Since we validated the structure, we can safely cast/assume SiphonSource structure here
+    validSources.push({
+      source: source as SiphonSource,
+      count: patterns.length,
+      complianceStandard: "AST Diff Gate + Shannon Entropy Sanitizer",
+      status: "configured",
+    });
+  });
 
   if (invalidSources.length > 0) {
     return NextResponse.json(
