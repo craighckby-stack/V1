@@ -83,11 +83,14 @@ export function BranchesPanel({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     (async () => {
-      setLoading(true);
-      setError(null);
       try {
         const res = await fetch("/api/branches?details=1", { cache: "no-store" });
+        if (!res.ok) {
+          throw new Error(`Failed to fetch branches: HTTP status ${res.status}`);
+        }
         const json = (await res.json()) as BranchesData;
         if (!cancelled) {
           setData(json);

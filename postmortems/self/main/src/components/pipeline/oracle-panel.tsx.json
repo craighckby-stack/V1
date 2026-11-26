@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/oracle-panel.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: Verifier produced no output",
@@ -12,8 +12,8 @@
   "parentHash": "34c27013827702cd5a1538f65599f3f5c4dba071d003ac1d767dba2ed1c6c1d5",
   "hash": "0b3d5f55ee60a1b67f3ca9246d4ce93b9f0057a282539ec098b5373992f4ec6a",
   "lastAttemptAt": "2026-11-26T03:39:57.282Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T04:29:31.905Z",
   "createdAt": "2026-11-26T03:39:57.308Z",
-  "updatedAt": "2026-11-26T03:39:57.308Z",
+  "updatedAt": "2026-11-26T04:29:31.905Z",
   "schema": 2
 }
