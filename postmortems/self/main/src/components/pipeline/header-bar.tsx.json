@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/components/pipeline/header-bar.tsx",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/components/pipeline/header-bar.tsx(123,74): error TS2339: Property 'totalRuns' does not exist on type '{}'.",
@@ -12,8 +12,8 @@
   "parentHash": "cf4d06556918f2403516a0df1f232bcffd63f055986e69aa4a094a2f9cd96831",
   "hash": "5195df60d82c1b30f30a1fffd03234c1be41efd8418cd3dd4085cb622ec93d0a",
   "lastAttemptAt": "2026-11-20T07:14:12.892Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T08:45:57.844Z",
   "createdAt": "2026-11-20T06:42:11.874Z",
-  "updatedAt": "2026-11-20T07:14:12.892Z",
+  "updatedAt": "2026-11-26T08:45:57.844Z",
   "schema": 2
 }

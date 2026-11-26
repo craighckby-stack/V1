@@ -198,107 +198,57 @@ export function scanEngineAst(fullCode: string, filePath: string): {
 
   if (language === 'Python') {
     const pyClassRx = /^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)/gm;
-    let m: RegExpExecArray | null;
-    try {
-      while ((m = pyClassRx.exec(fullCode)) !== null) classes.push(m[1]);
-    } catch {
-      // Ignore regex errors on malformed input
-    }
+    const pyClassMatches = Array.from(fullCode.matchAll(pyClassRx)).map(m => m[1]);
+    classes.push(...pyClassMatches);
 
     const pyFnRx = /^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm;
-    let mFn: RegExpExecArray | null;
-    try {
-      while ((mFn = pyFnRx.exec(fullCode)) !== null) functions.push(mFn[1]);
-    } catch {
-      // Ignore regex errors on malformed input
-    }
+    const pyFnMatches = Array.from(fullCode.matchAll(pyFnRx)).map(m => m[1]);
+    functions.push(...pyFnMatches);
 
     const pyImpRx = /^\s*(?:from\s+([A-Za-z0-9_.]+)\s+import|import\s+([A-Za-z0-9_.]+))/gm;
-    let mImp: RegExpExecArray | null;
-    try {
-      while ((mImp = pyImpRx.exec(fullCode)) !== null) imports.push(mImp[1] || mImp[2]);
-    } catch {
-      // Ignore regex errors on malformed input
-    }
+    const pyImpMatches = Array.from(fullCode.matchAll(pyImpRx)).map(m => m[1] || m[2]).filter(Boolean);
+    imports.push(...pyImpMatches);
   } else if (language === 'Go') {
     const goTypeRx = /^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:struct|interface)\b/gm;
-    let m: RegExpExecArray | null;
-    try {
-      while ((m = goTypeRx.exec(fullCode)) !== null) classes.push(m[1]);
-    } catch {
-      // Ignore regex errors on malformed input
-    }
+    const goTypeMatches = Array.from(fullCode.matchAll(goTypeRx)).map(m => m[1]);
+    classes.push(...goTypeMatches);
 
     const goFnRx = /^\s*func\s+(?:\([^)]+\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm;
-    let mFn: RegExpExecArray | null;
-    try {
-      while ((mFn = goFnRx.exec(fullCode)) !== null) functions.push(mFn[1]);
-    } catch {
-      // Ignore regex errors on malformed input
-    }
+    const goFnMatches = Array.from(fullCode.matchAll(goFnRx)).map(m => m[1]);
+    functions.push(...goFnMatches);
 
     const goImpRx = /"([A-Za-z0-9_.\-/]+)"/g;
-    const impBlockMatch = fullCode.match(/import\s*(?:\([\s\S]*?\)|"[^"]+")/g);
-    if (impBlockMatch) {
-      for (const blk of impBlockMatch) {
-        let mImp: RegExpExecArray | null;
-        try {
-          while ((mImp = goImpRx.exec(blk)) !== null) imports.push(mImp[1]);
-        } catch {
-          // Ignore regex errors on malformed input
-        }
-      }
+    const impBlockMatches = fullCode.matchAll(/import\s*(?:\([\s\S]*?\)|"[^"]+")/g);
+    for (const blk of impBlockMatches) {
+      const goImpMatches = Array.from(blk[0].matchAll(goImpRx)).map(m => m[1]);
+      imports.push(...goImpMatches);
     }
   } else if (language === 'Rust') {
     const rsTypeRx = /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|trait)\s+([A-Za-z_][A-Za-z0-9_]*)/gm;
-    let m: RegExpExecArray | null;
-    try {
-      while ((m = rsTypeRx.exec(fullCode)) !== null) classes.push(m[1]);
-    } catch {
-      // Ignore regex errors on malformed input
-    }
+    const rsTypeMatches = Array.from(fullCode.matchAll(rsTypeRx)).map(m => m[1]);
+    classes.push(...rsTypeMatches);
 
     const rsFnRx = /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)/gm;
-    let mFn: RegExpExecArray | null;
-    try {
-      while ((mFn = rsFnRx.exec(fullCode)) !== null) functions.push(mFn[1]);
-    } catch {
-      // Ignore regex errors on malformed input
-    }
+    const rsFnMatches = Array.from(fullCode.matchAll(rsFnRx)).map(m => m[1]);
+    functions.push(...rsFnMatches);
 
     const rsUseRx = /^\s*(?:pub\s+)?use\s+([A-Za-z0-9_:]+)/gm;
-    let mImp: RegExpExecArray | null;
-    try {
-      while ((mImp = rsUseRx.exec(fullCode)) !== null) imports.push(mImp[1]);
-    } catch {
-      // Ignore regex errors on malformed input
-    }
+    const rsUseMatches = Array.from(fullCode.matchAll(rsUseRx)).map(m => m[1]);
+    imports.push(...rsUseMatches);
   } else {
     // TypeScript / JavaScript
     const tsClassRx = /\b(?:class|interface)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g;
-    let m: RegExpExecArray | null;
-    try {
-      while ((m = tsClassRx.exec(fullCode)) !== null) classes.push(m[1]);
-    } catch {
-      // Ignore regex errors on malformed input
-    }
+    const tsClassMatches = Array.from(fullCode.matchAll(tsClassRx)).map(m => m[1]);
+    classes.push(...tsClassMatches);
 
     const tsFnRx =
       /(?:^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*[<(]|^\s*(?:export\s+)?const\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>)/gm;
-    let mFn: RegExpExecArray | null;
-    try {
-      while ((mFn = tsFnRx.exec(fullCode)) !== null) functions.push(mFn[1] || mFn[2]);
-    } catch {
-      // Ignore regex errors on malformed input
-    }
+    const tsFnMatches = Array.from(fullCode.matchAll(tsFnRx)).map(m => m[1] || m[2]);
+    functions.push(...tsFnMatches.filter(Boolean));
 
     const tsImpRx = /^\s*import\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"]/gm;
-    let mImp: RegExpExecArray | null;
-    try {
-      while ((mImp = tsImpRx.exec(fullCode)) !== null) imports.push(mImp[1]);
-    } catch {
-      // Ignore regex errors on malformed input
-    }
+    const tsImpMatches = Array.from(fullCode.matchAll(tsImpRx)).map(m => m[1]);
+    imports.push(...tsImpMatches);
   }
 
   return {
