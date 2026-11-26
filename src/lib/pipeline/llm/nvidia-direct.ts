@@ -155,12 +155,13 @@ export async function getNvidiaConfigPublic(): Promise<{
   lastUsedAt?: string | null;
   lastError?: string | null;
 }> {
+  if (!SINGLETON_ID) return { configured: false };
   const row = await db.llmConfig.findUnique({ where: { id: SINGLETON_ID } });
   if (!row || !row.nvidiaApiKey) return { configured: false };
   return {
     configured: true,
     model: row.nvidiaModel,
-    lastUsedAt: row.nvidiaLastUsedAt?.toISOString() ?? null,
+    lastUsedAt: row.nvidiaLastUsedAt ? row.nvidiaLastUsedAt.toISOString() : null,
     lastError: row.nvidiaLastError,
   };
 }
