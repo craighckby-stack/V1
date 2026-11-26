@@ -96,7 +96,7 @@ interface ExecResult {
   commitSha: string | undefined;
   filesChanged: number;
   typecheckPassed: boolean;
-  pushed: boolean | undefined;
+  pushed: string | undefined;
   error: string | undefined;
   errorDetails: { code: string; message: string } | undefined;
   skippedProtected: string[] | undefined;
