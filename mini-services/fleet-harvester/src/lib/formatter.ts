@@ -111,6 +111,9 @@ function formatJsonEnginesLog(
   commits: ClassifiedCommit[],
   generatedAt: string
 ): string {
+  if (!Array.isArray(engines)) {
+    throw new Error('Invalid input: engines must be an array of SiphonedEngine.');
+  }
   const loopSummary = synthesizeLoopSummary(commits, engines);
   return JSON.stringify(
     {
@@ -139,9 +142,7 @@ function formatJsonEnginesLog(
         harvestedAt: e.harvestedAt,
         fullCode: e.fullCode,
       })),
-    },
-    null,
-    2
+    }
   );
 }
 
