@@ -11,10 +11,12 @@ async function main() {
       console.warn("LLM configuration record with id 'singleton' not found in the database.");
     }
   } catch (e) {
-    const error = e instanceof Error ? e : new Error("An unknown error occurred during LLM configuration check.");
+    let errorMessage = "An unknown error occurred during LLM configuration check.";
+    if (e instanceof Error) {
+      errorMessage = e.message;
+    }
     // Improved error context for database operation failure
-    console.error("CRITICAL: Error during LLM configuration check (DB access failed). Ensure database connection is active and schema is correct.", error.message);
-    // Removed process.exit(1) to allow for more graceful pipeline failure handling
+    console.error("CRITICAL: Error during LLM configuration check (DB access failed). Ensure database connection is active and schema is correct.", errorMessage);
   }
 }
 main();
