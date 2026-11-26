@@ -102,19 +102,20 @@ export function scoreEngineFilePath(filePath: string, size?: number): number {
  * Selects the top-scored runtime engine paths from a repository Git tree in a single pass.
  */
 export function selectEngineTreePaths(treeNodes: GitTreeNode[], maxPerRepo = 12): GitTreeNode[] {
+  if (!Array.isArray(treeNodes)) {
+    throw new Error('Input treeNodes must be an array of GitTreeNode');
+  }
   if (maxPerRepo < 0) {
     throw new Error('maxPerRepo must be a non-negative number');
   }
 
-  const scored: Array<{ node: GitTreeNode; score: number }> = [];
-
-  for (const node of treeNodes) {
-    if (node.type !== 'blob' || !node.path) continue;
-    const score = scoreEngineFilePath(node.path, node.size);
-    if (score >= 40) {
-      scored.push({ node, score });
-    }
-  }
+  const scored = treeNodes
+    .filter(node => node.type === 'blob' && node.path)
+    .map(node => ({
+      node,
+      score: scoreEngineFilePath(node.path, node.size),
+    }))
+    .filter(item => item.score >= 40);
 
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
