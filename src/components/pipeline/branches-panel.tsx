@@ -168,22 +168,22 @@ export function BranchesPanel({ open, onClose }: Props) {
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
             <button
               type="button"
-              onClick={() => {
+              onClick={async () => {
                 if (loading) return; // Prevent concurrent fetches
                 setLoading(true);
-                fetch("/api/branches?details=1", { cache: "no-store" })
-                  .then((r) => {
-                    if (!r.ok) {
-                      throw new Error(`API fetch failed with status ${r.status}: ${r.statusText}`);
-                    }
-                    return r.json();
-                  })
-                  .then((j: BranchesData) => {
-                    setData(j);
-                    setLastFetchAt(Date.now());
-                  })
-                  .catch((e) => setError((e as Error).message))
-                  .finally(() => setLoading(false));
+                try {
+                  const r = await fetch("/api/branches?details=1", { cache: "no-store" });
+                  if (!r.ok) {
+                    throw new Error(`API fetch failed with status ${r.status}: ${r.statusText}`);
+                  }
+                  const j: BranchesData = await r.json();
+                  setData(j);
+                  setLastFetchAt(Date.now());
+                } catch (e) {
+                  setError((e as Error).message || "An unknown error occurred during branch fetching.");
+                } finally {
+                  setLoading(false);
+                }
               }}
               style={btnStyle}
               aria-label="Refresh the branch list"
@@ -344,7 +344,7 @@ export function BranchesPanel({ open, onClose }: Props) {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </div >
             )}
 
             {otherBranches.length > 0 && (
@@ -357,7 +357,7 @@ export function BranchesPanel({ open, onClose }: Props) {
                   }}
                 >
                   other branches (not created by the loop):
-                </div>
+                </div >
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                   {otherBranches.map((b) => (
                     <span
@@ -373,8 +373,8 @@ export function BranchesPanel({ open, onClose }: Props) {
                       <span style={{ color: DIM_COLOR }}>{b.sha}</span>
                     </span>
                   ))}
-                </div>
-              </div>
+                </div >
+              </div >
             )}
 
             {lastFetchAt && (
@@ -386,11 +386,11 @@ export function BranchesPanel({ open, onClose }: Props) {
                 }}
               >
                 last fetched {new Date(lastFetchAt).toISOString().slice(11, 19)}Z
-              </div>
+              </div >
             )}
           </>
         )}
-      </div>
-    </div>
+      </div >
+    </div >
   );
 }
