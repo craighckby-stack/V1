@@ -181,7 +181,7 @@ export async function runTargetMutation(opts?: {
   // 4. Base ref
   const baseRef = cfg.branch || (await getRepoDefaultBranch(repo, token));
   if (!baseRef) {
-    await recordTargetRun({ at: new Date().toISOString(), repo, status: "failed", reason: "repo not reachable or not found" });
+    await recordTargetRun({ at: new Date().toISOString(), repo, status: "failed", reason: `repo ${repo} not reachable or not found` });
     return {
       ok: false,
       status: "failed",
