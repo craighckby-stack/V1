@@ -290,19 +290,31 @@ export function OraclePanel({ open, onClose }: Props) {
         return;
       }
       
-      const res = await fetch(
+      const archaeologyPromise = fetch(
         `/api/oracle/archaeology?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&maxCommits=100`,
         { method: "POST" }
-      );
-      
+      ).then(res => {
+        if (res.ok) {
+          return res.json();
+        } else {
+          // Attempt to read error from body if available, otherwise use status
+          return res.json().catch(() => ({ error: `HTTP Error ${res.status}` }));
+        }
+      });
+
+      const res = await archaeologyPromise;
       let data: { pairs?: { correct: boolean }[], seeded?: number, error?: string } | null = null;
-      if (res.ok) {
-        data = await res.json();
+      
+      if (res && typeof res === 'object' && 'error' in res && res.error) {
+          setError(res.error);
+          return;
+      }
+      
+      if (res) {
+          data = res as { pairs?: { correct: boolean }[], seeded?: number, error?: string };
       } else {
-        // Attempt to read error from body if available, otherwise use status
-        const errorBody = await res.json().catch(() => ({ error: `HTTP Error ${res.status}` }));
-        setError(errorBody.error ?? `Archaeology failed with status ${res.status}`);
-        return;
+          setError("Archaeology response was null or invalid.");
+          return;
       }
 
       if (data) {
@@ -310,7 +322,12 @@ export function OraclePanel({ open, onClose }: Props) {
           `Archaeology: mined ${data.pairs?.length ?? 0} wrong/correct pair(s) from ${repo}:${branch}, seeded ${data.seeded ?? 0} archaeology prophecies.`,
         );
         // Refresh prophecies + chain to show the new ones in parallel
-        const [pRes2] = await Promise.all([fetch("/api/oracle/prophecies?limit=30")]);
+        const [pRes2] = await Promise.all([
+            fetch("/api/oracle/prophecies?limit=30"),
+            // Assuming chain refresh is also needed, though not explicitly shown in original logic, 
+            // we only fix what's present: prophecy refresh.
+        ]);
+        
         if (pRes2.ok) {
           const p = (await pRes2.json()) as { prophecies: Prophecy[] };
           setProphecies(p.prophecies ?? []);
