@@ -1,0 +1,19 @@
+{
+  "targetRepo": "self",
+  "branch": "main",
+  "filePath": "src/components/pipeline/loop-control-panel.tsx",
+  "status": "active",
+  "verificationStatus": "verified",
+  "failureType": "COMPILE_ERROR",
+  "symptom": "Refactored code failed in-memory typecheck: /home/z/my-project/src/components/pipeline/loop-control-panel.tsx:180:16 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
+  "evidence": "Original: 18947 bytes, Refactored: 19450 bytes. Errors: /home/z/my-project/src/components/pipeline/loop-control-panel.tsx:180:16 'e' is defined but never used. (@typescript-eslint/no-unused-vars)",
+  "constraints": "The previous refactor of src/components/pipeline/loop-control-panel.tsx did not compile. Make smaller, safer changes. Preserve all type signatures exactly.",
+  "attempts": 1,
+  "parentHash": "0b3d5f55ee60a1b67f3ca9246d4ce93b9f0057a282539ec098b5373992f4ec6a",
+  "hash": "7b936fa7016edc6143e263c118784c1fcf3288d7248a57382b82c2803ff94ce3",
+  "lastAttemptAt": "2026-11-26T03:44:55.827Z",
+  "resolvedAt": null,
+  "createdAt": "2026-11-26T03:44:55.827Z",
+  "updatedAt": "2026-11-26T03:44:55.827Z",
+  "schema": 2
+}
