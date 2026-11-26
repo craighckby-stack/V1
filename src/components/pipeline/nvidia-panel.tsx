@@ -151,7 +151,7 @@ export function NvidiaPanel({ open, onClose }: Props) {
     // The useState initializer is 0 to avoid the hydration mismatch
     // described above; this is where the real time enters the state.
     setNowTick(Date.now());
-    void poll();
+    (void poll(), Promise.resolve()); // Run poll and ensure initial state update is not blocked
     const pollIv = setInterval(() => void poll(), 5000);
     const tickIv = setInterval(() => setNowTick(Date.now()), 1000);
     return () => {
