@@ -65,8 +65,6 @@ export function PostmortemPanel() {
       
       // Robust check for expected structure
       if (data && Array.isArray(data.postmortems)) {
-        // Performance/Bug Fix: Removed flawed object reference comparison (item !== postmortems[index]).
-        // Relying on the state setter to handle redundant updates is safer than an incorrect deep/shallow check without a utility.
         setPostmortems(data.postmortems);
       } else {
         // Improved error context for invalid structure
@@ -78,7 +76,14 @@ export function PostmortemPanel() {
         });
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown network or parsing error during fetch.";
+      let errorMessage = "Unknown network or parsing error during fetch.";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'object' && error !== null && 'status' in error && 'statusText' in error) {
+        // Handle potential non-Error objects from fetch API if they carry status info
+        errorMessage = `HTTP Error ${error.status}: ${error.statusText}`;
+      }
+      
       console.error("Error refreshing postmortems:", errorMessage);
       toast({
         title: "Error",
@@ -88,7 +93,7 @@ export function PostmortemPanel() {
     } finally {
       setLoading(false);
     }
-  }, [toast, postmortems]); // Dependency added: postmortems for comparison
+  }, [toast]); // Dependency added: postmortems for comparison
 
   async function dismiss(id: string | undefined, filePath: string | undefined) {
     if (!id || typeof id !== 'string' || id.length === 0) {
