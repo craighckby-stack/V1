@@ -50,11 +50,13 @@ export async function POST(req: Request) {
         );
     }
     
-    let errorMessage = "Unknown input error during request parsing.";
+    let errorMessage: string;
     if (e instanceof Error) {
         errorMessage = e.message;
     } else if (typeof e === 'string') {
         errorMessage = e;
+    } else {
+        errorMessage = "Unknown input error during request parsing.";
     }
     
     return NextResponse.json(

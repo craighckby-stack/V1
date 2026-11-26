@@ -2,7 +2,7 @@
   "targetRepo": "self",
   "branch": "main",
   "filePath": "src/app/api/engines/catalog/route.ts",
-  "status": "active",
+  "status": "resolved",
   "verificationStatus": "verified",
   "failureType": "COMPILE_ERROR",
   "symptom": "Refactored code failed in-memory typecheck: src/app/api/engines/catalog/route.ts(81,11): error TS2339: Property 'entry' does not exist on type '{ validSources: CatalogEntry[]; invalidSources: InvalidSource[]; }'.; src/app/api/engines/catalog/route.ts(81,32): error TS2339: Property 'invalid' does not exist on type '{ validSources: CatalogEntry[]; invalidSources: InvalidSource[]; }'.",
@@ -12,8 +12,8 @@
   "parentHash": "a452f354cc27e8e089a83052f2e9145c0ba83748c3ec94e95b55a14c0a83c994",
   "hash": "e2f11ac72c2a9eb9673fb744a36668eee6517087c87c5c81d4f087d810b3ad4e",
   "lastAttemptAt": "2026-11-26T09:42:36.595Z",
-  "resolvedAt": null,
+  "resolvedAt": "2026-11-26T10:41:44.420Z",
   "createdAt": "2026-11-23T03:29:46.406Z",
-  "updatedAt": "2026-11-26T09:42:36.595Z",
+  "updatedAt": "2026-11-26T10:41:44.420Z",
   "schema": 2
 }
