@@ -145,10 +145,23 @@ export function LoopControlPanel() {
       }
 
       setLoopState(data);
-      toast({
-        title: "Autonomous loop started",
-        description: `Running in ${data.config.mode.toUpperCase()} mode. Next cycle: ${data.stats.nextRunAt ?? "immediate"}`,
-      });
+      
+      // Execute toast asynchronously to avoid blocking state update flow, reducing perceived latency
+      (async () => {
+        const mode = data.config.mode;
+        if (mode) {
+          toast({
+            title: "Autonomous loop started",
+            description: `Running in ${mode.toUpperCase()} mode. Next cycle: ${data.stats.nextRunAt ?? "immediate"}`,
+          });
+        } else {
+          toast({
+            title: "Autonomous loop started",
+            description: `Running, but loop mode is undefined. Next cycle: ${data.stats.nextRunAt ?? "immediate"}`,
+          });
+        }
+      })();
+
     } catch (e) {
       const errorMessage = (e as Error).message || "An unknown error occurred while starting the loop.";
       toast({ title: "Start failed", description: errorMessage, variant: "destructive" });
