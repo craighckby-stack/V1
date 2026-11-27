@@ -75,6 +75,9 @@ const PROVENANCE_COMMIT_ISO = "2026-11-21T03:42:12Z";
  *  potentially-fluke delta. */
 const MIN_N_FOR_DELTA = 20;
 
+/** Maximum number of rows to fetch from mutation corpus for analysis. */
+const CORPUS_FETCH_LIMIT = 5000;
+
 /** A single arm of an A/B comparison. */
 interface BenchmarkArm {
   /** How many attempts in this arm. */
@@ -168,7 +171,7 @@ export async function buildBenchmarkReport(): Promise<BenchmarkReport | null> {
     // ── 1. READ THE MUTATION CORPUS ──────────────────────────────
     const rows = await db.mutationCorpus.findMany({
       orderBy: { createdAt: "desc" },
-      take: 5000,
+      take: CORPUS_FETCH_LIMIT,
       select: { gateOutcome: true, lessonIdsInjected: true, createdAt: true, filePath: true, cycleNumber: true },
     });
 
