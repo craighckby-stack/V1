@@ -91,6 +91,7 @@ const MANIFEST_PATH = join(PROJECT_ROOT, ".git/info/loop-autofork-manifest.json"
 /** Max files to ingest per repo per scan (budget cap — the LLM call
  *  is the cost). 3 keeps one scan under ~15s even on a slow LLM. */
 const MAX_FILES_PER_REPO = 3;
+const TREE_FETCH_CAP = 2000;
 
 interface SeedEntry {
   repo: string;
@@ -249,7 +250,7 @@ export async function ingestAutoFork(
   // actual source files. The gauntlet's default 400-cap + no-skip is
   // for refactoring (TS/JS-only, smaller scope); auto-fork's 2000 +
   // skip is for learning (any language, broader scope).
-  const treeRes = await listTargetTree(seed.repo, branch, token, 2000, true);
+  const treeRes = await listTargetTree(seed.repo, branch, token, TREE_FETCH_CAP, true);
   if (!treeRes.ok) {
     result.errors.push(`${seed.repo}: tree fetch failed — ${treeRes.error}`);
     return result;
