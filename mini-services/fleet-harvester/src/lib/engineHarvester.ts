@@ -333,6 +333,10 @@ export function buildUnredactedEngineRecord(params: {
   }
   
   const ast = scanEngineAst(params.fullCode, params.filePath);
+  if (!ast) {
+    throw new Error(`Failed to scan AST for file ${params.filePath} in repo ${params.repo}. AST object is null or undefined.`);
+  }
+  
   const relatedCommitShas = linkCommitsToEngine(
     params.filePath,
     ast.classNames,
