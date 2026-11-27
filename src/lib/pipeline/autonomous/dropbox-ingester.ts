@@ -83,6 +83,9 @@ const MAX_INGEST_PER_SCAN = 3;
 /** Max chars of extracted text to send to the LLM per file. */
 const MAX_TEXT_CHARS = 8000;
 
+/** Max content length for a seeded lesson. */
+const MAX_LESSON_CONTENT_LENGTH = 500;
+
 /** Text extensions we can read as UTF-8. */
 const TEXT_EXTENSIONS = new Set([
   ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
@@ -277,7 +280,7 @@ export async function seedCandidateLesson(
   try {
     const row = await db.lesson.create({
       data: {
-        content: content.slice(0, 500),
+        content: content.slice(0, MAX_LESSON_CONTENT_LENGTH),
         sourceType: source,
         source,
         system: systemTag,
