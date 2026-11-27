@@ -20,6 +20,7 @@
 
 const GH_API = "https://api.github.com";
 const USER_AGENT = "LOOP-target-mode";
+const MAX_ERROR_MESSAGE_LENGTH = 200;
 
 function ghHeaders(token: string | null, accept = "application/vnd.github.v3+json"): Record<string, string> {
   const h: Record<string, string> = {
@@ -40,7 +41,7 @@ function ghError(status: number, body: unknown, fallback: string): string {
   }
   // Ensure msg is treated as string before slicing, though fallback should guarantee it.
   const safeMsg = String(msg);
-  return `GitHub API ${status}: ${safeMsg.slice(0, 200)}`;
+  return `GitHub API ${status}: ${safeMsg.slice(0, MAX_ERROR_MESSAGE_LENGTH)}`;
 }
 
 export interface TargetTreeFile {
