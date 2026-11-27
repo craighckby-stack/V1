@@ -1,5 +1,4 @@
-/**
- * Net Status — process-wide network/outage tracker (10-day endurance test).
+/** Net Status — process-wide network/outage tracker (10-day endurance test).
  *
  * WHY THIS EXISTS (operator, 2026-11-24): the endurance test requires the
  * loop to survive ONLINE and OFFLINE for 10 days unattended. Before this
@@ -130,7 +129,8 @@ function state(): NetState {
 export function noteNetworkFailure(source: string, err: string | null | undefined): { wentOffline: boolean } {
   const s = state();
   s.consecutiveFailures++;
-  const errorText = (err ?? "").replace(/\s+/g, " ").substring(0, 200) || "network error";
+  const MAX_ERROR_LENGTH = 200;
+  const errorText = (err ?? "").replace(/\s+/g, " ").substring(0, MAX_ERROR_LENGTH) || "network error";
   s.lastError = errorText;
   s.lastSource = source;
   if (!s.offline && s.consecutiveFailures >= OFFLINE_THRESHOLD) {
