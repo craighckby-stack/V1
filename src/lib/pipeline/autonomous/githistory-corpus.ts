@@ -105,7 +105,36 @@ interface CorpusCache {
 }
 
 let cache: CorpusCache | null = null;
-let cacheAttempted = false;
+
+/** mtimes (ms) of the three corpus files when `cache` was built; null
+ *  when the cache was built with the files absent. A fresh harvest is
+ *  promoted into memory/ by atomic rename (harvest/atomic-write.ts),
+ *  which changes the mtimes — any difference (including absent →
+ *  present) drops the cache so the next read reloads. */
+interface CorpusMtimes {
+  engines: number;
+  failed: number;
+  successful: number;
+}
+
+let cacheMtimes: CorpusMtimes | null = null;
+
+function corpusMtimesNow(): CorpusMtimes | null {
+  try {
+    return {
+      engines: statSync(ENGINES_FILE).mtimeMs,
+      failed: statSync(FAILED_FILE).mtimeMs,
+      successful: statSync(SUCCESSFUL_FILE).mtimeMs,
+    };
+  } catch {
+    return null; // unreadable — treat as unchanged, keep whatever exists
+  }
+}
+
+function sameMtimes(a: CorpusMtimes | null, b: CorpusMtimes | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.engines === b.engines && a.failed === b.failed && a.successful === b.successful;
+}
 
 const STOP_WORDS: ReadonlySet<string> = new Set([
   "the", "and", "for", "with", "from", "that", "this", "src", "lib", "app",
@@ -199,15 +228,18 @@ function parseCommits(path: string): GitHistoryCommit[] {
   return out;
 }
 
-/** Lazy one-shot load. cacheAttempted prevents re-reading on every
- *  prompt build (the files are ~7 MB total); the corpus is a static
- *  archive, so a process-lifetime cache is the right granularity. A
- *  refreshed archive arrives with the next process restart (or a dev
- *  server reload), same as every other boot-time constant. */
+/** Live load. The cache is checked against the corpus files' mtimes on
+ *  every call (three statSync calls — cheap next to the ~7 MB parse), so
+ *  a fresh harvest promoted into memory/ is picked up by the NEXT
+ *  prompt build, distillation, or policy read — no process restart
+ *  required. (Operator, 2026-11-27: the old process-lifetime cache let
+ *  the corpus sit frozen for days after the Nov 21 harvest refresh; the
+ *  files are now LIVE inputs, not boot-time constants.) Files still
+ *  absent after a load stay absent-cheap: stat throws → null == null →
+ *  the empty cache is returned without a re-read, preserving the old
+ *  one-shot semantics for the missing case. */
 function loadCorpus(): CorpusCache {
-  if (cache) return cache;
-  if (cacheAttempted) return cache ?? { engines: [], failed: [], successful: [], generatedAt: null };
-  cacheAttempted = true;
+  if (cache && sameMtimes(cacheMtimes, corpusMtimesNow())) return cache;
   const { engines, generatedAt } = parseEngines();
   cache = {
     engines,
@@ -215,19 +247,20 @@ function loadCorpus(): CorpusCache {
     successful: parseCommits(SUCCESSFUL_FILE),
     generatedAt,
   };
+  cacheMtimes = corpusMtimesNow();
   return cache;
 }
 
 /** Test hook: drop the cache so a rewritten corpus file is re-read. */
 export function __resetCorpusCacheForTests(): void {
   cache = null;
-  cacheAttempted = false;
+  cacheMtimes = null;
 }
 
 /** The commit-level view of the archive, for the mutation policy's WILD
  *  tier (mutation-policy.ts trains on harvested success/failure evidence
- *  from the fleet). Read-only, backed by the same process-lifetime cache
- *  as searchEngines — no extra file reads. The returned objects are the
+ *  from the fleet). Read-only, backed by the same mtime-checked live
+ *  cache as searchEngines — no extra file reads. The returned objects are the
  *  internal cache rows (callers must treat them as immutable). */
 export interface WildCommit {
   sha: string;

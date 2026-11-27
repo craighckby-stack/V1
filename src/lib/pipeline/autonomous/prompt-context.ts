@@ -144,6 +144,7 @@ export async function buildEnhanceContext(
   let ancestralBlock = "";
   // ── 3. PRIOR-ART RAG (GitHistory-Sync fleet corpus) ─────────────
   let priorArtBlock = "";
+  const priorArtLimit = 3;
 
   if (mode !== "schema") {
     try {
@@ -160,7 +161,7 @@ export async function buildEnhanceContext(
         })(),
         (async () => {
           if (mode === "refactor") {
-            const engineHits = searchEngines(ancestralKeyword, 3);
+            const engineHits = searchEngines(ancestralKeyword, priorArtLimit);
             return formatPriorArtBlock(engineHits);
           }
           return "";
