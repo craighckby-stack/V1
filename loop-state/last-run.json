@@ -1,0 +1,16 @@
+{
+  "at": "2026-11-28T16:30:28.613Z",
+  "ok": false,
+  "cyclesAttempted": 0,
+  "cyclesCompleted": 0,
+  "branchesBefore": 0,
+  "branchesAfter": 0,
+  "frozen": false,
+  "preflight": {
+    "typecheck": true,
+    "lint": false,
+    "reason": "eslint exited 1: \n/home/runner/work/V1/V1/mini-services/fleet-harvester/src/harvest/cli.test.ts\n   7:7   error  'originalArgv' is assigned a value but never used. Allowed unused vars must match /^_/u             @typescript-eslint/no-unused-vars\n   8:7   error  'originalEnv' is assigned a value but never used. Allowed unused vars must match /^_/u              @typescript-eslint/no-unused-vars\n   9:7   error  'originalExit' is assigned a value but never used. Allowed unused vars must match /^_/u             @type"
+  },
+  "durationMs": 36855,
+  "error": "pre-flight failed: eslint exited 1: \n/home/runner/work/V1/V1/mini-services/fleet-harvester/src/harvest/cli.test.ts\n   7:7   error  'originalArgv' is assigned a value but never used. Allowed unused vars must match /^_/u             @typescript-eslint/no-unused-vars\n   8:7   error  'originalEnv' is assigned a value but never used. Allowed unused vars must match /^_/u              @typescript-eslint/no-unused-vars\n   9:7   error  'originalExit' is assigned a value but never used. Allowed unused vars must match /^_/u             @type"
+}

@@ -1,0 +1,41 @@
+[
+  {
+    "id": "cmwtvll2r004p1qzq6rc2r4ei",
+    "text": "REDUCE POLLING LATENCY",
+    "rationale": "fewer or faster round trips; batch related fetches into one request; narrow payloads to what the consumer actually reads; skip work when data has not changed; run independent awaits in parallel instead of waterfalls",
+    "provenance": "operator-seed",
+    "status": "active",
+    "activatedCycle": 0,
+    "retiredCycle": null,
+    "retiredReason": null,
+    "reviewNote": null,
+    "createdAt": "2026-11-23T23:07:19.155Z",
+    "retiredAt": null
+  },
+  {
+    "id": "cmwtvll2s004q1qzqxsf2mp2r",
+    "text": "IMPROVE BACK-PRESSURE",
+    "rationale": "bound every unbounded queue/buffer/append; drop-oldest when a consumer falls behind; add timeouts to unbounded awaits; never let a fast producer block or starve a slow consumer",
+    "provenance": "operator-seed",
+    "status": "active",
+    "activatedCycle": 0,
+    "retiredCycle": null,
+    "retiredReason": null,
+    "reviewNote": null,
+    "createdAt": "2026-11-23T23:07:19.157Z",
+    "retiredAt": null
+  },
+  {
+    "id": "cmwtvll2t004r1qzqo2bk156t",
+    "text": "MAKE STATE UPDATES MORE EFFICIENT",
+    "rationale": "avoid redundant recomputation or re-renders; memoize hot derivations; diff before writing; batch rapid successive updates into one commit; keep hot paths allocation-light",
+    "provenance": "operator-seed",
+    "status": "active",
+    "activatedCycle": 0,
+    "retiredCycle": null,
+    "retiredReason": null,
+    "reviewNote": null,
+    "createdAt": "2026-11-23T23:07:19.158Z",
+    "retiredAt": null
+  }
+]
